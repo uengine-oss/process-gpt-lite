@@ -28,7 +28,8 @@ const OID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/
 
 // ---------- token ----------
 // "pgf1.<payload>.<signature>", both base64url; payload {tenant, folder, push, exp (seconds)} — and for a desktop's local agent
-// (lib/localAgents) {scope: 'device', device, job}: the token of one job on one linked desktop, the only kind the public path takes
+// (lib/localAgents) {scope: 'device', device, job}: the token of one job on one linked desktop — or {scope: 'sync', device} (job ''): the
+// token of one folder a linked desktop uploads (champion folders, lib/folders/sources.js); the only two kinds the public path takes
 const key = () => {
   if (!config.serviceKey) throw new Error('folder git tokens need SERVICE_ROLE_KEY')
   return crypto.createHmac('sha256', String(config.serviceKey)).update('folder-git:v1').digest()
@@ -161,8 +162,9 @@ function readBody(req, limit) {
 }
 
 // git http-backend as a CGI program: its header block (Status:, Content-Type: …) becomes the response's,
-// the rest streams through. `body`: a Buffer already read, else the request streams into it.
-function backend(req, res, folder, pathInfo, body) {
+// the rest streams through. `body`: a Buffer already read, else the request streams into it. hold: the response is not ended here
+// (the caller ends it — after() has looked at the push first, so the client's push is over only then)
+function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } = {}) {
   return new Promise((resolve) => {
     const cfg = [
       ['http.receivepack', 'true'], // the token stands for REMOTE_USER: pushing is allowed, within refusals() above
@@ -171,6 +173,9 @@ function backend(req, res, folder, pathInfo, body) {
       ['receive.autogc', 'false'], // no gc after a push either: the nightly pass packs (gc.js)
       ['gc.auto', '0'],
       ['core.hooksPath', '/dev/null'],
+      // every desktop's sync branches are hidden from every other token — not listed, not fetched, not pushed to (transfer.hideRefs: both
+      // upload-pack and receive-pack; syncHidden below); a sync token sees its own device's (what it pushed and what the server put back)
+      ...hide.map((r) => ['transfer.hideRefs', r]),
     ]
     const env = {
       ...G.gitEnv(),
@@ -190,12 +195,14 @@ function backend(req, res, folder, pathInfo, body) {
       if (req.headers['content-encoding']) env.HTTP_CONTENT_ENCODING = String(req.headers['content-encoding'])
       if (req.headers['content-length'] && !req.headers['transfer-encoding']) env.CONTENT_LENGTH = String(req.headers['content-length'])
     }
-    if (req.headers['git-protocol']) env.GIT_PROTOCOL = String(req.headers['git-protocol'])
+    // protocol v0 only (the client's Git-Protocol header is not passed on): under v2 upload-pack hands out any object it holds
+    // by id, so hidden sync branches and rolled-back pushes could be fetched by a token that knows an id; v0 serves only the
+    // tips it advertises
     const child = spawn('git', ['http-backend'], { env, stdio: ['pipe', 'pipe', 'pipe'] })
     let head = Buffer.alloc(0)
     let started = false
     let err = ''
-    const finish = () => { if (!started) deny(res, 502, 'git did not answer'); else res.end(); resolve() }
+    const finish = () => { if (!started) deny(res, 502, 'git did not answer'); else if (!hold) res.end(); resolve() }
     child.stderr.on('data', (d) => { if (err.length < 4000) err += d })
     child.stdout.on('data', (d) => {
       if (started) { res.write(d); return }
@@ -238,6 +245,34 @@ function backend(req, res, folder, pathInfo, body) {
 // stays inside the cluster): only a token minted for one job on one linked desktop (scope 'device'), and only while that device is
 // linked (not revoked) and the job is its own — check(claims, {push}) says so (lib/localAgents/devices.js gitAccess) — at most
 // DEVICE_RATE requests a minute per device. Reads its folder; pushes only to the job's own branch prefix (the token's push).
+// The same path takes a desktop's sync token (scope 'sync' — a champion folder its computer uploads, lib/folders/sources.js): one device,
+// one folder, no job; check() looks again at the device, the folder's source row and the person's role in the folder on every request
+// (devices.js syncAccess), and after() looks at what such a push brought in, still inside the folder's lock (a file that must not be
+// there puts the branch back at once).
+// The desktops' sync branches of a folder (refs/heads/pgpt-agent/sync-<device 8>/…), as git's hidden-ref entries: git hides whole ref
+// path parts, so each device's part is named — those there now and those of every computer bound to the folder (bound before its first
+// push: a branch is never there unhidden). A sync token's own device's part is left out. → ['refs/heads/pgpt-agent/sync-…', …]
+export const SYNC_PART = `${PUSH_PREFIX}sync-`
+const ownPart = (claims) => (claims?.scope === 'sync' && String(claims.push || '').startsWith(SYNC_PART) ? `refs/heads/${String(claims.push).replace(/\/+$/, '')}` : null)
+export async function syncHidden(folder, claims) {
+  const parts = new Set()
+  for (const r of (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', `refs/heads/${PUSH_PREFIX}`])).split('\n')) {
+    const m = /^(refs\/heads\/pgpt-agent\/sync-[^/]+)(\/|$)/.exec(r.trim())
+    if (m) parts.add(m[1])
+  }
+  // (before sql/059 there is no such table: no computer is bound anywhere)
+  const bound = await q('select device_id::text as d from pro_folder_sources where folder_id=$1', [folder.id]).catch((e) => { if (e.code === '42P01') return []; throw e })
+  for (const r of bound) parts.add(`refs/heads/${SYNC_PART}${r.d.slice(0, 8)}`)
+  parts.delete(ownPart(claims))
+  return [...parts]
+}
+// a push that names another desktop's sync branch (any token but that desktop's own sync token): refused like any other foreign ref
+export const syncRefusals = (commands, claims) => {
+  const own = ownPart(claims)
+  const out = commands.filter((c) => c.ref.startsWith(`refs/heads/${SYNC_PART}`) && !(own && (c.ref === own || c.ref.startsWith(`${own}/`))))
+    .map((c) => ({ ref: c.ref, why: 'a desktop\'s sync branch may be pushed only by that desktop' }))
+  return out.length ? out : null
+}
 const DEVICE_RATE = 120
 const hits = new Map() // device → [times]
 function overRate(device, now = Date.now()) {
@@ -247,7 +282,7 @@ function overRate(device, now = Date.now()) {
   if (hits.size > 5000) for (const [k, v] of hits) if (!v.some((t) => now - t < 60_000)) hits.delete(k)
   return list.length > DEVICE_RATE
 }
-export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null } = {}) {
+export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, after = null } = {}) {
   return async (req, res) => {
     const m = /^\/([0-9a-f-]{36})\.git(\/info\/refs|\/git-upload-pack|\/git-receive-pack)$/.exec(req.path)
     if (!m) return deny(res, 404, 'not found')
@@ -259,7 +294,9 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null } =
     if (!claims) return deny(res, 401, 'a folder token is needed', { 'WWW-Authenticate': `Basic realm="${REALM}"` })
     if (claims.folder !== folderId) return deny(res, 403, 'this token is for another folder')
     if (!servesTenant(claims.tenant)) return deny(res, 403, 'this server does not serve the token\'s tenant')
-    if (device && (claims.scope !== 'device' || !claims.device || !claims.job)) return deny(res, 403, 'only a linked desktop\'s job token is served here')
+    if (device && !(claims.device && ((claims.scope === 'device' && claims.job) || claims.scope === 'sync'))) return deny(res, 403, 'only a linked desktop\'s job or sync token is served here')
+    // (a desktop's token — job or sync — only on its own path, where its device, folder and role are checked on every request)
+    if (!device && claims.scope) return deny(res, 403, 'a desktop\'s token is not served here')
     if (device && overRate(claims.device)) return deny(res, 429, 'too many requests from this desktop — try again in a minute')
     return withTenant(claims.tenant, async () => {
       try {
@@ -270,20 +307,27 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null } =
         const [folder] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [folderId, claims.tenant])
         if (!folder) return deny(res, 404, 'no such folder')
         if (folder.kind === 'linked') return deny(res, 403, 'a linked folder is not served over git')
-        if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo)
+        const hide = await syncHidden(folder, claims)
+        if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo, null, { hide })
         // a push: what it would change is decided here, before git sees it
         const body = await readBody(req, maxPush)
         if (!body) return deny(res, 413, `a push may carry at most ${Math.round(maxPush / 1024 / 1024)} MB`)
         let parsed
         try { parsed = parseCommands(body) } catch (e) { return deny(res, 400, e.message) }
-        const refused = refusals(parsed.commands, claims.push)
+        const refused = refusals(parsed.commands, claims.push) || syncRefusals(parsed.commands, claims)
         if (refused) {
           console.warn(`[folders git] ${folder.slug} push refused: ${refused.map((r) => `${r.ref} (${r.why})`).join(', ')}`)
           // (a client that asked for no status report gets a plain 403)
           if (!parsed.caps.has('report-status') && !parsed.caps.has('report-status-v2')) return deny(res, 403, refused[0].why)
           return res.status(200).set({ 'Content-Type': 'application/x-git-receive-pack-result', 'Cache-Control': 'no-cache' }).end(rejectionReport(parsed.commands, refused, parsed.caps))
         }
-        await S.serial(folder.id, () => backend(req, res, folder, pathInfo, body))
+        await S.serial(folder.id, async () => {
+          await backend(req, res, folder, pathInfo, body, { hold: !!after, hide })
+          if (after) {
+            await after(claims, folder, parsed.commands).catch((e) => console.warn('[folders git] after push', e.message))
+            if (!res.writableEnded) res.end()
+          }
+        })
         console.log(`[folders git] ${folder.slug} pushed ${parsed.commands.map((c) => c.ref.replace('refs/heads/', '')).join(', ')}`)
       } catch (e) {
         console.warn('[folders git]', e.message)

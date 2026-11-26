@@ -12,6 +12,8 @@ import { handover } from '../lib/folders/handover.js'
 import { listTeam } from '../lib/team.js'
 import * as SK from '../lib/folders/skills.js'
 import { named } from '../lib/people.js'
+import * as KIT from '../lib/folders/kit.js'
+import * as SRC from '../lib/folders/sources.js'
 
 const MIME = S.MIME
 
@@ -29,7 +31,9 @@ export function folderRoutes(auth) {
 
   r.get('/folders', auth, h((req) => S.listFolders(req.user)))
   r.post('/folders', auth, h(async (req) => {
-    const f = await S.createFolder(user(req), req.body || {})
+    const b = req.body || {}
+    // champion: a folder this person's computer is about to upload (the desktop app's 「내 PC 폴더 올리기」 — lib/folders/sources.js)
+    const f = await S.createFolder(user(req), { name: b.name, description: b.description, slug: b.slug, champion: b.champion === true })
     await reindex(f)
     return S.publicFolder(f)
   }))
@@ -84,6 +88,29 @@ export function folderRoutes(auth) {
     const { folder } = await S.access(req.params.slug, req.user)
     await SK.keepPrivate(folder, req.user)
     return { ok: true }
+  }))
+  // a folder made for an upload from a computer that did not happen (cancelled there, or failed): removed again while it is empty
+  r.delete('/folders/:slug', auth, h(async (req) => {
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    return S.discardEmptyChampion(folder, role)
+  }))
+  // the agent assets in main (skills · commands · instructions · rules · specs — lib/folders/kit.js)
+  r.get('/folders/:slug/kit', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user)
+    return KIT.kitOf(folder)
+  }))
+  // the computers that upload this folder (champion folders — lib/folders/sources.js): no path, only each computer's name for it
+  r.get('/folders/:slug/sources', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user)
+    return SRC.list(folder, req.user)
+  }))
+  r.patch('/folders/:slug/sources/:id', auth, h(async (req) => {
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    return SRC.setState(folder, req.user, role, req.params.id, req.body?.state)
+  }))
+  r.delete('/folders/:slug/sources/:id', auth, h(async (req) => {
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    return SRC.remove(folder, req.user, role, req.params.id)
   }))
   r.post('/folders/:slug/reindex', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')

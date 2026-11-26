@@ -8,6 +8,7 @@ import { withTenant, servesTenant } from '../tenant.js'
 import * as D from './devices.js'
 import * as R from './relay.js'
 import * as BL from './browserLink.js'
+import * as SY from '../folders/sources.js'
 
 const HELLO_MS = 10_000
 const PING_MS = 25_000
@@ -80,6 +81,12 @@ export async function receive(link, msg) {
   if (R.handles(msg)) return withTenant(link.tenant, () => R.receive(link, msg)).catch((e) => console.warn('[local-agents] relay', msg.type, e.message))
   // the browser on this PC: answers, live frames, downloads (browserLink.js — a browser task routed to this desktop)
   if (BL.handles(msg)) return withTenant(link.tenant, () => BL.receive(link, msg)).catch((e) => console.warn('[local-agents] browser', msg.type, e.message))
+  // a folder this PC uploads (champion folders — folders/sources.js): bind · token · pushed · unbind. (What a push brought in goes into
+  // main in the folder's own lock: the link's other messages — a run's terminal bytes — do not wait for it.)
+  if (SY.handles(msg)) {
+    const run = withTenant(link.tenant, () => SY.receive(link, msg)).catch((e) => console.warn('[local-agents] sync', msg.type, e.message))
+    return msg.type === 'sync:pushed' ? undefined : run
+  }
   await withTenant(link.tenant, () => handlers.message(link, msg)).catch((e) => console.warn('[local-agents] message', msg.type, e.message))
 }
 

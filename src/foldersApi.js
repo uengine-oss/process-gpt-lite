@@ -41,6 +41,13 @@ export const folders = {
   mergeChoose: (slug, iid, choices) => call(`/folders/${enc(slug)}/merge/${iid}/choose`, { method: 'POST', body: { choices } }),
   mergeAgent: (slug, iid) => call(`/folders/${enc(slug)}/merge/${iid}/agent`, { method: 'POST' }),
   mergeAbort: (slug, iid) => call(`/folders/${enc(slug)}/merge/${iid}/abort`, { method: 'POST' }),
+  // champion folders (server lib/folders/kit.js · sources.js): the agent assets found in main, the computers that upload it, and the
+  // removal of a folder whose upload did not happen (only while it is empty)
+  kit: (slug) => call(`/folders/${enc(slug)}/kit`),
+  sources: (slug) => call(`/folders/${enc(slug)}/sources`),
+  setSource: (slug, id, state) => call(`/folders/${enc(slug)}/sources/${enc(id)}`, { method: 'PATCH', body: { state } }),
+  removeSource: (slug, id) => call(`/folders/${enc(slug)}/sources/${enc(id)}`, { method: 'DELETE' }),
+  discard: (slug) => call(`/folders/${enc(slug)}`, { method: 'DELETE' }),
   // files dragged on the folder (src/fileDrag.js items — server lib/fileRefs.js dropInto): each becomes a file of it, in my name
   drop: (slug, items, dir = '') => call(`/folders/${enc(slug)}/drop`, { method: 'POST', body: { items, dir } }),
   // skills as folders

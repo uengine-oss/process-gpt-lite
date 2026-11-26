@@ -1,6 +1,6 @@
 // git for shared folders. Only this server runs git on a folder's repository — never an agent
 // (the agent edits files in its checkout; the server commits what changed, like cli-agent does).
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 
 const TIMEOUT = 60000
 // the server may have been started from a shell that exported git's per-process overrides
@@ -29,6 +29,55 @@ export function git(cwd, args, { buffer = false, check = true, input, timeout = 
       resolve(buffer ? stdout : String(stdout))
     })
     if (input != null) { child.stdin.write(input); child.stdin.end() }
+  })
+}
+
+// The contents of many blobs from one `git cat-file --batch` (not one git per file): each blob is handed to onBlob(sha, buffer) as it
+// arrives, so only one is held at a time. Fails closed — a missing object, something that is not a blob, output cut short, a git error
+// or the time running out rejects (the caller treats that as "could not be checked").
+export function catBatch(cwd, shas, onBlob, { timeout = TIMEOUT } = {}) {
+  const want = [...shas]
+  if (!want.length) return Promise.resolve(0)
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', [...BASE, 'cat-file', '--batch'], { cwd, env: ENV, stdio: ['pipe', 'pipe', 'pipe'] })
+    let buf = Buffer.alloc(0)
+    let at = 0          // the next object asked for
+    let need = null     // {sha, size} of the blob being read
+    let failed = null
+    let err = ''
+    const fail = (e) => { if (!failed) { failed = e; try { child.kill() } catch { /* gone */ } } }
+    const timer = setTimeout(() => fail(new Error('git cat-file --batch: out of time')), timeout)
+    child.stderr.on('data', (d) => { if (err.length < 2000) err += d })
+    child.stdout.on('data', (d) => {
+      if (failed) return
+      buf = buf.length ? Buffer.concat([buf, d]) : d
+      for (;;) {
+        if (!need) {
+          const nl = buf.indexOf(10)
+          if (nl < 0) return
+          const [sha, type, size] = buf.subarray(0, nl).toString('latin1').split(' ')
+          buf = buf.subarray(nl + 1)
+          if (sha !== want[at] || type !== 'blob' || !/^\d+$/.test(size || '')) return fail(new Error(`git cat-file --batch: ${want[at]} is ${type || 'missing'}`))
+          need = { sha, size: Number(size) }
+        }
+        if (buf.length < need.size + 1) return
+        const body = buf.subarray(0, need.size)
+        buf = buf.subarray(need.size + 1)
+        try { onBlob(need.sha, body) } catch (e) { return fail(e) }
+        need = null
+        at++
+      }
+    })
+    child.on('error', fail)
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (failed) return reject(failed)
+      if (code) return reject(new Error(`git cat-file --batch exited ${code}: ${err.trim().slice(0, 200)}`))
+      if (at !== want.length) return reject(new Error(`git cat-file --batch: ${want.length - at} of ${want.length} objects did not come`))
+      resolve(at)
+    })
+    child.stdin.on('error', () => {})
+    child.stdin.end(want.join('\n') + '\n')
   })
 }
 

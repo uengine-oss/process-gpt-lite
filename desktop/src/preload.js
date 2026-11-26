@@ -64,6 +64,26 @@ const localRunner = local ? undefined : Object.freeze({
     return () => ipcRenderer.removeListener('pgl:runner:state', h)
   },
 })
+// 챔피언 폴더 (0.2.5 — main's runner/sync.js): a folder of this computer kept as a Lite folder. The page never sends or receives a path —
+// main picks the folder in the system's dialog (pick → {pickId, label, preview} | null), shows what would go up (preview), and asks the
+// person once more in a system dialog before the first upload (bind). Paths in include/exclude are inside the picked folder.
+const relPaths = (a) => (Array.isArray(a) ? a.slice(0, 500).map((x) => String(x || '')) : [])
+const folders = local ? undefined : Object.freeze({
+  available: () => true,
+  pick: () => ipcRenderer.invoke('pgl:folders:pick'),
+  preview: (pickId, o) => ipcRenderer.invoke('pgl:folders:preview', String(pickId || ''), { include: relPaths(o?.include), exclude: relPaths(o?.exclude) }),
+  bind: (v) => ipcRenderer.invoke('pgl:folders:bind', { pickId: String(v?.pickId || ''), folderId: String(v?.folderId || ''), folderName: String(v?.folderName || ''),
+    include: relPaths(v?.include), exclude: relPaths(v?.exclude) }),
+  list: () => ipcRenderer.invoke('pgl:folders:list'),
+  syncNow: (folderId) => ipcRenderer.invoke('pgl:folders:sync-now', String(folderId || '')),
+  unbind: (folderId) => ipcRenderer.invoke('pgl:folders:unbind', String(folderId || '')),
+  reveal: (folderId) => ipcRenderer.invoke('pgl:folders:reveal', String(folderId || '')),
+  onState: (cb) => {
+    const h = (_e, list) => { try { cb(list) } catch { /* the page's own */ } }
+    ipcRenderer.on('pgl:folders:state', h)
+    return () => ipcRenderer.removeListener('pgl:folders:state', h)
+  },
+})
 // the count of Home cards waiting (the web app's src/browserNotify.js setBadge): main's Dock · taskbar · tray (src/tray.js), a whole
 // number 0…9999 — main checks it again. onOpenHome: the tray's 「알림 N개 — 열기」 asks the page for its Home.
 const badge = local ? {} : {
@@ -74,7 +94,8 @@ const badge = local ? {} : {
     return () => ipcRenderer.removeListener('pgl:open-home', h)
   },
 }
-contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform, ...badge, ...(localRunner ? { localRunner } : {}) }))
+contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform, ...badge, ...(localRunner ? { localRunner } : {}),
+  ...(folders ? { folders } : {}) }))
 
 if (local) {
   contextBridge.exposeInMainWorld('pglLocal', Object.freeze({

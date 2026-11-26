@@ -16,6 +16,7 @@ import * as PS from '../privateStore.js'
 import { people } from '../people.js'
 import { isAdmin } from '../team.js'
 import { assertNoLink } from '../noLinks.js'
+import { kitCounts } from './kit.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -93,7 +94,23 @@ const GITATTRIBUTES = `# documents and media cannot be merged line by line: a co
 *.mp3 binary
 `
 
-export async function createFolder(user, { name, description = '', slug }) {
+// A champion folder's own attributes (its repository's info/attributes, above any .gitattributes the uploaded folder carries — git reads
+// that file first): every file is taken byte for byte (no line-ending change, no filter, no keyword or encoding rewrite) and merged by
+// git's own line merge (no merge driver the folder names, like union, which would combine both sides without a conflict); documents and
+// media stay binary as in every folder.
+export const CHAMPION_ATTRIBUTES = `# a champion folder: what the uploaded folder's own .gitattributes says does not change how this server checks out or merges
+* -text -filter -ident -working-tree-encoding !eol !merge
+${GITATTRIBUTES}`
+export async function championAttributes(dir) {
+  const f = path.join(dir, '.git', 'info', 'attributes')
+  if ((await fs.readFile(f, 'utf8').catch(() => '')) === CHAMPION_ATTRIBUTES) return false
+  await fs.mkdir(path.dirname(f), { recursive: true })
+  await fs.writeFile(f, CHAMPION_ATTRIBUTES)
+  return true
+}
+// champion: a folder a person's computer uploads (champion folders — folders/sources.js): its first commit has no file at all (the
+// attributes go to the repository's own info/attributes), so the first snapshot from that computer, made on top of it, deletes nothing
+export async function createFolder(user, { name, description = '', slug, champion = false }) {
   name = String(name || '').trim()
   if (!name) throw err(400, L('폴더 이름을 적어 주세요.', 'Please enter a folder name.'))
   if ((await q('select 1 from pro_folders where tenant_id=$1 and name=$2', [T(), name])).length) throw err(409, L('같은 이름의 폴더가 이미 있어요.', 'A folder with that name already exists.'))
@@ -101,12 +118,30 @@ export async function createFolder(user, { name, description = '', slug }) {
   const dir = path.join(foldersRoot(), slug)
   await fs.mkdir(dir, { recursive: true })
   await G.git(dir, ['init', '-q', '-b', 'main'])
-  await fs.writeFile(path.join(dir, '.gitattributes'), GITATTRIBUTES)
-  await G.commitAll(dir, L('폴더 만들기', 'Create folder'), { name: user.name, email: user.email })
-  const [f] = await q(`insert into pro_folders (tenant_id, slug, name, description, kind, repo_path, created_by)
-                       values ($1,$2,$3,$4,'managed',$5,$6) returning *`, [T(), slug, name, description, dir, user.id])
+  if (champion) {
+    await championAttributes(dir)
+    await G.git(dir, [...G.who(user.name, user.email), 'commit', '-q', '--allow-empty', '-m', L('폴더 만들기', 'Create folder')])
+  } else {
+    await fs.writeFile(path.join(dir, '.gitattributes'), GITATTRIBUTES)
+    await G.commitAll(dir, L('폴더 만들기', 'Create folder'), { name: user.name, email: user.email })
+  }
+  const settings = champion ? { champion: { by: String(user.id), at: new Date().toISOString() } } : {}
+  const [f] = await q(`insert into pro_folders (tenant_id, slug, name, description, kind, repo_path, created_by, settings)
+                       values ($1,$2,$3,$4,'managed',$5,$6,$7) returning *`, [T(), slug, name, description, dir, user.id, settings])
   await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role, added_by) values ($1,'user',$2,'owner',$3)`, [f.id, String(user.id), user.id])
   return f
+}
+// A champion folder whose upload never happened (the person said no on their computer, or it failed): it goes away again — only while
+// main has no file and nothing was made in it, and only by its owner.
+export async function discardEmptyChampion(folder, role) {
+  if (!folder.settings?.champion || folder.kind !== 'managed') throw err(400, L('내 PC 에서 올리려고 만든 폴더만 이렇게 지울 수 있어요.', 'Only a folder made for an upload from a computer can be removed this way.'))
+  if (role !== 'owner') throw err(403, L('폴더 소유자만 지울 수 있어요.', 'Only the folder owner can remove it.'))
+  const files = (await G.lsTree(folder.repo_path, folder.default_branch)).length
+  const [{ n }] = await q('select count(*)::int as n from pro_folder_variations where folder_id=$1', [folder.id])
+  if (files || n) throw err(409, L('이미 파일이 올라간 폴더예요.', 'Files are already in this folder.'))
+  await q('delete from pro_folders where id=$1', [folder.id])
+  if (folder.repo_path && path.resolve(folder.repo_path).startsWith(path.resolve(foldersRoot()) + path.sep)) await fs.rm(folder.repo_path, { recursive: true, force: true })
+  return { ok: true }
 }
 
 // Registering a repository that is on this server's own disk is for an install that serves one
@@ -166,9 +201,12 @@ export async function listFolders(user) {
     where f.tenant_id=$1 and f.kind <> 'skill' and (f.kind <> 'linked' or $3) order by f.updated_at desc`, [T(), String(user.id), linkingOn()])
   // (everyone's members at once: one lookup of names for the whole list, not one per folder)
   const all = await membersOfFolders(rows.map((f) => f.id))
+  // (the agent assets found in each, by type — a card's 「스킬 6 · 명령 4」: kit.js)
+  const kits = await kitCounts(rows.map((f) => f.id)).catch(() => new Map())
   for (const f of rows) {
     f.members = all.get(String(f.id)) || []
     f.activity = await lastActivity(f)
+    f.kit = kits.get(String(f.id)) || null
   }
   return rows.map(publicFolder)
 }
@@ -274,7 +312,7 @@ export async function tree(folder, ref) {
   const r = v ? v.branch : folder.default_branch
   const files = await G.lsTree(folder.repo_path, r)
   const touched = await G.lastTouch(folder.repo_path, r)
-  return files.filter((f) => f.path !== '.gitattributes').map((f) => ({ ...f, author: touched.get(f.path)?.name, mtime: touched.get(f.path)?.at }))
+  return files.filter((f) => f.path !== '.gitattributes' || folder.settings?.champion).map((f) => ({ ...f, author: touched.get(f.path)?.name, mtime: touched.get(f.path)?.at }))
 }
 // what a ref names in git: main (or nothing), a variation (its id), or a commit of the folder (its 40-hex id — a file mention
 // keeps the commit it was made at: lib/fileRefs.js)

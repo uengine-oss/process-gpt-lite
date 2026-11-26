@@ -81,6 +81,24 @@ export function advanceLine(folder, line, head, meta = {}) {
   })
 }
 
+// A pushed head into the folder's main (its working tree follows): an edit made in main meanwhile (the folder screen, an editor) is
+// committed first, then main moves to head — a fast-forward, else a merge commit; a conflict leaves main as it was. Brings in what a
+// chat's local CLI did in the person's own folder (localAgents/chat.js) and what a champion's computer pushed (folders/sources.js).
+// Run inside the folder's serial lock (intoMain takes it). → {main: main's head now, conflicted}
+export async function intoMainNow(folder, head, { who = {}, message } = {}) {
+  await S.commitMainNow(folder, who, L('main 의 편집 저장', 'Save edits on main'))
+  await G.git(folder.repo_path, ['merge', '--ff-only', '-q', head], { check: false })
+  const now = await G.head(folder.repo_path, folder.default_branch)
+  if (now === head || await isAncestor(folder.repo_path, head, now)) return { main: now, conflicted: false }
+  await G.git(folder.repo_path, [...G.who(who.name, who.email), 'merge', '--no-edit', '-q', '-m', message || L('가져온 변경 잇기', 'Bring in changes'), head], { check: false })
+  if ((await G.git(folder.repo_path, ['diff', '--name-only', '--diff-filter=U'], { check: false })).trim()) {
+    await G.git(folder.repo_path, ['merge', '--abort'], { check: false })
+    return { main: await G.head(folder.repo_path, folder.default_branch), conflicted: true }
+  }
+  return { main: await G.head(folder.repo_path, folder.default_branch), conflicted: false }
+}
+export const intoMain = (folder, head, opts = {}) => S.serial(folder.id, () => intoMainNow(folder, head, opts))
+
 // what main has that the line has not (a mail that came in after the first step) goes onto the line too: the next step starts from it
 export function syncLine(folder, line, meta = {}) {
   return S.serial(lockOf(folder), async () => {
