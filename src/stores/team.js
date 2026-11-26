@@ -16,6 +16,10 @@ import { viewW } from '../viewport.js'
 import { merged } from '../messageMerge.js'
 // reactions on a room's messages: my own toggled at once, the server's answer and the room's live ones after (src/roomReactions.js)
 import { toggled } from '../roomReactions.js'
+// my share cards' people: asked in parts, merged without guessing (src/shareReceipts.js)
+import { receiptChunks, mergeReceipts } from '../shareReceipts.js'
+// a room read here: its phone notification goes (src/browserNotify.js)
+import { clearRoom } from '../browserNotify.js'
 
 const store = () => { try { return window.localStorage } catch { return null } }
 
@@ -48,6 +52,10 @@ export const useTeam = defineStore('team', {
     tr: {},
     original: {},
     dockState: loadDock(store()), // {dock, width} as chosen on this device (a narrow window floats it: dockNow)
+    // my share messages as their sender sees them (server lib/team/shares.js receipts): message id -> [{id, name, email, files, opened,
+    // openedAt, lastOpenedAt, branch}] — for each person it went to, opened or not, and what their copy changed
+    receipts: {},
+    replyAt: 0,               // when 「답장」 on a phone notification opened a room (Messenger.vue focuses the composer)
   }),
   getters: {
     // the dock in effect on this window: float · right · left · panel
@@ -184,6 +192,8 @@ export const useTeam = defineStore('team', {
       }
       // a message's reactions changed (server lib/team/reactions.js): its chips as I see them — nothing else (no unread, no toast)
       else if (data.type === 'reactions') this.setReactions(data.threadId, data.messageId, data.reactions)
+      // someone opened a file I shared for the first time (server lib/team/shares.js recordOpen — to me only): my card says so
+      else if (data.type === 'opened' && this.receipts[data.messageId]) this.loadReceipts(data.threadId, [data.messageId]).catch(() => {})
     },
     say(text, go) {
       clearTimeout(this._t)
@@ -191,10 +201,11 @@ export const useTeam = defineStore('team', {
       this._t = setTimeout(() => (this.toast = null), 6000)
     },
 
-    async openMessenger(threadId, messageId) {
+    // reply: opened from 「답장」 on a room's phone notification (public/sw.js) — the composer gets the focus once the room is in (Messenger.vue)
+    async openMessenger(threadId, messageId, { reply = false } = {}) {
       this.open = true
       this.toast = null
-      if (threadId) { this.tab = 'threads'; await this.openThread(threadId, messageId) }
+      if (threadId) { this.tab = 'threads'; await this.openThread(threadId, messageId); if (reply) this.replyAt = Date.now() }
       else this.loadInbox()
     },
     async openThread(id, messageId) {
@@ -225,6 +236,8 @@ export const useTeam = defineStore('team', {
       this.loadThreads()
     },
     async markRead(id) {
+      // its notification on this device goes too (one per room: src/browserNotify.js clearRoom)
+      clearRoom(id)
       const n = this.unread.byThread[id] || 0
       if (n) this.unread = { total: Math.max(0, this.unread.total - n), byThread: { ...this.unread.byThread, [id]: 0 } }
       await api(`/team/threads/${id}/read`, { method: 'POST' }).catch(() => {})
@@ -292,7 +305,8 @@ export const useTeam = defineStore('team', {
       const { message } = await api(`/team/shares/${shareId}/open`, { method: 'POST' })
       const list = (app.messages[message.thread_id] ||= [])
       if (!list.some((x) => x.id === message.id)) list.push(message)
-      const r = await openArtifact(app, router, message, { link: false, edit })
+      // (the server recorded my open just now: counted)
+      const r = await openArtifact(app, router, message, { link: false, edit, counted: true })
       if (r.opened && closesMessenger(r, this.dockNow)) this.open = false
       return { message, ...r }
     },
@@ -358,9 +372,14 @@ export const useTeam = defineStore('team', {
       else if (router) await router.push('/chat')
       return r
     },
-    // what each recipient's branch of my share did
-    async branches(messageId) {
-      return (await api(`/team/messages/${messageId}/branches`)).branches
+    // my share messages in a room (ids): for each person they went to, opened or not and what their copy changed — in parts of
+    // 100, the most recent first (src/shareReceipts.js); only what the server looked at is kept
+    async loadReceipts(threadId, ids) {
+      if (!threadId) return
+      for (const part of receiptChunks(ids)) {
+        const r = await api(`/team/threads/${encodeURIComponent(threadId)}/receipts?ids=${part.map(encodeURIComponent).join(',')}`)
+        this.receipts = mergeReceipts(this.receipts, r)
+      }
     },
     // a file of a branch, read-only unless the branch is mine — in the panel like any document (same answer as openShared);
     // a picture · sound · video in the viewer (read-only there: no 「편집」)

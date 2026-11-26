@@ -29,7 +29,8 @@ async function orderOf(me, s, m) {
   const files = []
   for (const mat of mats) {
     if (files.length >= 4 || !(await MAT.canSee(me, mat))) continue
-    const msg = await MAT.openFile(me, mat).catch(() => null)
+    // (handed to the agent, not opened by the person: no 「열어 봄」 on the sharer's card)
+    const msg = await MAT.openFile(me, mat, { record: false }).catch(() => null)
     if (msg?.content?.url) files.push({ name: msg.content.name, url: msg.content.url, path: msg.content.path })
   }
   return { lines, files }

@@ -92,6 +92,10 @@ export async function sessionFor(email, name) {
 async function mintSession(email0, name, retried = false) {
   const email = normEmail(email0)
   const user = await ensureUser(email, name)
+  return { user: { id: user.id, email, name: name || email.split('@')[0] }, session: await magicSession(email, retried) }
+}
+// a session of the account at that address, by a sign-in link verified here (the address must have an account)
+async function magicSession(email, retried = false) {
   const { data: link, error: linkErr } = await admin.auth.admin.generateLink({ type: 'magiclink', email })
   if (linkErr) throw linkErr
   const res = await fetch(`${config.supabaseUrl}/auth/v1/verify`, {
@@ -100,9 +104,48 @@ async function mintSession(email0, name, retried = false) {
     body: JSON.stringify({ type: 'magiclink', token_hash: link.properties.hashed_token }),
   })
   const session = await res.json()
-  if (!session.access_token && session.error_code === 'otp_expired' && !retried) return mintSession(email, name, true)
+  if (!session.access_token && session.error_code === 'otp_expired' && !retried) return magicSession(email, true)
   if (!session.access_token) throw new Error('session mint failed: ' + JSON.stringify(session).slice(0, 200))
-  return { user: { id: user.id, email, name: name || email.split('@')[0] }, session }
+  return session
+}
+
+// A session of an account that already exists, found by its id (2026-11-26 review of the phone notifications' answers, PR #89): the
+// address is the auth server's own record of that account — never public.users.email, which Process GPT lets its owner change (a member
+// could name someone else's address there and be handed that person's session). Nothing is made: no account, no users row. The session
+// must turn out to be that account's, or it is not used.
+// (and of this server's company, as a sign-in would be: ensureUser's rule — multi · tenantOf only for tests)
+export async function sessionOfUser(userId, { multi, tenantOf } = {}) {
+  const { data, error } = await admin.auth.admin.getUserById(String(userId))
+  const email = data?.user?.email
+  if (error || !email) throw new Error('no such account')
+  const TN = await import('./tenant.js')
+  const theirs = (tenantOf || TN.tenantOfAuthUser)(data.user)
+  if ((multi || TN.multiTenant)() && theirs !== config.tenantId) throw new TN.TenantMismatch(theirs)
+  const key = normEmail(email)
+  const before = minting.get(key) || Promise.resolve()
+  const mine = before.catch(() => {}).then(() => magicSession(key))
+  minting.set(key, mine)
+  let session
+  try { session = await mine } finally { if (minting.get(key) === mine) minting.delete(key) }
+  if (session?.user?.id !== String(userId)) throw new Error('the session is not that account\'s')
+  return { user: { id: session.user.id, email: session.user.email || key }, session }
+}
+
+// A person's sign-in address as the auth server keeps it (lower case), by their account id — what a notice addressed by email is matched
+// against (public.users.email is the row owner's to change: re-review 11-26 #2). Cached for a few minutes; null when there is no account.
+const authEmails = new Map()
+export async function authEmailOf(userId) {
+  const k = String(userId || '')
+  const hit = authEmails.get(k)
+  if (hit && hit.at > Date.now() - 5 * 60_000) return hit.email
+  // supabase-js answers an outage with { error }, not a throw: only a real answer is remembered, so notices addressed by
+  // email are not dropped for minutes after the auth server comes back (re-review 11-26)
+  const { data, error } = await admin.auth.admin.getUserById(k).catch((e) => ({ data: null, error: e }))
+  const email = data?.user?.email ? normEmail(data.user.email) : null
+  if (error && !data?.user) return email
+  authEmails.set(k, { email, at: Date.now() })
+  if (authEmails.size > 5000) authEmails.delete(authEmails.keys().next().value)
+  return email
 }
 
 // The person of a token, or null when Supabase refuses it (4xx). A timeout or 5xx from a slow or restarting

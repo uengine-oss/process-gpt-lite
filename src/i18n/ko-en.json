@@ -3094,7 +3094,33 @@
   "보이지 않으면 홈 화면의 아이콘을 지우고 다시 추가해 주세요.": "If it doesn't show, remove the home-screen icon and add it again.",
   "지금 열어 둔 곳": "Open right now",
   "마지막으로 연 곳": "Last opened",
-  "공유한 파일이 너무 커요. 한 번에 200MB까지 받을 수 있어요.": "The shared files are too large. Up to 200MB can be taken at once."
+  "공유한 파일이 너무 커요. 한 번에 200MB까지 받을 수 있어요.": "The shared files are too large. Up to 200MB can be taken at once.",
+  "안 열어 봄": "Not opened",
+  "열어 봄": "Opened",
+  "에이전트가 고침": "Changed by the agent",
+  "앱을 닫아도 팀 메시지 · AI 질문 · 내 할 일을 알려 드려요": "Even with the app closed, get team messages, AI questions and your to-dos",
+  "알림이 켜져 있어요": "Notifications are on",
+  "메시지는 방별로 묶고, AI 질문은 알림에서 바로 답할 수 있어요": "Messages are grouped by room, and you can answer AI questions right from the notification",
+  "iPhone에서 알림 받기": "Notifications on iPhone",
+  "iOS 16.4 이상에서 Safari 공유 › 「홈 화면에 추가」로 설치한 앱을 열고 알림을 켜 주세요. Safari 탭에서는 알림을 받을 수 없어요.": "On iOS 16.4 or later, add the app with Safari Share › \"Add to Home Screen\", open it from there and turn notifications on. A Safari tab cannot receive notifications.",
+  "알림이 차단돼 있어요": "Notifications are blocked",
+  "브라우저 사이트 설정에서 알림을 허용해 주세요": "Allow notifications in the browser's site settings",
+  "이 브라우저는 알림을 지원하지 않아요": "This browser doesn't support notifications",
+  "Chrome · Edge · Safari(설치한 앱)에서 켤 수 있어요": "You can turn them on in Chrome, Edge or Safari (installed app)",
+  "이 기기의 알림 · 꺼짐": "Notifications on this device · Off",
+  "이 기기의 알림 · 켜짐": "Notifications on this device · On",
+  "이 기기의 알림 · iPhone": "Notifications on this device · iPhone",
+  "이 기기의 알림 · 차단됨": "Notifications on this device · Blocked",
+  "이 기기의 알림 · 지원 안 됨": "Notifications on this device · Not supported",
+  "알림 켜기": "Turn on notifications",
+  "시험 알림 보내기": "Send a test notification",
+  "알림이 꺼져 있어 보내지 못했어요": "Notifications are off, so nothing was sent",
+  "이 브라우저는 푸시를 받지 못해 직접 띄웠어요. 앱을 닫으면 알림이 오지 않아요.": "This browser can't receive push, so it was shown here. With the app closed, no notification will come.",
+  "시험 알림이에요": "This is a test notification",
+  "이 알림이 보이면 알림이 켜진 거예요": "If you can see this, notifications are on",
+  "답하러 가기": "Go answer",
+  "질문": "Question",
+  "시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.": "Up to three test notifications a minute. Try again in a moment."
  },
  "patterns": [
   [
@@ -3127,7 +3153,13 @@
   ],
   [
    "공유한 파일 {0}개와 글을 ‘{1}’ 입력창에 넣었어요.",
-   "Added {0} shared file(s) and text to the ‘{1}’ message box."
+   "Added {0} shared file(s) and text to the ‘{1}’ message box.",
+   "기기 {0}대에 보냈어요. 이 브라우저는 푸시를 받지 못해 직접 띄웠어요.",
+   "Sent to {0} devices. This browser can't receive push, so it was shown here."
+  ],
+  [
+   "보냈어요 · 기기 {0}대. 몇 초 안에 알림이 와요.",
+   "Sent · {0} devices. The notification arrives in a few seconds."
   ],
   [
    "새 창에서 열었어요 — 거기서 저장하세요 · {0}",
@@ -3238,6 +3270,10 @@
    "{0} outputs of this project"
   ],
   [
+   "파일 {0}개 중 {1}개 열어 봄",
+   "Opened {1} of {0} files"
+  ],
+  [
    "‘{0}’의 시작으로 보여요",
    "Looks like the start of ‘{0}’"
   ],
@@ -3260,6 +3296,10 @@
   [
    "마지막 소식 {0}초 전",
    "last update {0} s ago"
+  ],
+  [
+   "마지막으로 연 때 {0}",
+   "Last opened {0}"
   ],
   [
    "채팅의 산출물 {0}개",
@@ -4003,7 +4043,17 @@
   ],
   [
    "{0} 외 {1}개",
-   "{0} and {1} more"
+   "{0} and {1} more",
+   "{0}개 고침",
+   "{0} edited"
+  ],
+  [
+   "{0}개 추가",
+   "{0} added"
+  ],
+  [
+   "{0}개 지움",
+   "{0} removed"
   ],
   [
    "나: {0}",
