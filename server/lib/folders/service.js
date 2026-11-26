@@ -18,6 +18,7 @@ import { people } from '../people.js'
 import { isAdmin } from '../team.js'
 import { assertNoLink } from '../noLinks.js'
 import { kitCounts } from './kit.js'
+import { stillHeld } from './diskLease.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -498,6 +499,7 @@ export async function checkout(folder, v, dir) {
   if (here?.branch) await keepWhatIsThere(folder, here.path, here.branch)
   await retire(folder.repo_path, dir)
   await G.git(folder.repo_path, ['worktree', 'prune'])
+  await stillHeld('checkout')
   await G.git(folder.repo_path, ['worktree', 'add', '-q', dir, v.branch])
   await setWorktree(v, dir)
   return dir
@@ -510,6 +512,7 @@ export async function keepWhatIsThere(folder, dir, branch) {
   const [owner] = await q('select holder_name, holder_id from pro_folder_variations where folder_id=$1 and branch=$2', [folder.id, branch]).catch(() => [])
   const [p] = owner?.holder_id ? await q('select name, email from pro_profile where user_id::text=$1', [String(owner.holder_id)]).catch(() => []) : []
   let sha
+  await stillHeld('commit')
   await clearStaleLocks(dir, branch).catch(() => 0)
   try { sha = await G.commitAll(dir, L('작업실에서 옮김', 'Moved from the workroom'), { name: p?.name || owner?.holder_name || 'Process GPT Lite', email: p?.email || undefined }) } catch (e) {
     const why = (await import('./seats.js')).gitWhy(e)
@@ -520,9 +523,12 @@ export async function keepWhatIsThere(folder, dir, branch) {
 }
 // A stale git lock — index.lock / HEAD.lock of a checkout, or its branch's ref lock — left by a git that was killed (a pod stopped
 // mid-commit, a shell's `git commit` closed with its workroom): removed when it is older than twice git's time limit and no process has it
-// open. A lock git may still be using is left alone (the commit then fails and nothing moves).
+// open. A lock git may still be using is left alone (the commit then fails and nothing moves). Looked for only before a move (a place
+// leaving the disk: keepWhatIsThere · seats commitAsIs) and when git refused a commit (commitVariation tries once more) — not on every save.
 export const STALE_LOCK_MS = 2 * 60_000
-const openBy = (file) => new Promise((resolve) => execFile('lsof', ['-t', '--', file], { timeout: 5000 }, (e, out) => resolve(!e && !!String(out).trim())))
+// (only lsof's plain 「nobody」 — exit 1, nothing printed — counts as not open: lsof missing, out of time, refused or any other answer
+// counts as open, and the lock stays)
+const openBy = (file) => new Promise((resolve) => execFile('lsof', ['-t', '--', file], { timeout: 5000 }, (e, out) => resolve(!(e && e.code === 1 && !String(out || '').trim()))))
 export async function clearStaleLocks(dir, branch = null) {
   const gitDir = (await G.git(dir, ['rev-parse', '--absolute-git-dir'], { check: false })).trim()
   if (!gitDir) return 0
@@ -577,47 +583,74 @@ async function keepPath(from, to) {
   try { await fs.cp(from, to, { recursive: true, dereference: false, verbatimSymlinks: true, filter: async (src) => !(await fs.lstat(src)).isSymbolicLink() }); return true } catch { return false }
 }
 const sizeOf = async (p) => { const st = await fs.lstat(p).catch(() => null); if (!st) return 0; if (!st.isDirectory()) return st.size; let n = 0; for (const e of await fs.readdir(p)) n += await sizeOf(path.join(p, e)); return n }
+// While a checkout is moved out of the way it stays locked in its repository (git worktree lock): a `git worktree prune` that another
+// variation's move runs meanwhile would otherwise forget it once its folder is gone from where it was — git could no longer tell what it
+// carries, and the whole folder would be kept. → its git folder, to unlock afterwards; null when it is not a linked checkout or someone
+// locked it already (left as it is)
+async function holdWorktree(repo, dir) {
+  if (!(await fs.lstat(path.join(dir, '.git')).catch(() => null))?.isFile()) return null
+  const admin = (await G.git(dir, ['rev-parse', '--absolute-git-dir'], { check: false })).trim()
+  if (!admin || path.basename(path.dirname(admin)) !== 'worktrees' || await fs.stat(path.join(admin, 'locked')).catch(() => null)) return null
+  await G.git(repo, ['worktree', 'lock', '--reason', 'leaving the disk (Process GPT Lite)', dir], { check: false })
+  return (await fs.stat(path.join(admin, 'locked')).catch(() => null)) ? admin : null
+}
 // A checkout (or a folder left where one goes) leaves the disk, nothing in it lost:
-//   1. it is moved out of the way first (an atomic rename) — nothing writes into it any more and nothing new shows up where it was
+//   1. it is moved out of the way first (an atomic rename, locked in its repository meanwhile — holdWorktree) — nothing writes into it any
+//      more and nothing new shows up where it was
 //   2. what git does not carry is found (leftIn): mode 'person' (a person's workroom, or not known) keeps all of it; mode 'agent' (a server
 //      agent run) drops what .gitignore names — caches, logs, node_modules it made — and keeps the rest; mode 'all' keeps everything git
 //      lists as not saved (a run whose commit failed)
-//   3. only those paths are moved to <folders>/.kept/<variation>/<time> (outside every room; removed after keptDays), the rest is deleted
+//   3. only those paths are moved to <folders>/.kept/<variation>/<time> (outside every room; removed keptDays after that time), the rest is
+//      deleted. The kept folder's own time is now (a whole folder moved there keeps its old time otherwise)
 // → {kept: how many paths were kept (-1: could not tell — the whole folder was kept), keptDir, bytes}
 export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
+  await stillHeld('retire')
   if (!dir || !(await fs.stat(dir).catch(() => null))) { await G.git(repo, ['worktree', 'prune'], { check: false }); return { kept: 0 } }
   const staging = stagingFor(dir)
   await fs.mkdir(path.dirname(staging), { recursive: true })
-  await fs.rename(dir, staging)
-  const checkout = !!(await fs.stat(path.join(staging, '.git')).catch(() => null))
-  let left = checkout ? await leftIn(staging) : (await fs.readdir(staging).catch(() => [])).map((n) => ({ path: n, kind: 'untracked' }))
-  const whole = left === null
-  if (!whole) left = mode === 'agent' ? left.filter((l) => l.kind !== 'ignored') : left
-  let keptDir = null, bytes = 0, stuck = false
-  if (whole || left.length) {
-    keptDir = path.join(keptRootOf(), String(vid || 'none'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(2).toString('hex')}`)
-    if (whole) { if (!(await keepPath(staging, keptDir))) stuck = true }
-    else {
-      for (const l of left) {
-        const from = path.join(staging, l.path)
-        if (!(await fs.lstat(from).catch(() => null))) continue
-        bytes += await sizeOf(from).catch(() => 0)
-        if (!(await keepPath(from, path.join(keptDir, l.path)))) stuck = true
+  const held = await holdWorktree(repo, dir)
+  let keptDir = null, bytes = 0, stuck = false, whole = false, left = []
+  try {
+    await fs.rename(dir, staging)
+    const checkout = !!(await fs.stat(path.join(staging, '.git')).catch(() => null))
+    left = checkout ? await leftIn(staging) : (await fs.readdir(staging).catch(() => [])).map((n) => ({ path: n, kind: 'untracked' }))
+    whole = left === null
+    if (!whole) left = (mode === 'agent' ? left.filter((l) => l.kind !== 'ignored') : left).filter((l, i, all) => all.findIndex((x) => x.path === l.path) === i)
+    if (whole || left.length) {
+      keptDir = path.join(keptRootOf(), String(vid || 'none'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(2).toString('hex')}`)
+      if (whole) {
+        if (!(await keepPath(staging, keptDir))) stuck = true
+        else bytes = await sizeOf(keptDir).catch(() => 0)
+      } else {
+        for (const l of left) {
+          const from = path.join(staging, l.path)
+          if (!(await fs.lstat(from).catch(() => null))) continue
+          bytes += await sizeOf(from).catch(() => 0)
+          if (!(await keepPath(from, path.join(keptDir, l.path)))) stuck = true
+        }
       }
+      const now = new Date()
+      await fs.utimes(keptDir, now, now).catch(() => {})
     }
+    if (stuck) console.warn(`[folders] some of what git does not carry could not be moved to the kept folder — left at ${staging}`)
+    else if (!whole) await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
+  } finally {
+    if (held) await fs.rm(path.join(held, 'locked'), { force: true }).catch(() => {})
   }
-  if (stuck) console.warn(`[folders] some of what git does not carry could not be moved to the kept folder — left at ${staging}`)
-  else if (!whole) await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
   await G.git(repo, ['worktree', 'prune'], { check: false })
   return { kept: whole ? -1 : left.length, keptDir, bytes, staging: stuck ? staging : null }
 }
 
 // commit what changed in the checkout; the variation becomes ready for review
 // strict: a commit git refuses throws (a run's end — folders/seats.js finishRun — keeps everything then) instead of being logged
+// (a stale git lock is looked for only when git refuses: cleared when it surely is one, then the commit is tried once more)
 export async function commitVariation(folder, v, author, message, { strict = false } = {}) {
   if (!v.worktree_path) return null
-  await clearStaleLocks(v.worktree_path, v.branch).catch(() => 0)
-  const sha = await G.commitAll(v.worktree_path, message || `${v.title}`, author).catch((e) => { if (strict) throw e; console.warn('[folders] commit', e.message); return null })
+  await stillHeld('commit')
+  const commit = () => G.commitAll(v.worktree_path, message || `${v.title}`, author)
+  const sha = await commit()
+    .catch(async (e) => { if (await clearStaleLocks(v.worktree_path, v.branch).catch(() => 0)) return commit(); throw e })
+    .catch((e) => { if (strict) throw e; console.warn('[folders] commit', e.message); return null })
   const head = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
   await q(`update pro_folder_variations set head_commit=$2, status=case when status in ('open','conflicted') then 'ready' else status end, updated_at=now() where id=$1`, [v.id, head])
   await touch(folder)

@@ -42,6 +42,8 @@ export const folders = {
   saveSeat: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/seat/save`, { method: 'POST' }),
   takeSeat: (slug, vid, epoch) => call(`/folders/${enc(slug)}/variations/${vid}/seat/take`, { method: 'POST', body: { epoch } }),
   recallSeat: (slug, vid, why = '') => call(`/folders/${enc(slug)}/variations/${vid}/seat/recall`, { method: 'POST', body: { why } }),
+  // may this kept folder be downloaded (within the download limits — a refusal says which file or how much): asked before the download
+  keptCheck: (slug, vid, id) => call(`/folders/${enc(slug)}/variations/${vid}/kept/${enc(id)}?check=1`),
   commit: (slug, vid, body = {}) => call(`/folders/${enc(slug)}/variations/${vid}/commit`, { method: 'POST', body }),
   discard: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/discard`, { method: 'POST' }),
   handover: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/handover`, { method: 'POST', body }),

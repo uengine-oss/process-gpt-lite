@@ -91,6 +91,20 @@ async function workroom() {
 const readOnly = () => router.push(`/workroom/variation/${props.vid}`)
 // what git does not carry, kept when the working copy left the disk (server lib/folders/seats.js keptOf): a download each, until removed
 const daysLeft = (until) => Math.max(0, Math.ceil((new Date(until).getTime() - Date.now()) / 86400_000))
+// (asked first: past the download limits the server says why — which file, how much — and that is said here instead of a broken download)
+async function getKept(ev, k) {
+  ev.preventDefault()
+  if (!k.canGet) return
+  try {
+    await F.keptCheck(props.slug, props.vid, k.id)
+    const a = document.createElement('a')
+    a.href = keptUrl(props.slug, props.vid, k.id)
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } catch (e) { say(e.message) }
+}
 async function seatAct(what) {
   if (what === 'take' && !confirm(seatMine.value ? '이 변형을 마지막으로 올린 데서부터 여기로 가져올까요? PC 에 남은 변경은 새 변형으로 올라와요.' : '작업본을 가져올까요? 저장 안 한 변경은 그대로 저장되고, PC 에 남은 변경은 새 변형으로 올라와요.')) return
   seatBusy.value = true
@@ -178,7 +192,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
         <span class="sbt"><b>따로 남긴 파일</b><small>작업본을 치울 때 git 이 싣지 않는 파일(.gitignore 대상 · 안쪽 저장소 · 저장하지 못한 것)을 서버에 따로 남겨 두었어요. 보관 기간이 지나면 지워져요.</small></span>
         <span class="kl">
           <a v-for="k in v.kept" :key="k.id" class="tb press" :class="{ off: !k.canGet }" data-test="seat-kept-get" :href="k.canGet ? keptUrl(slug, vid, k.id) : undefined"
-            :title="k.canGet ? '' : '그 작업본을 가졌던 사람과 폴더 소유자만 내려받아요'" download>{{ ago(k.at) }}<template v-if="k.count > 0"> · {{ k.count }}개</template><template v-if="k.why === 'unsaved'"> · 저장 못 함</template> · {{ daysLeft(k.until) }}일 남음</a>
+            :title="k.canGet ? '' : '그 작업본을 가졌던 사람과 폴더 소유자만 내려받아요'" download @click="getKept($event, k)">{{ ago(k.at) }}<template v-if="k.count > 0"> · {{ k.count }}개</template><template v-if="k.why === 'unsaved'"> · 저장 못 함</template> · {{ daysLeft(k.until) }}일 남음</a>
         </span>
       </div>
 

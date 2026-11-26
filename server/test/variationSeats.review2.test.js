@@ -98,11 +98,11 @@ test('K-01b 사람의 작업실에서 git 이 싣지 않는 것은 그 경로만
   assert.ok(list[0].until)
   const zip = await SE.keptZip(f, await S.variationById(v.id), list[0].id, { me: owner, role: 'owner' })
   const JSZip = (await import('jszip')).default
-  assert.ok((await JSZip.loadAsync(zip.buffer)).file('비밀.env'), '내려받은 zip 에 있다')
+  const bytes = await new Promise((resolve, reject) => { const parts = []; zip.stream.on('data', (c) => parts.push(c)); zip.stream.on('end', () => resolve(Buffer.concat(parts))); zip.stream.on('error', reject) })
+  assert.ok((await JSZip.loadAsync(bytes)).file('비밀.env'), '내려받은 zip 에 있다')
   await assert.rejects(SE.keptZip(f, await S.variationById(v.id), list[0].id, { me: { id: crypto.randomUUID() }, role: 'editor' }), (e) => e.status === 403)
-  // past the retention days it is removed by the sweep
-  const old = new Date(Date.now() - (SE.keptDays() + 1) * 86400_000)
-  await fs.utimes(k, old, old)
+  // past the retention days (from when it was kept — its record, review 3) it is removed by the sweep
+  await q(`update pro_variation_seat_log set at = now() - ($2 || ' days')::interval where id=$1`, [row.id, String(SE.keptDays() + 1)])
   await SE.sweep()
   assert.equal(existsSync(k), false)
   assert.equal((await SE.keptOf(f, await S.variationById(v.id), { me: owner, role: 'owner' })).length, 0)

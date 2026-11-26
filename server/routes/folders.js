@@ -25,7 +25,7 @@ export function folderRoutes(auth) {
     try { const out = await fn(req, res); if (out !== undefined && !res.headersSent) res.json(out) } catch (e) {
       if (!e.status) console.warn('[folders]', req.method, req.path, e.message)
       // (a seat that refused says where the working copy is — the page offers 「돌려 달라고 하기」 from it)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e.message, ...(e.seat !== undefined ? { seat: e.seat, why: e.why } : {}) })
+      if (!res.headersSent) res.status(e.status || 500).json({ error: e.message, ...(e.seat !== undefined ? { seat: e.seat } : {}), ...(e.why ? { why: e.why } : {}) })
     }
   }
   const user = (req) => ({ name: req.user.name, email: req.user.email, id: req.user.id })
@@ -292,15 +292,18 @@ export function folderRoutes(auth) {
     const out = await SE.recall(folder, v, { ...user(req), id: req.user.id }, { why: String(req.body?.why || '').slice(0, 300), role })
     return { ok: true, seat: await SE.viewOf(out.seat || null, out.v || v, { me: req.user, role }) }
   }))
-  // one kept folder as a zip — whoever had that working copy, the variation's own person, or the folder owner
+  // one kept folder as a zip — whoever had that working copy, the variation's own person, or the folder owner; within the download limits
+  // (413 'too-big' past them). ?check=1: only whether it may ({ok, bytes, count}) — the page asks first, so a refusal is said on the page
   r.get('/folders/:slug/variations/:vid/kept/:id', tokenAuth, auth, h(async (req, res) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
     const v = await S.variation(folder, req.params.vid)
+    if (req.query.check) return SE.keptZip(folder, v, req.params.id, { me: req.user, role, check: true })
     const z = await SE.keptZip(folder, v, req.params.id, { me: req.user, role })
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(z.name)}`)
     res.setHeader('Cache-Control', 'private, no-store')
-    res.end(z.buffer)
+    z.stream.on('error', (e) => { console.warn('[folders] kept zip', e.message); res.destroy(e) })
+    z.stream.pipe(res)
   }))
   r.patch('/folders/:slug/variations/:vid/seat', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
