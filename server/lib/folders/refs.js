@@ -213,11 +213,21 @@ async function askedBy(user, ids) {
   return new Set(rows.map((x) => x.id))
 }
 // files of this folder under its slots (one query): slot → how many
+// (counted here, with the same comparison as every slot match — a path a Mac wrote in NFD counts under its NFC slot)
 async function hiddenOf(folder, slots) {
   if (!slots.length) return new Map()
-  const rows = await q(`select s as slot, count(f.path)::int as n from unnest($2::text[]) s join pro_folder_files f on f.folder_id=$1 and (f.path = s or starts_with(f.path, s || '/'))
-                        group by s`, [folder.id, slots]).catch(() => [])
-  return new Map(rows.map((x) => [x.slot, x.n]))
+  // only the paths at or under a slot, in either form (NFC · NFD) — a large folder's whole index is not read for this (review of #97);
+  // the count itself stays the same NFC comparison every slot match uses (inside)
+  const forms = [...new Set(slots.flatMap((s) => [String(s).normalize('NFC'), String(s).normalize('NFD')]))]
+  const like = (s) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
+  const rows = await q(`select path from pro_folder_files where folder_id=$1 and (path = any($2::text[]) or path like any($3::text[]))`,
+    [folder.id, forms, forms.map((s) => `${like(s)}/%`)]).catch(() => [])
+  const out = new Map()
+  for (const { path: p } of rows) {
+    const s = slots.find((x) => inside(x, p))
+    if (s) out.set(s, (out.get(s) || 0) + 1)
+  }
+  return out
 }
 // how many files each readable slot holds (its source's index at the head of main; one query per source) → ref id → n
 async function countsOf(all) {
@@ -555,7 +565,10 @@ export async function slotGuard(cwd) {
   const slots = rows.map((r) => r.slot)
   const main = !v
   const leave = await leavePaths(cwd, slots)
-  if (main && await fs.stat(path.join(cwd, LEFTOVER)).then(() => true, () => false)) leave.push(LEFTOVER)
+  if (main && await fs.stat(path.join(cwd, LEFTOVER)).then(() => true, () => false)) {
+    leave.push(LEFTOVER)
+    await expireLeftovers(cwd).catch((e) => console.warn('[folders] refs: leftover expiry', e.message))
+  }
   if (!slots.length) return leave
   if (main) {
     await sweepLeftovers(folder, slots, cwd, { leave })
@@ -603,8 +616,9 @@ export async function sweepLeftovers(folder, slots, dir = folder.repo_path, { le
     if (!st || st.isDirectory()) continue
     const to = path.join(dir, LEFTOVER, stamp, p)
     await fs.mkdir(path.dirname(to), { recursive: true })
-    if (types.get(p) && !st.isSymbolicLink()) await fs.copyFile(from, to)
-    else await fs.rename(from, to)
+    // (moved, never copied: the same file goes aside, so a shell still writing it keeps writing into the kept one — a file main has is put
+    // back below from main. Gone meanwhile: another sweep of this folder — a commit not under the folder's lock — moved it already.)
+    try { await fs.rename(from, to) } catch (e) { if (e.code === 'ENOENT') continue; throw e }
     moved.push(p)
   }
   // the index and the tree back to main's for these paths (a file main has is put back as main has it)
@@ -625,21 +639,52 @@ async function keepOutOfGit(dir) {
   await fs.mkdir(path.dirname(f), { recursive: true })
   await fs.writeFile(f, `${now}${now && !now.endsWith('\n') ? '\n' : ''}/${LEFTOVER}/\n`)
 }
-async function noteEditors(folder, paths, stamp) {
-  const people = (await q(`select principal_id as id from pro_folder_members where folder_id=$1 and principal_type='user' and role in ('owner','editor')`, [folder.id]).catch(() => [])).map((x) => x.id)
+// how long what was moved aside is kept (then a commit of main removes it)
+export const LEFTOVER_DAYS = 30
+// the editors' notice of a sweep: {title, description}
+export function leftoverNotice(folder, paths, stamp) {
   const shown = paths.slice(0, 3).map((x) => `‘${x}’`).join(', ') + (paths.length > 3 ? L(` 외 ${paths.length - 3}개`, ` and ${paths.length - 3} more`) : '')
   const where = `${LEFTOVER}/${stamp}/`
+  return {
+    title: L(`‘${folder.name}’ 폴더의 참조 자리에 놓인 파일 ${paths.length}개를 옮겨 두었어요`, `${paths.length} file(s) left at a reference slot of ‘${folder.name}’ were moved aside`).slice(0, 200),
+    description: L(`${shown} — 참조 자리는 원본을 읽는 자리라 이 폴더에 담지 않았어요. 작업실의 ${where} 에 있고, ${LEFTOVER_DAYS}일이 지나면 지워져요. 필요하면 그 전에 내려받아 주세요.`,
+      `${shown} — a reference slot reads its original, so these were not put in this folder. They are in the workroom at ${where} and are removed after ${LEFTOVER_DAYS} days; download them before then if you need them.`),
+  }
+}
+async function noteEditors(folder, paths, stamp) {
+  const people = (await q(`select principal_id as id from pro_folder_members where folder_id=$1 and principal_type='user' and role in ('owner','editor')`, [folder.id]).catch(() => [])).map((x) => x.id)
+  const n = leftoverNotice(folder, paths, stamp)
   for (const id of people) {
     await q(`insert into notifications(id,user_id,title,type,description,url,tenant_id) values (gen_random_uuid(),$1,$2,'folder_slot_leftover',$3,$4,$5)`, [id,
-      L(`‘${folder.name}’ 폴더의 참조 자리에 놓인 파일 ${paths.length}개를 옮겨 두었어요`, `${paths.length} file(s) left at a reference slot of ‘${folder.name}’ were moved aside`).slice(0, 200),
-      L(`${shown} — 참조 자리는 원본을 읽는 자리라 이 폴더에 담지 않았어요. 작업실의 ${where} 에 그대로 있어요.`, `${shown} — a reference slot reads its original, so these were not put in this folder. They are in the workroom at ${where}.`),
-      `/workroom/folder/${folder.slug}`, T()]).catch((e) => console.warn('[folders] refs leftover notice', e.message))
+      n.title, n.description, `/workroom/folder/${folder.slug}`, T()]).catch((e) => console.warn('[folders] refs leftover notice', e.message))
     emit(id, 'notifications', {})
   }
 }
-async function noteLeftOut(v, paths) {
+// What was moved aside more than LEFTOVER_DAYS ago goes (a commit of main does it): each <time> folder by its name, else its own time
+export async function expireLeftovers(dir, { now = Date.now() } = {}) {
+  const base = path.join(dir, LEFTOVER)
+  if (await linkOnPath(dir, LEFTOVER)) return []
+  const gone = []
+  for (const e of await fs.readdir(base, { withFileTypes: true }).catch(() => [])) {
+    if (!e.isDirectory()) continue
+    const m = /^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)-(\d{3})Z$/.exec(e.name)
+    const at = m ? Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`) : (await fs.lstat(path.join(base, e.name)).catch(() => null))?.mtimeMs
+    if (at && now - at > LEFTOVER_DAYS * 86400_000) { await fs.rm(path.join(base, e.name), { recursive: true, force: true }); gone.push(e.name) }
+  }
+  if (gone.length) console.warn(`[folders] refs: ${gone.length} leftover set(s) older than ${LEFTOVER_DAYS} days removed in ${dir}`)
+  return gone
+}
+// (once per file: the files said already are kept on the variation — source.refs_noted — so the next commits, with the same file still
+// in the checkout, say nothing again)
+async function noteLeftOut(v, all) {
   const thread = v?.source?.thread_id
   if (!thread || v.holder_type !== 'user' || !v.holder_id) return
+  const [cur] = await q('select source from pro_folder_variations where id=$1', [v.id]).catch(() => [])
+  const said = new Set((cur?.source?.refs_noted || []).map(nfc))
+  const paths = all.filter((p) => !said.has(nfc(p)))
+  if (!paths.length) return
+  await q(`update pro_folder_variations set source = jsonb_set(coalesce(source, '{}'::jsonb), '{refs_noted}', $2::jsonb) where id=$1`,
+    [v.id, JSON.stringify([...said, ...paths.map(nfc)].slice(-500))]).catch((e) => console.warn('[folders] refs note record', e.message))
   const shown = paths.slice(0, 3).map((x) => `‘${x}’`).join(', ') + (paths.length > 3 ? L(` 외 ${paths.length - 3}개`, ` and ${paths.length - 3} more`) : '')
   const { addMessage } = await import('../store.js')
   await addMessage(v.holder_id, thread, 'agent', 'chip', { icon: 'info', refsReadOnly: paths.slice(0, 20),
