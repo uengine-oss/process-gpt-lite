@@ -484,9 +484,14 @@ export async function createVariation(folder, { title, kind = 'person', base, ho
 // (folders/seats.js openServer — the only caller besides tests); a place this takes the branch from is committed as it is first
 // (variation seats: nothing a place held is thrown away when the branch moves)
 export async function checkout(folder, v, dir) {
+  // (a retire that stopped mid-way — a pod killed — left the branch's old entry locked: freed first, or 409 while it may still go on)
+  await stillHeld('checkout')
+  if ((await freeStoppedRetires(folder.repo_path, { branch: v.branch })).waiting) {
+    throw Object.assign(err(409, L('다른 서버가 이 변형의 작업본을 치우고 있어요. 잠시 후 다시 시도해 주세요.', 'Another server is putting this variation\'s working copy away. Try again in a moment.')), { why: 'busy' })
+  }
   const list = await G.worktrees(folder.repo_path)
   const here = list.find((w) => path.resolve(w.path) === path.resolve(dir))
-  if (here && here.branch === v.branch) { await setWorktree(v, dir); return dir }
+  if (here && here.branch === v.branch && await fs.stat(dir).catch(() => null)) { await setWorktree(v, dir); return dir }
   // the branch may be out at another place (an earlier run that was not released): what it holds is kept, then it is freed
   const other = list.find((w) => w.branch === v.branch)
   if (other) {
@@ -545,10 +550,13 @@ export async function clearStaleLocks(dir, branch = null) {
   return n
 }
 // What git does not carry in a checkout, as [{path, kind}] — kind: ignored (.gitignore), untracked or changed (git could not take it),
-// repo (a repository inside it: git keeps only a link to that); null when it cannot tell (git failed)
-export async function leftIn(dir) {
+// repo (a repository inside it: git keeps only a link to that); null when it cannot tell (git failed). A directory git does not carry at
+// all is one entry (node_modules, a cache, a new folder — moved as one); the walk for repositories inside goes through what git carries
+// only. gitDir: the checkout's own git folder in its repository (retire found it there — not from the checkout's `.git` file)
+export async function leftIn(dir, { gitDir = null } = {}) {
   let out
-  try { out = await G.git(dir, ['status', '--porcelain', '--ignored', '--untracked-files=all', '-z']) } catch { return null }
+  const where = gitDir ? ['--git-dir', gitDir, '--work-tree', dir] : []
+  try { out = await G.git(dir, [...where, 'status', '--porcelain', '--ignored', '--untracked-files=normal', '-z']) } catch { return null }
   const left = []
   const parts = out.split('\0')
   for (let i = 0; i < parts.length; i++) {
@@ -558,10 +566,12 @@ export async function leftIn(dir) {
     left.push({ path: x.slice(3).replace(/\/$/, ''), kind: code === '!!' ? 'ignored' : code === '??' ? 'untracked' : 'changed' })
     if (/^R|^C/.test(code)) i++ // (a rename names its source next)
   }
+  const listed = new Set(left.map((l) => path.join(dir, l.path)))
   const walk = async (d, depth) => {
     for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
       if (e.name === '.git') { if (d !== dir) left.push({ path: path.relative(dir, d), kind: 'repo' }); continue }
-      if (e.isDirectory() && depth < 16 && !left.some((l) => l.kind === 'ignored' && path.join(dir, l.path) === path.join(d, e.name))) await walk(path.join(d, e.name), depth + 1)
+      const full = path.join(d, e.name)
+      if (e.isDirectory() && depth < 16 && !listed.has(full)) await walk(full, depth + 1)
     }
   }
   await walk(dir, 0)
@@ -583,16 +593,88 @@ async function keepPath(from, to) {
   try { await fs.cp(from, to, { recursive: true, dereference: false, verbatimSymlinks: true, filter: async (src) => !(await fs.lstat(src)).isSymbolicLink() }); return true } catch { return false }
 }
 const sizeOf = async (p) => { const st = await fs.lstat(p).catch(() => null); if (!st) return 0; if (!st.isDirectory()) return st.size; let n = 0; for (const e of await fs.readdir(p)) n += await sizeOf(path.join(p, e)); return n }
-// While a checkout is moved out of the way it stays locked in its repository (git worktree lock): a `git worktree prune` that another
-// variation's move runs meanwhile would otherwise forget it once its folder is gone from where it was — git could no longer tell what it
-// carries, and the whole folder would be kept. → its git folder, to unlock afterwards; null when it is not a linked checkout or someone
-// locked it already (left as it is)
+// While a checkout is moved out of the way it stays locked in its repository (its worktree entry's `locked` file — what `git worktree lock`
+// writes — with RETIRE_MARK, this server and the time in it): a `git worktree prune` that another variation's move runs meanwhile would
+// otherwise forget it once its folder is gone from where it was — git could no longer tell what it carries, and the whole folder would be
+// kept. The entry is found from the repository: the one under <common>/worktrees whose gitdir names this folder (the checkout's own `.git`
+// file is only a hint — its shell may have rewritten it). A lock with the mark is a retire's of this server (left by one that stopped
+// mid-way): taken over. Any other lock is someone else's: left as it is. → the entry, to unlock afterwards; null when there is none
+const RETIRE_MARK = 'pgl-retire'
+const RETIRE_MARK_V1 = 'leaving the disk (Process GPT Lite)' // (what the first version wrote)
+export const STALE_RETIRE_MS = 10 * 60_000
+const retiring = new Set() // entries this process is retiring now
+const real = (p) => fs.realpath(p).catch(() => null)
+async function commonOf(repo) {
+  if ((await fs.lstat(path.join(repo, '.git')).catch(() => null))?.isDirectory()) return path.join(repo, '.git')
+  const c = (await G.git(repo, ['rev-parse', '--git-common-dir'], { check: false })).trim()
+  return c ? path.resolve(repo, c) : null
+}
+// is `admin` the worktree entry of `dir` in this repository: right under <common>/worktrees, and its gitdir names `dir`
+async function entryOf(common, admin, dir) {
+  if (!admin || (await real(path.dirname(admin))) !== (await real(path.join(common, 'worktrees')))) return false
+  const gd = (await fs.readFile(path.join(admin, 'gitdir'), 'utf8').catch(() => '')).trim()
+  return !!gd && path.basename(gd) === '.git' && (await real(path.dirname(gd))) === (await real(dir))
+}
+async function adminOf(repo, dir) {
+  const common = await commonOf(repo)
+  if (!common) return null
+  const hint = (await fs.readFile(path.join(dir, '.git'), 'utf8').catch(() => '')).match(/^gitdir:\s*(.+)$/m)?.[1]?.trim()
+  if (hint && await entryOf(common, path.resolve(dir, hint), dir)) return path.resolve(dir, hint)
+  for (const name of await fs.readdir(path.join(common, 'worktrees')).catch(() => [])) {
+    if (await entryOf(common, path.join(common, 'worktrees', name), dir)) return path.join(common, 'worktrees', name)
+  }
+  return null
+}
+const lockOf = (admin) => fs.readFile(path.join(admin, 'locked'), 'utf8').catch(() => null) // null: not locked
+const retireLock = (reason) => reason != null && (reason.startsWith(RETIRE_MARK) || reason.trim() === RETIRE_MARK_V1)
 async function holdWorktree(repo, dir) {
   if (!(await fs.lstat(path.join(dir, '.git')).catch(() => null))?.isFile()) return null
-  const admin = (await G.git(dir, ['rev-parse', '--absolute-git-dir'], { check: false })).trim()
-  if (!admin || path.basename(path.dirname(admin)) !== 'worktrees' || await fs.stat(path.join(admin, 'locked')).catch(() => null)) return null
-  await G.git(repo, ['worktree', 'lock', '--reason', 'leaving the disk (Process GPT Lite)', dir], { check: false })
-  return (await fs.stat(path.join(admin, 'locked')).catch(() => null)) ? admin : null
+  const admin = await adminOf(repo, dir)
+  if (!admin) return null
+  const reason = await lockOf(admin)
+  if (reason != null && !retireLock(reason)) return null
+  await fs.writeFile(path.join(admin, 'locked'), `${RETIRE_MARK} ${os.hostname()}:${process.pid} ${new Date().toISOString()}`)
+  retiring.add(admin)
+  return admin
+}
+async function letGo(admin) {
+  retiring.delete(admin)
+  await fs.rm(path.join(admin, 'locked'), { force: true }).catch(() => {})
+}
+// did the retire that wrote this lock stop: of this process and not going on now · of another process on this host that is gone · of
+// another server and older than `olderThan` (a retire takes seconds) · of the first version (no server in it — no such server runs any
+// more): at once for the caller that holds that variation's lease (mine), else by the lock's age
+async function retireStopped(admin, reason, olderThan, mine = false) {
+  if (mine && reason.trim() === RETIRE_MARK_V1) return true
+  const m = /^pgl-retire (\S+):(\d+) (\S+)/.exec(reason || '')
+  if (m && m[1] === os.hostname()) {
+    const pid = Number(m[2])
+    if (pid === process.pid) return !retiring.has(admin)
+    try { process.kill(pid, 0); return false } catch (e) { return e.code === 'ESRCH' }
+  }
+  const at = m ? Date.parse(m[3]) : (await fs.stat(path.join(admin, 'locked')).catch(() => null))?.mtimeMs
+  return Number.isFinite(at) && Date.now() - at > olderThan
+}
+// Worktree entries a retire left locked when it stopped mid-way (a pod killed): their folder is gone and the lock carries RETIRE_MARK.
+// Unlocked and pruned, so their branch can be checked out again. branch: the caller holds that variation's lease (checkout) — its entry is
+// freed once the retire that locked it surely stopped or a minute passed; the others (and the sweep's) after STALE_RETIRE_MS. A lock of
+// this process's retire going on now is never touched. → {freed, waiting: the branch's entry is still locked by a retire that may go on}
+export async function freeStoppedRetires(repo, { branch = null } = {}) {
+  const common = await commonOf(repo)
+  if (!common) return { freed: 0, waiting: false }
+  let freed = 0, waiting = false
+  for (const name of await fs.readdir(path.join(common, 'worktrees')).catch(() => [])) {
+    const admin = path.join(common, 'worktrees', name)
+    if (retiring.has(admin)) continue
+    const reason = await lockOf(admin)
+    if (!retireLock(reason)) continue
+    const gd = (await fs.readFile(path.join(admin, 'gitdir'), 'utf8').catch(() => '')).trim()
+    if (!gd || await fs.stat(path.dirname(gd)).catch(() => null)) continue
+    const mine = !!branch && (await fs.readFile(path.join(admin, 'HEAD'), 'utf8').catch(() => '')).trim() === `ref: refs/heads/${branch}`
+    if (await retireStopped(admin, reason, mine ? 60_000 : STALE_RETIRE_MS, mine)) { await letGo(admin); freed++ } else if (mine) waiting = true
+  }
+  if (freed) await G.git(repo, ['worktree', 'prune'], { check: false })
+  return { freed, waiting }
 }
 // A checkout (or a folder left where one goes) leaves the disk, nothing in it lost:
 //   1. it is moved out of the way first (an atomic rename, locked in its repository meanwhile — holdWorktree) — nothing writes into it any
@@ -613,9 +695,12 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
   try {
     await fs.rename(dir, staging)
     const checkout = !!(await fs.stat(path.join(staging, '.git')).catch(() => null))
-    left = checkout ? await leftIn(staging) : (await fs.readdir(staging).catch(() => [])).map((n) => ({ path: n, kind: 'untracked' }))
+    left = checkout ? await leftIn(staging, { gitDir: held }) : (await fs.readdir(staging).catch(() => [])).map((n) => ({ path: n, kind: 'untracked' }))
     whole = left === null
-    if (!whole) left = (mode === 'agent' ? left.filter((l) => l.kind !== 'ignored') : left).filter((l, i, all) => all.findIndex((x) => x.path === l.path) === i)
+    if (!whole) {
+      const seen = new Set()
+      left = left.filter((l) => !(mode === 'agent' && l.kind === 'ignored') && !seen.has(l.path) && seen.add(l.path))
+    }
     if (whole || left.length) {
       keptDir = path.join(keptRootOf(), String(vid || 'none'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(2).toString('hex')}`)
       if (whole) {
@@ -635,7 +720,7 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
     if (stuck) console.warn(`[folders] some of what git does not carry could not be moved to the kept folder — left at ${staging}`)
     else if (!whole) await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
   } finally {
-    if (held) await fs.rm(path.join(held, 'locked'), { force: true }).catch(() => {})
+    if (held) await letGo(held)
   }
   await G.git(repo, ['worktree', 'prune'], { check: false })
   return { kept: whole ? -1 : left.length, keptDir, bytes, staging: stuck ? staging : null }

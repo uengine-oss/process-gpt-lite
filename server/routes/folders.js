@@ -2,6 +2,7 @@
 import express from 'express'
 import { L } from '../lib/lang.js'
 import path from 'node:path'
+import { pipeline } from 'node:stream'
 import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
 import * as G from '../lib/folders/git.js'
@@ -19,13 +20,18 @@ import { emit } from '../lib/bus.js'
 
 const MIME = S.MIME
 
+// a message with every absolute path in it cut to its last part (「…/<name>」) — what a server failure may say to the page
+export const hidePaths = (m) => String(m || '').replace(/(^|[\s'"`(=])((?:[A-Za-z]:)?(?:[\\/][^\s'"`\\/]+){2,}[\\/]?)/g,
+  (_, pre, p) => `${pre}…/${path.basename(p.replace(/[\\/]+$/, '').replace(/\\/g, '/'))}`)
 export function folderRoutes(auth) {
   const r = express.Router()
   const h = (fn) => async (req, res) => {
     try { const out = await fn(req, res); if (out !== undefined && !res.headersSent) res.json(out) } catch (e) {
-      if (!e.status) console.warn('[folders]', req.method, req.path, e.message)
+      const status = e.status || 500
+      // (a server failure — git's own words, often — says what failed, never where on the server: the whole message goes to the log only)
+      if (status >= 500) console.warn('[folders]', req.method, req.path, e.message)
       // (a seat that refused says where the working copy is — the page offers 「돌려 달라고 하기」 from it)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e.message, ...(e.seat !== undefined ? { seat: e.seat } : {}), ...(e.why ? { why: e.why } : {}) })
+      if (!res.headersSent) res.status(status).json({ error: status >= 500 ? hidePaths(e.message) : e.message, ...(e.seat !== undefined ? { seat: e.seat } : {}), ...(e.why ? { why: e.why } : {}) })
     }
   }
   const user = (req) => ({ name: req.user.name, email: req.user.email, id: req.user.id })
@@ -302,8 +308,9 @@ export function folderRoutes(auth) {
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(z.name)}`)
     res.setHeader('Cache-Control', 'private, no-store')
-    z.stream.on('error', (e) => { console.warn('[folders] kept zip', e.message); res.destroy(e) })
-    z.stream.pipe(res)
+    // (one who stops reading for two minutes gives the zip up; a zip that fails — a file changed — or is given up closes its files)
+    res.setTimeout(120_000, () => res.destroy())
+    pipeline(z.stream, res, (e) => { if (e && e.code !== 'ERR_STREAM_PREMATURE_CLOSE') console.warn('[folders] kept zip', e.message) })
   }))
   r.patch('/folders/:slug/variations/:vid/seat', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
