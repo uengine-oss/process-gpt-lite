@@ -110,6 +110,9 @@ export function teamRoutes(auth) {
     // streamed from storage, a part when the browser asks for one (Range): the messenger plays a sound or a video from here and
     // shows a picture (src/components/MediaPreview.vue) — a seek, and Safari at all, need 206
     const f = await S.stream(req.user, req.params.id, req.headers.range)
+    // open=1: the person opened it (the viewer, its 「새 창에서 열기」) — their open is recorded (only on their own row as its recipient;
+    // its sender opening it records nothing). The room's small preview of a picture · a video's first frame asks without it: shown, not opened.
+    if (req.query.open === '1' && f.res.ok) await S.recordOpen(req.user, [req.params.id]).catch((e) => console.warn('[team] opened', e.message))
     res.status(f.res.status)
     for (const k of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) if (f.res.headers.get(k)) res.setHeader(k, f.res.headers.get(k))
     res.setHeader('Content-Type', f.type)
@@ -131,8 +134,15 @@ export function teamRoutes(auth) {
     if (!link) throw new TeamError(503, L('지금은 주소를 만들 수 없어요.', "I can't make the address right now."))
     return { link }
   }))
-  // the file card to open in the editor: my original (sender) or my own copy (recipient)
+  // the file card to open in the editor: my original (sender) or my own copy (recipient — my open is recorded)
   r.post('/team/shares/:id/open', auth, h(async (req) => ({ message: await S.openCopy(req.user, req.params.id) })))
+  // I opened a share where this server does not see it (my copy's card in my work conversation, a sound · a video played in the room)
+  r.post('/team/shares/:id/opened', auth, h((req) => S.markOpened(req.user, req.params.id)))
+  // my share messages in a room, as their sender sees them: for each person they went to, opened or not (first · last), and what
+  // their copy changed — ?ids=<message ids> (the room's messages on my screen). Nobody else is told who opened what.
+  r.get('/team/threads/:id/receipts', auth, h(async (req) => ({
+    receipts: await S.receipts(req.user, String(req.params.id), String(req.query.ids || '').split(',').filter(Boolean)),
+  })))
   // the sender's view of the branches a share message started: what each recipient changed, when, by whom
   // (the sender, or a recipient of the same batch; anyone else gets 403)
   r.get('/team/messages/:id/branches', auth, h(async (req) => {
@@ -270,6 +280,8 @@ export function teamRoutes(auth) {
       return gatherAndContinue(req, m, rows[0].source_room_id)
     }
     const mine = rows.find((x) => x.recipient_id === req.user.id)
+    // picking up what was sent is opening it: my own rows only (their sender's card says 「열어 봄」)
+    await S.recordOpen(req.user, shareIds).catch((e) => console.warn('[team] opened', e.message))
     const shown = L(`${m.sender.name}님이 보낸 일을 이어서 할게요${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`, `Continuing the work ${m.sender.name} sent${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`)
     const context = L([`(팀원 ${m.sender.name}님이 ${m.kind === 'share' ? '산출물을 공유했어요' : '이 일로 저를 언급했어요'}. 그 맥락에서 이어서 작업해 주세요.)`,
       m.context?.title ? `대화: ${m.context.title}` : '', ...(m.context?.excerpt?.length ? ['— 대화 발췌 —', ...m.context.excerpt] : []),

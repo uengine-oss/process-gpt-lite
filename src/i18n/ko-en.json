@@ -3073,7 +3073,10 @@
   "이 PC 를 이 서버에 연결하지 못했어요": "Couldn't connect this PC to this server",
   "이 PC 연결하기": "Connect this PC",
   "머리말": "Front matter",
-  "연결하는 중…": "Connecting…"
+  "연결하는 중…": "Connecting…",
+  "안 열어 봄": "Not opened",
+  "열어 봄": "Opened",
+  "에이전트가 고침": "Changed by the agent"
  },
  "patterns": [
   [
@@ -3181,6 +3184,10 @@
    "{0} outputs of this project"
   ],
   [
+   "파일 {0}개 중 {1}개 열어 봄",
+   "Opened {1} of {0} files"
+  ],
+  [
    "‘{0}’의 시작으로 보여요",
    "Looks like the start of ‘{0}’"
   ],
@@ -3203,6 +3210,10 @@
   [
    "마지막 소식 {0}초 전",
    "last update {0} s ago"
+  ],
+  [
+   "마지막으로 연 때 {0}",
+   "Last opened {0}"
   ],
   [
    "채팅의 산출물 {0}개",
@@ -3939,6 +3950,18 @@
   [
    "파일 {0}개",
    "{0} files"
+  ],
+  [
+   "{0}개 고침",
+   "{0} edited"
+  ],
+  [
+   "{0}개 추가",
+   "{0} added"
+  ],
+  [
+   "{0}개 지움",
+   "{0} removed"
   ],
   [
    "나: {0}",

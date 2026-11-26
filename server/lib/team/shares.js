@@ -12,7 +12,8 @@ import { saveAttachment } from '../attachments.js'
 import { TeamError } from './access.js'
 import * as W from './worktree.js'
 import { linkKey, signLink, linkPath } from './mediaLink.js'
-import { person } from '../people.js'
+import { person, people } from '../people.js'
+import { emit } from '../bus.js'
 
 const T = () => config.tenantId
 const KIND = (n) => String(n || '').split('.').pop().toLowerCase().slice(0, 12)
@@ -190,7 +191,9 @@ export function mediaLink(userId, shareId, { now } = {}) {
 }
 
 // The file card to open in the editor: the owner's own original, or the recipient's copy (made once).
-export async function openCopy(user, id) {
+// record: the recipient opens it now (the messenger's chip, 받은 편지함, a meeting's material) — their open is recorded (recordOpen);
+// false when it is only handed to their agent (team assist's work order: copiesFor)
+export async function openCopy(user, id, { record = true } = {}) {
   const s = await shareFor(user, id)
   if (!s) throw new TeamError(404, L('공유를 찾지 못했어요.', "I couldn't find that share."))
   if (s.role === 'owner') {
@@ -198,17 +201,23 @@ export async function openCopy(user, id) {
     if (!m) throw new TeamError(404, L('원본 카드를 찾지 못했어요.', "I couldn't find the original card."))
     return m
   }
-  if (s.branch_room_id) return branchCard(user, s)
+  const m = s.branch_room_id ? await branchCard(user, s) : await copyCard(user, s)
+  if (record) await recordOpen(user, [s.id])
+  return m
+}
+
+// a share made before branches: the recipient's own copy in their main chat (made on the first open)
+async function copyCard(user, s) {
   if (s.copy_message_id) {
     const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id=$1 and t.user_id=$2`, [s.copy_message_id, user.id])
     if (m) return m
   }
-  const { name, type, buf } = await bytes(user, id)
+  const { name, type, buf } = await bytes(user, s.id)
   const saved = await saveAttachment(user, name, type, buf)
   const owner = await person(s.owner_id)
   const t = await mainThread(user.id)
   const m = await addMessage(user.id, t.id, 'agent', 'file', { name: saved.name, url: saved.url, path: saved.path, shared: { by: owner?.name || L('팀원', 'Teammate'), shareId: s.id } })
-  await q('update pro_shares set copy_message_id=$2, opened_at=coalesce(opened_at, now()) where id=$1', [s.id, m.id])
+  await q('update pro_shares set copy_message_id=$2 where id=$1', [s.id, m.id])
   return m
 }
 
@@ -223,15 +232,15 @@ async function branchCard(user, s) {
                      where t.id=$1 and t.user_id=$2 and m.kind='file' and m.content->'branch'->>'path'=$3 order by m.created_at desc limit 1`, [thread, user.id, s.path])
   if (!m) m = await addMessage(user.id, thread, 'agent', 'file', { name: s.name, url: W.objectUrl(entry), sha256: entry.sha256, branch: { room: s.branch_room_id, path: s.path }, shared: { shareId: s.id } })
   else if (m.content.sha256 !== entry.sha256) m = await updateMessage(user.id, m.id, { url: W.objectUrl(entry), sha256: entry.sha256 })
-  await q('update pro_shares set opened_at=coalesce(opened_at, now()) where id=$1', [s.id])
   return m
 }
 
-// The recipient's copies of a message's artifacts, as composer-style attachments for runTurn.
+// The recipient's copies of a message's artifacts, as composer-style attachments for runTurn. Handing them to the agent is not
+// the person opening them (record: false) — 「이어서 작업」 records its open itself (routes/team.js).
 export async function copiesFor(user, shareIds) {
   const out = []
   for (const id of shareIds) {
-    const m = await openCopy(user, id).catch(() => null)
+    const m = await openCopy(user, id, { record: false }).catch(() => null)
     if (m?.content?.url) out.push({ name: m.content.name, url: m.content.url, path: m.content.path })
   }
   return out
@@ -246,6 +255,85 @@ export async function branchAttachments(user, room) {
     if (!data) continue
     const saved = await saveAttachment(user, path.split('/').pop(), entry.content_type, Buffer.from(await data.arrayBuffer()))
     out.push({ name: saved.name, url: saved.url, path: saved.path })
+  }
+  return out
+}
+
+// ---- opened (2026-11-26, the user's phone: a group room's 「보냄 · 공유」 card said 「… 아직 그대로」 for someone who had opened the
+// file — 「아직그대로는 뭔가? 혹시 확인여부 ㅡ 파일을 열어서 봤는지라면 좋은데」; that line said only that their copy had not changed) ----
+// A recipient opened what was shared with them: when first (opened_at) and last (last_opened_at), on their own rows only — the
+// sender's card says 「열어 봄」 from it (receipts). Who is not the recipient of a row (its sender, someone a copy was forwarded to,
+// another company) changes nothing: a forward is a share of its own, with its own row. The sender hears of a first open at once
+// ('opened', to the sender only — nobody else in the room). ids: share ids. → how many rows it marked
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export async function recordOpen(user, ids) {
+  const list = [...new Set((ids || []).map(String))].filter((x) => UUID.test(x)).slice(0, 50)
+  if (!list.length || !UUID.test(String(user?.id || ''))) return 0
+  const where = 'tenant_id=$1 and recipient_id=$2::uuid and id = any($3::uuid[]) and revoked_at is null'
+  let rows
+  try {
+    rows = await q(`with prev as (select id, opened_at from pro_shares where ${where})
+                    update pro_shares s set opened_at = coalesce(s.opened_at, now()), last_opened_at = now() from prev where s.id = prev.id
+                    returning s.owner_id, s.room_id, s.chat_uuid, prev.opened_at is null as first`, [T(), String(user.id), list])
+  } catch (e) {
+    // a database the 066 migration has not reached: the first open only, as before
+    if (e.code !== '42703') throw e
+    rows = await q(`with prev as (select id, opened_at from pro_shares where ${where})
+                    update pro_shares s set opened_at = coalesce(s.opened_at, now()) from prev where s.id = prev.id
+                    returning s.owner_id, s.room_id, s.chat_uuid, prev.opened_at is null as first`, [T(), String(user.id), list])
+  }
+  const told = new Set()
+  for (const r of rows) {
+    const k = `${r.owner_id}|${r.chat_uuid}`
+    if (!r.first || told.has(k)) continue
+    told.add(k)
+    emit(String(r.owner_id), 'team', { type: 'opened', threadId: r.room_id, messageId: r.chat_uuid })
+  }
+  return rows.length
+}
+
+// POST …/opened: the recipient's own screen opened a share where the server does not see it (their copy's card in their work
+// conversation, a sound or a video played in the room). Not theirs: 404; its sender: nothing to record. → {recorded}
+export async function markOpened(user, id) {
+  const s = await shareFor(user, id)
+  if (!s) throw new TeamError(404, L('공유를 찾지 못했어요.', "I couldn't find that share."))
+  return { recorded: s.role === 'recipient' && (await recordOpen(user, [s.id])) > 0 }
+}
+
+// The sender's cards in one room: for each of my share messages asked for, each person it went to — how many of its files they
+// opened (first · last), and what their copy (branch) changed since (worktree.js branchStatus). Mine only: rows I own (a message
+// someone else sent answers nothing, and no one else learns who opened what). messageIds: chats uuids → {messageId: [person]}
+export async function receipts(me, roomId, messageIds) {
+  const ids = [...new Set((messageIds || []).map(String))].filter((x) => /^[\w.:-]{1,120}$/.test(x)).slice(0, 100)
+  if (!ids.length || !/^[\w.:-]{1,120}$/.test(String(roomId || '')) || !UUID.test(String(me?.id || ''))) return {}
+  const sql = (last) => `select recipient_id::text as recipient_id, chat_uuid, opened_at, ${last} as last_opened_at, branch_room_id, start_commit_id
+                           from pro_shares where tenant_id=$1 and owner_id=$2::uuid and room_id=$3 and chat_uuid = any($4::text[]) and revoked_at is null
+                          order by created_at, id`
+  const args = [T(), String(me.id), String(roomId), ids]
+  const rows = await q(sql('coalesce(last_opened_at, opened_at)'), args).catch((e) => { if (e.code !== '42703') throw e; return q(sql('opened_at'), args) })
+  const who = await people(rows.map((r) => r.recipient_id))
+  const out = {}, branchRow = new Map()
+  const iso = (d) => (d ? new Date(d).toISOString() : null)
+  for (const r of rows) {
+    const list = (out[r.chat_uuid] ||= [])
+    let p = list.find((x) => x.id === r.recipient_id)
+    if (!p) {
+      const o = who.get(r.recipient_id)
+      p = { id: r.recipient_id, name: o?.name || '', email: o?.email || '', files: 0, opened: 0, openedAt: null, lastOpenedAt: null, branch: null }
+      list.push(p)
+    }
+    p.files++
+    if (r.opened_at) {
+      p.opened++
+      if (!p.openedAt || new Date(r.opened_at) < new Date(p.openedAt)) p.openedAt = iso(r.opened_at)
+    }
+    if (r.last_opened_at && (!p.lastOpenedAt || new Date(r.last_opened_at) > new Date(p.lastOpenedAt))) p.lastOpenedAt = iso(r.last_opened_at)
+    if (r.branch_room_id && !branchRow.has(p)) branchRow.set(p, r)
+  }
+  // what each copy changed (a database without the worktree tables: none)
+  for (const [p, r] of branchRow) {
+    const b = await W.branchStatus({ ...r, name: p.name }).catch(() => null)
+    if (b) p.branch = { room: b.room, added: b.added, modified: b.modified, removed: b.removed, at: b.at, by: b.by }
   }
   return out
 }
