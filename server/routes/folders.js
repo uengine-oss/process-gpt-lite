@@ -2,7 +2,6 @@
 import express from 'express'
 import { L } from '../lib/lang.js'
 import path from 'node:path'
-import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
 import * as G from '../lib/folders/git.js'
@@ -169,28 +168,38 @@ export function folderRoutes(auth) {
     const { folder } = await S.access(req.params.slug, req.user)
     const via = await through(folder, req.query.path, req.query.ref, req.user).catch((e) => { if (!String(e.code || '').startsWith('ref_')) throw e; refused(res, e); return false })
     if (via === false) return
-    if (via && !via.path) throw Object.assign(new Error(L('파일이 없어요.', "That file isn't there.")), { status: 404 })
-    const buf = via ? await S.readBlob(via.source, via.rev, via.path) : await S.readBlob(folder, req.query.ref, req.query.path)
+    const gone = () => Object.assign(new Error(L('파일이 없어요.', "That file isn't there.")), { status: 404 })
+    if (via && !via.path) throw gone()
+    // the file at one commit: its git blob id is the ETag (a cheap lookup — a 304 never reads the file), and the body comes from
+    // that same commit
+    const src = via ? via.source : folder
+    const rel = via ? via.path : req.query.path
+    const rev = await S.revOf(src, via ? via.rev : req.query.ref)
+    const commit = S.COMMIT.test(rev) ? rev : (await G.git(src.repo_path, ['rev-parse', '--verify', '-q', `${rev}^{commit}`], { check: false })).trim()
+    const blob = commit ? await S.blobAt(src, commit, rel) : ''
+    if (!blob) throw gone()
     // (a slot's file is of its original's kind — the slot's name need not carry the extension)
     const ext = path.extname(via ? via.path : String(req.query.path)).slice(1).toLowerCase()
     const named = path.basename(String(req.query.path))
     const saveAs = via && ext && !path.extname(named) ? `${named}.${ext}` : named
     res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream')
     res.setHeader('X-Content-Type-Options', 'nosniff')
-    // a commit's file never changes: kept a minute. A branch (main, a variation) or a slot (it follows its original's main) moves: the
-    // browser asks again each time and gets 304 while the bytes are the same — a file changed a moment ago is never shown stale
-    // (11-27: a slot's file reopened within a minute of its original changing showed the old text)
-    if (!via && /^[0-9a-f]{40}$/i.test(String(req.query.ref || ''))) res.setHeader('Cache-Control', 'private, max-age=60')
-    else {
-      const etag = `"${crypto.createHash('sha1').update(buf).digest('hex')}"`
-      res.setHeader('Cache-Control', 'private, no-cache')
-      res.setHeader('ETag', etag)
-      if (String(req.headers['if-none-match'] || '').split(/\s*,\s*/).includes(etag)) { res.statusCode = 304; return res.end() }
-    }
     // a file an agent wrote must not run script on this origin
     if (/^(html?|svg|xml)$/.test(ext)) res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
     if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(saveAs)}`)
-    res.end(buf)
+    // a commit's file never changes: kept a minute. A branch (main, a variation) or a slot (it follows its original's main) moves: the
+    // browser asks again each time and gets 304 while the file is the same — a file changed a moment ago is never shown stale
+    // (11-27: a slot's file reopened within a minute of its original changing showed the old text)
+    if (!via && S.COMMIT.test(String(req.query.ref || ''))) res.setHeader('Cache-Control', 'private, max-age=60')
+    else {
+      const etag = `"${blob}"`
+      res.setHeader('Cache-Control', 'private, no-cache')
+      res.setHeader('ETag', etag)
+      // (If-None-Match compares weakly: W/"…" is the same tag — a proxy may weaken it; * is any)
+      const asked = String(req.headers['if-none-match'] || '').split(',').map((t) => t.trim().replace(/^W\//, ''))
+      if (asked.includes(etag) || asked.includes('*')) { res.statusCode = 304; return res.end() }
+    }
+    res.end(await S.readBlob(src, commit, rel))
   }))
   // IeumOffice and the ArtCraft apps load documents only from storage: publish a copy of this
   // version (content-addressed, so the same blob is uploaded once) and hand back its URL

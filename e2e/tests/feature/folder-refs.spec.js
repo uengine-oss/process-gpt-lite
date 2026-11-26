@@ -409,7 +409,7 @@ test('F-RF-03 자리의 파일을 열면 「참조된 자료 · 원본 열기」
   await expect(p.locator('.sheet.glass')).toContainText('대량 구매는 10% 할인해요')
   await shot(p, 'f-rf-03-preview-light')
   // (11-27, found recording the feature video) the original changes a moment after the slot's file was opened: reopening it shows the
-  // new text at once. A moving ref (main, a slot) is revalidated — no-cache with the bytes' ETag, 304 while they are the same.
+  // new text at once. A moving ref (main, a slot) is revalidated — no-cache with the file's git blob id as ETag, 304 while it is the same.
   const rawAt = `http://127.0.0.1:${S.apiPort}/api/folders/${COMP.slug}/raw?ref=main&path=${enc('폴더1/가격 정책.md')}`
   const first = await fetch(rawAt, { headers: { Authorization: `Bearer ${A.token}` } })
   expect(first.headers.get('cache-control')).toBe('private, no-cache')
@@ -418,16 +418,17 @@ test('F-RF-03 자리의 파일을 열면 「참조된 자료 · 원본 열기」
   expect((await fetch(rawAt, { headers: { Authorization: `Bearer ${A.token}`, 'If-None-Match': tag } })).status).toBe(304)
   await p.locator('.sheet.glass button[title="닫기"]').click()
   await upload(A, SALES.slug, '가격 정책.md', MD.price.replace('10%', '15%'))
-  await p.locator('[data-test="folder-file"][data-file="폴더1/가격 정책.md"] .fn').click()
-  await expect(p.locator('.sheet.glass')).toContainText('대량 구매는 15% 할인해요', { timeout: 10_000 })
-  const changed = await fetch(rawAt, { headers: { Authorization: `Bearer ${A.token}`, 'If-None-Match': tag } })
-  expect(changed.status).toBe(200)
-  expect(changed.headers.get('etag')).not.toBe(tag)
-  // a commit's file never changes: still kept a minute
-  const sha = (await call(A, 'GET', `/folders/${SALES.slug}`)).body.history[0].sha
-  expect(sha).toMatch(/^[0-9a-f]{40}$/)
-  expect((await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${SALES.slug}/raw?ref=${sha}&path=${enc('가격 정책.md')}`, { headers: { Authorization: `Bearer ${A.token}` } })).headers.get('cache-control')).toBe('private, max-age=60')
-  await upload(A, SALES.slug, '가격 정책.md', MD.price)
+  try {
+    await p.locator('[data-test="folder-file"][data-file="폴더1/가격 정책.md"] .fn').click()
+    await expect(p.locator('.sheet.glass')).toContainText('대량 구매는 15% 할인해요', { timeout: 10_000 })
+    const changed = await fetch(rawAt, { headers: { Authorization: `Bearer ${A.token}`, 'If-None-Match': tag } })
+    expect(changed.status).toBe(200)
+    expect(changed.headers.get('etag')).not.toBe(tag)
+    // a commit's file never changes: still kept a minute
+    const sha = (await call(A, 'GET', `/folders/${SALES.slug}`)).body.history[0].sha
+    expect(sha).toMatch(/^[0-9a-f]{40}$/)
+    expect((await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${SALES.slug}/raw?ref=${sha}&path=${enc('가격 정책.md')}`, { headers: { Authorization: `Bearer ${A.token}` } })).headers.get('cache-control')).toBe('private, max-age=60')
+  } finally { await upload(A, SALES.slug, '가격 정책.md', MD.price) }
   await p.locator('.sheet.glass button[title="닫기"]').click()
   await p.locator('[data-test="folder-file"][data-file="폴더1/가격 정책.md"] .fn').click()
   await expect(p.locator('.sheet.glass')).toContainText('대량 구매는 10% 할인해요', { timeout: 10_000 })
@@ -470,7 +471,7 @@ test('F-RF-04 원본의 구성원이 아닌 동료: 잠긴 자리(이름표만)�
   const [n] = await S.q(`select title, url, description from notifications where tenant_id=$1 and user_id=$2 and type='folder_access'`, [TENANT, A.id])
   expect(n.url).toBe(`/folders/${RULES.slug}?share=${B.id}`)
   expect(n.title).toContain('오지후')
-  // the particle follows the label's last sound (「폴더2」로 — a label ending in a consonant takes 으로; 11-27)
+  // the particle follows the label's last sound (「폴더2」로 here; a label ending in a consonant takes 으로 — server RF-U-37; 11-27)
   expect(n.description).toContain('참조 「폴더2」로 이 폴더의 자료를')
   // and nobody told the person who asked anything about the original
   expect((await S.q(`select 1 from notifications where tenant_id=$1 and user_id=$2 and type='folder_access'`, [TENANT, B.id])).length).toBe(0)
