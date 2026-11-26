@@ -8,7 +8,8 @@ async function call(path, opts) {
   const text = await r.text()
   let j = null
   try { j = text ? JSON.parse(text) : null } catch { /* not json */ }
-  if (!r.ok) throw new Error(j?.error || (htmlPage(r, text) ? `서버가 응답하지 못했어요 (${r.status}). 잠시 후 다시 시도해 주세요.` : text.slice(0, 200)) || `오류 ${r.status}`)
+  // (a refusal that carries a variation's seat — where its working copy is — keeps it: the screen offers 「돌려 달라고 하기」 from it)
+  if (!r.ok) throw Object.assign(new Error(j?.error || (htmlPage(r, text) ? `서버가 응답하지 못했어요 (${r.status}). 잠시 후 다시 시도해 주세요.` : text.slice(0, 200)) || `오류 ${r.status}`), { status: r.status, seat: j?.seat, why: j?.why })
   return j
 }
 const enc = encodeURIComponent
@@ -33,6 +34,14 @@ export const folders = {
   variation: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}`),
   diff: (slug, vid, path) => call(`/folders/${enc(slug)}/variations/${vid}/diff?path=${enc(path)}`),
   checkout: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/checkout`, { method: 'POST' }),
+  // a variation's seat — where its working copy is (server lib/folders/seats.js): open it in my server workroom, put it away (돌려놓기),
+  // a save point, take it back here (from my PC — or the owner after 「돌려 달라」 and a day), ask whoever has it for it back
+  seat: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/seat`),
+  openSeat: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'POST', body: { to: 'server' } }),
+  releaseSeat: (slug, vid, epoch) => call(`/folders/${enc(slug)}/variations/${vid}/seat/release`, { method: 'POST', body: { epoch } }),
+  saveSeat: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/seat/save`, { method: 'POST' }),
+  takeSeat: (slug, vid, epoch) => call(`/folders/${enc(slug)}/variations/${vid}/seat/take`, { method: 'POST', body: { epoch } }),
+  recallSeat: (slug, vid, why = '') => call(`/folders/${enc(slug)}/variations/${vid}/seat/recall`, { method: 'POST', body: { why } }),
   commit: (slug, vid, body = {}) => call(`/folders/${enc(slug)}/variations/${vid}/commit`, { method: 'POST', body }),
   discard: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/discard`, { method: 'POST' }),
   handover: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/handover`, { method: 'POST', body }),
@@ -90,6 +99,20 @@ export const whoOf = (o) => (o ? { id: o.id, name: o.name || o.holder_name || '?
 // Process GPT's own), an agent by its own
 export const holderName = (v) => (v?.holder_type === 'agent' ? v?.holder_name : nameOf(v?.holder_id, v?.holder_name)) || ''
 export const roleLabel = { owner: '소유', editor: '편집', runner: '실행', viewer: '보기' }
+// A seat as its pill says it, in parts (each its own text — the English dictionary translates each): {icon, tone, parts}
+//   none → 보관 중 · server workroom → 서버 작업실에서 · <who> · a server agent → 서버 에이전트가 작업 중 · a computer → <who>의 PC 에서 · <its name>
+//   · PC 꺼짐 · 저장 안 한 변경 N · 마지막 올림 … · moving → 넘기는 중…
+export function seatText(seat) {
+  if (!seat?.place) return { icon: 'archive', tone: 'none', parts: ['보관 중'] }
+  if (seat.state && seat.state !== 'held') return { icon: 'handover', tone: 'moving', parts: ['넘기는 중…'] }
+  const who = seat.who?.name || ''
+  if (seat.place === 'server') return seat.run === 'agent' ? { icon: 'agent', tone: 'agent', parts: ['서버 에이전트가 작업 중'] } : { icon: 'terminal', tone: 'server', parts: ['서버 작업실에서', who].filter(Boolean) }
+  const parts = [`${who}의 PC 에서`, seat.device?.name || ''].filter(Boolean)
+  if (seat.device && !seat.device.online) parts.push('PC 꺼짐')
+  if (seat.dirty) parts.push(`저장 안 한 변경 ${seat.dirty}`)
+  if (seat.pushedAt) parts.push(ago(seat.pushedAt) === '방금' ? '방금 올림' : `마지막 올림 ${ago(seat.pushedAt)}`)
+  return { icon: 'pc', tone: 'device', parts }
+}
 export const statusLabel = { open: '작업 중', ready: '반영 대기', conflicted: '충돌', merged: '반영됨', discarded: '버림' }
 export const sourceLabel = { run: '실행', instance: '인스턴스', person: '사람', chat: '채팅', handover: '인계', imported: '가져옴' }
 export const prLabel = { OPEN: '반영 요청됨', CHANGES_REQUESTED: '수정 요청', APPROVED: '승인', MERGED: '반영됨', CLOSED: '닫힘' }

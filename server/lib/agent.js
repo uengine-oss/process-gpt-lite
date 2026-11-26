@@ -1530,8 +1530,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // (an instance's conversation has its work folder attached for reference — lib/mailWork.js: what is asked there reads its mails)
   if (!pin?.folder && (thread?.kind === 'project' || thread?.kind === 'chat' || thread?.kind === 'process')) {
     // (in the conversation this turn goes to — a project's sub-topic, lib/projectTopics.js — not the one the project stood in before)
-    projectWork = await TF.prepareProjectWork({ user, thread: turn.conv ? { ...thread, conversation_id: turn.conv } : thread }).catch((e) => { console.warn('[folders] project work', e.message); return null })
+    let seatNote = ''
+    projectWork = await TF.prepareProjectWork({ user, thread: turn.conv ? { ...thread, conversation_id: turn.conv } : thread }).catch((e) => { seatNote = TF.seatHint(e); console.warn('[folders] project work', e.message); return null })
     if (projectWork) { thread = { ...thread, conversation_id: projectWork.conv }; turn.setConv(projectWork.conv); text += projectWork.note }
+    // (the project's working copy is on the person's PC or elsewhere: the turn reads, and says where it is — lib/folders/seats.js)
+    else if (seatNote) text += seatNote
     else {
       const ref = await TF.linkOf(threadId).catch(() => null)
       const hint = ref ? await TF.refHint(ref).catch(() => '') : ''

@@ -280,7 +280,7 @@ export async function prepare(job, link = null) {
   let line = c.line || folder.default_branch
   // a project's variation that was merged (반영) or dropped meanwhile: the project's live one now
   if (c.mode === 'project' && c.variation) {
-    const v = await S.variationById(c.variation)
+    let v = await S.variationById(c.variation)
     if (!v || !['open', 'ready', 'conflicted'].includes(v.status)) {
       const [thread] = await q('select * from pro_threads where id=$1', [job.thread_id])
       const TF = await import('../folders/threadFolders.js')
@@ -288,7 +288,16 @@ export async function prepare(job, link = null) {
       if (!lk || lk.mode !== 'project') throw new Error('the project no longer works in this folder')
       const { v: nv } = await TF.ensureProjectVariation({ id: String(job.user_id), name: job.person_name || '' }, thread, lk)
       line = nv.branch
+      v = nv
       await q(`update pro_local_jobs set chat = chat || jsonb_build_object('line', $2::text, 'variation', $3::text) where id=$1`, [job.id, nv.branch, nv.id])
+    }
+    // One working copy per variation (folders/seats.js): this computer takes the project variation's seat for the run — the person's own
+    // server workroom gives it up (saved as it is), a server agent's running turn or another place refuses it (the run then says why and
+    // offers 「기본으로 다시 보내기」). The seat goes when the run ends (note).
+    if (link?.id) {
+      const seat = await (await import('../folders/seats.js')).claimDevice(folder, v, { user: { id: String(job.user_id), name: job.person_name || '' }, device: link.id, job: job.id })
+      // (the run remembers it had a seat: what it pushes after losing it is not brought in — bringIn)
+      if (!seat.legacy) await q(`update pro_local_jobs set chat = coalesce(chat, '{}'::jsonb) || jsonb_build_object('seat', $2::int) where id=$1`, [job.id, seat.epoch])
     }
   }
   const base = await G.branchExists(folder.repo_path, line) ? line : folder.default_branch
@@ -341,6 +350,14 @@ async function bringIn(job, branch) {
   }
   const v = await S.variationById(c.variation)
   if (!v) return { folder, head, conflicted: true }
+  // one working copy per variation (folders/seats.js): a run that no longer holds the variation's seat (its person took it back, it moved)
+  // brings nothing into it — what it pushed becomes a variation of its own, 「… — <PC>에 남아 있던 변경」 (never thrown away, never mixed in)
+  const SE = await import('../folders/seats.js')
+  const holds = await SE.jobHolds(v.id, job.id)
+  if (holds === false || (holds === null && c.seat != null)) {
+    const left = await SE.leftover(folder, v, head, { user: String(job.user_id), where: job.device_name || '' }).catch((e) => { console.warn('[local-agents] chat leftover', e.message); return null })
+    return { folder, head, conflicted: true, leftover: left?.id || null }
+  }
   let now = null
   if (v.worktree_path && fs.existsSync(v.worktree_path)) {
     // (checked out — a server agent turn of the project has it open): merged there, so its worktree follows
@@ -354,6 +371,7 @@ async function bringIn(job, branch) {
     now = await advanceLine(folder, v.branch, head, { record: false })
   }
   await q(`update pro_folder_variations set head_commit=$2, status=case when status='open' then 'ready' else status end, updated_at=now() where id=$1`, [v.id, now])
+  if (holds) await SE.pushed(v.id, now)
   await S.touch(folder)
   const after = await S.variationById(v.id)
   import('../folders/indexer.js').then((x) => x.changeCard(folder, after)).catch(() => {})
@@ -533,6 +551,8 @@ export async function cardFor(user, job) { return cardOf(job, { worker: String(j
 // the card follows the run: its message in the chat (the sender's), and the card itself to whoever has it on screen
 export async function note(job, what) {
   if (what === 'link-lost') job = { ...job, why: 'link-lost' }
+  // a run that ended gives back the project variation's seat it held (folders/seats.js) — after its last push came in (complete)
+  if (['done', 'failed', 'cancelled', 'delegated'].includes(job.state)) await import('../folders/seats.js').then((x) => x.releaseJob(job)).catch((e) => console.warn('[local-agents] chat seat', e.message))
   const u = String(job.user_id)
   await withLang(await langOf(u).catch(() => 'ko'), async () => {
     const content = cardOf(job, { worker: true })

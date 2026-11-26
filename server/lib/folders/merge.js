@@ -14,6 +14,7 @@ import { L } from '../lang.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { afterMerge } from './skills.js'
 import { assertNoLink } from '../noLinks.js'
+import * as SE from './seats.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 const intDir = (folder, id) => path.join(S.foldersRoot(), '.integrate', folder.slug, id)
@@ -24,9 +25,17 @@ export async function get(folder, id) {
   return r
 }
 
-export async function start(folder, user, ids, policy = 'stop') {
+export async function start(folder, user, ids, policy = 'stop', { role = null } = {}) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더는 아직 이 화면에서 반영하지 않아요.', "Linked folders can't be merged from this screen yet."))
   if (!ids?.length) throw err(400, L('반영할 변형을 골라 주세요.', 'Please choose the variations to merge.'))
+  // where each working copy is (folders/seats.js), for all of them before anything changes: someone else's, a computer's or a running
+  // agent's is refused — ask for it back; my own server workroom is saved as it is and put away, so what goes in is everything
+  const mine = []
+  for (const id of ids) {
+    const v = await S.variation(folder, id)
+    if (user.id && ['open', 'ready', 'conflicted'].includes(v.status) && await SE.checkMove(folder, v, user, { role })) mine.push(v)
+  }
+  for (const v of mine) await SE.closeMine(folder, v, user)
   const vs = []
   for (const id of ids) {
     const v = await S.variation(folder, id)
@@ -181,7 +190,9 @@ async function finish(folder, row, user) {
   const head = await G.head(folder.repo_path, folder.default_branch)
   for (const vid of row.variation_ids) {
     const v = await S.variationById(vid)
-    if (v.worktree_path) await S.release(folder, v)
+    // (a checkout that is still there — opened before seats, or by a path that did not ask — is saved on its branch, not thrown away)
+    if (v.worktree_path) await SE.closeServer(folder, v, { system: true, status: null, reason: L('이 변형을 반영해서 작업실을 닫았어요.', 'This variation was merged, so the workroom was closed.') })
+      .catch(async (e) => { console.warn('[folders] merge close', e.message); await S.keepWhatIsThere(folder, v.worktree_path, v.branch); await S.release(folder, v) })
     await q(`update pro_folder_variations set status='merged', updated_at=now() where id=$1`, [vid])
   }
   await G.git(folder.repo_path, ['worktree', 'remove', '--force', row.worktree_path], { check: false })

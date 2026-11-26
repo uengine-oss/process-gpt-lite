@@ -17,6 +17,7 @@ import { reindex, changeCard } from './indexer.js'
 import { rules } from './runner.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { L } from '../lang.js'
+import * as SE from './seats.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -198,10 +199,12 @@ export async function prepareProjectWork({ user, thread }) {
     conv = r?.conversation_id || (await q('select conversation_id from pro_threads where id=$1', [thread.id]))[0]?.conversation_id || fresh
   }
   const { folder, v } = await ensureProjectVariation(user, thread, link)
+  const dir = S.runCheckoutDir(conv, folder)
+  // the turn's run takes the project variation's working copy (folders/seats.js): from the person's own server workroom (saved as it is
+  // first); never from a computer that has it (a 「내 PC」 run) — that refusal (409, e.seat) goes back to the turn (seatHint)
+  await SE.openServer(folder, v, { user, run: 'agent', dir })
   await q(`update pro_folder_variations set status='open', updated_at=now() where id=$1 and status='ready'`, [v.id])
   const before = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
-  const dir = S.runCheckoutDir(conv, folder)
-  await S.checkout(folder, v, dir)
   const container = S.runCheckoutContainer(conv, folder)
   // the agent may run on another pod, with no disk in common: it gets the files from storage
   const seeded = await pushRoomDir(dir, container)
@@ -215,6 +218,17 @@ Files in this folder:
 ${listing(files) || '(no files yet)'}
 Read and change the folder's files in this working folder. ${rules()} What you change here goes into the project's variation, not the original (main); a person merges it with 「반영」 above the project. So do not say "I updated it" as if the original changed — say "I put it in the project's variation".)`)
   return { user, thread, conv, folder, v, dir, container, seeded, before, note }
+}
+
+// What the agent is told when the project's working copy is elsewhere this turn (prepareProjectWork refused with the seat): it may not
+// change the folder's files now, and says so to the person with where the working copy is
+export function seatHint(e) {
+  if (!e?.seat) return ''
+  const s = e.seat
+  const where = s.place === 'device' ? L(`${s.who?.name || ''} 님의 PC(${s.device?.name || 'PC'})`, `${s.who?.name || ''}'s PC (${s.device?.name || 'PC'})`)
+    : s.run === 'agent' ? L('다른 서버 에이전트 실행', 'another server agent run') : L(`${s.who?.name || ''} 님의 서버 작업실`, `${s.who?.name || ''}'s server workroom`)
+  return L(`\n\n(이 프로젝트의 폴더 작업본은 지금 ${where}에 있어서 이번 턴에서는 폴더의 파일을 읽기만 하고 고치거나 만들지 않아요. 파일을 바꿔야 하면 사용자에게 작업본이 ${where}에 있다고 말하고, 그쪽 작업을 끝내거나 「내 PC」 에이전트로 보내 달라고 안내하세요.)`,
+    `\n\n(This project's folder working copy is in ${where} right now, so this turn only reads the folder's files and does not change or create any. If a file needs changing, tell the user the working copy is in ${where}, and ask them to finish there or send it to the "My PC" agent.)`)
 }
 
 // After the turn: the agent's changes committed to the project's variation (it stays — no card each

@@ -478,16 +478,24 @@ export async function createVariation(folder, { title, kind = 'person', base, ho
   return v
 }
 
-// put a variation's branch on disk at `dir` (reused when it is already there)
+// put a variation's branch on disk at `dir` (reused when it is already there). Which place may have it is the seat's to say
+// (folders/seats.js openServer — the only caller besides tests); a place this takes the branch from is committed as it is first
+// (variation seats: nothing a place held is thrown away when the branch moves)
 export async function checkout(folder, v, dir) {
   const list = await G.worktrees(folder.repo_path)
   const here = list.find((w) => path.resolve(w.path) === path.resolve(dir))
   if (here && here.branch === v.branch) { await setWorktree(v, dir); return dir }
-  // the branch may be out at another place (an earlier run that was not released): free it
+  // the branch may be out at another place (an earlier run that was not released): what it holds is kept, then it is freed
   const other = list.find((w) => w.branch === v.branch)
-  if (other) await release(folder, { ...v, worktree_path: other.path }, { keep: true })
+  if (other) {
+    await keepWhatIsThere(folder, other.path, other.branch)
+    await release(folder, { ...v, worktree_path: other.path }, { keep: true })
+  }
   await fs.mkdir(path.dirname(dir), { recursive: true })
-  if (here) await G.git(folder.repo_path, ['worktree', 'remove', '--force', dir], { check: false })
+  if (here) {
+    if (here.branch) await keepWhatIsThere(folder, here.path, here.branch)
+    await G.git(folder.repo_path, ['worktree', 'remove', '--force', dir], { check: false })
+  }
   await fs.rm(dir, { recursive: true, force: true })
   await G.git(folder.repo_path, ['worktree', 'prune'])
   await G.git(folder.repo_path, ['worktree', 'add', '-q', dir, v.branch])
@@ -495,6 +503,16 @@ export async function checkout(folder, v, dir) {
   return dir
 }
 const setWorktree = (v, dir) => q('update pro_folder_variations set worktree_path=$2, locked=false, updated_at=now() where id=$1', [v.id, dir])
+// a checkout about to go off disk: what it holds is committed as it is (the author: that branch's holder), never reset or cleaned
+export async function keepWhatIsThere(folder, dir, branch) {
+  if (!dir || !branch || !(await fs.stat(dir).catch(() => null))) return null
+  const [owner] = await q('select holder_name, holder_id from pro_folder_variations where folder_id=$1 and branch=$2', [folder.id, branch]).catch(() => [])
+  const [p] = owner?.holder_id ? await q('select name, email from pro_profile where user_id::text=$1', [String(owner.holder_id)]).catch(() => []) : []
+  const sha = await G.commitAll(dir, L('작업실에서 옮김', 'Moved from the workroom'), { name: p?.name || owner?.holder_name || 'Process GPT Lite', email: p?.email || undefined })
+    .catch((e) => { console.warn('[folders] keep before moving', e.message); return null })
+  if (sha) await q('update pro_folder_variations set head_commit=$3, updated_at=now() where folder_id=$1 and branch=$2', [folder.id, branch, await G.head(folder.repo_path, `refs/heads/${branch}`)])
+  return sha
+}
 
 // commit what changed in the checkout; the variation becomes ready for review
 export async function commitVariation(folder, v, author, message) {
@@ -506,14 +524,18 @@ export async function commitVariation(folder, v, author, message) {
   return sha
 }
 
-// take the checkout off disk; the branch (the variation's content) stays
-export async function release(folder, v, { keep = false } = {}) {
+// take the checkout off disk; the branch (the variation's content) stays. Its server seat goes with it (folders/seats.js — seat: false
+// when the seat module moves the seat itself)
+export async function release(folder, v, { keep = false, seat = true } = {}) {
   if (v.worktree_path) {
     await G.git(folder.repo_path, ['worktree', 'remove', '--force', v.worktree_path], { check: false })
     await fs.rm(v.worktree_path, { recursive: true, force: true }).catch(() => {})
     await G.git(folder.repo_path, ['worktree', 'prune'], { check: false })
   }
-  if (!keep) await q('update pro_folder_variations set worktree_path=null, updated_at=now() where id=$1', [v.id])
+  if (!keep) {
+    await q('update pro_folder_variations set worktree_path=null, updated_at=now() where id=$1', [v.id])
+    if (seat) await (await import('./seats.js')).dropServer(v.id)
+  }
 }
 
 export async function variations(folder) {
@@ -547,8 +569,12 @@ export async function setStatus(v, status) {
   await q('update pro_folder_variations set status=$2, updated_at=now() where id=$1', [v.id, status])
 }
 
+// (what its checkout still held is committed first: the branch keeps it for the retention time like the rest)
 export async function discard(folder, v) {
-  if (v.worktree_path) await release(folder, v)
+  if (v.worktree_path) {
+    await keepWhatIsThere(folder, v.worktree_path, v.branch)
+    await release(folder, v)
+  }
   await setStatus(v, 'discarded')
 }
 

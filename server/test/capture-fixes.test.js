@@ -185,7 +185,9 @@ test('workroom: a terminal ticket remembers the tenant it was issued in', async 
   // (the ticket map is private: the tenant goes in with the ticket; the upgrade resolves the room in it)
   const src = await fs.readFile(new URL('../lib/workroom.js', import.meta.url), 'utf8')
   assert.match(src, /tenant: config\.tenantId, until/)
-  assert.match(src, /withTenant\(ticket\.tenant, \(\) => resolveRoom\(ticket\.kind, ticket\.id\)\)/)
+  // (and as the ticket's person: a shared folder's variation is a working copy only for the person whose server workroom it is —
+  // lib/folders/seats.js)
+  assert.match(src, /withTenant\(ticket\.tenant, \(\) => resolveRoom\(ticket\.kind, ticket\.id, \{ id: ticket\.userId \}\)\)/)
   assert.equal(typeof issueTicket(...[{ id: 'u1' }, { kind: 'folder', id: 'x' }, 'shell']), 'string')
   assert.equal(withTenant(config.defaultTenantId, () => config.tenantId), config.defaultTenantId)
 })

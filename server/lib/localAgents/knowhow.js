@@ -159,7 +159,8 @@ async function toSkill(user, job, c) {
   const v = await S.createVariation(folder, { title: L(`${job.activity_name} 로컬 실행에서 고친 점`, `Changes from a local run of ${job.activity_name}`), kind: 'person',
     holder: { type: 'user', id: user.id, name: user.name }, createdBy: user.id, source: { label: provenance(c), local_job: job.id, todo_id: String(job.todo_id) } })
   const dir = path.join(S.foldersRoot(), '.local-knowhow', `${folder.slug}-${crypto.randomBytes(3).toString('hex')}`)
-  await S.checkout(folder, v, dir)
+  // (this one change's own short-lived working copy — folders/seats.js)
+  await (await import('../folders/seats.js')).openServer(folder, v, { user, run: 'agent', dir })
   for (const f of c.skill.files) {
     const p = path.join(dir, S.safeRel(f.path))
     await fs.mkdir(path.dirname(p), { recursive: true })

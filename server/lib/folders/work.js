@@ -19,6 +19,7 @@ import { addMessage } from '../store.js'
 import { emit } from '../bus.js'
 import * as G from './git.js'
 import * as S from './service.js'
+import * as SE from './seats.js'
 import { changeCard, catalog } from './indexer.js'
 import { RULES, rules } from './runner.js'
 import * as SK from './skills.js'
@@ -95,7 +96,8 @@ export async function startChatWork({ user, folder, text, threadId }) {
     source: { label: L(`${user.name} 님의 채팅 요청`, `Chat request from ${user.name}`), room_id: room, thread_id: threadId, engine: 'deepagents', request: text.slice(0, 500) }, createdBy: user.id,
   })
   const dir = S.runCheckoutDir(room, folder)
-  await S.checkout(folder, v, dir)
+  // (the run has the new variation's working copy until it commits and releases it — folders/seats.js)
+  await SE.openServer(folder, v, { user, run: 'agent', dir })
   // the agent may run on another pod, with no disk in common: it gets the files from storage
   const seeded = await pushRoomDir(dir, S.runCheckoutContainer(room, folder))
   const [cat] = await catalog(user.id).then((c) => c.filter((x) => x.slug === folder.slug))
@@ -246,7 +248,7 @@ export async function stepOne(row) {
         const nv = await S.createVariation(folder, { title: row.activity_name || L('프로세스 단계', 'Process step'), kind: 'run', base: await baseOf(folder, row),
           holder: { type: 'agent', id: row.agent_orch || 'deepagents', name: row.activity_name || L('에이전트', 'Agent') },
           source: { label: row.activity_name, todo_id: row.id, proc_inst_id: row.proc_inst_id, room_id: room, engine: row.agent_orch || 'deepagents' } })
-        await S.checkout(folder, nv, S.runCheckoutDir(room, folder))
+        await SE.openServer(folder, nv, { user: { id: String(nv.holder_id || row.agent_orch || 'deepagents'), name: nv.holder_name }, run: 'agent', dir: S.runCheckoutDir(room, folder) })
         await seedStep(folder, nv, room, S.runCheckoutDir(room, folder)).catch((e) => console.warn('[folders] step seed', row.id, e.message))
         const note = L(`\n\n[Folder] 공유 폴더 '${folder.name}' 의 변형 ${nv.branch} 에서 작업하세요. 작업 폴더: ${S.runCheckoutContainer(room, folder)}\n${RULES}`,
           `\n\n[Folder] Work on variation ${nv.branch} of the shared folder '${folder.name}'. Working folder: ${S.runCheckoutContainer(room, folder)}\n${rules()}\n[Instruction] Write your answer, and the text of any file you create or change, in English.`)

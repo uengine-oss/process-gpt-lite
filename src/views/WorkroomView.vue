@@ -12,6 +12,9 @@ import Icon from '../components/Icon.vue'
 import DownloadButton from '../components/DownloadButton.vue'
 import WorkroomTerminal from '../components/WorkroomTerminal.vue'
 import FileView from '../components/files/FileView.vue'
+import SeatPill from '../components/folders/SeatPill.vue'
+import FIcon from '../components/folders/FIcon.vue'
+import { folders as F } from '../foldersApi.js'
 import { viewOf, fmtSize } from '../components/folders/fileKind.js'
 import { api, auth, freshToken } from '../api.js'
 import { BASE } from '../base.js'
@@ -47,6 +50,29 @@ const agentLabel = computed(() => ({ 'claude-code': 'Claude Code', deepagents: '
 const canSteer = computed(() => room.value?.agent === 'deepagents')
 // no terminal on this server for this tab (server/lib/workroom.js terminalStatus): its reason, not a terminal
 const termOff = (m) => { const t = room.value?.terminal; return !t ? '' : !t.ok ? t.reason : m === 'claude' && t.claude && !t.claude.ok ? t.claude.reason : '' }
+// a shared folder's variation: where its working copy is (its seat — server lib/folders/seats.js). Read only here unless it is my
+// server workroom; 「돌려놓기」 saves what is here as it is and puts it away, 「돌려 달라고 하기」 asks whoever has it
+const seat = computed(() => room.value?.seat || null)
+const readonly = computed(() => !!room.value?.readonly)
+const seatNote = ref('')
+const seatBusy = ref(false)
+async function seatAct(what) {
+  if (!room.value?.slug) return
+  seatBusy.value = true; seatNote.value = ''
+  try {
+    if (what === 'release') {
+      if (dirty.value && !confirm('저장하지 않은 편집이 있어요. 버리고 돌려놓을까요?')) return
+      await F.releaseSeat(room.value.slug, room.value.variation, seat.value?.epoch)
+      file.value = null; dirty.value = false
+      seatNote.value = '작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요.'
+    } else if (what === 'recall') { await F.recallSeat(room.value.slug, room.value.variation); seatNote.value = `${seat.value?.who?.name || ''} 님에게 돌려 달라고 했어요.` }
+    else if (what === 'open') { await F.openSeat(room.value.slug, room.value.variation); opened.value = { shell: false, claude: false }; termState.value = {} }
+    await load()
+  } catch (e) { seatNote.value = e.message } finally { seatBusy.value = false }
+}
+// (the server closed this terminal: the working copy moved — show where it is now)
+function moved(reason) { seatNote.value = reason; load() }
+
 async function load() {
   err.value = ''
   try { room.value = await api(base.value) }
@@ -145,7 +171,8 @@ async function sendSteer() {
     <header class="hd" :class="{ tabs: isClaude }">
       <button class="ib" title="뒤로" @click="router.back()"><Icon name="back" :size="17" /></button>
       <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : agentLabel }}</span>
-      <span v-if="room" class="chip" :title="room.cwd"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch"> · {{ room.branch }}</template></span>
+      <span v-if="room" class="chip" :title="room.cwd || room.branch"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch && room.branch !== room.folder"> · {{ room.branch }}</template></span>
+      <SeatPill v-if="seat" class="seatp" :seat="seat" dark compact />
       <span v-if="room" class="st" :class="{ on: live && !off, bad: failed || !!off }" :title="off || (failed ? termWhy[tab] : '')"><i />{{ statusText }}</span>
       <span class="ttl">{{ room?.title }}<template v-if="room?.sub"> · {{ room.sub }}</template><b v-if="room?.running" class="run"> · 실행 중</b></span>
       <span class="sp" />
@@ -153,9 +180,25 @@ async function sendSteer() {
         <button :class="{ on: tab === 'claude' }" @click="openTab('claude')">Claude Code</button>
         <button :class="{ on: tab === 'shell' }" @click="openTab('shell')">셸</button>
       </div>
+      <button v-if="seat?.can.release" class="hb" data-test="wr-release" :disabled="seatBusy" title="저장 안 한 변경까지 그대로 저장하고 작업본을 보관해요" @click="seatAct('release')"><FIcon name="archive" :size="14" /> 돌려놓기</button>
       <button v-if="room" class="hb" :class="{ on: side }" @click="side = !side"><Icon name="doc" :size="14" /> 파일</button>
     </header>
     <p v-if="err" class="err">{{ err }}</p>
+    <!-- read only: the variation's working copy is elsewhere (or put away) — what is shown is its branch as last saved -->
+    <div v-if="room && readonly" class="robar" data-test="wr-readonly" role="status">
+      <FIcon :name="seat?.place === 'device' ? 'pc' : seat?.place ? 'terminal' : 'archive'" :size="16" />
+      <span class="rt"><b>읽기 전용</b>
+        <span v-if="!seat?.place">이 변형은 보관 중이에요 — 마지막으로 저장된 내용을 보여 줘요.</span>
+        <span v-else-if="seat.state !== 'held'">작업본을 넘기는 중이에요.</span>
+        <span v-else-if="seat.place === 'server' && seat.run === 'agent'">서버 에이전트가 이 변형에서 일하는 중이에요 — 마지막으로 저장된 내용을 보여 줘요.</span>
+        <span v-else-if="seat.mine">이 변형은 내 PC 에서 작업 중이에요 — 마지막으로 올린 내용을 보여 줘요.</span>
+        <span v-else>{{ seat.who?.name }} 님이 고치는 중이에요 — 마지막으로 저장된 내용을 보여 줘요.</span>
+      </span>
+      <span class="sp" />
+      <button v-if="seat?.can.open" class="fb main" data-test="wr-open" :disabled="seatBusy" @click="seatAct('open')">내 작업실에서 열기</button>
+      <button v-if="seat?.can.recall" class="fb" data-test="wr-recall" :disabled="seatBusy" @click="seatAct('recall')">{{ seat.recall ? '다시 돌려 달라고 하기' : '돌려 달라고 하기' }}</button>
+    </div>
+    <p v-if="seatNote" class="snote" role="status">{{ seatNote }}</p>
 
     <div v-else class="body" :class="{ side }">
       <main class="main">
@@ -165,18 +208,18 @@ async function sendSteer() {
             <b class="fname">{{ file.path.split('/').pop() }}</b>
             <code class="fpath">{{ file.path }}</code>
             <span class="sp" />
-            <div v-if="viewOf(file.path) === 'markdown'" class="mini">
+            <div v-if="viewOf(file.path) === 'markdown' && !readonly" class="mini">
               <button :class="{ on: mode === 'preview' }" @click="mode = 'preview'">미리보기</button>
               <button :class="{ on: mode === 'edit' }" @click="mode = 'edit'">편집</button>
             </div>
-            <button v-if="file.content !== undefined" class="fb" :disabled="!dirty || saving" @click="save(viewer.draft)">{{ saving ? '저장 중…' : dirty ? '저장 ⌘S' : '저장됨' }}</button>
+            <button v-if="file.content !== undefined && !readonly" class="fb" :disabled="!dirty || saving" @click="save(viewer.draft)">{{ saving ? '저장 중…' : dirty ? '저장 ⌘S' : '저장됨' }}</button>
             <button v-if="isClaude" class="fb" title="Claude Code 에 이 파일을 가리켜요" @click="mention">@ Claude</button>
             <DownloadButton class="fb" :size="13" :source="downloadSource" :prepare="file.content !== undefined ? prepareDownload : null" />
             <button class="fb" @click="closeFile"><Icon name="close" :size="13" /> 터미널</button>
           </div>
           <p v-if="note" class="note">{{ note }}</p>
           <FileView ref="viewer" dark :path="file.path" :text="file.content ?? null" :url="rawUrl(file.path)" :editor-url="publish"
-            :editable="file.content !== undefined" :mode="mode" @save="save" @dirty="(d) => (dirty = d)" />
+            :editable="file.content !== undefined && !readonly" :mode="mode" @save="save" @dirty="(d) => (dirty = d)" />
         </section>
 
         <!-- the terminals stay connected while a file is open -->
@@ -184,13 +227,13 @@ async function sendSteer() {
           <template v-if="room">
             <WorkroomTerminal v-for="m in ['claude', 'shell'].filter((x) => opened[x] && !termOff(x))" v-show="tab === m" :key="m"
               :ref="(c) => (terms[m] = c)" :kind="kind" :id="id" :mode="m" :active="tab === m && !file"
-              @state="(s, why) => { termState[m] = s; termWhy[m] = why || '' }" />
+              @state="(s, why) => { termState[m] = s; termWhy[m] = why || '' }" @closed="moved" />
           </template>
           <!-- no terminal here, or it would not connect: the reason in its place (and a retry) -->
           <div v-if="off || failed" class="deny" role="alert">
             <b>{{ off ? '이 작업실에서는 터미널을 열 수 없어요' : '터미널에 연결하지 못했어요' }}</b>
             <span>{{ off || termWhy[tab] }}</span>
-            <span v-if="off" class="sub">파일은 오른쪽 「파일」에서 그대로 보고 고칠 수 있어요.</span>
+            <span v-if="off" class="sub">{{ readonly ? '파일은 오른쪽 「파일」에서 읽을 수 있어요.' : '파일은 오른쪽 「파일」에서 그대로 보고 고칠 수 있어요.' }}</span>
             <button v-else class="fb main" @click="retryTerm">다시 시도</button>
           </div>
         </div>
@@ -215,7 +258,7 @@ async function sendSteer() {
           </button>
           <p v-if="room && !room.files.length" class="empty">아직 파일이 없어요.</p>
         </div>
-        <p class="tip">파일을 누르면 터미널 자리에서 열려요. 고친 내용은 에이전트가 다음에 읽을 때 그대로 반영돼요.</p>
+        <p class="tip">{{ readonly ? '읽기 전용이에요 — 이 변형이 마지막으로 저장된 내용이에요.' : '파일을 누르면 터미널 자리에서 열려요. 고친 내용은 에이전트가 다음에 읽을 때 그대로 반영돼요.' }}</p>
       </aside>
     </div>
   </div>
@@ -239,6 +282,11 @@ async function sendSteer() {
 .hb { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2f3440; color: #aeb3bf; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; flex: none; }
 .hb.on { border-color: #4b5bd6; background: #23284a; color: #c8d1ff; }
 .err { margin: 40px auto; color: #f87171; }
+.seatp { flex: none; max-width: 30vw; }
+.robar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid #2b2f3a; background: #22263a; color: #c3c8d2; font-size: 13px; flex: none; }
+.robar > svg { flex: none; color: #c3a8ff; }
+.robar .rt { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1 1 240px; } .robar .rt b { color: #f0f1f4; }
+.snote { margin: 0; padding: 6px 14px; font-size: 12.5px; color: #8ab4ff; background: #20253a; flex: none; }
 .body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr; }
 .body.side { grid-template-columns: 1fr 360px; }
 .main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
@@ -255,6 +303,8 @@ async function sendSteer() {
 .mini { display: flex; border: 1px solid #2f3440; border-radius: 7px; overflow: hidden; }
 .mini button { height: 28px; padding: 0 11px; font-size: 12.5px; color: #aeb3bf; } .mini button.on { background: #2f3550; color: #c8d1ff; }
 .fb { height: 30px; padding: 0 11px; border-radius: 7px; border: 1px solid #2f3440; color: #c3c8d2; font-size: 12.5px; display: inline-flex; align-items: center; gap: 5px; text-decoration: none; white-space: nowrap; }
+/* (a button that is also .main — the column layout's class — stays a row: its words centred) */
+.fb.main { display: inline-flex; flex-direction: row; min-height: 30px; }
 .fb:hover { background: #262a34; } .fb:disabled { opacity: .45; } .fb.main { background: #3b4bd1; border-color: #3b4bd1; color: #fff; }
 .note { margin: 0; padding: 6px 14px; font-size: 12.5px; color: #8ab4ff; background: #20253a; }
 .steer { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid #2b2f3a; flex-wrap: wrap; flex: none; }
@@ -275,6 +325,7 @@ async function sendSteer() {
 .tip { margin: 0; padding: 12px 16px; border-top: 1px solid #2b2f3a; color: #7d8390; font-size: 12px; line-height: 1.55; }
 @media (max-width: 900px) {
   .body.side { grid-template-columns: 1fr; }
+  .seatp { max-width: 46vw; }
   .files { position: fixed; top: 48px; right: 0; bottom: 0; width: min(360px, 92vw); z-index: 2; box-shadow: -10px 0 30px rgba(0, 0, 0, .4); }
   .ttl, .chip { display: none; }
 }
