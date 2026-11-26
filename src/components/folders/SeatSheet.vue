@@ -23,9 +23,10 @@ const busy = ref(null)         // {vid, what}
 const err = ref('')
 const title = ref('')
 const first = ref(null)
-// files of the variation that run things by themselves once on this PC (hooks · MCP · .envrc · VS Code tasks · Windows shell files), last
-// changed by someone else: said before it comes here — 「그래도 열기」 goes on, nothing is blocked (spec variation-seats)
-const trust = ref(null) // {v, files}
+// files of the variation that run things by themselves once on this PC (hooks · MCP · .envrc · VS Code tasks · Windows shell files): every
+// one said before it comes here, with the name its commit gives (anyone can write any name in a commit — not who it really was). A check
+// that could not be made is said as such, never taken for 「nothing there」. 「그래도 열기」 goes on, nothing is blocked (spec variation-seats)
+const trust = ref(null) // {v, files, more, failed}
 
 const desktop = inDesktop()
 const old = oldDesktop()
@@ -64,8 +65,9 @@ async function onPc(v, { anyway = false } = {}) {
   busy.value = { vid: v.id, what: 'pc' }
   try {
     if (!anyway) {
-      const t = await F.seatTrust(props.slug, v.id).catch(() => null)
-      if (t?.warn && t.files?.length) { trust.value = { v, files: t.files }; return }
+      const t = await F.seatTrust(props.slug, v.id).catch(() => ({ failed: true }))
+      if (t?.failed || !Array.isArray(t?.files)) { trust.value = { v, files: [], more: 0, failed: true }; return }
+      if (t.files.length) { trust.value = { v, files: t.files, more: t.more || 0 }; return }
     }
     trust.value = null
     dev.value = await thisDevice()
@@ -121,11 +123,19 @@ const working = (v, what) => busy.value?.vid === v.id && busy.value.what === wha
 
         <!-- before it comes to this PC: what would run by itself there, and who put it (plain text only) -->
         <div v-if="trust" class="trust" data-test="seat-trust" role="alert">
-          <b>이 작업본에는 저절로 실행될 수 있는 설정이 있어요</b>
-          <small>이 PC 의 터미널에서 Claude Code · Codex · 편집기를 열면 아래 파일이 명령을 실행할 수 있어요. 누가 넣었는지 확인한 뒤에 여세요.</small>
-          <ul>
-            <li v-for="f in trust.files" :key="f.path"><code>{{ f.path }}</code><span>{{ TRUST[f.reason] || f.reason }}</span><span class="by">{{ f.mine ? '내가 바꿈' : `${f.by?.name || '알 수 없음'} 님이 바꿈` }}</span></li>
-          </ul>
+          <template v-if="trust.failed">
+            <b>저절로 실행되는 설정이 있는지 확인하지 못했어요</b>
+            <small>서버에 묻지 못했어요. 이 변형에 훅 · MCP 서버 같은 설정이 있을 수 있어요 — 폴더의 파일을 확인한 뒤에 여세요.</small>
+          </template>
+          <template v-else>
+            <b>이 작업본에는 저절로 실행될 수 있는 설정이 있어요</b>
+            <small>이 PC 의 터미널에서 Claude Code · Codex · 편집기를 열면 아래 파일이 명령을 실행할 수 있어요.</small>
+            <small>누가 바꿨는지 확인할 수 없어요 — 커밋에 적힌 이름은 누구나 적을 수 있어요. 내용을 확인한 뒤에 여세요.</small>
+            <ul>
+              <li v-for="f in trust.files" :key="f.path"><code>{{ f.path }}</code><span>{{ TRUST[f.reason] || f.reason }}</span><span v-if="f.author" class="by">{{ `커밋에 적힌 이름 · ${f.author}` }}</span></li>
+            </ul>
+            <small v-if="trust.more">{{ `그 밖에 ${trust.more}개` }}</small>
+          </template>
           <div class="tacts">
             <button class="pill-btn" data-test="seat-trust-cancel" @click="trust = null">취소</button>
             <button class="dark-btn" data-test="seat-trust-open" :disabled="!!busy" @click="onPc(trust.v, { anyway: true })">그래도 열기</button>

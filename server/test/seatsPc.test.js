@@ -390,6 +390,13 @@ test('WL-P-07 남은 변경: 자리를 잃은 PC 의 것은 새 변형으로 —
   assert.match(await fileOn(f, nv.branch, '안내문.md'), /꺼진 사이에 고친 것/)
   assert.doesNotMatch(await fileOn(f, v.branch, '안내문.md'), /꺼진 사이에/, '원래 변형에는 섞이지 않는다')
   assert.equal(await G.head(f.repo_path, `refs/heads/${lt.branch}`), null, '남은 변경 가지는 새 변형 가지로 옮기고 지운다')
+  // the same leftover said again (its PC could not move the copy aside and tries once more): the same variation, not a second one
+  const lt3 = await say(pc.L, { type: 'seat:token', variation: v.id, epoch: pc.epoch, for: 'left' }, ['seat:token'])
+  assert.equal((await git(pc.dir, ['push', '-q', remote(f), `HEAD:refs/heads/${lt3.branch}`], lt3.token)).code, 0)
+  const again2 = await say(pc.L, { type: 'seat:left', variation: v.id, head: later }, ['seat:left-taken', 'seat:refused'])
+  assert.equal(again2.newVariation?.id, got.newVariation.id, '같은 남은 변경은 같은 변형')
+  const imported = await q(`select id from pro_folder_variations where folder_id=$1 and kind='imported' and source->>'left_of'=$2`, [f.id, v.id])
+  assert.equal(imported.length, 1)
   // nothing beyond the variation: no new variation
   const v2 = await personVar(f, owner, '그대로')
   const pc2 = await onPc(f, v2, d)
@@ -435,21 +442,42 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
   await S.upload(f, mate, 'desktop.ini', Buffer.from('[.ShellClassInfo]\n'))
   const v = await personVar(f, owner, '설정 보기')
   const t = await T.trustOf(await S.folderById(f.id), await S.variationById(v.id), owner)
-  const got = t.files.map((x) => [x.path, x.reason, x.by?.name, x.mine])
+  const got = t.files.map((x) => [x.path, x.reason, x.author])
   assert.deepEqual(got.sort(), [
-    ['.claude/settings.json', 'hooks', '김동료', false],
-    ['.envrc', 'envrc', '김동료', false],
-    ['.mcp.json', 'mcp', '김동료', false],
-    ['.vscode/tasks.json', 'tasks', '김동료', false],
-    ['desktop.ini', 'shell', '김동료', false],
-    ['문서/바로 가기.url', 'shell', '김동료', false],
+    ['.claude/settings.json', 'hooks', '김동료'],
+    ['.envrc', 'envrc', '김동료'],
+    ['.mcp.json', 'mcp', '김동료'],
+    ['.vscode/tasks.json', 'tasks', '김동료'],
+    ['desktop.ini', 'shell', '김동료'],
+    ['문서/바로 가기.url', 'shell', '김동료'],
   ].sort(), '훅이 없는 settings.local.json 은 아니다')
-  assert.equal(t.warn, true, '다른 사람이 바꾼 것이 있으면 알린다')
-  const quiet = await folderWith('내 설정만')
-  await S.upload(quiet, owner, '.mcp.json', Buffer.from('{}\n'))
-  const qv = await personVar(quiet, owner, '내 것')
+  assert.equal(t.warn, true)
+  assert.equal(t.verified, false, '커밋에 적힌 이름은 누구든 적을 수 있다 — 확인한 사람이라고 하지 않는다')
+  // a commit that names me (anyone can write any name in a commit): still listed and still warned about (review 11-26 2nd #3)
+  const quiet = await folderWith('내 이름으로 적힌 설정')
+  await S.upload(quiet, { ...mate, name: owner.name, email: owner.email }, '.mcp.json', Buffer.from('{}\n'))
+  const qv = await personVar(quiet, owner, '내 것처럼 보임')
   const t2 = await T.trustOf(await S.folderById(quiet.id), await S.variationById(qv.id), owner)
-  assert.deepEqual([t2.files.length, t2.warn], [1, false], '내가 둔 것만이면 알리지 않는다(목록은 준다)')
+  assert.deepEqual([t2.files.length, t2.warn], [1, true], '이름이 나여도 알린다')
+  // many settings files: their contents are read in one batch, and only so many
+  const many = await folderWith('설정 많음')
+  for (let i = 0; i < 70; i++) await S.upload(many, mate, `p${i}/.claude/settings.json`, Buffer.from('{"hooks":{"Stop":[]}}\n'))
+  const mv = await personVar(many, owner, '많음')
+  const t3 = await T.trustOf(await S.folderById(many.id), await S.variationById(mv.id), owner)
+  assert.ok(t3.files.length <= 50 && t3.more > 0, '목록은 50개까지, 나머지는 수로')
+})
+
+test('WL-P-11 자리 목록과 준비에는 서버의 시각이 실린다(PC 가 늦게 온 옛 목록을 가린다)', { skip: !db && 'no database' }, async () => {
+  const f = await folderWith('시각')
+  const v = await personVar(f, owner, '시각')
+  const d = await device(owner, '시각 PC')
+  const L = linkOf(d)
+  const out = await SE.claimDevice(f, v, { user: owner, device: d.id, ready: false })
+  await SL.prepare(L, f, await S.variationById(v.id), { epoch: out.epoch })
+  await SL.linkOn(L)
+  const prep = L.last('seat:prepare')
+  const list = L.last('seat:list')
+  assert.ok(Number.isFinite(prep.at) && Number.isFinite(list.at) && list.at >= prep.at, `${prep.at} ${list.at}`)
 })
 
 test('WL-P-08 설정에서 기기 연결을 끊으면 그 기기의 작업본 자리는 보관 중 — 채팅 실행의 자리 · 다른 기기의 자리는 그대로', { skip: !db && 'no database' }, async () => {

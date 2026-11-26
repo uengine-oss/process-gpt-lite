@@ -69,6 +69,12 @@ const git = (repo, ...a) => execFileSync('git', a, { cwd: repo }).toString()
 const repoOf = async () => (await q('select repo_path from pro_folders where tenant_id=$1 and slug=$2', [TENANT, slug]))[0].repo_path
 const branchOf = async (id) => (await q('select branch from pro_folder_variations where id=$1', [id]))[0].branch
 const filesOn = async (id) => git(await repoOf(), 'ls-tree', '-r', '--name-only', '-z', await branchOf(id)).split('\0').filter(Boolean)
+// the app's trash for working copies: beside them, <app data>/local-agents/folders/<server>/<person>/trash
+function trashDir() {
+  const base = path.join(APPDATA, 'local-agents', 'folders')
+  for (const s of fs.readdirSync(base)) for (const p of fs.readdirSync(path.join(base, s))) if (p.startsWith('u-')) return path.join(base, s, p, 'trash')
+  return null
+}
 // the working copies the app made: <app data>/local-agents/folders/<server>/<person>/<folder8>/wt/<variation8>-<title>
 function workingCopies() {
   const out = []
@@ -206,7 +212,7 @@ test('F-WL-10 앱에서 「작업실」 → 「이 PC 에서 작업」(기본) �
   // 「휴지통」: the app's trash for working copies, opened by main (the page never learns where it is)
   await bar.locator('[data-test=pc-trash]').click()
   await waitFor(async () => (await app.evaluate(() => global.__pglRevealed || [])).length === 2, 10000, 'trash opened')
-  expect((await app.evaluate(() => global.__pglRevealed))[1]).toBe(path.join(APPDATA, 'local-agents', 'trash'))
+  expect((await app.evaluate(() => global.__pglRevealed))[1]).toBe(trashDir())
   await shot(page, 'f-wl-10-workroom-this-pc-light')
   await look({ theme: 'dark' })
   await expect(page.locator('[data-test=pc-bar]')).toBeVisible({ timeout: 20000 })
@@ -270,7 +276,7 @@ test('F-WL-12 「돌려놓기」 → 보관 중 · 작업 트리 없음 · .env 
   expect(workingCopies()).toEqual([])
   expect(fs.existsSync(wt)).toBe(false)
   // what git did not carry: in the app's trash, not thrown away
-  const trash = path.join(APPDATA, 'local-agents', 'trash')
+  const trash = trashDir()
   const kept = fs.readdirSync(trash).map((d) => path.join(trash, d, '.env')).filter((f) => fs.existsSync(f))
   expect(kept).toHaveLength(1)
   expect(await filesOn(vid)).not.toContain('.env')
@@ -368,7 +374,9 @@ test('F-WL-15 남이 넣은 실행 설정이 든 변형: 시트가 파일과 바
   await expect(warn).toBeVisible({ timeout: 20000 })
   await expect(warn).toContainText('.mcp.json')
   await expect(warn).toContainText('MCP 서버')
-  await expect(warn).toContainText('박동료 님이 바꿈')
+  // (the name is only what the commit says — anyone can write any name there)
+  await expect(warn).toContainText('커밋에 적힌 이름 · 박동료')
+  await expect(warn).toContainText('누가 바꿨는지 확인할 수 없어요')
   // nothing came to this PC yet
   expect(workingCopies()).toEqual([])
   await shot(page, 'f-wl-15-trust-light')
@@ -378,6 +386,13 @@ test('F-WL-15 남이 넣은 실행 설정이 든 변형: 시트가 파일과 바
   await expect(page.locator('[data-test=seat-trust]')).toBeVisible({ timeout: 20000 })
   await noSideways(page)
   await shot(page, 'f-wl-15-trust-390-dark')
+  // a check that could not be made is a warning too — never 「nothing there」 (review 2nd #3)
+  await page.locator('[data-test=seat-trust-cancel]').click()
+  await page.route('**/trust', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' }))
+  await page.locator('[data-test=seat-sheet-pc]').click()
+  await expect(page.locator('[data-test=seat-trust]')).toContainText('확인하지 못했어요', { timeout: 20000 })
+  expect(workingCopies()).toEqual([])
+  await page.unroute('**/trust')
   await page.locator('[data-test=seat-trust-open]').click()
   await page.waitForURL(new RegExp(`/workroom/variation/${v2}`), { timeout: 60000 })
   await expect(page.locator('[data-test=pc-bar]')).toBeVisible({ timeout: 20000 })

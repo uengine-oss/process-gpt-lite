@@ -27,7 +27,7 @@ const fsp = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
-const { spawn } = require('node:child_process')
+const { spawn, execFile } = require('node:child_process')
 const G = require('./git')
 const SY = require('./sync')
 const { Uploader } = require('./upload')
@@ -45,6 +45,13 @@ const TRASH_DAYS = 30
 const TRASH_MAX_MB = 2048
 const TRASH_EVERY_MS = 6 * 3600_000
 const PREPARE_BEAT_MS = 30_000
+// what a trash folder holds (the end of its name): given · gone — a working copy the server has everything of (only what this PC alone had
+// is left in it); left — changes let go that never reached the server; orphan · unfinished — a folder found with no record, a copy that never
+// finished. Only given and gone are emptied early when the trash is over its size; the others always stay their 30 days.
+const EVICTABLE = new Set(['given', 'gone'])
+const CASELESS = process.platform === 'darwin' || process.platform === 'win32'
+// two names that are one file on this computer (a Mac shows an NFD Hangul name composed; macOS · Windows do not tell case apart)
+const fold = (p) => { const n = String(p).normalize('NFC'); return CASELESS ? n.toLowerCase() : n }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const CONTROL = new Set(['.gitmodules', '.lfsconfig'])
 // the commits the app makes (their author is the person; no machine name in them)
@@ -69,7 +76,10 @@ const day = (d = new Date()) => `${d.getFullYear()}${String(d.getMonth() + 1).pa
 // the only subcommands run here: none rewrites the working tree the person works in (no reset · clean · checkout · restore · stash · rebase
 // · merge · switch · pull); `worktree` only adds, removes or lists one of the app's own
 const ALLOWED = new Set(['init', 'config', 'fetch', 'worktree', 'add', 'commit', 'rev-parse', 'rev-list', 'status', 'push', 'update-ref', 'update-index',
-  'symbolic-ref', 'ls-files', 'ls-tree', 'diff'])
+  'symbolic-ref', 'ls-files', 'ls-tree', 'diff', 'diff-index'])
+// of the person's own git settings, only what reaching their server needs is taken (git config --get-urlmatch http <server>): a proxy and
+// the certificates a company network puts in front of it — everything else stays cut off
+const NET_KEYS = /^http\.(proxy|sslcainfo|sslcapath|sslbackend|schannel[a-z]*)$/i
 const WORKTREE = new Set(['add', 'remove', 'prune', 'list'])
 let tap = null
 const setTap = (fn) => { tap = fn }
@@ -94,11 +104,11 @@ const NO_CONFIG = process.platform === 'win32' ? 'NUL' : '/dev/null'
 // A call in a working copy (cwd, no gitDir) never looks for a repository above it: GIT_CEILING_DIRECTORIES is the folder the working copies
 // sit in, so a working copy whose .git went missing makes git fail — never find the person's own repository further up (a dotfiles one at
 // ~) and commit there.
-function wcGit(args, { gitDir = null, cwd, hooks, token = '', url = '', input = null, env = {}, timeout = LOCAL_MS, check = true, ceiling = null } = {}) {
+function wcGit(args, { gitDir = null, cwd, hooks, token = '', url = '', input = null, env = {}, timeout = LOCAL_MS, check = true, ceiling = null, net = [] } = {}) {
   const sub = args[0]
   if (!ALLOWED.has(sub) || (sub === 'worktree' && !WORKTREE.has(args[1]))) return Promise.reject(new G.GitError(`git ${sub}${sub === 'worktree' ? ` ${args[1]}` : ''} is not used on a working copy`))
   const full = [...(gitDir ? [`--git-dir=${gitDir}`] : []), ...args]
-  const pairs = quietPairs(hooks)
+  const pairs = [...quietPairs(hooks), ...net.filter(([k]) => NET_KEYS.test(k))]
   const fenced = { GIT_CONFIG_GLOBAL: NO_CONFIG, GIT_CONFIG_NOSYSTEM: '1', ...(ceiling || (cwd && !gitDir) ? { GIT_CEILING_DIRECTORIES: ceiling || path.dirname(path.resolve(cwd)) } : {}) }
   try { tap?.({ sub, args: full, gitDir, cwd, env: { ...fenced }, config: Object.fromEntries(pairs) }) } catch { /* tests */ }
   const e = { ...baseEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C', ...fenced, ...G.authEnv(token, pairs, url), ...env }
@@ -256,10 +266,15 @@ class TurnHub {
       return size >= META_BYTES ? false : null
     } finally { fs.closeSync(fd) }
   }
-  pollCodex() {
-    if (!this.codexHome || !this.watchers.size) return
+  pollCodex(force = false) {
+    if (!this.codexHome || (!force && !this.watchers.size)) return
+    const files = this.rollouts()
+    // (what it knew of rollouts that are no longer looked at — older than a day, gone — is forgotten)
+    const now = new Set(files)
+    for (const k of [...this.codexFiles.keys()]) if (!now.has(k)) this.codexFiles.delete(k)
+    if (!this.watchers.size) return
     const byDir = new Map([...this.watchers.values()].map((t) => [t.dir, t]))
-    for (const file of this.rollouts()) {
+    for (const file of files) {
       let f = this.codexFiles.get(file)
       if (f?.kind === 'other') continue
       const size = sizeOf(file)
@@ -296,7 +311,12 @@ class WorkingCopies extends Uploader {
     this.userId = String(userId || '')
     this.dataDir = path.resolve(dataDir)
     this.root = path.join(this.dataDir, 'folders', SY.serverKey(this.server), SY.personKey(this.userId))
-    this.trashRoot = path.join(this.dataDir, 'trash')
+    // (the trash sits beside the working copies, under the same folder: moving one there is a rename on the same disk)
+    this.trashRoot = path.join(this.root, 'trash')
+    this.oldTrash = path.join(this.dataDir, 'trash') // (where an earlier 0.2.6 build put it: only emptied after its 30 days)
+    this.netCache = new Map() // server address → {at, pairs}
+    this.prepAt = new Map() // variation → the server's time on the seat:prepare this computer last had
+    this.lastListAt = 0
     this.hooks = path.join(this.root, 'no-hooks')
     this.store = store
     this.deviceName = String(device?.name || '')
@@ -321,9 +341,10 @@ class WorkingCopies extends Uploader {
     this.failed = new Map() // variation → {why, at}: a prepare that did not make it (open() says so)
     this.other = false
     this.scan = null
-    this.cleanTrash()
-    // (the trash is emptied of what is older than 30 days, or over its size, now and every few hours)
-    this.trashTimer = setInterval(() => this.cleanTrash(), TRASH_EVERY_MS)
+    // (the trash is emptied of what is older than 30 days, or over its size, now and every few hours — never in the way of anything else)
+    const clean = () => this.cleanTrash().catch((err) => this.log(`[seats] trash ${err.message}`))
+    setImmediate(clean)
+    this.trashTimer = setInterval(clean, TRASH_EVERY_MS)
     this.trashTimer.unref?.()
     // (what was being worked on when the app closed: watched again at once — a save point while the link is down waits for it)
     for (const e of this.store.all()) if (['held', 'blocked'].includes(e.state) && e.dir && fs.existsSync(e.dir)) this.watchOne(e)
@@ -345,7 +366,28 @@ class WorkingCopies extends Uploader {
   // the working copy's folder (main opens it in Finder · a terminal; the page never learns it)
   pathOf(vid) { const e = this.get(vid); return e?.dir && this.inside(e.dir) && fs.existsSync(e.dir) ? e.dir : null }
   inside(dir) { return isInside(path.resolve(dir), this.root) }
-  git(args, o = {}) { return wcGit(args, { hooks: this.hooks, ...o }) }
+  async git(args, o = {}) {
+    const net = o.url ? await this.netConfig(o.url) : []
+    return wcGit(args, { hooks: this.hooks, ...o, net })
+  }
+  // the person's proxy and certificate settings for this address (git config --get-urlmatch http <url> — their system and global settings,
+  // nothing of any repository), kept for a few minutes → [[key, value]]
+  netConfig(url) {
+    const key = String(url || '')
+    const hit = this.netCache.get(key)
+    if (hit && Date.now() - hit.at < 5 * 60_000) return Promise.resolve(hit.pairs)
+    const env = {}
+    for (const [k, v] of Object.entries(process.env)) if (!/^GIT_(DIR|WORK_TREE|INDEX_FILE|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+|CONFIG_PARAMETERS|CEILING_DIRECTORIES)$/.test(k)) env[k] = v
+    env.GIT_CEILING_DIRECTORIES = os.tmpdir()
+    return new Promise((resolve) => {
+      execFile(G.gitPath(), ['config', '--get-urlmatch', 'http', key], { cwd: os.tmpdir(), env, timeout: 5000, windowsHide: true }, (err, stdout) => {
+        const pairs = String(err ? '' : stdout).split('\n').map((l) => { const i = l.indexOf(' '); return i > 0 ? [l.slice(0, i), l.slice(i + 1).trim()] : null })
+          .filter((x) => x && NET_KEYS.test(x[0]) && x[1])
+        this.netCache.set(key, { at: Date.now(), pairs })
+        resolve(pairs)
+      })
+    })
+  }
 
   // ---------- the link ----------
   linkUp(user) {
@@ -371,7 +413,7 @@ class WorkingCopies extends Uploader {
     const vid = String(msg?.variation || '')
     const bad = (e) => this.log(`[seats] ${msg.type} ${var8(vid)}: ${e.message}`)
     switch (msg.type) {
-      case 'seat:list': this.reconcile(msg.seats).catch(bad); return
+      case 'seat:list': this.reconcile(msg.seats, Number(msg.at) || 0).catch(bad); return
       case 'seat:prepare': this.prepare(msg).catch(bad); return
       case 'seat:save': if (this.get(vid)) this.round(vid, 'asked').catch(bad); return
       case 'seat:recall': {
@@ -447,10 +489,31 @@ class WorkingCopies extends Uploader {
     if (realOf(top) !== realOf(e.dir) || realOf(abs) !== realOf(this.repoOf(e))) throw new G.GitError('the working copy is not one of the app\'s')
   }
   // a working copy that was added completely: the app's own, clean, at the head it was given
+  // (the index against HEAD — not a clean tree: on a Mac a file stored with a decomposed Hangul name, or two names that differ only in case,
+  // show as changed right after checkout without anything being wrong)
   async checkAdded(e, tip) {
     await this.checkCopy(e)
-    if (split0(await this.git(['status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd: e.dir })).length) throw new G.GitError('the working copy was not added cleanly')
+    await this.git(['diff-index', '--cached', '--quiet', 'HEAD'], { cwd: e.dir })
     if (tip && (await this.headOf(e)) !== tip) throw new G.GitError('the working copy is not at the head it was given')
+  }
+  // HEAD's paths by the name this computer sees them under: {head: Map(path → {mode, sha}), byKey: Map(fold → [paths]), ambiguous: Set(path)}
+  async aliasesOf(e) {
+    const head = new Map()
+    for (const l of split0(await this.git(['ls-tree', '-r', '-z', 'HEAD'], { cwd: e.dir }))) {
+      const tab = l.indexOf('\t')
+      const [mode, , sha] = l.slice(0, tab).split(' ')
+      head.set(l.slice(tab + 1), { mode, sha })
+    }
+    const byKey = new Map()
+    for (const p of head.keys()) { const k = fold(p); byKey.set(k, [...(byKey.get(k) || []), p]) }
+    const ambiguous = new Set([...byKey.values()].filter((ps) => ps.length > 1).flat())
+    return { head, byKey, ambiguous }
+  }
+  // a path git reports that is only another name of a tracked file (or one of a tracked pair this computer cannot tell apart)
+  aliasOf(a, p, code) {
+    if (a.ambiguous.has(p)) return true
+    if (code === '??' || code === 'A') return (a.byKey.get(fold(p)) || []).some((t) => t !== p)
+    return false
   }
 
   // ---------- seat:prepare ----------
@@ -465,6 +528,7 @@ class WorkingCopies extends Uploader {
     const had = this.get(vid)
     if (had && Number(had.epoch) > epoch) { this.log(`[seats] ${var8(vid)}: prepare for epoch ${epoch} refused — this computer has ${had.epoch}`); return { ok: false, why: 'stale' } }
     this.failed.delete(vid)
+    if (Number(m.at)) this.prepAt.set(vid, Number(m.at))
     return this.locked(vid, async () => {
       let e = this.get(vid)
       if (e && Number(e.epoch) > epoch) return { ok: false, why: 'stale' }
@@ -488,8 +552,6 @@ class WorkingCopies extends Uploader {
       const dir = this.placeFor(folderId, vid, m.title)
       e = { variationId: vid, folderId, folderName: String(m.folderName || '').slice(0, 120), title: String(m.title || '').slice(0, 120), branch: String(m.branch), dir,
         epoch, head: null, pushedAt: null, autoSave: m.autoSave !== false, state: 'preparing', why: null, dirty: 0, ahead: 0, branchOk: true, flagged: 0, person, added: false }
-      // (a folder at that place with no record of it — left behind by an older app, a crash: never reused, never mixed in — to the trash)
-      if (fs.existsSync(dir)) await this.aside({ ...e }, 'orphan')
       this.put(e)
       // (a large folder's first fetch takes longer than a move may: the server hears that this computer is still at it)
       const beat = () => this.send({ type: 'seat:preparing', variation: vid, epoch })
@@ -498,6 +560,9 @@ class WorkingCopies extends Uploader {
       beating.unref?.()
       let made = false
       try {
+        // (a folder at that place with no record of it — left behind by an older app, a crash: never reused, never mixed in — to the trash;
+        // one that cannot be moved fails this prepare out loud)
+        if (fs.existsSync(dir)) await this.aside({ ...e }, 'orphan')
         const url = this.urlOf(m)
         const repo = await this.ensureRepo(folderId, person)
         const ref = `refs/remotes/lite/${vid}`
@@ -516,7 +581,7 @@ class WorkingCopies extends Uploader {
         this.log(`[seats] ${var8(vid)}: prepare failed — ${err.message}`)
         this.send({ type: 'seat:failed', variation: vid, epoch, why: 'git' })
         // (what was made of it goes to the trash — nothing of the person's is in a copy that never became ready)
-        if (made && fs.existsSync(dir)) await this.aside(e, 'unfinished').catch((x) => this.log(`[seats] ${x.message}`))
+        if (made && fs.existsSync(dir) && this.inside(dir)) await this.aside(e, 'unfinished').catch((x) => this.log(`[seats] ${x.message}`))
         this.drop(vid)
         this.fail(vid, 'failed')
         return { ok: false, why: 'failed' }
@@ -573,7 +638,9 @@ class WorkingCopies extends Uploader {
     this.statusTimer.set(vid, t)
   }
   async counts(e) {
-    const dirty = split0(await this.git(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'], { cwd: e.dir, check: false })).length
+    const st = split0(await this.git(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'], { cwd: e.dir, check: false }))
+    const a = st.length ? await this.aliasesOf(e).catch(() => null) : null
+    const dirty = st.filter((x) => !(a && this.aliasOf(a, x.slice(3), x.slice(0, 2).trim() === '??' ? '??' : x.slice(0, 2).trim()))).length
     const branchOk = await this.branchOk(e)
     const ahead = e.head ? await this.beyond(e, e.head).catch(() => 0) : 0
     return { dirty, ahead, branchOk }
@@ -623,11 +690,28 @@ class WorkingCopies extends Uploader {
       const tracked = out.filter((c) => c.st !== 'A')
       if (added.length) await this.git(['update-index', '-z', '--force-remove', '--stdin'], { cwd, input: `${added.map((c) => c.path).join('\0')}\0` })
       if (tracked.length) {
-        // (back to what the last commit had for it)
-        const info = split0(await this.git(['ls-tree', '-z', 'HEAD', '--', ...tracked.map((c) => c.path)], { cwd }))
-        const lines = info.map((l) => { const [meta, p] = [l.slice(0, l.indexOf('\t')), l.slice(l.indexOf('\t') + 1)]; const [mode, , sha] = meta.split(' '); return `${mode} ${sha}\t${p}` })
+        // (back to what the last commit had for it — HEAD read whole: a path given to git on its command line would be composed on a Mac)
+        const { head } = await this.aliasesOf(e)
+        const lines = tracked.filter((c) => head.has(c.path)).map((c) => `${head.get(c.path).mode} ${head.get(c.path).sha}\t${c.path}`)
         if (lines.length) await this.git(['update-index', '-z', '--index-info'], { cwd, input: `${lines.join('\0')}\0` })
       }
+    }
+    // what only names a tracked file another way (an NFD Hangul name the Mac composes · a case pair) never goes up as a second file or a
+    // deletion: an added alias leaves the index, a change of an ambiguous pair goes back to what HEAD has
+    const staged = split0(await this.git(['diff', '--cached', '--name-status', '-z', '--no-renames'], { cwd }))
+    if (staged.length) {
+      const a = await this.aliasesOf(e)
+      const drop = []
+      const back = []
+      for (let i = 0; i + 1 < staged.length; i += 2) {
+        const code = staged[i]
+        const rel = staged[i + 1]
+        if (code === 'A' && this.aliasOf(a, rel, 'A')) drop.push(rel)
+        else if (a.ambiguous.has(rel) && a.head.has(rel)) back.push(rel)
+        else if (code === 'D' && (a.byKey.get(fold(rel)) || []).length === 1 && staged.some((x, j) => j % 2 && x !== rel && fold(x) === fold(rel))) back.push(rel)
+      }
+      if (drop.length) await this.git(['update-index', '-z', '--force-remove', '--stdin'], { cwd, input: `${drop.join('\0')}\0` })
+      if (back.length) await this.git(['update-index', '-z', '--index-info'], { cwd, input: `${back.map((r) => `${a.head.get(r).mode} ${a.head.get(r).sha}\t${r}`).join('\0')}\0` })
     }
     const left = split0(await this.git(['diff', '--cached', '--name-only', '-z'], { cwd }))
     if (!left.length) return { commit: null, flagged: out.length }
@@ -712,6 +796,8 @@ class WorkingCopies extends Uploader {
       if (!(await this.branchOk(e))) { this.mark(vid, { why: 'branch', branchOk: false }); return { ok: false, why: 'branch' } }
       // (a CLI working here finishes its turn first — what it writes then goes up too)
       await this.waitTurn(vid)
+      // (a terminal or a program still in the folder: the person closes it first — never renamed from under it)
+      if (await this.inUse(e.dir)) { this.mark(vid, { why: 'in_use' }); return { ok: false, why: 'in_use' } }
       const was = e.state
       this.mark(vid, { state: 'returning' })
       this.busy.add(vid)
@@ -770,7 +856,7 @@ class WorkingCopies extends Uploader {
       // (git that cannot say where the working copy is: it stays — a working copy is never removed on a guess)
       if (!head) throw new G.GitError('the working copy has no head')
       if (base && (await this.beyond(e, base)) === 0) {
-        const kept = await this.remove(e)
+        const kept = await this.remove(e, { kind: 'gone' })
         this.drop(vid)
         // (nothing new for the server — but what only this PC had, .env and the like, is said to have gone to the trash)
         if (kept) this.emit('trashed', { variationId: vid, title: e.title, folderName: e.folderName, kept, why: 'gone' })
@@ -779,9 +865,11 @@ class WorkingCopies extends Uploader {
       if (!this.connected) { this.mark(vid, { state: 'left', why: 'offline' }); return { ok: false, why: 'offline' } }
       const l = await this.leftPush(e, head)
       if (!l.ok) { this.mark(vid, { state: 'left', why: l.why }); return { ok: false, why: l.why } }
-      const kept = await this.remove(e)
+      // (up: what the server took is this head now — a removal that fails below is tried again later, never the push)
+      this.mark(vid, { head, leftAs: l.newVariation?.id || null })
+      this.emit('left', { variationId: vid, title: e.title, folderName: e.folderName, newVariation: l.newVariation })
+      const kept = await this.remove({ ...e, head }, { kind: 'gone' })
       this.drop(vid)
-      this.emit('left', { variationId: vid, title: e.title, folderName: e.folderName, newVariation: l.newVariation, kept })
       return { ok: true, left: l.newVariation, kept }
     } catch (err) {
       this.log(`[seats] ${var8(vid)}: leftover — ${err.message}`)
@@ -806,30 +894,40 @@ class WorkingCopies extends Uploader {
     return { ok: true, newVariation: nv }
   }
 
-  // The working copy goes — never deleted: the whole folder is moved into the app's trash (<data>/trash/<day>-<var8>, 30 days and a size cap),
-  // then git forgets the worktree; the folder's objects stay (the next working copy of this folder comes quicker). A copy that is not
-  // the app's own (checkCopy) is not touched unless `all` (「남은 변경 버리기」 — the person said so in a system dialog: moved as it is). A
-  // folder that cannot be moved (a terminal holds it on Windows) throws: the caller keeps the copy. → how many files only this PC had
-  // (what git does not carry: new files left out, ignored ones, changes kept out — everything for `all`)
-  async remove(e, { all = false } = {}) {
+  // The working copy goes — never deleted on a guess: the whole folder is moved into the app's trash (<root>/trash/<day>-<var8>-<kind>), then git
+  // forgets the worktree; the folder's objects stay (the next working copy of this folder comes quicker). A copy that is not the app's own
+  // (checkCopy) is not touched unless `all` (「남은 변경 버리기」 — the person said so in a system dialog: moved as it is, kept 30 days whatever
+  // the size). A working copy the server has everything of (given back · gone with nothing new) keeps in the trash only what this PC alone
+  // had — files git does not carry, changes left out of the commits — and not what the server has or what is rebuilt anyway (node_modules
+  // and the like). A folder that cannot be moved (a terminal holds it on Windows) throws: the caller keeps the copy. → how many files only
+  // this PC had (everything for `all`)
+  async remove(e, { all = false, kind = 'given' } = {}) {
     const vid = e.variationId
     let kept = 0
+    let keep = null
     if (e.dir && fs.existsSync(e.dir)) {
       if (!this.inside(e.dir)) throw new G.GitError('not a working copy of the app')
       if (!all) {
         await this.checkCopy(e)
         // (asked strictly: a status git could not give stops here — the caller keeps the working copy)
         const raw = split0(await this.git(['status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=all', '--no-renames'], { cwd: e.dir }))
+        const a = raw.length ? await this.aliasesOf(e) : null
+        keep = new Set()
         for (const x of raw) {
+          const code = x.slice(0, 2).trim()
           const rel = x.slice(3).replace(/\/+$/, '')
           if (!rel || rel.split('/').some((p) => p === '..' || p === '.git')) continue
+          if (a && this.aliasOf(a, rel, code)) continue
+          if (SY.groupOf(this.rules, rel, x.endsWith('/')) === 'rebuildable') continue
           let st
-          try { st = fs.lstatSync(path.join(e.dir, ...rel.split('/'))) } catch { continue }
-          kept += st.isDirectory() ? countFiles(path.join(e.dir, ...rel.split('/'))) : 1
+          try { st = await fsp.lstat(path.join(e.dir, ...rel.split('/'))) } catch { continue }
+          keep.add(rel)
+          kept += st.isDirectory() ? await countFiles(path.join(e.dir, ...rel.split('/'))) : 1
         }
-      } else kept = countFiles(e.dir, ['.git'])
+      } else kept = await countFiles(e.dir, ['.git'])
       this.unwatchOne(vid)
-      await this.moveToTrash(e.dir, vid)
+      const bin = await this.moveToTrash(e.dir, vid, all ? 'left' : kind)
+      if (keep) await trimTo(bin, keep).catch((err) => this.log(`[seats] trash trim ${err.message}`))
     } else this.unwatchOne(vid)
     await this.forgetWorktree(e)
     return kept
@@ -837,19 +935,27 @@ class WorkingCopies extends Uploader {
   // a folder at a working copy's place that is not (or no longer) one: to the trash as it is, said to the person → files moved
   async aside(e, why) {
     if (!e?.dir || !fs.existsSync(e.dir) || !this.inside(e.dir)) return 0
-    const kept = countFiles(e.dir, ['.git'])
+    const kept = await countFiles(e.dir, ['.git'])
     this.unwatchOne(e.variationId)
-    await this.moveToTrash(e.dir, e.variationId)
+    await this.moveToTrash(e.dir, e.variationId, why === 'orphan' ? 'orphan' : 'unfinished')
     await this.forgetWorktree(e)
     if (kept) this.emit('trashed', { variationId: e.variationId, title: e.title || '', folderName: e.folderName || '', kept, why })
     return kept
   }
-  // (one rename on the same disk: nothing is copied, nothing deleted; the worktree's .git pointer is dropped from the moved copy)
-  async moveToTrash(dir, vid) {
-    fs.mkdirSync(this.trashRoot, { recursive: true })
-    let bin = path.join(this.trashRoot, `${day()}-${var8(vid)}`)
-    for (let i = 2; fs.existsSync(bin); i++) bin = path.join(this.trashRoot, `${day()}-${var8(vid)}-${i}`)
-    fs.renameSync(dir, bin)
+  // (a rename on the same disk — nothing copied, nothing deleted; across volumes (EXDEV): copied, checked file by file in count and size, then
+  // the original deleted. The worktree's .git pointer is dropped from what is in the trash)
+  async moveToTrash(dir, vid, kind) {
+    await fsp.mkdir(this.trashRoot, { recursive: true })
+    const base = `${day()}-${var8(vid)}`
+    let bin = path.join(this.trashRoot, `${base}-${kind}`)
+    for (let i = 2; fs.existsSync(bin); i++) bin = path.join(this.trashRoot, `${base}-${i}-${kind}`)
+    try { fs.renameSync(dir, bin) } catch (err) {
+      if (err.code !== 'EXDEV') throw err
+      await fsp.cp(dir, bin, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false })
+      const [a, b] = await Promise.all([sizeStat(dir), sizeStat(bin)])
+      if (a.files !== b.files || a.bytes !== b.bytes) { await fsp.rm(bin, { recursive: true, force: true }).catch(() => {}); throw new G.GitError('the copy to the trash came out different — the working copy stays') }
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
     try { if (fs.lstatSync(path.join(bin, '.git')).isFile()) fs.rmSync(path.join(bin, '.git')) } catch { /* none */ }
     return bin
   }
@@ -867,37 +973,66 @@ class WorkingCopies extends Uploader {
     return out.split('\n').some((l) => l.trim() === `branch refs/heads/${branch}`)
   }
   trashDir() { return this.trashRoot }
-  // the trash: older than 30 days goes; over its size (maxBytes), the oldest go first — the newest is always kept
-  cleanTrash(now = Date.now(), { maxBytes = this.trashMaxBytes } = {}) {
-    let names = []
-    try { names = fs.readdirSync(this.trashRoot) } catch { return }
+  // whether a process of this person has its current folder in the working copy (a terminal, a CLI): lsof on macOS · Linux; elsewhere (and
+  // without lsof) no — a rename Windows refuses keeps the copy as a leftover instead
+  inUse(dir) {
+    if (process.platform === 'win32' || !dir) return Promise.resolve(false)
+    const real = realOf(dir)
+    const under = (p) => p === real || p.startsWith(real + path.sep)
+    return new Promise((resolve) => {
+      execFile('lsof', ['-a', '-u', String(os.userInfo().uid), '-d', 'cwd', '-Fpcn'], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+        if (err && !stdout) return resolve(false)
+        // (records: p<pid> c<command> n<folder> — git itself is not a reason to wait: the app's own status · commit run there, and a person's
+        // git ends by itself)
+        let pid = 0, cmd = ''
+        for (const l of String(stdout).split('\n')) {
+          if (l.startsWith('p')) { pid = Number(l.slice(1)); cmd = '' } else if (l.startsWith('c')) cmd = l.slice(1)
+          else if (l.startsWith('n') && under(l.slice(1)) && pid !== process.pid && !/^git(-|$)/.test(cmd)) return resolve(true)
+        }
+        resolve(false)
+      })
+    })
+  }
+  // The trash: older than 30 days goes; over its size (maxBytes), the oldest of what the server has everything of go first (given · gone) —
+  // changes that never reached the server, folders found with no record and unfinished copies always stay their 30 days. Asynchronous and
+  // a little at a time: a large node_modules never holds the app up.
+  async cleanTrash(now = Date.now(), { maxBytes = this.trashMaxBytes } = {}) {
+    for (const dir of [this.oldTrash]) {
+      for (const n of await fsp.readdir(dir).catch(() => [])) {
+        const m = /^(\d{4})(\d{2})(\d{2})-/.exec(n)
+        if (m && now - new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() > TRASH_DAYS * 86400_000) await fsp.rm(path.join(dir, n), { recursive: true, force: true }).catch(() => {})
+      }
+    }
     const bins = []
-    for (const n of names) {
-      const m = /^(\d{4})(\d{2})(\d{2})-/.exec(n)
+    for (const n of await fsp.readdir(this.trashRoot).catch(() => [])) {
+      const m = /^(\d{4})(\d{2})(\d{2})-.*-([a-z]+)$/.exec(n) || /^(\d{4})(\d{2})(\d{2})-/.exec(n)
       if (!m) continue
       const p = path.join(this.trashRoot, n)
       const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime()
-      if (now - t > TRASH_DAYS * 86400_000) { try { fs.rmSync(p, { recursive: true, force: true }) } catch { /* next time */ } continue }
-      let mt = 0
-      try { mt = fs.statSync(p).mtimeMs } catch { continue }
-      bins.push({ p, key: `${n.slice(0, 8)}-${String(Math.floor(mt)).padStart(15, '0')}`, bytes: bytesOf(p) })
+      if (now - t > TRASH_DAYS * 86400_000) { await fsp.rm(p, { recursive: true, force: true }).catch(() => {}); continue }
+      const st = await fsp.stat(p).catch(() => null)
+      if (!st) continue
+      bins.push({ p, kind: m[4] || '', key: `${n.slice(0, 8)}-${String(Math.floor(st.mtimeMs)).padStart(15, '0')}`, bytes: (await sizeStat(p)).bytes })
     }
     if (!(maxBytes > 0)) return
-    bins.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
     let total = bins.reduce((n, b) => n + b.bytes, 0)
-    while (total > maxBytes && bins.length > 1) {
-      const b = bins.shift()
-      try { fs.rmSync(b.p, { recursive: true, force: true }); total -= b.bytes } catch { break }
+    const evictable = bins.filter((b) => EVICTABLE.has(b.kind)).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    const newest = bins.reduce((x, b) => (!x || b.key > x.key ? b : x), null)
+    for (const b of evictable) {
+      if (total <= maxBytes) break
+      if (b === newest) continue
+      try { await fsp.rm(b.p, { recursive: true, force: true }); total -= b.bytes } catch { break }
     }
   }
 
   // ---------- seat:list — the seats the server says this computer holds ----------
   // (each decision that changes something is taken again inside the variation's lock, against the latest list: a list that came in
   // meanwhile — the seat came back, a prepare ran — wins over the one that queued it)
-  async reconcile(list) {
+  async reconcile(list, at = 0) {
     if (this.other) return
     const items = new Map((Array.isArray(list) ? list : []).filter((x) => UUID.test(String(x?.variation || ''))).map((x) => [String(x.variation), x]))
     this.lastList = items
+    this.lastListAt = Number(at) || 0
     const bad = (err) => this.log(`[seats] ${err.message}`)
     for (const e of this.store.all()) {
       const vid = e.variationId
@@ -926,6 +1061,8 @@ class WorkingCopies extends Uploader {
     if (!cur) return null
     const it = this.listed(vid)
     if (it && Number(it.epoch) === Number(cur.epoch)) return null
+    // (a list the server made before the seat:prepare this computer last had for it: older news — the prepare stands)
+    if (this.lastListAt && (this.prepAt.get(vid) || 0) > this.lastListAt) return null
     return this.leftoverNow(cur)
   }
   // (in the lock) the server still has it moving: ready again only for a copy that was added completely; one that stopped half way (the app
@@ -935,7 +1072,8 @@ class WorkingCopies extends Uploader {
     if (!cur || Number(cur.epoch) !== epoch) return null
     if (isAdded(cur) && await this.checkCopy(cur).then(() => true, () => false)) return this.becomeReady(cur)
     this.send({ type: 'seat:failed', variation: vid, epoch, why: 'unfinished' })
-    await this.aside(cur, 'unfinished').catch((err) => this.log(`[seats] ${err.message}`))
+    // (a folder that cannot be moved aside keeps its record: the next list tries again — nothing is left behind unrecorded)
+    try { await this.aside(cur, 'unfinished') } catch (err) { this.log(`[seats] ${err.message}`); this.mark(vid, { state: 'left', why: 'aside' }); return null }
     this.drop(vid)
     return null
   }
@@ -983,27 +1121,44 @@ class WorkingCopies extends Uploader {
   }
 }
 
-function countFiles(dir, skip = []) {
+// (asynchronous, and yielding now and then: a large tree never holds the app's main process up)
+const yieldNow = () => new Promise((r) => setImmediate(r))
+async function walkFiles(dir, skip, onFile) {
   let n = 0
-  const walk = (d, depth) => {
+  const walk = async (d, depth) => {
     if (depth > 60) return
     let ents = []
-    try { ents = fs.readdirSync(d, { withFileTypes: true }) } catch { return }
-    for (const x of ents) { if (!depth && skip.includes(x.name)) continue; if (x.isDirectory()) walk(path.join(d, x.name), depth + 1); else n++ }
+    try { ents = await fsp.readdir(d, { withFileTypes: true }) } catch { return }
+    for (const x of ents) {
+      if (!depth && skip.includes(x.name)) continue
+      const p = path.join(d, x.name)
+      if (x.isDirectory()) await walk(p, depth + 1)
+      else { await onFile(p); if (++n % 500 === 0) await yieldNow() }
+    }
   }
-  walk(dir, 0)
+  await walk(dir, 0)
   return n
 }
-function bytesOf(dir) {
-  let n = 0
-  const walk = (d, depth) => {
-    if (depth > 60) return
+const countFiles = (dir, skip = []) => walkFiles(dir, skip, () => {})
+async function sizeStat(dir) {
+  let bytes = 0
+  const files = await walkFiles(dir, [], async (p) => { try { bytes += (await fsp.lstat(p)).size } catch { /* gone */ } })
+  return { files, bytes }
+}
+// what is in the trash folder but not to be kept goes (keep: paths — a file, or a folder and all in it)
+async function trimTo(bin, keep) {
+  const kept = (rel) => { for (let r = rel; r; r = r.includes('/') ? r.slice(0, r.lastIndexOf('/')) : '') if (keep.has(r)) return true; return false }
+  const walk = async (d, rel) => {
     let ents = []
-    try { ents = fs.readdirSync(d, { withFileTypes: true }) } catch { return }
-    for (const x of ents) { const p = path.join(d, x.name); if (x.isDirectory()) walk(p, depth + 1); else { try { n += fs.lstatSync(p).size } catch { /* gone */ } } }
+    try { ents = await fsp.readdir(d, { withFileTypes: true }) } catch { return }
+    for (const x of ents) {
+      const r = rel ? `${rel}/${x.name}` : x.name
+      const p = path.join(d, x.name)
+      if (kept(r)) continue
+      if (x.isDirectory()) { await walk(p, r); if (!(await fsp.readdir(p).catch(() => [''])).length) await fsp.rmdir(p).catch(() => {}) } else await fsp.rm(p, { force: true }).catch(() => {})
+    }
   }
-  walk(dir, 0)
-  return n
+  await walk(bin, '')
 }
 
 module.exports = { WorkingCopies, TurnWatch, TurnHub, wcGit, setTap, ALLOWED, WORKTREE, claudeKey, titleSlug, seatBranch, SAVE_MESSAGE, RELEASE_MESSAGE, LEFT_MESSAGE }

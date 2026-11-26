@@ -3182,7 +3182,12 @@
   "VS Code 작업 — 명령을 실행해요": "VS Code tasks — run commands",
   "Windows 바로 가기 · 폴더 설정": "Windows shortcuts · folder settings",
   "돌려놓았지만 이 PC 의 작업본을 옮기지 못했어요 — 터미널 · 편집기를 닫은 뒤 「남은 변경」에서 다시 해 주세요.": "It was given back, but the working copy on this PC could not be moved — close the terminal and editor, then try again from \"Leftover changes\".",
-  "서버가 이 변형을 옮기거나 저장하는 중이에요 — 잠시 뒤에 다시 해 주세요.": "The server is moving or saving this variation — try again in a moment."
+  "서버가 이 변형을 옮기거나 저장하는 중이에요 — 잠시 뒤에 다시 해 주세요.": "The server is moving or saving this variation — try again in a moment.",
+  "저절로 실행되는 설정이 있는지 확인하지 못했어요": "Couldn't check for settings that run by themselves",
+  "서버에 묻지 못했어요. 이 변형에 훅 · MCP 서버 같은 설정이 있을 수 있어요 — 폴더의 파일을 확인한 뒤에 여세요.": "The server couldn't be asked. This variation may have settings such as hooks or MCP servers — check the folder's files before you open it.",
+  "이 PC 의 터미널에서 Claude Code · Codex · 편집기를 열면 아래 파일이 명령을 실행할 수 있어요.": "When you open Claude Code, Codex or an editor in a terminal on this PC, the files below can run commands.",
+  "누가 바꿨는지 확인할 수 없어요 — 커밋에 적힌 이름은 누구나 적을 수 있어요. 내용을 확인한 뒤에 여세요.": "Who changed them can't be verified — anyone can write any name in a commit. Check their contents before you open it.",
+  "이 작업본 폴더에서 열린 터미널 · 프로그램이 있어요 — 닫은 뒤에 돌려놓아 주세요.": "A terminal or program is open in this working copy's folder — close it, then give it back."
  },
  "patterns": [
   [
@@ -7152,6 +7157,14 @@
   [
    "{0} 님이 바꿈",
    "changed by {0}"
+  ],
+  [
+   "커밋에 적힌 이름 · {0}",
+   "Name in the commit · {0}"
+  ],
+  [
+   "그 밖에 {0}개",
+   "{0} more"
   ]
  ],
  "context": [

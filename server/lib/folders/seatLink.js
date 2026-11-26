@@ -137,7 +137,8 @@ export async function linkOn(link) {
   if (!link?.caps?.seats) return false
   const rows = await q(`select variation_id::text as variation, folder_id::text as folder, epoch, state, auto_save, deadline, place from pro_variation_seats
                         where tenant_id=$1 and device_id=$2 and user_id=$3 and place='device' and job_id is null`, [link.tenant, link.id, String(link.userId)]).catch(legacyNone)
-  return link.send({ type: 'seat:list', seats: rows.filter((r) => !SE.stale(r, null)).map((r) => ({ variation: r.variation, folderId: r.folder, epoch: Number(r.epoch), state: r.state, autoSave: r.auto_save !== false })) })
+  // (at: the server's time — a computer drops a list older than the seat:prepare it last had for a variation)
+  return link.send({ type: 'seat:list', at: Date.now(), seats: rows.filter((r) => !SE.stale(r, null)).map((r) => ({ variation: r.variation, folderId: r.folder, epoch: Number(r.epoch), state: r.state, autoSave: r.auto_save !== false })) })
 }
 export async function refreshList(deviceId, tenant = T()) {
   const link = await linkOf(tenant, deviceId)
@@ -155,7 +156,7 @@ const seatToken = (link, folder, vid, epoch) => mintToken({ tenant: link.tenant,
 // token is that epoch's: it fetches now (seatAccess lets a moving seat read) and pushes once the seat is held. → whether it went
 export async function prepare(link, folder, v, { epoch, autoSave = true }) {
   const base = await tokenBase(link, folder)
-  return link.send({ type: 'seat:prepare', variation: v.id, folderId: folder.id, folderName: folder.name, title: v.title, branch: v.branch,
+  return link.send({ type: 'seat:prepare', at: Date.now(), variation: v.id, folderId: folder.id, folderName: folder.name, title: v.title, branch: v.branch,
     head: await G.head(folder.repo_path, `refs/heads/${v.branch}`), epoch: Number(epoch), autoSave: autoSave !== false,
     token: seatToken(link, folder, v.id, epoch), push: seatPrefix(v.id, epoch), ...base })
 }
@@ -370,9 +371,11 @@ async function left(link, vid, msg, refuse) {
     const branch = leftBranch(vid, link.id)
     const tip = await G.head(at.folder.repo_path, `refs/heads/${branch}`)
     if (tip !== head) return refusalFor(vid, head) || { why: 'conflict' }
+    // (the same leftover said again — its computer could not move the copy aside and tries once more: the variation it already made)
+    const [had] = await q(`select * from pro_folder_variations where folder_id=$1 and kind='imported' and source->>'left_of'=$2 and head_commit=$3 order by created_at limit 1`, [at.folder.id, vid, head])
     const [d] = await q('select name from pro_local_devices where id=$1', [link.id])
     await stillHeld('left')
-    const nv = await SE.leftover(at.folder, await S.variationById(vid), head, { user: link.userId, where: d?.name || 'PC' })
+    const nv = had || await SE.leftover(at.folder, await S.variationById(vid), head, { user: link.userId, where: d?.name || 'PC' })
     await G.git(at.folder.repo_path, ['update-ref', '-d', `refs/heads/${branch}`, head], { check: false })
     return { nv }
   }))

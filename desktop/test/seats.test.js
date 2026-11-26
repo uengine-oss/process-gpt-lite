@@ -398,9 +398,9 @@ test('돌려놓기: 있는 그대로 올리고 서버가 받은 뒤에만 치운
   assert.ok(!fs.existsSync(dir), '작업 트리는 없다')
   assert.equal(w.get(V1), null)
   assert.ok(r.kept >= 5, `kept ${r.kept}`)
-  const trash = fs.readdirSync(path.join(DATA, 'trash')).find((n) => n.endsWith(`-${V1.slice(0, 8)}`))
+  const trash = fs.readdirSync(w.trashDir()).find((n) => n.includes(`-${V1.slice(0, 8)}-`))
   assert.ok(trash)
-  for (const f of ['.env', 'dist/out.js', 'config/app.txt', 'vendor/lib/a.txt']) assert.ok(fs.existsSync(path.join(DATA, 'trash', trash, ...f.split('/'))), `휴지통에 ${f}`)
+  for (const f of ['.env', 'dist/out.js', 'config/app.txt', 'vendor/lib/a.txt']) assert.ok(fs.existsSync(path.join(w.trashDir(), trash, ...f.split('/'))), `휴지통에 ${f}`)
   const repo = path.join(DATA, 'folders', SY.serverKey(srv.base), SY.personKey(USER), FOLDER.slice(0, 8), 'repo')
   assert.ok(fs.existsSync(path.join(repo, 'HEAD')), '받은 객체는 다음을 위해 남긴다')
   assert.ok(!git(repo, 'worktree', 'list').includes(dir))
@@ -470,7 +470,7 @@ test('자리를 잃은 PC: 서버 목록에 없으면 남은 변경을 새 변�
   assert.ok(!fs.existsSync(dirs[2]))
   assert.equal(w.get(c), null)
   // (never thrown away: the whole working copy — what reached no server too — is in the app's trash, 30 days)
-  const bin = fs.readdirSync(path.join(DATA, 'trash')).filter((n) => n.includes(c.slice(0, 8))).map((n) => path.join(DATA, 'trash', n, 'docs', '남을 것.md'))
+  const bin = fs.readdirSync(w.trashDir()).filter((n) => n.includes(c.slice(0, 8))).map((n) => path.join(w.trashDir(), n, 'docs', '남을 것.md'))
   assert.ok(bin.some((f) => fs.existsSync(f)), '버린 남은 변경도 휴지통에')
   // a seat the server lists that this computer does not have (its app data was wiped): it says so
   const ghost = crypto.randomUUID()
@@ -542,7 +542,7 @@ test('이어질 때 맞추기: 서버 목록에 있으면 저장 지점 한 번 
 
 // ---------- review of P1 (11-26): each of these failed before its fix ----------
 const wtRoot = () => path.join(DATA, 'folders', SY.serverKey(srv.base), SY.personKey(USER), FOLDER.slice(0, 8), 'wt')
-const trashBins = (needle, file) => { try { return fs.readdirSync(path.join(DATA, 'trash')).filter((n) => n.includes(needle)).map((n) => path.join(DATA, 'trash', n)).filter((d) => !file || fs.existsSync(path.join(d, ...file.split('/')))) } catch { return [] } }
+const trashBins = (needle, file) => { const t = wc.trashDir(); try { return fs.readdirSync(t).filter((n) => n.includes(needle)).map((n) => path.join(t, n)).filter((d) => !file || fs.existsSync(path.join(d, ...file.split('/')))) } catch { return [] } }
 // the seats the server lists for this computer: everything the engine holds now (a test's seat:list never drops another test's copies)
 const heldNow = (w, but = null) => w.store.all().filter((x) => x.variationId !== but && x.state !== 'left').map((x) => ({ variation: x.variationId, folderId: FOLDER, epoch: Number(x.epoch), state: 'held' }))
 const claudeLines = (...es) => es.map((e) => JSON.stringify(e)).join('\n') + '\n'
@@ -586,7 +586,8 @@ test('검토 2 — 치울 때는 작업본 전체를 앱 휴지통으로 옮기�
   const r = await w.release(v)
   assert.equal(r.ok, true, JSON.stringify(r))
   assert.ok(!fs.existsSync(e.dir))
-  assert.ok(trashBins(v.slice(0, 8), 'README.md').length, '추적되는 파일까지 통째로 휴지통에')
+  // (given back: the server has every committed file — only what this PC alone had stays in the trash, review 2nd #4)
+  assert.equal(trashBins(v.slice(0, 8), 'README.md').length, 0, '서버에 있는 파일은 휴지통에 남기지 않는다')
   // a CLI working in a copy whose seat went: the leftover waits for its turn to end
   const v2 = variation('턴 기다리기')
   const e2 = await prepared(w, v2)
@@ -668,7 +669,7 @@ test('검토 7 — 서버가 돌려받은 뒤 작업본을 치우지 못하면 �
   const v = variation('치우지 못함')
   const e = await prepared(w, v)
   put(e.dir, 'dist/out.js', 'x\n')
-  const trash = path.join(DATA, 'trash')
+  const trash = w.trashDir()
   fs.mkdirSync(trash, { recursive: true })
   fs.renameSync(trash, `${trash}.bak`)
   fs.writeFileSync(trash, 'a file where the trash folder goes')
@@ -731,14 +732,14 @@ test('검토 10 — 앱 휴지통: 옮긴 것을 알리고, 열 곳을 주고, �
   w.handle({ type: 'seat:list', seats: heldNow(w, v) })
   await waitFor(() => !w.get(v), 8000, 'removed')
   assert.ok(notes.some((n) => n.variationId === v && n.kept >= 1), '휴지통으로 옮긴 것을 알린다')
-  assert.equal(w.trashDir(), path.join(DATA, 'trash'))
+  assert.equal(w.trashDir(), path.join(w.root, 'trash'))
   assert.ok(w.trashTimer, '때마다 비운다')
   // the size cap: the oldest goes first, the newest stays
   const day = (n) => { const t = new Date(Date.now() - n * 86400_000); return `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}` }
-  const older = path.join(w.trashDir(), `${day(2)}-cap00001`)
-  const newer = path.join(w.trashDir(), `${day(0)}-cap00002`)
+  const older = path.join(w.trashDir(), `${day(2)}-cap00001-given`)
+  const newer = path.join(w.trashDir(), `${day(0)}-cap00002-given`)
   for (const d of [older, newer]) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'big.bin'), Buffer.alloc(4096)) }
-  w.cleanTrash(Date.now(), { maxBytes: 6000 + trashBytes(w.trashDir(), [older, newer]) })
+  await w.cleanTrash(Date.now(), { maxBytes: 6000 + trashBytes(w.trashDir(), [older, newer]) })
   assert.ok(!fs.existsSync(older), '크기 한도를 넘으면 오래된 것부터')
   assert.ok(fs.existsSync(newer))
 })
@@ -770,6 +771,187 @@ test('검토 12 — git 은 바깥 설정을 따르지 않는다(전역 설정 �
     if (c.cwd && !c.gitDir) assert.ok(c.env?.GIT_CEILING_DIRECTORIES, `${c.sub}: 위로 찾아 올라가지 않는다`)
   }
   await w.release(v)
+})
+
+// ---------- second review (11-26): each failed before its fix ----------
+// a variation whose branch carries entries written as they are (no precomposition: an NFD Hangul name, names that differ only in case)
+function variationRaw(title, entries) {
+  const vid = variation(title)
+  const { branch } = vars.get(vid)
+  const idx = path.join(ROOT, `raw-${vid}.index`)
+  const env = { ...process.env, GIT_INDEX_FILE: idx }
+  const raw = (...a) => execFileSync('git', ['-c', 'core.precomposeUnicode=false', ...a], { cwd: BARE, env, stdio: 'pipe' }).toString().trim()
+  raw('read-tree', branch)
+  for (const [p, body] of Object.entries(entries)) {
+    const sha = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: BARE, input: body }).toString().trim()
+    raw('update-index', '--add', '--cacheinfo', `100644,${sha},${p}`)
+  }
+  const tree = raw('write-tree')
+  const commit = raw('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', tree, '-p', rev(branch), '-m', 'raw names')
+  raw('update-ref', `refs/heads/${branch}`, commit)
+  fs.rmSync(idx, { force: true })
+  return vid
+}
+const NFD = '보고서.txt'.normalize('NFD')
+const pathsAt = (ref) => execFileSync('git', ['-c', 'core.precomposeUnicode=false', 'ls-tree', '-r', '--name-only', '-z', ref], { cwd: BARE }).toString().split('\0').filter(Boolean)
+const binsOf = (w, vid) => { try { return fs.readdirSync(w.trashDir()).filter((n) => n.includes(vid.slice(0, 8))).map((n) => path.join(w.trashDir(), n)) } catch { return [] } }
+const filesIn = (dir) => { const out = []; const walk = (d, rel) => { for (const x of fs.readdirSync(d, { withFileTypes: true })) { const r = rel ? `${rel}/${x.name}` : x.name; if (x.isDirectory()) walk(path.join(d, x.name), r); else out.push(r) } }; walk(dir, ''); return out.sort() }
+
+test('재검토 1 — 맥의 한글 NFD 이름 · 대소문자만 다른 두 파일: 받을 수 있고, 첫 저장이 겹친 파일 · 지움을 올리지 않는다', { skip: process.platform !== 'darwin' && 'the file names of macOS' }, async () => {
+  const w = wc
+  const v = variationRaw('한글 이름', { [NFD]: '보고서 처음\n', 'Notes.md': 'upper\n', 'notes.md': 'lower\n' })
+  const e = await prepared(w, v)
+  assert.equal(w.get(v).state, 'held', '받을 수 있다')
+  const before = pathsAt(vars.get(v).branch)
+  // the person edits the report (the file the Mac shows with a composed name) and saves
+  fs.writeFileSync(path.join(e.dir, '보고서.txt'), '보고서 고침\n')
+  const r = await w.saveNow(v)
+  assert.equal(r.ok, true, JSON.stringify(r))
+  const after = pathsAt(vars.get(v).branch)
+  assert.equal(after.filter((p) => p.normalize('NFC') === '보고서.txt').length, 1, '같은 이름의 두 번째 파일을 만들지 않는다')
+  assert.deepEqual(after.filter((p) => p.toLowerCase() === 'notes.md').sort(), ['Notes.md', 'notes.md'], '대소문자 쌍은 지워지지 않는다')
+  assert.equal(at(vars.get(v).branch, 'notes.md'), 'lower\n')
+  assert.equal(at(vars.get(v).branch, 'Notes.md'), 'upper\n')
+  assert.deepEqual(after.filter((p) => !before.includes(p)), [], '이름만 다른 새 파일이 생기지 않는다')
+  await w.release(v)
+})
+
+test('재검토 2 — 남은 변경을 올린 뒤 치우지 못해도, 다시 이어질 때 같은 것을 또 올리지 않는다', async () => {
+  const w = wc
+  const v = variation('한 번만 올리기')
+  const e = await prepared(w, v)
+  put(e.dir, 'docs/남을 것.md', '한 번만\n')
+  const trash = w.trashDir()
+  fs.mkdirSync(trash, { recursive: true })
+  fs.renameSync(trash, `${trash}.bak`)
+  fs.writeFileSync(trash, 'a file where the trash goes')
+  try {
+    w.handle({ type: 'seat:list', seats: heldNow(w, v) })
+    await waitFor(() => w.get(v)?.state === 'left', 8000, 'left after a failed move')
+    assert.equal(sentOf('seat:left', v).length, 1)
+    w.handle({ type: 'seat:list', seats: heldNow(w, v) })
+    await sleep(700)
+    assert.equal(sentOf('seat:left', v).length, 1, '같은 머리를 또 올리지 않는다')
+  } finally { fs.rmSync(trash); fs.renameSync(`${trash}.bak`, trash) }
+  w.handle({ type: 'seat:list', seats: heldNow(w, v) })
+  await waitFor(() => !w.get(v), 8000, 'moved on the next try')
+  assert.equal(sentOf('seat:left', v).length, 1)
+})
+
+test('재검토 4 — 휴지통: 서버에 있는 것은 바로 지우고 이 PC 에만 있던 것만 남기며, 서버에 닿지 못한 변경은 30일 전에는 비우지 않는다', async () => {
+  const w = wc
+  const v = variation('서버에 있는 것은 지움')
+  const e = await prepared(w, v)
+  put(e.dir, '.env', 'A=1\n')
+  put(e.dir, 'node_modules/pkg/index.js', 'module.exports = 1\n')
+  put(e.dir, 'docs/새 글.md', '서버로 올라갈 글\n')
+  assert.equal((await w.release(v)).ok, true)
+  const [bin] = binsOf(w, v)
+  assert.ok(bin, '휴지통에 자리가 있다')
+  assert.deepEqual(filesIn(bin), ['.env'], '서버에 있는 파일 · 다시 만들 수 있는 것은 남기지 않는다')
+  // a let-go leftover (never reached the server) is never evicted by the size cap before 30 days
+  const v2 = variation('버린 남은 변경')
+  const e2 = await prepared(w, v2)
+  put(e2.dir, 'docs/서버에 없음.md', 'x'.repeat(8000))
+  const real = plays.token
+  plays.token = (m) => (m.variation === v2 && m.for === 'left' ? { type: 'seat:refused', variation: v2, for: 'left', why: 'not_runner' } : real(m))
+  w.handle({ type: 'seat:list', seats: heldNow(w, v2) })
+  await waitFor(() => w.get(v2)?.state === 'left', 8000, 'left')
+  plays.token = real
+  assert.equal((await w.dropLeft(v2)).ok, true)
+  const [kept] = binsOf(w, v2)
+  const cleaned = w.cleanTrash(Date.now(), { maxBytes: 1 })
+  assert.ok(cleaned instanceof Promise, '휴지통 비우기는 기다리지 않게(async)')
+  await cleaned
+  assert.ok(fs.existsSync(path.join(kept, 'docs', '서버에 없음.md')), '서버에 닿지 못한 변경은 30일 동안 둔다')
+})
+
+test('재검토 5 — 사람의 git 설정 가운데 네트워크(프록시 · 인증서)만 이어받는다', async () => {
+  const w = wc
+  const conf = path.join(ROOT, 'person.gitconfig')
+  fs.writeFileSync(conf, '[http]\n\tproxy = http://proxy.example.test:3128\n\tsslCAInfo = /etc/company-ca.pem\n[alias]\n\tst = status\n[push]\n\tpushOption = ci.skip\n')
+  const was = process.env.GIT_CONFIG_GLOBAL
+  process.env.GIT_CONFIG_GLOBAL = conf
+  try {
+    const pairs = await w.netConfig(srv.base)
+    const m = Object.fromEntries(pairs)
+    assert.equal(m['http.proxy'], 'http://proxy.example.test:3128')
+    assert.equal(m['http.sslCAInfo'] || m['http.sslcainfo'], '/etc/company-ca.pem')
+    assert.ok(!pairs.some(([k]) => /alias|pushoption/i.test(k)), '그 밖의 설정은 따르지 않는다')
+  } finally { if (was === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = was }
+})
+
+test('재검토 6 — 휴지통은 작업본과 같은 자리 아래 · 다른 디스크면 복사해 확인한 뒤 지움 · 치우지 못하면 실패를 알리고 기록을 둔다', async () => {
+  const w = wc
+  assert.ok(w.trashDir().startsWith(w.root + path.sep), '작업본과 같은 자리 아래')
+  // a rename across volumes (EXDEV): copied, checked, then deleted
+  const v = variation('다른 디스크')
+  const e = await prepared(w, v)
+  put(e.dir, '.env', 'B=2\n')
+  const rename = fs.renameSync
+  let once = true
+  fs.renameSync = (a, b) => { if (once && a === e.dir) { once = false; const err = new Error('cross-device'); err.code = 'EXDEV'; throw err } return rename(a, b) }
+  try { assert.equal((await w.release(v)).ok, true) } finally { fs.renameSync = rename }
+  assert.ok(!fs.existsSync(e.dir))
+  assert.ok(binsOf(w, v).some((b) => fs.existsSync(path.join(b, '.env'))), '복사본이 휴지통에')
+  // a folder left behind that cannot be moved aside: the prepare fails out loud (seat:failed, open says so)
+  const v2 = variation('옮길 수 없는 폴더')
+  const stale = path.join(wtRoot(), `${v2.slice(0, 8)}-옮길-수-없는-폴더`)
+  put(stale, '옛 것.md', '옛 것\n')
+  fs.renameSync = (a, b) => { if (a === stale) { const err = new Error('busy'); err.code = 'EBUSY'; throw err } return rename(a, b) }
+  try {
+    const waiting = w.open(v2, 8000)
+    w.handle(prepareMsg(v2))
+    assert.equal((await waiting).ok, false)
+    await waitFor(() => sentOf('seat:failed', v2).length, 5000, 'failed said')
+  } finally { fs.renameSync = rename }
+  assert.ok(fs.existsSync(path.join(stale, '옛 것.md')), '옮기지 못한 것은 그대로')
+  // the server still has a seat moving whose copy never finished, and its folder cannot be moved: the record stays
+  const v3 = variation('기록은 남김')
+  const dir3 = path.join(wtRoot(), `${v3.slice(0, 8)}-기록은-남김`)
+  put(dir3, 'README.md', '반쯤')
+  w.store.put({ variationId: v3, folderId: FOLDER, title: '기록은 남김', branch: vars.get(v3).branch, dir: dir3, epoch: 1, state: 'preparing', head: null, autoSave: true, added: false })
+  fs.renameSync = (a, b) => { if (a === dir3) { const err = new Error('busy'); err.code = 'EBUSY'; throw err } return rename(a, b) }
+  try {
+    w.handle({ type: 'seat:list', seats: [...heldNow(w, v3), { variation: v3, folderId: FOLDER, epoch: 1, state: 'moving' }] })
+    await waitFor(() => sentOf('seat:failed', v3).length, 5000, 'failed')
+    await sleep(200)
+    assert.ok(w.get(v3), '옮기지 못하면 기록을 지우지 않는다')
+  } finally { fs.renameSync = rename }
+})
+
+test('재검토 7 — 준비 뒤에 도착한 옛 서버 목록은 그 자리를 치우지 않는다', async () => {
+  const w = wc
+  const v = variation('늦게 온 목록')
+  const e = await prepared(w, v, { at: Date.now() })
+  w.handle({ type: 'seat:list', at: Date.now() - 60_000, seats: heldNow(w, v) })
+  await sleep(500)
+  assert.equal(w.get(v)?.state, 'held', '준비보다 오래된 목록')
+  assert.ok(fs.existsSync(e.dir))
+  await w.release(v)
+})
+
+test('재검토 8 — 돌려놓을 때 작업본 폴더에서 도는 프로그램이 있으면 기다려 달라고 한다 · Codex 기록 목록은 정리한다', async () => {
+  const w = wc
+  const v = variation('열린 터미널')
+  const e = await prepared(w, v)
+  if (process.platform !== 'win32') {
+    const { spawn } = require('node:child_process')
+    const sh = spawn('sleep', ['30'], { cwd: e.dir, stdio: 'ignore' })
+    try {
+      await sleep(200)
+      const r = await w.release(v)
+      assert.deepEqual([r.ok, r.why], [false, 'in_use'], '터미널 · CLI 가 그 폴더에 있으면 옮기지 않는다')
+      assert.ok(fs.existsSync(e.dir))
+    } finally { sh.kill() }
+    await sleep(200)
+  }
+  assert.equal((await w.release(v)).ok, true)
+  // the Codex rollouts the scanner knows: files that are gone are forgotten
+  const hub = w.turnHub
+  hub.codexFiles.set(path.join(CODEX, 'sessions', '2000', '01', '01', 'rollout-gone.jsonl'), { kind: 'other' })
+  hub.pollCodex(true)
+  assert.equal([...hub.codexFiles.keys()].some((k) => k.endsWith('rollout-gone.jsonl')), false)
 })
 
 test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {
