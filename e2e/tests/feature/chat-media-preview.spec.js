@@ -552,7 +552,9 @@ test('F-MP-09 팩스(TIFF): 메신저 미리보기는 첫 쪽 · 「2쪽」, 보
   for (const f of [BAD, BIG]) {
     const e = preview(p, f).locator('[data-test="tiff-error"]')
     await expect(e).toContainText('이 TIFF 는 열 수 없어요 · 내려받기', { timeout: 20000 })
-    await expect(e.locator('a')).toHaveAttribute('download', '')
+    // (the same 「내려받기」 as everywhere — spec file-download: under the file's own name)
+    const [d] = await Promise.all([p.waitForEvent('download'), e.locator('[data-test="tiff-download"]').click()])
+    expect(d.suggestedFilename()).toBe(f.name)
   }
   await expect(p.locator('.ms').getByText('앱 안에서 열 수 없')).toHaveCount(0)
   await expect(p.locator('.ms [data-test="open-note"]')).toHaveCount(0)
@@ -604,7 +606,9 @@ test('F-MP-09 팩스(TIFF): 메신저 미리보기는 첫 쪽 · 「2쪽」, 보
   // the damaged one opened from its chip: the viewer says so calmly; the giant one says why
   await chip(p, BAD).click()
   await expect(tiffOf(viewer(p)).locator('[data-test="tiff-error"]')).toContainText('이 TIFF 는 열 수 없어요')
-  await expect(tiffOf(viewer(p)).locator('[data-test="tiff-download"]')).toHaveAttribute('download', '')
+  // its 「내려받기」 (DownloadButton — spec file-download) saves the file under its name
+  const [bd] = await Promise.all([p.waitForEvent('download'), tiffOf(viewer(p)).locator('[data-test="tiff-download"]').click()])
+  expect(bd.suggestedFilename()).toBe(BAD.name)
   await shot(p, 'mp09-5-viewer-damaged')
   await p.keyboard.press('Escape')
   await chip(p, BIG).click()

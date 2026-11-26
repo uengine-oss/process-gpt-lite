@@ -16,6 +16,7 @@
 //   F-MA-10 팩스 · 390px 휴대폰(밝은 · 밤): 칩 · 보기 화면 · 쪽 넘기기가 화면 안, 한 쪽이 통째로 보임
 //   F-FD-07 첨부를 연 곳의 「내려받기」(스펙 file-download): 이음오피스 머리 → 첨부 이름 · 메일의 바이트(누를 때 받은 서명 경로, 편집기가 연 10분 주소가
 //           아님) · 워드 첨부를 고친 뒤 → 먼저 저장(내 채팅의 비공개 카드) → 그 편집본 · 보기 화면의 그림도 이름 그대로 · 공개 주소 없음
+//   F-FD-12 (검토 11-26) 편집기는 올렸는데 내 채팅의 카드로 저장되지 않으면 「방금 저장한 판」이라 하지 않고 「마지막 저장본 받기」 → 메일의 첨부 그대로
 // TIFF 시험 파일은 e2e/fixtures/tiff (만든 방법은 server/fixtures/tiff/make.py).
 // 자기 스택(lib/localStack.js — 테넌트 mailatt-ui, BFF 8930~ · Vite 5330~), 실제 이음오피스 편집기(lib/officeHost.js, 5395~), 이 파일이 띄우는
 // 가짜 Google(Gmail 원문 · 첨부, 8937~), 가짜 deepagents(8938~ — 받은 첨부를 실제로 읽어 합계를 셈), 가짜 모델(8936~ — 채팅 라우터는 늘
@@ -663,7 +664,9 @@ test('F-MA-09 팩스(TIFF) 첨부: 칩은 IMG → 보기 화면 ‹ 1 / 2 › �
   // the damaged one: the viewer says so calmly, with 「내려받기」
   await chipOf(p, 1).locator('[data-test="mail-attachment-open"]').click()
   await expect(tiffView(p).locator('[data-test="tiff-error"]')).toContainText('이 TIFF 는 열 수 없어요', { timeout: 30_000 })
-  await expect(tiffView(p).locator('[data-test="tiff-download"]')).toHaveAttribute('download', '')
+  // its 「내려받기」 (DownloadButton — spec file-download) saves the file under its name
+  const [bd] = await Promise.all([p.waitForEvent('download'), tiffView(p).locator('[data-test="tiff-download"]').click()])
+  expect(bd.suggestedFilename()).toBe(FAX_NAMES[1])
   await shot(p, 'ma09-4-damaged-tiff')
   await p.keyboard.press('Escape')
   // 「이 첨부로 묻기」: the agent gets the fax and each page as a PNG picture beside it
@@ -735,20 +738,28 @@ function DOCX(lines) {
 }
 const docxText = (file) => execFileSync('python3', ['-c', 'import sys, zipfile, re; x = zipfile.ZipFile(sys.argv[1]).read("word/document.xml").decode("utf-8"); print(re.sub(r"<[^>]+>", "", re.sub(r"</w:p>", "\\n", x)))', file], { encoding: 'utf8' })
 
-test('F-FD-07 첨부를 연 곳의 「내려받기」: 이음오피스 → 첨부 이름 · 메일의 바이트 · 고친 뒤에는 먼저 저장한 편집본 · 보기 화면의 그림 — 공개 주소 없음', async ({ browser }) => {
-  test.setTimeout(240_000)
-  const DOC = DOCX(['하늘테크 용역 계약서', '제1조 계약 기간: 2026년 12월 1일부터'])
+let DOC = null
+// the Word mail in a fresh card; sheet(p): its mail sheet opened on Home
+async function docMail() {
+  DOC ||= DOCX(['하늘테크 용역 계약서', '제1조 계약 기간: 2026년 12월 1일부터'])
   const MailComposer = req('nodemailer/lib/mail-composer')
   gmail.mails[DOC_ID] = await new MailComposer({ from: SENDER, to: '한지우 <jiwoo@lite.example>', subject: DOC_SUBJECT, text: '수정한 계약서와 현장 사진을 보내 드립니다.',
     attachments: [{ filename: DOC_NAMES[0], content: DOC, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, { filename: DOC_NAMES[1], content: PIC, contentType: 'image/png' }] }).compile().build()
   const a = await freshCard(OW, { mailId: DOC_ID, subject: DOC_SUBJECT, text: '하늘테크 용역 계약서 수정본 확인' })
-  const p = await page(browser, OW)
-  const sheet = async () => {
+  const sheet = async (p) => {
     await p.goto('/chat')
     await p.locator(`[data-test="action-card"][data-action-id="${a.id}"]`).click()
     await expect(sheetOf(p).locator('[data-test="mail-original"]')).toContainText('tax@ogaram-tax.example', { timeout: 30_000 })
     await expect(sheetOf(p).locator('[data-test="mail-attachment-open"]')).toHaveCount(2)
   }
+  return { a, sheet }
+}
+
+test('F-FD-07 첨부를 연 곳의 「내려받기」: 이음오피스 → 첨부 이름 · 메일의 바이트 · 고친 뒤에는 먼저 저장한 편집본 · 보기 화면의 그림 — 공개 주소 없음', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const { a, sheet: openDocSheet } = await docMail()
+  const p = await page(browser, OW)
+  const sheet = () => openDocSheet(p)
   await sheet()
   await chipOf(p, 0).locator('[data-test="mail-attachment-open"]').click()
   await expect(p.locator('.oef iframe.frm')).toHaveAttribute('src', /\/office\/docs\/\?src=/, { timeout: 30_000 })
@@ -787,6 +798,37 @@ test('F-FD-07 첨부를 연 곳의 「내려받기」: 이음오피스 → 첨�
   expect(d3.suggestedFilename()).toBe(DOC_NAMES[1])
   expect(fs.readFileSync(await d3.path()).equals(PIC)).toBe(true)
   await shot(p, 'fd07-3-viewer-download')
+  noPublic(p)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-FD-12 편집기는 올렸는데 내 채팅의 카드로 저장되지 않으면 「마지막 저장본 받기」 → 메일의 첨부 그대로', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const { sheet } = await docMail()
+  const p = await page(browser, OW)
+  // the server's step after the editor's upload (my own private card) fails
+  await p.route('**/api/mail/attachments/*/0/saved', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '내 채팅에 저장하지 못했어요(시험)' }) }))
+  await sheet(p)
+  await chipOf(p, 0).locator('[data-test="mail-attachment-open"]').click()
+  const ed = p.frameLocator('.oef iframe.frm')
+  await expect(ed.locator('.ProseMirror')).toBeVisible({ timeout: 90_000 })
+  await p.waitForTimeout(2500)
+  await ed.locator('.ProseMirror p').last().click()
+  await p.keyboard.press('End')
+  await p.keyboard.type(' 카드저장실패', { delay: 25 })
+  const btn = p.locator('.oef [data-testid="oef-download"]')
+  await btn.click()
+  const n = p.locator('[data-test="download-note"]')
+  await expect(n).toHaveAttribute('data-kind', 'offer', { timeout: 40_000 })
+  await expect(n).toContainText('저장하지 못했어요 (내 채팅에 저장하지 못했어요(시험)). 마지막으로 저장된 판을 내려받을까요? 방금 고친 내용은 들어 있지 않아요.')
+  await shot(p, 'fd12-card-save-failed-offer')
+  const [d] = await Promise.all([p.waitForEvent('download'), n.locator('[data-test="download-last"]').click()])
+  expect(d.suggestedFilename()).toBe(DOC_NAMES[0])
+  // the attachment as the mail has it — through its signed route, not a public address
+  expect(fs.readFileSync(await d.path()).equals(DOC)).toBe(true)
+  await expect(n).toHaveText(`마지막으로 저장된 판을 내려받았어요 — 방금 고친 내용은 들어 있지 않아요 · ${DOC_NAMES[0]}`)
+  expect(await S.q(`select 1 from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='file' and m.content ? 'mailAtt'`, [OW.id])).toEqual([])
   noPublic(p)
   expect(p.errors).toEqual([])
   await p.context().close()

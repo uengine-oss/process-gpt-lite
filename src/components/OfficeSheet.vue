@@ -216,8 +216,14 @@ const newSession = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toSt
 let session = newSession()
 let savedChain = Promise.resolve()
 let lastFail = null // a folder save that did not go through: tried again before the sheet closes
+let lastFailWhy = ''
+// a save of a private card that did not reach my card (a mail's attachment: its first save makes the card, later ones keep it on the newest
+// copy) — {job, why, mail, key}: 「내려받기」 tries it again and, if it still fails, offers the version the card stands on
+let cardFail = null
+// which document a save was for: its card, else the mail's attachment it opened from
+const docKey = (d) => d?.msgId || (d?.mailAtt ? `${d.mailAtt.actionId}:${d.mailAtt.i}` : '')
 let closeArmed = false
-watch(() => app.officeDoc?.msgId, () => { session = newSession(); lastFail = null; closeArmed = false })
+watch(() => app.officeDoc?.msgId, () => { session = newSession(); lastFail = null; cardFail = null; closeArmed = false })
 // A mail's attachment opened from its own private copy (src/mailAttach.js — not a folder's: that one is the folder's file above): its first
 // save becomes my own private file card in my chat (server lib/mailAttachments.js saved), later saves keep that card on the newest copy.
 // No address is ever put on it — the sheet keeps the signed one it opened with.
@@ -228,9 +234,10 @@ async function savedMailAtt(job) {
   const att = d?.mailAtt
   try {
     const r = await api(`/mail/attachments/${encodeURIComponent(att.actionId)}/${att.i}/saved`, { method: 'POST', body: { session: job.sid } })
+    cardFail = null
     if (app.officeDoc === d) app.officeDoc = { ...d, msgId: r.message.id }
     flash('ok', '편집본을 내 채팅에 파일로 저장했어요 · 나만 볼 수 있어요', 6000)
-  } catch (e) { flash('err', `편집본을 저장하지 못했어요: ${e.message}`, 8000) }
+  } catch (e) { cardFail = { job, why: e.message, mail: true, key: docKey(d) }; flash('err', `편집본을 저장하지 못했어요: ${e.message}`, 8000) }
 }
 function saved({ url, name }) {
   if (url && app.officeDoc?.panelAppId) return savedPanelSheet(url)
@@ -250,6 +257,8 @@ async function postSave(job) {
   const failed = m?.error != null ? m.error : fs && !fs.ok ? fs.error || '' : null
   const here = app.officeDoc?.msgId === job.id
   lastFail = failed != null && (here ? app.officeDoc.folder : true) ? job : null
+  lastFailWhy = lastFail ? failed || '' : ''
+  if (here && app.officeDoc.private && !app.officeDoc.folder) cardFail = failed != null ? { job, why: failed || '', key: job.id } : null
   if (!here) return
   // (a private card keeps the signed address it opened with: an editor's saved address is never one to load from — server lib/mailAttachments.js)
   if (m?.error == null) app.officeDoc = { ...app.officeDoc, url: app.officeDoc.private ? app.officeDoc.url : job.url, name: job.name || app.officeDoc.name, ...(m?.content?.folder ? { folder: m.content.folder } : {}) }
@@ -286,18 +295,33 @@ async function leave() {
   return true
 }
 async function closeDoc() { if (await leave()) app.officeDoc = null }
-// 「내려받기」 of a private card (a mail's attachment, its edit — spec file-download): never the address the sheet opened with (a signed
-// address of the copy as it arrived, ten minutes long) and never the editor's own saved address — the newest version, asked for at the
-// press: a folder's copy from the folder (the version the card stands on — a save moves it), else a fresh signed address of the card
-// (its edited copy, once a save made one) or of the mail's attachment itself
-async function privateDownload() {
+// 「내려받기」 (spec file-download): after the editor's own upload, did the save also land where the card keeps it — the folder's commit, my
+// private card? A save that did not is tried once more; still failing, it is not called 「방금 저장한 판」: the last saved version is offered.
+async function saveLanded() {
+  await savedChain
+  // (only this document's: a save of a document closed meanwhile is the close's business)
+  const mine = () => lastFail && lastFail.id === app.officeDoc?.msgId
+  const card = () => (cardFail && cardFail.key === docKey(app.officeDoc) ? cardFail : null)
+  if (mine()) { const job = lastFail; savedChain = savedChain.then(() => postSave(job)); await savedChain }
+  if (card()) { const f = cardFail; savedChain = savedChain.then(() => (f.mail ? savedMailAtt(f.job) : postSave(f.job))); await savedChain }
+  if (mine()) return { ok: false, why: lastFailWhy || '폴더에 저장하지 못했어요' }
+  if (card()) return { ok: false, why: card().why || '편집본을 저장하지 못했어요' }
+  return { ok: true }
+}
+// what 「내려받기」 saves, once the saves in flight are through: a folder's document from the folder's main (a save commits to it; a failed
+// one does not — that is then the last saved version); a private card (a mail's attachment, its edit) never by the
+// address the sheet opened with (a signed address of the copy as it arrived, ten minutes long) nor the editor's own saved address — a fresh
+// signed one of the card (its edited copy, once a save made one) or of the mail's attachment itself. Anything else: the frame's own (null).
+async function docDownload() {
   await savedChain
   const d = app.officeDoc
-  if (!d?.private) return null
+  if (!d) return null
   if (d.folder?.slug && d.folder.path) {
     await freshToken()
-    return { url: rawUrl(d.folder.slug, d.folder.path, d.folder.sha || 'main', true), name: d.name || d.folder.path.split('/').pop() }
+    // (main's file: the card's sha is the version's blob, not a commit — a save that did not reach the folder left main as it was)
+    return { url: rawUrl(d.folder.slug, d.folder.path, 'main', true), name: d.folder.path.split('/').pop() }
   }
+  if (!d.private) return null
   if (d.msgId) {
     const c = await api(`/messages/${encodeURIComponent(d.msgId)}/open-file`, { method: 'POST' })
     return { url: c.url, name: d.name || c.name }
@@ -318,7 +342,7 @@ onBeforeUnmount(() => onOfficeLeave(null))
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" :auto-save="autoSave" :quiet-save="quietSave" :download="app.officeDoc.private ? privateDownload : true" v-model:maximized="maximized"
+        :assistant="office" :auto-save="autoSave" :quiet-save="quietSave" :download="docDownload" :save-check="saveLanded" v-model:maximized="maximized"
         @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" @selection="selection" />
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">

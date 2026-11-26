@@ -20,6 +20,8 @@
 // agent — is saved first (the editor's own 저장: a chat file's 저장 puts its edited copy beside the original) and that copy is what is
 // saved; when saving does not work the person is offered the last saved version. `download`: false hides it (a host whose own header has
 // one — FileView), a function gives where the newest version is ({last}) → {url, name} (a private card's signed address — OfficeSheet).
+// `saveCheck` (OfficeSheet): after the editor's own upload, whether the save also landed where the card keeps it (the folder's commit, my
+// private card) → {ok} | {ok: false, why}; when it did not, the download is not called 「방금 저장한 판」 — the last saved version is offered.
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
@@ -44,6 +46,8 @@ const props = defineProps({
   quietSave: { type: Boolean, default: false },
   // 「내려받기」 in the bar: true, false (the host has its own), or ({last}) → {url, name} — where the newest version is
   download: { type: [Boolean, Function], default: true },
+  // () → {ok} | {ok: false, why}: the host's own step after a save (see above)
+  saveCheck: { type: Function, default: null },
 })
 const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited', 'selection'])
 
@@ -301,10 +305,18 @@ let agentSeq = 0
 // the copy the editor saved last in this opening (a chat file's edited copy; the parent may not have swapped fileUrl to it yet)
 let lastSaved = ''
 async function prepareDownload() {
-  if (props.readOnly || (!edited.value && !agentEdits.value && !inFlight)) return { ok: true, version: 'current' }
-  const r = await saveNow(25000, { any: true })
-  if (r.saved) return { ok: true, version: 'saved' }
-  return { ok: false, why: r.timeout ? '편집기가 답하지 않았어요' : r.error || '' }
+  if (props.readOnly) return { ok: true, version: 'current' }
+  let version = 'current'
+  if (edited.value || agentEdits.value || inFlight) {
+    const r = await saveNow(25000, { any: true })
+    if (!r.saved) return { ok: false, why: r.timeout ? '편집기가 답하지 않았어요' : r.error || '' }
+    version = 'saved'
+  }
+  // (also with nothing new: an earlier save that never reached the folder or my card is said, not passed off as the newest)
+  const c = props.saveCheck ? await props.saveCheck() : { ok: true }
+  // (the editor's own copy is up; the host tries its step again at the next press — the editor has nothing new to save)
+  if (!c?.ok) return { ok: false, why: c?.why || '' }
+  return { ok: true, version }
 }
 async function downloadSource({ last = false } = {}) {
   const own = typeof props.download === 'function' ? await props.download({ last }) : null

@@ -16,9 +16,7 @@ import { instanceViewOf, mapCaseOf, wideCardWidth } from './ontology/caseView.js
 import { BASE } from '../base.js'
 import { useApp } from '../stores/app.js'
 import { inApp, openOutput } from '../artifacts.js'
-import { saveFile } from '../download.js'
-// a file no viewer here takes, when it could not be fetched to save: the link itself
-const openLink = (u) => window.open(u, '_blank', 'noopener')
+import DownloadButton from './DownloadButton.vue'
 
 // Top of an instance page: title, live flow, my pending inputs, and produced artifacts.
 // A case run straight from the company's process map (data.mapCase — server lib/ontology/mapengine.js) has no definition: its 진행 상황
@@ -143,8 +141,8 @@ const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', da
         <template v-for="(a, k) in data.artifacts" :key="k">
           <!-- opens over this page (OfficeSheet, read-only), not as a download handed to another app -->
           <button v-if="a.kind === 'file' && inApp(a)" class="file press" @click="openOutput(app, a)"><Icon name="doc" :size="18" /> <span class="fn">{{ a.name }}</span></button>
-          <!-- no viewer here: saved under its own name (src/download.js — a storage address ignores the download attribute) -->
-          <a v-else-if="a.kind === 'file'" :href="a.url" :download="a.name" class="file press" @click.prevent="saveFile({ url: a.url, name: a.name }).catch(() => openLink(a.url))"><Icon name="doc" :size="18" /> <span class="fn">{{ a.name }}</span></a>
+          <!-- no viewer here: saved under its own name (DownloadButton — a refusal is said, a blocked tab offered as a link) -->
+          <DownloadButton v-else-if="a.kind === 'file'" class="file" :label="`${a.name} 내려받기`" :source="{ url: a.url, name: a.name }"><Icon name="doc" :size="18" /> <span class="fn">{{ a.name }}</span></DownloadButton>
           <div v-else-if="a.kind === 'video'" class="video">
             <div class="dh"><span class="serif">구현 시연 영상</span><small>{{ a.activity }}</small></div>
             <video :src="fileUrl(a)" controls preload="metadata" playsinline />

@@ -77,6 +77,8 @@ const fullscreen = ref(false)
 let timer = null
 let wait = null
 const savedUrls = new Set()
+// the copy the app saved last in this opening: the page that opened it moves the card to it only after its own call (or never — a meeting)
+let lastSaved = ''
 // live co-editing
 const LIVE = new Set(['photocraft', 'vectorcraft', 'filmcraft', 'cadcraft', 'soundcraft'])
 const READS = /^(ui\.inspect|ui\.elements|ui\.render|engine\.commands|ui\.screenshot|jobs\.list|ui\.menu\.list|cmdline\.state|control\.methods|ping)$|inspect|render|find_text|query/i
@@ -91,6 +93,7 @@ function load() {
   stopLive()
   dirty.value = false
   clearTimeout(wait)
+  lastSaved = ''
   frameSrc.value = app.value ? `${BASE}/craft/${appName()}/${app.value.query}` : ''
 }
 function show(kind, text, link) {
@@ -197,7 +200,7 @@ async function onSave({ name, bytes }) {
   show('agent', own ? '저장하는 중…' : `${name} 내보내는 중…`)
   try {
     const f = await uploadAttachment(new File([bytes], name || props.name))
-    if (own) { savedUrls.add(f.url); dirty.value = false; link?.rename(f.name); show('success', '저장했어요. 편집본이 원본 옆에 올라갔어요.'); emit('saved', { url: f.url, name: f.name }) }
+    if (own) { savedUrls.add(f.url); lastSaved = f.url; dirty.value = false; link?.rename(f.name); show('success', '저장했어요. 편집본이 원본 옆에 올라갔어요.'); emit('saved', { url: f.url, name: f.name }) }
     else show('success', `${f.name} 을(를) 만들었어요.`, f.url)
   } catch (e) { show('error', `저장하지 못했어요: ${e.message}`); emit('error', e.message) }
 }
@@ -217,7 +220,7 @@ async function toggleFullscreen() {
 }
 const onFs = () => { fullscreen.value = document.fullscreenElement === root.value }
 // 「내려받기」: the last saved file; unsaved changes in the app are said first
-const downloadSource = () => ({ url: props.fileUrl, name: props.name })
+const downloadSource = () => ({ url: lastSaved || props.fileUrl, name: props.name })
 const prepareDownload = async () => (dirty.value
   ? { ok: false, text: `앱에서 고친 내용이 아직 저장되지 않았어요(${app.value?.save || 'SAVE 로 저장'}). 마지막으로 저장된 판을 내려받을까요?` }
   : { ok: true, version: 'current' })

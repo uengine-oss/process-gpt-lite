@@ -26,9 +26,26 @@ function openTab(href, win = window) {
   return true
 }
 
+// the body, counted as it comes: null when it passes the limit (a chunked or compressed answer says no size up front)
+async function readCapped(res, max) {
+  const reader = res.body?.getReader?.()
+  if (!reader) { const b = await res.blob(); return b.size > max ? null : b }
+  const parts = []
+  let n = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    n += value.byteLength
+    if (n > max) { reader.cancel().catch(() => {}); return null }
+    parts.push(value)
+  }
+  return new Blob(parts, { type: res.headers.get('content-type') || '' })
+}
+
 // src: {url, name, type?} → {how: 'saved' | 'opened' | 'link', name, href?} — 'link': the browser blocked the new tab, the caller shows href
-// to press. Throws (with .status) when the server refused the file — its words, or why in a person's words (src/downloadPlan.js refusal).
-export async function saveFile(src, { win = window } = {}) {
+// to press. Throws (with .status) when the server refused the file — this server's own words, or why in a person's words (another
+// origin's — storage's 「InvalidJWT」 — are not shown: src/downloadPlan.js refusal). max: how much is held in memory (BLOB_MAX).
+export async function saveFile(src, { win = window, max = BLOB_MAX } = {}) {
   const name = downloadName(src?.name, src?.url, src?.type)
   const plan = downloadPlan(src?.url, { origin: win.location.origin, name })
   if (plan.how === 'none') throw new Error('내려받을 주소가 없어요.')
@@ -37,16 +54,18 @@ export async function saveFile(src, { win = window } = {}) {
   try { res = await fetch(plan.url, { credentials: plan.credentials, cache: 'no-store' }) } catch { return instead(plan.fallback) }
   if (!res.ok) {
     let words = ''
-    try { words = (await res.clone().json())?.error || '' } catch { /* not JSON */ }
+    if (plan.same) try { words = (await res.clone().json())?.error || '' } catch { /* not JSON */ }
     throw Object.assign(new Error(refusal(res.status, typeof words === 'string' ? words : '')), { status: res.status })
   }
   // too large to hold: this server's route saves itself (<a download>, same origin), anything else opens in a tab
-  if (Number(res.headers.get('content-length')) > BLOB_MAX) {
-    res.body?.cancel?.().catch(() => {})
+  const tooLarge = () => {
     if (plan.same) { press(plan.url, name, win.document); return { how: 'saved', name } }
     return instead(plan.fallback)
   }
-  const blob = await res.blob()
+  if (Number(res.headers.get('content-length')) > max) { res.body?.cancel?.().catch(() => {}); return tooLarge() }
+  let blob
+  try { blob = await readCapped(res, max) } catch { return instead(plan.fallback) }
+  if (!blob) return tooLarge()
   const href = URL.createObjectURL(blob)
   press(href, name, win.document)
   // (Safari reads the blob after the click returns)

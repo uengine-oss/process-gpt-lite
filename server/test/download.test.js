@@ -3,9 +3,10 @@
 //   FD-U-01~05 이름: 보이는 이름 그대로(한글 · 띄어쓰기 · 괄호, NFC), 확장자가 없으면 주소 · 저장된 형식에서, 주소가 다른 종류면 그 종류로
 //   FD-U-06~09 주소: 저장소는 그 주소 그대로(자격 증명 없이), 이 서버의 경로는 그 서명 · 토큰 그대로(폴더 raw 는 download=1), 공개 주소를 만들지 않음
 //   FD-U-10~14 받기: 가져와 blob 으로 <a download=이름>, 거절은 사람의 말로, 가져오지 못하면 새 탭(저장소는 ?download=이름), 막히면 누를 링크
+//   FD-U-15~17 검토 11-26: 깨진 %-이스케이프, 다른 출처의 거절 말은 보이지 않음, 크기를 말하지 않는 답(chunked · 압축)도 세면서 받다가 넘으면 멈춤
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { downloadName, addressExt, nameExt, downloadPlan, storageDownloadUrl, isStorage, doneNote, refusal, BLOB_MAX } from '../../src/downloadPlan.js'
+import { downloadName, addressExt, nameExt, downloadPlan, storageDownloadUrl, isStorage, doneNote, refusal, BLOB_MAX, NAME_MAX_BYTES } from '../../src/downloadPlan.js'
 import { saveFile } from '../../src/download.js'
 
 const STORE = 'http://127.0.0.1:54321/storage/v1/object/public/files/pgpt-pro/7d3f0a52-0c1e-4c6b-9f5e-1a2b3c4d5e6f/att/0b9c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d'
@@ -19,9 +20,12 @@ test('FD-U-01 보이는 이름 그대로 — 한글 · 띄어쓰기 · 괄호 ·
   assert.equal(downloadName(nfd, `${STORE}.xlsx`), '급여대장.xlsx')
 })
 
-test('FD-U-02 파일 이름에 못 쓰는 글자만 _ 로 — 경로 구분자 · 제어 문자 · 앞의 점, 빈 이름은 주소의 이름', () => {
+test('FD-U-02 파일 이름에 못 쓰는 글자만 _ 로 — 경로 구분자 · 제어 문자 · 보이지 않는 서식 문자 · 앞의 점, 빈 이름은 주소의 이름', () => {
   assert.equal(downloadName('보고서/2026:11월*최종?.pdf', `${STORE}.pdf`), '보고서_2026_11월_최종_.pdf')
   assert.equal(downloadName('..\\비밀.txt\u0007', `${STORE}.txt`), '_비밀.txt')
+  // a right-to-left override that would show 「…gnp.exe」 as 「…exe.png」, zero-width spaces and joiners, a BOM: gone
+  assert.equal(downloadName('청구서\u202Egnp.exe', ''), '청구서gnp.exe')
+  assert.equal(downloadName('견\u200b적\u200d서\ufeff.docx', `${STORE}.docx`), '견적서.docx')
   assert.equal(downloadName('', '/api/folders/f1/raw?ref=main&path=%EC%9D%B4%EB%A0%A5%EC%84%9C%2F%EC%9E%A5%EC%A7%84%EC%98%81_%ED%94%84%EB%A1%9C%ED%95%84.docx'), '장진영_프로필.docx')
   assert.equal(downloadName('   ', ''), 'download')
 })
@@ -50,13 +54,32 @@ test('FD-U-04 주소가 다른 종류면 그 종류로(바이트가 그 형식) 
   // a route tells its kind by ?path=
   assert.equal(addressExt('/api/workroom/chat/r1/raw?path=out%2F%EB%B3%B4%EA%B3%A0%EC%84%9C.pptx&token=t'), 'pptx')
   assert.equal(addressExt('/api/mail/attachments/a/0/raw?u=1&sig=x'), '')
+  // only a known file kind is replaced: anything else after a dot is part of the name (review 11-26 #6)
+  assert.equal(downloadName('Q3.final', `${STORE}.docx`), 'Q3.final.docx')
+  assert.equal(downloadName('보고서.v2', '', 'application/pdf'), '보고서.v2.pdf')
+  assert.equal(downloadName('2026.11.26 회의', `${STORE}.md`), '2026.11.26 회의.md')
 })
 
-test('FD-U-05 긴 이름은 확장자를 남기고 줄임(120자)', () => {
+test('FD-U-05 긴 이름은 UTF-8 240바이트(확장자 포함)로 — 확장자는 남기고, 글자 하나(이모지 · 결합 문자)를 쪼개지 않음', () => {
+  const bytes = (x) => new TextEncoder().encode(x).length
   const long = `${'아주 긴 회의 자료 제목 '.repeat(20)}.pptx`
   const n = downloadName(long, `${STORE}.pptx`)
-  assert.ok(n.length <= 120, n.length)
+  assert.ok(bytes(n) <= NAME_MAX_BYTES, bytes(n))
+  assert.ok(bytes(n) > NAME_MAX_BYTES - 4)
   assert.ok(n.endsWith('.pptx'))
+  assert.ok(n.startsWith('아주 긴 회의 자료 제목'))
+  // a thumbs-up with its skin tone (two code points, four bytes each) and a letter with its combining mark stay whole
+  const emoji = `${'👍🏽'.repeat(40)}.png`
+  const e = downloadName(emoji, '')
+  assert.ok(bytes(e) <= NAME_MAX_BYTES)
+  assert.equal(e.slice(0, -4).length % '👍🏽'.length, 0)
+  assert.match(e, /^(👍🏽)+\.png$/)
+  const marks = downloadName(`${'é'.normalize('NFD').repeat(200)}.txt`, '')
+  // (NFC joins é into one character; any leftover is whole)
+  assert.ok(bytes(marks) <= NAME_MAX_BYTES)
+  assert.ok(!/\p{M}/u.test(marks.slice(0, 1)))
+  // no lone surrogate anywhere
+  assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(e))
 })
 
 test('FD-U-06 저장소 주소는 그대로, 자격 증명 없이(CORS) — 대체 길은 ?download=이름(한글은 인코딩)', () => {
@@ -170,4 +193,43 @@ test('FD-U-13 너무 큰 파일은 메모리에 두지 않음 — 이 서버의 
 
 test('FD-U-14 받을 주소가 없으면 말로', async () => {
   await assert.rejects(saveFile({ url: '', name: 'x.pdf' }, { win: browser().win }), /내려받을 주소가 없어요/)
+})
+
+test('FD-U-15 깨진 %-이스케이프가 있는 주소도 받는다(「%zz」 · 「50%.pdf」) — 이름은 그대로', () => {
+  assert.doesNotThrow(() => addressExt('http://127.0.0.1:54321/storage/v1/object/public/files/a/%zz.pdf'))
+  assert.equal(addressExt('http://127.0.0.1:54321/storage/v1/object/public/files/a/%zz.pdf'), 'pdf')
+  assert.equal(downloadName('', 'http://127.0.0.1:54321/storage/v1/object/public/files/a/%zz.pdf'), '%zz.pdf')
+  assert.equal(downloadName('', '/api/folders/f1/raw?path=50%25.pdf&token=t'), '50%.pdf')
+  assert.equal(downloadName('견적서', 'http://h/x/%E0%A4%A.docx'), '견적서.docx')
+})
+
+test('FD-U-16 다른 출처(저장소)의 거절 말은 보이지 않고 사람의 말로 — 이 서버의 말은 그대로', async () => {
+  serve(() => new Response(JSON.stringify({ error: 'InvalidJWT', statusCode: '403' }), { status: 400, headers: { 'content-type': 'application/json' } }))
+  const b = browser()
+  await assert.rejects(saveFile({ url: `${STORE}.pdf`, name: '계약서.pdf' }, { win: b.win }), (e) => e.status === 400 && !/InvalidJWT/.test(e.message) && /서버가 파일을 주지 않았어요 \(400\)/.test(e.message))
+  serve(() => new Response(JSON.stringify({ error: 'invalid signature' }), { status: 403, headers: { 'content-type': 'application/json' } }))
+  await assert.rejects(saveFile({ url: `${STORE}.pdf`, name: '계약서.pdf' }, { win: b.win }), (e) => e.message === '이 파일을 내려받을 권한이 없어요.')
+  // this server's own words stay
+  serve(() => new Response(JSON.stringify({ error: '첨부를 찾지 못했어요.' }), { status: 404, headers: { 'content-type': 'application/json' } }))
+  await assert.rejects(saveFile({ url: '/api/mail/attachments/a/0/raw?u=1&sig=x', name: 'a.xlsx' }, { win: b.win }), (e) => e.message === '첨부를 찾지 못했어요.')
+  assert.equal(b.clicks.length, 0)
+})
+
+test('FD-U-17 크기를 말하지 않는 답(chunked · 압축)도 세면서 받다가 한도를 넘으면 멈춤 — 이 서버의 경로는 그 주소로, 저장소는 새 탭', async () => {
+  // a body in pieces, no content-length; the limit is made small for the test
+  const body = () => new ReadableStream({ start(c) { for (let i = 0; i < 5; i++) c.enqueue(new Uint8Array(400)); c.close() } })
+  serve(() => new Response(body(), { status: 200 }))
+  const b = browser()
+  const r = await saveFile({ url: '/api/workroom/chat/r1/raw?path=big.mp4&token=t', name: 'big.mp4' }, { win: b.win, max: 1000 })
+  assert.equal(r.how, 'saved')
+  assert.equal(b.clicks[0].href, '/api/workroom/chat/r1/raw?path=big.mp4&token=t')
+  const c = browser()
+  assert.equal((await saveFile({ url: `${STORE}.mp4`, name: 'big.mp4' }, { win: c.win, max: 1000 })).how, 'opened')
+  assert.equal(new URL(c.opened[0]).searchParams.get('download'), 'big.mp4')
+  // under the limit: the whole body, counted
+  serve(() => new Response(body(), { status: 200 }))
+  const d = browser()
+  const ok = await saveFile({ url: `${STORE}.mp4`, name: 'small.mp4' }, { win: d.win, max: 5000 })
+  assert.deepEqual([ok.how, ok.size], ['saved', 2000])
+  assert.match(d.clicks[0].href, /^blob:/)
 })

@@ -8,7 +8,10 @@
 //   prepare() → {ok: true, version: 'saved' | 'current'} — an editor with unsaved edits saves first (said while it does) — or
 //               {ok: false, why | text}: the person is offered the last saved version (source({last: true})), told the new edits are not in it
 // What happened is said in a small bubble under the button (a phone shows no download bar of its own): 「내려받았어요 · 이름」, which
-// version, or why not — and the file to open when the browser blocked a new tab.
+// version, or why not — and the file to open when the browser blocked a new tab. The bubble is drawn over the page, or over the panel
+// that is in full screen (전체 화면 — only that element is shown then).
+// A file chip that downloads (a step's output or a form's file no viewer here takes, a TIFF that cannot be drawn) is this button too: its
+// look in the slot, its name in `label` (aria-label · title) — a refusal is said and a blocked tab is offered as a link the same way.
 import { ref, nextTick, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import { saveFile } from '../download.js'
@@ -19,6 +22,7 @@ const props = defineProps({
   prepare: { type: Function, default: null },
   size: { type: Number, default: 15 },
   iconOnly: { type: Boolean, default: false },
+  label: { type: String, default: '내려받기' },
 })
 const emit = defineEmits(['done'])
 const btn = ref(null)
@@ -26,6 +30,9 @@ const bubble = ref(null)
 const busy = ref(false)
 const note = ref(null) // {kind: 'busy' | 'ok' | 'err' | 'offer' | 'link', text, href?}
 const at = ref({ top: 0, right: 8 })
+// where the bubble goes: the element in full screen (nothing else is drawn then), else the page
+const host = ref('body')
+const hostNow = () => document.fullscreenElement || 'body'
 let timer = null
 
 function place() {
@@ -34,6 +41,7 @@ function place() {
 }
 function say(n, ms = 0) {
   clearTimeout(timer)
+  host.value = hostNow()
   note.value = n
   place()
   if (ms) timer = setTimeout(() => { if (note.value === n) note.value = null }, ms)
@@ -90,7 +98,10 @@ const onKey = (e) => { if (e.key === 'Escape' && note.value && note.value.kind !
 document.addEventListener('pointerdown', away, true)
 document.addEventListener('keydown', onKey, true)
 window.addEventListener('resize', place)
+const onFs = () => { host.value = hostNow(); if (note.value) nextTick(place) }
+document.addEventListener('fullscreenchange', onFs)
 onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFs)
   clearTimeout(timer)
   document.removeEventListener('pointerdown', away, true)
   document.removeEventListener('keydown', onKey, true)
@@ -100,10 +111,10 @@ onBeforeUnmount(() => {
 
 <template>
   <!-- one root (the button), so the header's own class and scoped look reach it; the bubble is drawn over the page (body) -->
-  <button ref="btn" type="button" class="press dlb" :class="{ busy }" :disabled="busy" aria-label="내려받기" title="내려받기" :aria-busy="busy ? 'true' : 'false'"
+  <button ref="btn" type="button" class="press dlb" :class="{ busy }" :disabled="busy" :aria-label="label" :title="label" :aria-busy="busy ? 'true' : 'false'"
     data-test="download" @click.stop="press">
-    <span class="ic"><Icon name="down" :size="size" /></span><span v-if="!iconOnly" class="t">{{ busy ? '받는 중…' : '내려받기' }}</span>
-    <Teleport to="body">
+    <slot><span class="ic"><Icon name="down" :size="size" /></span><span v-if="!iconOnly" class="t">{{ busy ? '받는 중…' : '내려받기' }}</span></slot>
+    <Teleport :to="host">
       <div v-if="note" ref="bubble" class="dl-note" :class="note.kind" :style="{ top: `${at.top}px`, right: `${at.right}px` }"
         :role="note.kind === 'offer' ? 'alertdialog' : note.kind === 'err' ? 'alert' : 'status'" aria-live="polite" data-test="download-note" :data-kind="note.kind">
         <span v-if="note.kind === 'busy'" class="spin" aria-hidden="true" />

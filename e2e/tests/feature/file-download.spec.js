@@ -9,6 +9,12 @@
 //           저장하고 그 판을 받음
 //   F-FD-05 ArtCraft(시험용 CADCraft): 머리의 「내려받기」 · 앱에서 저장하지 않은 변경 → 「마지막 저장본 받기」 → 저장된 판
 //   F-FD-06 휴대폰 390px 밝은 · 밤: 화살표만(이름은 aria-label · title), 화면 안, 옆으로 넘치지 않음, 눌러서 받음 — 문서 · 그림 · 폴더 미리보기
+//   (검토 11-26)
+//   F-FD-08 채팅에서 연 폴더 문서: 편집기는 올렸는데 폴더 커밋이 실패하면 「방금 저장한 판」이라 하지 않고 「마지막 저장본 받기」 → 폴더의 앞 판
+//   F-FD-09 ArtCraft 에서 저장한 바로 뒤(카드가 아직 옮겨 가기 전)에도 그 저장본을 받음
+//   F-FD-10 전체 화면의 문서 패널에서도 말풍선 · 물음이 보이고 누를 수 있음(전체 화면 요소 안)
+//   F-FD-11 파일 칩 · 팩스 줄의 「내려받기」: 서버가 거절하면 그 까닭(새 탭을 열지 않음), 브라우저가 새 탭을 막으면 누를 링크
+// (메일 첨부의 저장이 내 카드에 닿지 않을 때는 mail-attachments.spec.js 의 F-FD-12)
 // (메일 첨부는 mail-attachments.spec.js 의 F-FD-07 — 가짜 Gmail 이 그쪽에 있다)
 // 자기 스택(lib/localStack.js — 회사 download-ui, BFF 8967 · Vite 5367 부터 빈 포트), 실제 이음오피스 편집기(lib/officeHost.js, 5402 부터).
 // 모델 · deepagents · completion 은 부르지 않는다(아무 데도 아닌 주소). CADCraft 는 시험용 껍데기(PRO_CRAFT_WEB_ROOT). 사람은 지어낸 이름(도하은).
@@ -77,6 +83,7 @@ const F = {
   pdf: { name: '서비스 이용 계약서.pdf', type: 'application/pdf' },
   png: { name: '현장 사진 1.png', type: 'image/png' },
   tif: { name: '팩스 수신 11월 26일.tif', type: 'image/tiff' },
+  tifbad: { name: '팩스_손상.tif', type: 'image/tiff' },
   dxf: { name: '2층 배치도.dxf', type: 'image/vnd.dxf' },
 }
 const FOLDER_FILE = '한소율_프로필.docx'
@@ -173,8 +180,9 @@ test.beforeAll(async () => {
   bytesOf.png = PNG(320, 180, [40, 120, 200])
   bytesOf.tif = fs.readFileSync(path.join(REPO, 'e2e/fixtures/tiff/fax-2p-g4.tif'))
   bytesOf.dxf = DXF
+  bytesOf.tifbad = fs.readFileSync(path.join(REPO, 'e2e/fixtures/tiff/broken.tif'))
   const [main] = await S.api(ME.token, '/threads')
-  for (const k of ['docx', 'xlsx', 'pdf', 'png', 'tif', 'dxf']) {
+  for (const k of ['docx', 'xlsx', 'pdf', 'png', 'tif', 'dxf', 'tifbad']) {
     const a = await rawPost(ME.token, '/attachments', bytesOf[k], { 'Content-Type': F[k].type, 'X-File-Name': encodeURIComponent(F[k].name) })
     await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2)`, [main.id, { name: a.name, url: a.url, type: F[k].type }])
     F[k].url = a.url
@@ -445,3 +453,139 @@ for (const theme of ['light', 'dark']) {
     await p.context().close()
   })
 }
+
+// ---------- review 11-26 ----------
+test('F-FD-08 채팅에서 연 폴더 문서: 편집기는 올렸는데 폴더 커밋이 실패하면 「마지막 저장본 받기」 → 폴더의 앞 판', async ({ browser }) => {
+  test.setTimeout(240_000)
+  // a folder_open card for the folder's document (as the agent's folder_open leaves it), editable: its saves are commits in the folder
+  const pub = await S.api(ME.token, `/folders/${slug}/publish`, { method: 'POST', body: { path: FOLDER_FILE } })
+  const before = await (await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${slug}/raw?path=${encodeURIComponent(FOLDER_FILE)}`, { headers: { Authorization: `Bearer ${ME.token}` } })).arrayBuffer()
+  const [main] = await S.api(ME.token, '/threads')
+  const NAME = FOLDER_FILE
+  await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2)`,
+    [main.id, { name: NAME, url: pub.url, ext: 'docx', folder: { slug, name: '인사 자료', path: FOLDER_FILE, sha: pub.sha, editable: true } }])
+  const p = await page(browser)
+  // the folder's commit fails (the server answers the card's save with an error); the editor's own upload goes through
+  await p.route('**/api/messages/*/file', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '폴더 저장소에 닿지 않아요(시험)' }) }))
+  await openChat(p)
+  await card(p, { name: NAME }).click()
+  const ed = await docsReady(p)
+  await expect(oef(p).locator('.badge.auto')).toBeVisible()
+  await typeAtEnd(p, ed, ' 커밋실패시험')
+  const btn = oef(p).locator('[data-testid="oef-download"]')
+  await btn.click()
+  await expect(note(p)).toHaveAttribute('data-kind', 'offer', { timeout: 40_000 })
+  await expect(note(p)).toContainText('저장하지 못했어요 (폴더 저장소에 닿지 않아요(시험)). 마지막으로 저장된 판을 내려받을까요? 방금 고친 내용은 들어 있지 않아요.')
+  await shot(p, 'fd08-folder-commit-failed-offer')
+  const last = await download(p, note(p).locator('[data-test="download-last"]'))
+  expect(last.name).toBe(FOLDER_FILE)
+  // the folder's version the card stands on: the bytes of main before (nothing of the new text)
+  expect(last.buf.equals(Buffer.from(before))).toBe(true)
+  expect(docxText(last.file)).not.toContain('커밋실패시험')
+  await expect(note(p)).toHaveText(`마지막으로 저장된 판을 내려받았어요 — 방금 고친 내용은 들어 있지 않아요 · ${FOLDER_FILE}`)
+  // and once the folder takes it again, the same press says 「방금 저장한 판」 and gives the commit
+  await p.unroute('**/api/messages/*/file')
+  const got = await download(p, btn)
+  expect(docxText(got.file)).toContain('커밋실패시험')
+  await expect(note(p)).toHaveText(new RegExp(`^(방금 저장한 판을 내려받았어요|내려받았어요) · ${FOLDER_FILE.replace('.', '\\.')}$`))
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-FD-09 ArtCraft 에서 저장한 바로 뒤(카드가 아직 옮겨 가기 전)에도 그 저장본을 받음', async ({ browser }) => {
+  const p = await page(browser)
+  // the page that opened it moves the card to the saved copy only after its own call: held back here
+  let release
+  const held = new Promise((ok) => { release = ok })
+  await p.route('**/api/messages/*/file', async (r) => { await held; await r.continue() })
+  await openChat(p)
+  await card(p, F.dxf).click()
+  const cef = p.locator('.cef')
+  const app = p.frameLocator('.cef iframe.frm')
+  await expect(app.locator('body')).toHaveAttribute('data-opened', F.dxf.name, { timeout: 30_000 })
+  // SAVE in the app (its bridge hands over the new drawing)
+  const NEW = Buffer.from(['0', 'SECTION', '2', 'ENTITIES', '0', 'CIRCLE', '8', '0', '10', '50', '20', '50', '30', '0', '40', '25', '0', 'ENDSEC', '0', 'EOF', ''].join('\n'))
+  await p.frames().find((f) => f.url().includes('/craft/cadcraft/')).evaluate((b) => parent.postMessage({ type: 'cadcraft:save', name: '2층 배치도.dxf', bytes: new Uint8Array(b).buffer }, location.origin), [...NEW])
+  await expect(cef.locator('.notice.success')).toContainText('저장했어요', { timeout: 20_000 })
+  const got = await download(p, cef.locator('[data-testid="cef-download"]'))
+  expect(got.name).toBe(F.dxf.name)
+  expect(got.buf.equals(NEW)).toBe(true)
+  release()
+  await shot(p, 'fd09-craft-saved-then-downloaded')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-FD-10 전체 화면의 문서 패널에서도 말풍선 · 물음이 보이고 누를 수 있음', async ({ browser }) => {
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, F.docx).click()
+  const ed = await docsReady(p)
+  await oef(p).locator('.tb', { hasText: '전체 화면' }).click()
+  await expect.poll(() => p.evaluate(() => document.fullscreenElement?.classList.contains('oef') || false)).toBe(true)
+  const btn = oef(p).locator('[data-testid="oef-download"]')
+  const shown = () => p.evaluate(() => {
+    const n = document.querySelector('[data-test="download-note"]')
+    if (!n) return 'none'
+    const r = n.getBoundingClientRect()
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return `${document.fullscreenElement?.contains(n) ? 'inside' : 'outside'} ${hit && n.contains(hit) ? 'hit' : 'covered'}`
+  })
+  const got = await download(p, btn)
+  expect(got.name).toBe(F.docx.name)
+  await expect(note(p)).toHaveAttribute('data-kind', 'ok')
+  expect(await shown()).toBe('inside hit')
+  await shot(p, 'fd10-fullscreen-note')
+  // the offer too, and its button is pressed there (the editor's save is stopped, as in F-FD-02)
+  await typeAtEnd(p, ed, ' 전체화면')
+  const editorPage = p.frames().find((f) => f.url().includes('/office/docs/'))
+  await editorPage.evaluate(() => {
+    for (const b of document.querySelectorAll('.qa-btn')) {
+      b.addEventListener('click', (e) => { e.stopImmediatePropagation(); e.preventDefault(); parent.postMessage({ source: 'ieum-office', type: 'save-failed', error: '저장소에 닿지 않아요(시험)' }, '*') }, true)
+    }
+  })
+  await btn.click()
+  await expect(note(p)).toHaveAttribute('data-kind', 'offer', { timeout: 10_000 })
+  expect(await shown()).toBe('inside hit')
+  await shot(p, 'fd10-fullscreen-offer')
+  const last = await download(p, note(p).locator('[data-test="download-last"]'))
+  expect(last.name).toBe(F.docx.name)
+  await p.evaluate(() => document.exitFullscreen())
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-FD-11 파일 칩 · 팩스 줄의 「내려받기」: 서버가 거절하면 그 까닭(새 탭 없음), 브라우저가 새 탭을 막으면 누를 링크', async ({ browser }) => {
+  const p = await page(browser)
+  const tabs = []
+  p.context().on('page', (x) => tabs.push(x.url()))
+  await openChat(p)
+  // the damaged fax in the chat: 「이 TIFF 는 열 수 없어요 · 내려받기」
+  const line = p.locator(`[data-test="media-preview"][data-file="${F.tifbad.name}"] [data-test="tiff-error"]`)
+  await expect(line).toBeVisible({ timeout: 30_000 })
+  const dl = line.locator('[data-test="tiff-download"]')
+  // as it is: the file, under its name
+  const ok = await download(p, dl)
+  expect(ok.name).toBe(F.tifbad.name)
+  expect(ok.buf.equals(bytesOf.tifbad)).toBe(true)
+  // refused (the stored file is gone): said, no tab opened
+  await p.route(`${F.tifbad.url}`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'not_found', message: 'Object not found' }) }))
+  await dl.click()
+  await expect(note(p)).toHaveAttribute('data-kind', 'err')
+  await expect(note(p)).toHaveText('내려받지 못했어요 · 파일을 찾지 못했어요.')
+  await shot(p, 'fd11-refused')
+  expect(tabs).toEqual([])
+  // not reachable from the page and the browser blocks the new tab: a link to press
+  await p.unroute(`${F.tifbad.url}`)
+  await p.route(`${F.tifbad.url}`, (r) => r.abort('failed'))
+  await p.evaluate(() => { window.open = () => null })
+  await dl.click()
+  await expect(note(p)).toHaveAttribute('data-kind', 'link')
+  await expect(note(p)).toContainText('브라우저가 새 창을 막았어요 · 눌러서 여세요')
+  const href = await note(p).locator('a.go').getAttribute('href')
+  expect(new URL(href).searchParams.get('download')).toBe(F.tifbad.name)
+  expect(href.startsWith(F.tifbad.url)).toBe(true)
+  await shot(p, 'fd11-blocked-link')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})

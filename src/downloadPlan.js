@@ -34,6 +34,8 @@ const TYPE_EXT = {
   'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/ogg': 'ogv',
 }
 
+// a %-escape that is not one (「50%.pdf」 in an address) leaves the text as it is
+const safeDecode = (s) => { try { return decodeURIComponent(s) } catch { return s } }
 // a name's own extension, when it looks like one ("v1.2 보고서" has none)
 export function nameExt(name) {
   const s = String(name || '')
@@ -48,7 +50,7 @@ export function addressExt(url) {
   let u
   try { u = new URL(String(url || ''), 'http://x.invalid') } catch { return '' }
   if (u.protocol === 'blob:' || u.protocol === 'data:') return ''
-  const last = decodeURIComponent(u.pathname.split('/').pop() || '')
+  const last = safeDecode(u.pathname.split('/').pop() || '')
   const e = nameExt(last)
   if (KNOWN.has(e)) return e
   const p = u.searchParams.get('path')
@@ -60,24 +62,44 @@ const addressBase = (url) => {
   try {
     const u = new URL(String(url || ''), 'http://x.invalid')
     const p = u.searchParams.get('path')
-    return decodeURIComponent((p || u.pathname).split('/').pop() || '')
+    return p ? p.split('/').pop() : safeDecode(u.pathname.split('/').pop() || '')
   } catch { return '' }
 }
 const typeExt = (type) => TYPE_EXT[String(type || '').toLowerCase().split(';')[0].trim()] || ''
 
-// The name the file is saved under: the one the place shows, cleaned only of what no file system takes (/ \ : * ? " < > | and control
-// characters → _ or nothing), Korean kept (NFC: a Mac's decomposed 한글 is joined), with the extension of what is saved.
+// a long name is cut by its UTF-8 bytes (ext4 and most file systems stop at 255 — a 한글 syllable is 3), whole characters only: never half
+// of a surrogate pair or of a grapheme cluster (an emoji with its modifier, a letter with its mark)
+export const NAME_MAX_BYTES = 240
+const utf8 = new TextEncoder()
+const byteLen = (s) => utf8.encode(s).length
+const graphemes = (() => {
+  const seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
+  return (s) => (seg ? Array.from(seg.segment(s), (x) => x.segment) : Array.from(s))
+})()
+function capBytes(s, max) {
+  if (byteLen(s) <= max) return s
+  let out = ''
+  let n = 0
+  for (const g of graphemes(s)) { const b = byteLen(g); if (n + b > max) break; out += g; n += b }
+  return out
+}
+
+// The name the file is saved under: the one the place shows, cleaned only of what no file system takes (/ \ : * ? " < > | → _, control
+// and invisible format characters — a right-to-left override, a zero-width space — dropped), Korean kept (NFC: a Mac's decomposed 한글 is
+// joined), with the extension of what is saved: a known file kind of the name is replaced when the bytes are another kind; anything else
+// after a dot is part of the name (「Q3.final」 + a .docx → 「Q3.final.docx」).
 export function downloadName(name, url = '', type = '') {
-  let n = String(name || '').normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim()
+  let n = String(name || '').normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\p{Cf}/gu, '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim()
   n = n.replace(/^\.+/, '').replace(/[. ]+$/, '')
   if (!n) { const base = addressBase(url); n = (base && downloadName(base, '', '')) || 'download' }
   const own = nameExt(n)
+  const known = KNOWN.has(own)
   const real = addressExt(url)
-  if (own && real && !same(own, real)) n = `${n.slice(0, n.length - own.length - 1)}.${real}`
-  else if (!own) { const e = real || typeExt(type); if (e) n = `${n}.${e}` }
-  // (a long name keeps its extension: most file systems stop at 255 bytes — 3 bytes a 한글 syllable)
+  if (known && real && !same(own, real)) n = `${n.slice(0, n.length - own.length - 1)}.${real}`
+  else if (!known) { const e = real || typeExt(type); if (e) n = `${n}.${e}` }
   const e = nameExt(n)
-  if (n.length > 120) n = `${n.slice(0, 120 - (e ? e.length + 1 : 0)).trim()}${e ? `.${e}` : ''}`
+  const tail = KNOWN.has(e) ? `.${e}` : ''
+  if (byteLen(n) > NAME_MAX_BYTES) n = `${capBytes(n.slice(0, n.length - tail.length), NAME_MAX_BYTES - byteLen(tail)).trim()}${tail}`
   return n
 }
 

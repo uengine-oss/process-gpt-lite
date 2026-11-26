@@ -1458,9 +1458,9 @@ cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js  
 사용자(11-26): 「파일을 열면 바로 열리는 건 좋은데 다운로드 받을 방법이 없네. 지금 다운로드 받을 방법을 파일이 열린 상태에서 다운로드 버튼이 어딘가 있든지 뭔가 공통적으로 뭔가 작업이 돼야 될 것 같아가지고 이홈오피스가 됐든 각 툴들의 그 헤더 부분에 다운로드 받는 버튼이 있든 뭔가 조치가 있어야 될 것 같네.」 이제 파일이 열리는 모든 곳(이음오피스 문서 패널 · ArtCraft · 그림 · 소리 · 영상 · 팩스 보기 화면 · 공유 폴더 미리보기 · 작업실 · 프로세스 지도의 문서 · 회의 무대)의 상단에 같은 단추(`src/components/DownloadButton.vue`)가 같은 위치(「공유」 앞, 없으면 크기 · 닫기 앞)에 있다. 휴대폰에서는 화살표만 표시된다. 페이지에 이미 있는 주소나 단추를 누르는 순간 받은 서명 주소에서 파일을 가져와 화면에 보이는 이름으로 저장한다(blob과 `<a download>`, `src/download.js` · `src/downloadPlan.js`). 저장하지 않은 수정 내용은 먼저 저장하고, 저장하지 못하면 「마지막 저장본 받기」 여부를 묻는다. 데스크톱 앱은 「다운로드」 폴더에 바로 저장한다(`desktop/src/downloads.js`). 새 서버 경로와 SQL은 없다. 화면 시험에서는 자체 스택(회사 `download-ui`, BFF 8967 · Vite 5367부터)과 실제 이음오피스 편집기(5402부터)를 실행한다. 증거는 `openspec/specs/file-download/e2e/README.md`에 있다.
 
 ```bash
-cd server && node --test test/download.test.js && cd ../desktop && node --test test/downloads.test.js
+cd server && node --test test/download.test.js && cd ../desktop && node --test test/downloads.test.js   # FD-U-01~17 · FD-D-01~04
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/file-download.spec.js
-cd e2e && RT_WORKERS=1 RT_API_FROM=8967 RT_WEB_FROM=5367 RT_OFFICE_FROM=5402 npx playwright test --project=feature tests/feature/mail-attachments.spec.js -g "F-FD-07|F-MA-09"
+cd e2e && RT_WORKERS=1 RT_API_FROM=8967 RT_WEB_FROM=5367 RT_OFFICE_FROM=5402 npx playwright test --project=feature tests/feature/mail-attachments.spec.js -g "F-FD-07|F-FD-12|F-MA-09"
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1472,8 +1472,15 @@ cd e2e && RT_WORKERS=1 RT_API_FROM=8967 RT_WEB_FROM=5367 RT_OFFICE_FROM=5402 npx
 | ArtCraft(시험용 CADCraft): 막대의 첫 번째 단추로 배치하고, 「저장 안 됨」 상태이면 앱에서 저장하지 않았다고 알린 뒤 「마지막 저장본 받기」 여부를 묻는다. 「취소」를 누르면 내려받지 않는다 | 사용자 11-26 | F-FD-05 | feature | ✅ |
 | 휴대폰 390px(밝은 테마 · 밤 테마): 화살표만 표시되고(`aria-label` · `title` 「내려받기」) 단추 크기는 44px 이하이며, 단추 · 닫기 · 말풍선이 화면 안에 표시된다. 가로로 넘치지 않고 탭하면 내려받는다(문서 · 그림 · 폴더) | 사용자 11-26 | F-FD-06 | feature | ✅ |
 | 메일 첨부(「하늘테크 용역 계약서 (수정본).docx」 · 그림): 단추를 누를 때 받은 서명 경로에서 첨부 이름 그대로, 메일의 바이트로 내려받는다(편집기가 연 10분짜리 주소는 사용하지 않음). 글을 쓴 뒤에는 먼저 저장한 편집본(비공개 카드, 주소 없음)을 내려받는다. 보기 화면의 그림도 같고, `/object/public/`은 없다 | 사용자 11-26 · 스펙 `mail-attachments` | F-FD-07 | feature | ✅ |
-| 이름 규칙(한글 · NFC · 사용할 수 없는 문자 · 확장자 보충 · 실제 종류 · 120자), 주소 규칙(저장소는 CORS, 이 서버 경로는 서명 · 토큰 유지, 폴더 raw는 `download=1`), 거절 · 가져오기 실패(새 탭 · 차단되면 링크) · 300MB 초과 | 스펙 요구 2 · 3 | FD-U-01~14 | 단위 | ✅ |
+| 이름 규칙(한글 · NFC · 사용할 수 없는 문자 · 확장자 보충 · 실제 종류 · UTF-8 240바이트), 주소 규칙(저장소는 CORS, 이 서버 경로는 서명 · 토큰 유지, 폴더 raw는 `download=1`), 거절 · 가져오기 실패(새 탭 · 차단되면 링크) · 300MB 초과 | 스펙 요구 2 · 3 | FD-U-01~14 | 단위 | ✅ |
 | 데스크톱 앱: 「다운로드」 폴더에 대화상자 없이 저장하고, 같은 이름이 있으면 「 (1)」 · 「 (2)」를 붙이며, 폴더 밖에는 저장하지 않는다 | 스펙 요구 6 | FD-D-01~03 | 단위 | ✅ |
+| **검토 11-26 #1** 편집기의 업로드는 끝났지만 폴더 커밋(채팅에서 연 폴더 문서) · 내 채팅의 비공개 카드(메일 첨부)에 닿지 않으면 한 번 다시 시도하고, 그래도 실패하면 「방금 저장한 판」이 아니라 「마지막 저장본 받기」를 묻는다. 폴더 문서는 폴더 main의 그 파일을, 메일 첨부는 메일의 첨부를 그대로 내려받는다. 폴더가 다시 받아들이면 같은 단추로 커밋된 버전을 받는다 | 검토 11-26 | F-FD-08 · F-FD-12 | feature | ✅ |
+| **#2** ArtCraft에서 저장한 직후(카드가 아직 옮겨 가기 전)에도 방금 저장한 파일을 내려받는다 | 검토 11-26 | F-FD-09 | feature | ✅ |
+| **#3** 전체 화면의 문서 패널에서도 알림과 질문이 전체 화면 요소 안에 보이고 누를 수 있다 | 검토 11-26 | F-FD-10 | feature | ✅ |
+| **#4** 데스크톱 앱은 선택한 서버의 blob과 그 서버의 경로만 대화상자 없이 「다운로드」에 저장하고, 다른 출처의 blob · 저장소 · 로그인 페이지 · 다른 사이트는 대화상자를 그대로 띄운다 | 검토 11-26 | FD-D-04 | 단위 | ✅ |
+| **#5~#9** 깨진 %-이스케이프, 알려진 파일 종류만 바꾸기(「Q3.final」 → 「Q3.final.docx」), UTF-8 240바이트 · 자소 묶음 단위로 자르기, 보이지 않는 서식 문자 제거, 다른 출처의 거절 문장은 숨김, 크기를 알리지 않는 응답도 바이트를 세다가 한도에서 멈춤 | 검토 11-26 | FD-U-02 · 04 · 05 · 15~17 | 단위 | ✅ |
+| **#10** 파일 칩 · 그릴 수 없는 팩스의 「내려받기」도 같은 단추: 서버가 거절하면 그 까닭을 알리고 새 탭은 열지 않으며, 브라우저가 새 탭을 막으면 누를 수 있는 「열기」를 보여 준다 | 검토 11-26 | F-FD-11 · F-MP-09 · F-MA-09 | feature | ✅ |
+| **#11** 리본의 단추만 눌러 바꾼 서식은 아직 알아보지 못한다(스펙의 알려진 한계) | 검토 11-26 | — | — | ✗ |
 | 작업실 파일 · 프로세스 지도 문서 · 회의 무대의 단추, 실제 iOS Safari · Android Chrome · Electron에서의 저장 위치, 영어 화면 | — | — (코드 · 사전만) | — | ◐ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)
