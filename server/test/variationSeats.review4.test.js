@@ -68,9 +68,11 @@ const adminOf = async (dir) => (await G.git(dir, ['rev-parse', '--absolute-git-d
 const streamed = (s) => new Promise((resolve, reject) => { const parts = []; s.on('data', (c) => parts.push(c)); s.on('end', () => resolve(Buffer.concat(parts))); s.on('error', reject) })
 const ago = (ms) => new Date(Date.now() - ms).toISOString()
 // what a retire did before its server stopped: its checkout's entry locked (reason), the folder moved out of the way
-async function stoppedRetire(dir, reason) {
+// (age: how long ago the lock was written — its file's own time, which is what its age is told by since the re-review)
+async function stoppedRetire(dir, reason, age = 0) {
   const admin = await adminOf(dir)
   await fs.writeFile(path.join(admin, 'locked'), reason)
+  if (age) { const t = new Date(Date.now() - age); await fs.utimes(path.join(admin, 'locked'), t, t) }
   await fs.rename(dir, `${dir}-moved-by-a-stopped-server`)
   return admin
 }
@@ -82,15 +84,15 @@ async function deadPid() {
 test('R4-B1a 치우다 멈춘 서버가 남긴 worktree 잠금은 체크아웃이 풀고 같은 자리에 다시 펼친다', { skip: !db && 'no database' }, async () => {
   const f = await folderWith('멈춘 치우기')
   const reasons = [
-    'leaving the disk (Process GPT Lite)', // the first version's
-    `pgl-retire stopped-pod-7f9c:4242 ${ago(2 * 60_000)}`, // another server, two minutes ago
-    `pgl-retire ${os.hostname()}:${await deadPid()} ${ago(1000)}`, // a process of this host that is gone
+    ['leaving the disk (Process GPT Lite)', 0], // the first version's
+    [`pgl-retire stopped-pod-7f9c:4242 ${ago(2 * 60_000)}`, 2 * 60_000], // another server, two minutes ago
+    [`pgl-retire ${os.hostname()}:${await deadPid()} ${ago(1000)} boot=0badc0ffee00 ns=${S.retireNs()}`, 0], // a process of this host (and pid namespace) that is gone
   ]
-  for (const reason of reasons) {
+  for (const [reason, age] of reasons) {
     const v = await personVar(f, `멈춘 치우기 ${reason.slice(0, 12)}`)
     await open(f, v)
     const dir = await wt(v)
-    await stoppedRetire(dir, reason)
+    await stoppedRetire(dir, reason, age)
     await SE.onDisk(String(v.id), async () => S.checkout(f, await S.variationById(v.id), dir))
     assert.ok(existsSync(path.join(dir, '.git')), `다시 펼쳤다 (${reason.slice(0, 20)})`)
     assert.ok(existsSync(path.join(dir, '안내문.md')))
@@ -119,7 +121,7 @@ test('R4-B1c 쓸기는 오래전에 멈춘 치우기의 잠금을 풀고 정리�
   const v2 = await personVar(f, '방금')
   await open(f, v1)
   await open(f, v2)
-  const a1 = await stoppedRetire(await wt(v1), `pgl-retire stopped-pod-1:1 ${ago(20 * 60_000)}`)
+  const a1 = await stoppedRetire(await wt(v1), `pgl-retire stopped-pod-1:1 ${ago(20 * 60_000)}`, 20 * 60_000)
   const a2 = await stoppedRetire(await wt(v2), `pgl-retire live-pod-2:1 ${ago(1000)}`)
   await SE.sweep()
   assert.equal(existsSync(a1), false, '멈춘 치우기의 항목은 정리됐다')
@@ -194,7 +196,7 @@ async function kept3(label) {
   return { f, v: await S.variationById(v.id), k, keptDir }
 }
 
-test('R4-S1a 남긴 파일은 zip 이 그 차례에 읽는다 — 센 크기만큼, 링크로 바뀌었거나 사라졌거나 커졌으면 zip 이 실패한다', { skip: !db && 'no database' }, async () => {
+test('R4-S1a 남긴 파일은 zip 이 그 차례에 읽는다 — 센 크기만큼, 링크로 바뀌었거나 사라졌거나 작아졌으면 zip 이 실패한다', { skip: !db && 'no database' }, async () => {
   const { f, v, k, keptDir } = await kept3('늦게 읽기')
   const JSZip = (await import('jszip')).default
   // read when its turn comes: what is there then (same size) goes in
@@ -211,10 +213,10 @@ test('R4-S1a 남긴 파일은 zip 이 그 차례에 읽는다 — 센 크기만�
   await assert.rejects(streamed(z.stream), '링크는 따라가지 않고 zip 이 실패한다')
   await fs.rm(path.join(keptDir, '둘.bin'))
   await fs.writeFile(path.join(keptDir, '둘.bin'), 'BBBB')
-  // a file that grew since it was counted
+  // a file that got shorter since it was counted (one that grew goes in as counted — review 6)
   z = await SE.keptZip(f, v, k.id, asOwner)
-  await fs.appendFile(path.join(keptDir, '셋.bin'), 'more')
-  await assert.rejects(streamed(z.stream), '커진 파일은 zip 을 실패시킨다')
+  await fs.writeFile(path.join(keptDir, '셋.bin'), 'CC')
+  await assert.rejects(streamed(z.stream), '작아진 파일은 zip 을 실패시킨다')
   await fs.writeFile(path.join(keptDir, '셋.bin'), 'CCCC')
   // a file that went away since it was counted: not an empty file in the zip
   z = await SE.keptZip(f, v, k.id, asOwner)

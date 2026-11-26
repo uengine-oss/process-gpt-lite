@@ -57,6 +57,8 @@ test('T-01 치우다 멈춘 서버의 .retiring 사본은 쓸기가 그 변형�
     await fs.mkdir(copy, { recursive: true })
     await fs.writeFile(path.join(copy, '비밀.env'), `${title}\n`)
     await fs.writeFile(`${copy}.json`, JSON.stringify({ vid: v.id, repo: f.repo_path, branch: v.branch, mode: 'person', host, pid: 4242, at }))
+    // (a note's age is its file's own time — review 6)
+    await fs.utimes(`${copy}.json`, new Date(at), new Date(at))
     return { v, copy }
   }
   const dead = await stage('멈춘', 'stopped-pod-4c1e', ago(20 * 60_000))

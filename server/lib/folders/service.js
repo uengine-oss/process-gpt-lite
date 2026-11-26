@@ -4,6 +4,7 @@
 // inside its own run folder (deepagents: /workspace/.bpmn/<room>/folders/<slug>, cli-agent: its
 // worktree), a person gets it under <root>/.people. Only this server runs git.
 import fs from 'node:fs/promises'
+import { readlinkSync } from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import os from 'node:os'
@@ -602,8 +603,18 @@ const sizeOf = async (p) => { const st = await fs.lstat(p).catch(() => null); if
 const RETIRE_MARK = 'pgl-retire'
 const RETIRE_MARK_V1 = 'leaving the disk (Process GPT Lite)' // (what the first version wrote)
 export const STALE_RETIRE_MS = 10 * 60_000
-const retiring = new Set() // entries this process is retiring now
+// past this a retire counts as stopped whatever its pid says (a pid is reused)
+export const RETIRE_CEILING_MS = 3 * STALE_RETIRE_MS
+// Who this process is, as a retire's mark and note say it: the host name and pid, the pid namespace (Linux: /proc/self/ns/pid — two
+// servers with one host name may each be pid 1 in their own; elsewhere the machine has one) and a token made at start (no other process
+// has it)
+const BOOT = crypto.randomBytes(6).toString('hex')
+const PID_NS = process.platform === 'linux' ? (() => { try { return readlinkSync('/proc/self/ns/pid').replace(/\D/g, '') || null } catch { return null } })() : process.platform
+export const retireNs = () => PID_NS
 const real = (p) => fs.realpath(p).catch(() => null)
+// a path as one spelling (its folder's real path — a root reached through a link, /var and /private/var, is the same place)
+const keyOf = async (p) => path.join((await real(path.dirname(p))) || path.dirname(p), path.basename(p))
+const retiring = new Set() // entries this process is retiring now (keyOf)
 async function commonOf(repo) {
   if ((await fs.lstat(path.join(repo, '.git')).catch(() => null))?.isDirectory()) return path.join(repo, '.git')
   const c = (await G.git(repo, ['rev-parse', '--git-common-dir'], { check: false })).trim()
@@ -633,48 +644,55 @@ async function holdWorktree(repo, dir) {
   if (!admin) return null
   const reason = await lockOf(admin)
   if (reason != null && !retireLock(reason)) return null
-  await fs.writeFile(path.join(admin, 'locked'), `${RETIRE_MARK} ${os.hostname()}:${process.pid} ${new Date().toISOString()}`)
-  retiring.add(admin)
+  await fs.writeFile(path.join(admin, 'locked'), `${RETIRE_MARK} ${os.hostname()}:${process.pid} ${new Date().toISOString()} boot=${BOOT}${PID_NS ? ` ns=${PID_NS}` : ''}`)
+  retiring.add(await keyOf(admin))
   return admin
 }
 async function letGo(admin) {
-  retiring.delete(admin)
+  retiring.delete(await keyOf(admin))
   await fs.rm(path.join(admin, 'locked'), { force: true }).catch(() => {})
 }
-// did the retire that wrote this lock stop: of this process and not going on now · of another process on this host that is gone · of
-// another server and older than `olderThan` (a retire takes seconds) · of the first version (no server in it — no such server runs any
-// more): at once for the caller that holds that variation's lease (mine), else by the lock's age
+const markOf = (reason) => {
+  const m = /^pgl-retire (\S+):(\d+) (\S+)(.*)$/s.exec(reason || '')
+  if (!m) return null
+  const kv = Object.fromEntries([...m[4].matchAll(/(\w+)=(\S+)/g)].map((x) => [x[1], x[2]]))
+  return { host: m[1], pid: Number(m[2]), boot: kv.boot || null, ns: kv.ns || null }
+}
+// did the retire that wrote this lock stop (ranStopped — its age is the lock file's own time, not the clock of the server that wrote it) ·
+// of the first version (no server in it — no such server runs any more): at once for the caller that holds that variation's lease (mine)
 async function retireStopped(admin, reason, olderThan, mine = false) {
   if (mine && reason.trim() === RETIRE_MARK_V1) return true
-  const m = /^pgl-retire (\S+):(\d+) (\S+)/.exec(reason || '')
-  const at = m ? Date.parse(m[3]) : (await fs.stat(path.join(admin, 'locked')).catch(() => null))?.mtimeMs
-  return ranStopped({ host: m?.[1], pid: m ? Number(m[2]) : null, at }, olderThan, retiring.has(admin))
+  const st = await fs.stat(path.join(admin, 'locked')).catch(() => null)
+  return ranStopped(markOf(reason), st ? Date.now() - st.mtimeMs : NaN, olderThan, retiring.has(await keyOf(admin)))
 }
-// did the retire run by host:pid (started at `at`) stop: this process's, when it is not `going` on · another process of this host that is
-// gone · another server's (or one that did not say) once older than `olderThan`
-function ranStopped({ host, pid, at }, olderThan, going) {
-  if (host === os.hostname() && pid) {
-    if (pid === process.pid) return !going
-    try { process.kill(pid, 0); return false } catch (e) { return e.code === 'ESRCH' }
+// did the retire `who` ran ({host, pid, boot, ns} — from its mark or note; null: it did not say) stop, `age` ms after its mark was
+// written: this process's (its token) unless it is `going` on now · any other once older than RETIRE_CEILING_MS · one of this host and
+// this pid namespace when its pid is gone · any other (another server, another namespace, an older version's) once older than `olderThan`
+function ranStopped(who, age, olderThan, going) {
+  if (who?.boot && who.boot === BOOT) return !going
+  if (Number.isFinite(age) && age > RETIRE_CEILING_MS) return true
+  if (who && who.host === os.hostname() && who.pid && who.ns && who.ns === PID_NS) {
+    try { process.kill(who.pid, 0); return false } catch (e) { return e.code === 'ESRCH' }
   }
-  return Number.isFinite(at) && Date.now() - at > olderThan
+  return Number.isFinite(age) && age > olderThan
 }
 // The staging copies of retires that stopped mid-way (a pod killed after the move, before what git does not carry was kept): kept whole in
 // <folders>/.kept/<variation>/<time> and recorded on the variation like any kept folder (「따로 남긴 파일」, removed after the usual days).
 // Which retire, when and for which variation is in its note beside it (<staging>.json — retire writes it before the move). A copy with no
 // note (an older version's) goes by its own time and is kept under no variation. → how many were kept
-const staged = new Set() // staging copies this process's retires are working on now
+const staged = new Set() // staging copies this process's retires are working on now (keyOf)
 export async function keepStoppedStagings() {
   let n = 0
   for (const base of new Set([foldersRoot(), workspaceDir()])) {
     const root = path.join(base, '.retiring')
     for (const name of await fs.readdir(root).catch(() => [])) {
       const staging = path.join(root, name)
-      if (name.endsWith('.json') || staged.has(staging) || !(await fs.lstat(staging).catch(() => null))?.isDirectory()) continue
+      if (name.endsWith('.json') || !(await fs.lstat(staging).catch(() => null))?.isDirectory()) continue
       let note = null
       try { note = JSON.parse(await fs.readFile(`${staging}.json`, 'utf8')) } catch { /* no note */ }
-      const at = note?.at ? Date.parse(note.at) : (await fs.stat(staging).catch(() => null))?.mtimeMs
-      if (!ranStopped({ host: note?.host, pid: note?.pid, at }, STALE_RETIRE_MS, false)) continue
+      const st = (note && await fs.stat(`${staging}.json`).catch(() => null)) || await fs.stat(staging).catch(() => null)
+      const who = note ? { host: note.host, pid: note.pid, boot: note.boot || null, ns: note.ns || null } : null
+      if (!ranStopped(who, st ? Date.now() - st.mtimeMs : NaN, STALE_RETIRE_MS, staged.has(await keyOf(staging)))) continue
       let [v] = note?.vid ? await q('select id, folder_id from pro_folder_variations where id=$1', [note.vid]).catch(() => []) : []
       if (!v && note?.repo && note?.branch) {
         [v] = await q('select v.id, v.folder_id from pro_folder_variations v join pro_folders f on f.id=v.folder_id where f.repo_path=$1 and v.branch=$2', [note.repo, note.branch]).catch(() => [])
@@ -704,7 +722,7 @@ export async function freeStoppedRetires(repo, { branch = null } = {}) {
   let freed = 0, waiting = false
   for (const name of await fs.readdir(path.join(common, 'worktrees')).catch(() => [])) {
     const admin = path.join(common, 'worktrees', name)
-    if (retiring.has(admin)) continue
+    if (retiring.has(await keyOf(admin))) continue
     const reason = await lockOf(admin)
     if (!retireLock(reason)) continue
     const gd = (await fs.readFile(path.join(admin, 'gitdir'), 'utf8').catch(() => '')).trim()
@@ -734,15 +752,23 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
   // sweep, keepStoppedStagings)
   const note = `${staging}.json`
   const branch = held ? (await fs.readFile(path.join(held, 'HEAD'), 'utf8').catch(() => '')).match(/^ref: refs\/heads\/(.+)$/m)?.[1] || null : null
-  staged.add(staging)
+  const key = await keyOf(staging)
+  staged.add(key)
   let keptDir = null, bytes = 0, stuck = false, whole = false, left = []
   try {
-    await fs.writeFile(note, JSON.stringify({ vid, repo, branch, mode, host: os.hostname(), pid: process.pid, at: new Date().toISOString() }))
+    await fs.writeFile(note, JSON.stringify({ vid, repo, branch, mode, host: os.hostname(), pid: process.pid, boot: BOOT, ns: PID_NS, at: new Date().toISOString() }))
     await fs.rename(dir, staging)
     const checkout = !!(await fs.stat(path.join(staging, '.git')).catch(() => null))
     left = checkout ? await leftIn(staging, { gitDir: held }) : (await fs.readdir(staging).catch(() => [])).map((n) => ({ path: n, kind: 'untracked' }))
     whole = left === null
     if (!whole) {
+      // (a run's ignored paths go first — also those inside a new folder that is kept whole: `?? tools/` with `!! tools/node_modules/`)
+      if (mode === 'agent') {
+        for (const l of left) {
+          const p = path.join(staging, l.path)
+          if (l.kind === 'ignored' && p.startsWith(staging + path.sep)) await fs.rm(p, { recursive: true, force: true }).catch(() => {})
+        }
+      }
       const seen = new Set()
       left = left.filter((l) => !(mode === 'agent' && l.kind === 'ignored') && !seen.has(l.path) && seen.add(l.path))
     }
@@ -765,7 +791,7 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
     if (stuck) console.warn(`[folders] some of what git does not carry could not be moved to the kept folder — left at ${staging}`)
     else if (!whole) await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
   } finally {
-    staged.delete(staging)
+    staged.delete(key)
     if (!(await fs.lstat(staging).catch(() => null))) await fs.rm(note, { force: true }).catch(() => {})
     if (held) await letGo(held)
   }

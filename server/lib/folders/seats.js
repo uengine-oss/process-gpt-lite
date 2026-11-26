@@ -370,7 +370,10 @@ async function lease(vid, wait) {
   let sent
   for (;;) {
     sent = Date.now()
-    if (await takeLease(vid, owner)) break
+    // (no connection for it in time, or no answer in time: not taken now — the work then waits its turn or says busy, never a 500)
+    let got = false
+    try { got = await takeLease(vid, owner) } catch (e) { if (!/timeout exceeded when trying to connect|query read timeout/i.test(String(e?.message))) throw e }
+    if (got) break
     if (Date.now() >= until) return null
     await pause(Math.min(250, Math.max(10, until - Date.now())))
   }
@@ -1003,6 +1006,7 @@ const limitMb = (x, d) => { const n = Number(x); return Number.isFinite(n) && n 
 export const keptZipMaxMb = () => limitMb(process.env.PRO_KEPT_ZIP_MAX_MB, 200)
 export const keptFileMaxMb = () => limitMb(process.env.PRO_KEPT_FILE_MAX_MB, 100)
 const zipsAtOnce = () => Math.max(1, Math.floor(Number(process.env.PRO_KEPT_ZIPS_AT_ONCE)) || 2)
+export const keptZipMaxFiles = () => Math.max(1, Math.floor(Number(process.env.PRO_KEPT_ZIP_MAX_FILES)) || 20_000)
 let zipping = 0
 export const zipsGoing = () => zipping
 const mbText = (bytes) => { const m = bytes / MB; return `${m >= 10 ? Math.round(m) : m.toFixed(1)} MB` }
@@ -1010,12 +1014,12 @@ const keptGone = () => err(404, L('남겨 둔 파일을 찾지 못했어요(보�
 const zipsBusy = () => err(409, L('지금 다른 내려받기 파일을 만들고 있어요. 잠시 후 다시 시도해 주세요.', 'Other downloads are being made right now. Try again in a moment.'), { why: 'busy' })
 // the files of a kept folder, a link never followed → {files: [{rel, full, size}], bytes, big: the first file past its limit, over}; a
 // folder that went away meanwhile (the sweep) → 404 'gone'
-async function keptFiles(dir, { fileMax, allMax }) {
-  const out = { files: [], bytes: 0, big: null, over: false }
+async function keptFiles(dir, { fileMax, allMax, filesMax = Infinity }) {
+  const out = { files: [], bytes: 0, big: null, over: false, many: false }
   const walk = async (d, rel) => {
     const ents = await fsp.readdir(d, { withFileTypes: true }).catch((e) => { throw ['ENOENT', 'ENOTDIR'].includes(e.code) ? keptGone() : e })
     for (const e of ents) {
-      if (out.big) return
+      if (out.big || out.many) return
       const full = path.join(d, e.name), r = rel ? `${rel}/${e.name}` : e.name
       if (e.isSymbolicLink()) continue
       if (e.isDirectory()) { await walk(full, r); continue }
@@ -1025,14 +1029,16 @@ async function keptFiles(dir, { fileMax, allMax }) {
       out.bytes += st.size
       if (out.bytes > allMax) out.over = true
       if (!out.over) out.files.push({ rel: r, full, size: st.size })
+      if (out.files.length > filesMax) { out.many = true; return }
     }
   }
   await walk(dir, '')
   return out
 }
 // One kept file as the zip reads it: opened only then (never following a link put in its place since it was counted — O_NOFOLLOW), read
-// up to the size counted. A file that is not that plain file of that size any more (changed, gone, a link) fails the zip — never a wrong
-// or empty copy inside it.
+// up to the size counted. A file that grew meanwhile (something still writing it) goes in as it was counted; one that is not a plain file
+// of at least that size any more (shorter, gone, a link) fails the zip — never a wrong or empty copy inside it. A stream given up while it
+// opens its file closes that file.
 const CHUNK = 64 * 1024
 function lazyFile(full, size) {
   let fh = null, done = 0
@@ -1042,9 +1048,11 @@ function lazyFile(full, size) {
     async read() {
       try {
         if (!fh) {
-          fh = await fsp.open(full, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0))
+          const h = await fsp.open(full, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0))
+          if (this.destroyed) { await h.close().catch(() => {}); return }
+          fh = h
           const st = await fh.stat()
-          if (!st.isFile() || st.size !== size) throw changed()
+          if (!st.isFile() || st.size < size) throw changed()
         }
         if (done >= size) {
           const h = fh
@@ -1075,8 +1083,12 @@ export async function keptZip(folder, v, id, { me = null, role = null, check = f
   const p = r && keptPath(r)
   if (!p || !p.startsWith(S.keptRootOf() + path.sep) || !(await fsp.stat(p).catch(() => null))) throw keptGone()
   if (!mayGetKept(r, v, { me, role })) throw err(403, L('그 작업본을 가졌던 사람과 폴더 소유자만 내려받을 수 있어요.', 'Only whoever had that working copy and the folder owner can download it.'))
-  const fileMb = keptFileMaxMb(), allMb = keptZipMaxMb()
-  const got = await keptFiles(p, { fileMax: fileMb * MB, allMax: allMb * MB })
+  const fileMb = keptFileMaxMb(), allMb = keptZipMaxMb(), filesMax = keptZipMaxFiles()
+  const got = await keptFiles(p, { fileMax: fileMb * MB, allMax: allMb * MB, filesMax })
+  if (got.many) {
+    throw err(413, L(`남긴 파일이 ${filesMax.toLocaleString('ko-KR')}개를 넘어 한 번에 내려받을 수 있는 개수 한도를 넘었어요. 남긴 파일은 보관 기간 동안 서버에 그대로 있으니 관리자에게 파일을 꺼내 달라고 요청해 주세요.`,
+      `There are more than ${filesMax.toLocaleString('en-US')} kept files, more than can be downloaded at once. They stay on the server until their days pass — ask an administrator to get them out.`), { why: 'too-big' })
+  }
   if (got.big) {
     throw err(413, L(`「${got.big.rel}」 파일의 크기가 ${mbText(got.big.size)}로, 한 번에 내려받을 수 있는 한도(파일 하나에 ${fileMb} MB)를 넘었어요. 남긴 파일은 보관 기간 동안 서버에 그대로 있으니 관리자에게 파일을 꺼내 달라고 요청해 주세요.`,
       `"${got.big.rel}" is ${mbText(got.big.size)}, more than can be downloaded at once (${fileMb} MB a file). The kept files stay on the server until their days pass — ask an administrator to get them out.`), { why: 'too-big' })
@@ -1087,12 +1099,15 @@ export async function keptZip(folder, v, id, { me = null, role = null, check = f
   }
   if (zipping >= zipsAtOnce()) throw zipsBusy()
   if (check) return { ok: true, bytes: got.bytes, count: got.files.length }
-  const JSZip = (await import('jszip')).default
-  const zip = new JSZip()
-  const files = got.files.map((f) => { const s = lazyFile(f.full, f.size); zip.file(f.rel, s); return s })
-  // (the zip counts until it is over — read to the end, failed, or given up by the one downloading it — and its files are closed then;
-  // nothing is made before it is read)
+  // (the zip counts from here until it is over — read to the end, failed, or given up by the one downloading it — and its files are
+  // closed then; nothing is made before it is read)
   zipping++
+  let zip, files
+  try {
+    const JSZip = (await import('jszip')).default
+    zip = new JSZip()
+    files = got.files.map((f) => { const s = lazyFile(f.full, f.size); zip.file(f.rel, s); return s })
+  } catch (e) { zipping--; throw e }
   let inner = null
   const out = new Readable({
     read() {

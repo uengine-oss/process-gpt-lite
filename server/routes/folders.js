@@ -3,6 +3,10 @@ import express from 'express'
 import { L } from '../lib/lang.js'
 import path from 'node:path'
 import { pipeline } from 'node:stream'
+import os from 'node:os'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { PGPT_ROOT } from '../lib/paths.js'
 import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
 import * as G from '../lib/folders/git.js'
@@ -21,8 +25,27 @@ import { emit } from '../lib/bus.js'
 const MIME = S.MIME
 
 // a message with every absolute path in it cut to its last part (「…/<name>」) — what a server failure may say to the page
-export const hidePaths = (m) => String(m || '').replace(/(^|[\s'"`(=])((?:[A-Za-z]:)?(?:[\\/][^\s'"`\\/]+){2,}[\\/]?)/g,
-  (_, pre, p) => `${pre}…/${path.basename(p.replace(/[\\/]+$/, '').replace(/\\/g, '/'))}`)
+// (first the server's own places — the folders, the agents' workspace, its home, the code — as 「…」, then any other absolute path; a path
+// may hold spaces — Application Support — or follow a colon: at:/srv/…)
+const APP_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const rootsMemo = new Map()
+const knownRoots = () => {
+  const bases = [path.dirname(S.foldersRoot()), path.dirname(S.workspaceDir()), PGPT_ROOT, APP_DIR, os.homedir()].filter((b) => b && b.split(/[\\/]/).filter(Boolean).length >= 2)
+  const all = new Set()
+  for (const b of bases) {
+    all.add(b)
+    if (!rootsMemo.has(b)) { try { rootsMemo.set(b, realpathSync(b)) } catch { rootsMemo.set(b, null) } }
+    if (rootsMemo.get(b)) all.add(rootsMemo.get(b))
+  }
+  return [...all].sort((a, b) => b.length - a.length)
+}
+const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+export const hidePaths = (m) => {
+  let out = String(m || '')
+  for (const root of knownRoots()) out = out.replace(new RegExp(`${escapeRe(root)}(?=[\\\\/\\s'"\`)]|$)`, 'g'), '…')
+  return out.replace(/(^|[\s'"`(=:])((?:[A-Za-z]:)?(?:[\\/][^\s'"`\\/]+){2,}[\\/]?)/g,
+    (_, pre, p) => `${pre}…/${path.basename(p.replace(/[\\/]+$/, '').replace(/\\/g, '/'))}`)
+}
 export function folderRoutes(auth) {
   const r = express.Router()
   const h = (fn) => async (req, res) => {
