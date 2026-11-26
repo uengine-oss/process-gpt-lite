@@ -9,10 +9,12 @@ import { folders as F, whoOf, indexLabel, ago } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName } from './fileKind.js'
 // a file of the app (a chat card, a received file, another folder's file — src/fileDrag.js) dropped on a folder's row goes into it
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords } from '../../fileDrag.js'
-// 「내 PC 폴더 올리기」: only in the desktop app (its bridge picks a folder of this computer — src/desktopFolders.js); a browser says where
+// 「내 PC 폴더 올리기」: only in the desktop app (its bridge picks a folder of this computer — src/desktopFolders.js), once the app is
+// paired with this server for this person (pcLink); a browser says where
 import SourceSheet from './SourceSheet.vue'
-import { available as pcAvailable, bridge as pcBridge, kitLine, pickErrorText } from '../../desktopFolders.js'
-import { desktopApp } from '../../localRunner.js'
+import { available as pcAvailable, bridge as pcBridge, pcLink, kitLine, pickErrorText } from '../../desktopFolders.js'
+import { desktopApp, runner, pairThis } from '../../localRunner.js'
+import { useApp } from '../../stores/app.js'
 
 const emit = defineEmits(['preview'])
 const router = useRouter()
@@ -42,6 +44,15 @@ async function load() {
 }
 const pc = ref(null)        // true: the desktop app can pick a folder here · false: a browser (or an app from before 0.2.5: oldApp)
 const oldApp = !!desktopApp()
+const app = useApp()
+// (in the app: paired with this server for me — ready; on its way — linking; not — unpaired, with 「이 PC 연결하기」)
+const link = computed(() => (pc.value ? pcLink(app.me?.user?.id) : null))
+const pairing = ref(false)
+async function pairHere() {
+  if (pairing.value || !app.me) return
+  pairing.value = true
+  try { await pairThis(app.me) } catch (e) { runner.error = runner.error || e.message } finally { pairing.value = false }
+}
 const picked = ref(null)    // {pickId, label, preview} — the sheet is open
 const picking = ref(false)
 onMounted(async () => { load(); pc.value = await pcAvailable() })
@@ -126,10 +137,14 @@ const openDropped = () => { const n = dropNote.value; dropNote.value = null; if 
       <h1>폴더</h1>
       <span class="sub">여럿이 함께 쓰고, 에이전트가 변형을 만들어 일하는 파일 공간이에요</span>
       <span class="sp" />
-      <button v-if="pc" class="pill-btn hbtn" data-test="folder-pc-upload" :disabled="picking" @click="pickPcFolder"><FIcon name="pc" :size="16" /> {{ picking ? '고르는 중…' : '내 PC 폴더 올리기' }}</button>
+      <button v-if="pc && link === 'ready'" class="pill-btn hbtn" data-test="folder-pc-upload" :disabled="picking" @click="pickPcFolder"><FIcon name="pc" :size="16" /> {{ picking ? '고르는 중…' : '내 PC 폴더 올리기' }}</button>
       <button v-if="canLink" class="pill-btn hbtn" data-testid="folder-link" @click="open('link')"><FIcon name="link" :size="16" /> 저장소 연결</button>
       <button class="dark-btn hbtn" @click="open('new')">새 폴더</button>
       <span v-if="pc === false" class="pchint" data-test="folder-pc-hint"><FIcon name="pc" :size="15" /> {{ oldApp ? '데스크톱 앱을 새 판으로 바꾸면 내 PC 폴더를 올릴 수 있어요' : '데스크톱 앱에서 내 PC 폴더를 올릴 수 있어요' }}</span>
+      <span v-else-if="pc && link !== 'ready'" class="pchint" data-test="folder-pc-link" :data-state="link" role="status">
+        <FIcon name="pc" :size="15" /> {{ link === 'linking' ? '데스크톱 앱이 이 서버에 연결되면 내 PC 폴더를 올릴 수 있어요' : runner.error ? '이 PC 를 이 서버에 연결하지 못했어요' : '이 PC 가 이 서버에 연결되어 있지 않아요' }}
+        <button v-if="link === 'unpaired'" class="pairbtn press" data-test="folder-pc-pair" :disabled="pairing" @click="pairHere">{{ pairing ? '연결하는 중…' : '이 PC 연결하기' }}</button>
+      </span>
     </div>
 
     <div class="tabs">
@@ -312,7 +327,8 @@ button.row:hover { background: var(--regular-solid-bg); }
 .dark-btn { background: var(--ink); color: var(--ink-inverse); }
 @media (max-width: 900px) { .row { grid-template-columns: 1fr auto; } .row > :nth-child(2), .row > :nth-child(3), .row > :nth-child(4) { display: none; } }
 .tabs { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
-.pchint { flex-basis: 100%; display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; font-size: 12.5px; color: var(--text-secondary); margin-top: -8px; }
+.pchint { flex-basis: 100%; display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; font-size: 12.5px; color: var(--text-secondary); margin-top: -8px; }
+.pairbtn { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; font-weight: 600; color: var(--text-primary); background: var(--button-bg); }
 .wb.pcb { background: rgba(42 120 214 / .14); color: #2a78d6; }
 .nm small.kl { color: var(--text-tertiary); }
 :root[data-theme="dark"] .wb.pcb { color: #8cc1ff; }

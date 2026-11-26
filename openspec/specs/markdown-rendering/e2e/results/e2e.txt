@@ -1,0 +1,15 @@
+# 2026-11-26 · branch fix/safe-html-rendering · cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/safe-html.spec.js
+# (F-SH-06 의 nginx 부분: Docker 29.1.2 · nginx:1.27-alpine)
+
+
+Running 7 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/safe-html.spec.js:118:1 › F-SH-01 safeMarkdown: 까다로운 입력 모음은 실제 문서에 넣어도 실행되지 않고, 보통 Markdown 은 그대로 그린다 (1.5s)
+  ✓  2 [feature] › tests/feature/safe-html.spec.js:207:1 › F-SH-02 대화의 에이전트 답: 섞인 HTML 은 글자로, javascript: 링크는 주소 없이 — 표 · 코드 · 새 탭 링크는 그대로 (2.5s)
+  ✓  3 [feature] › tests/feature/safe-html.spec.js:229:1 › F-SH-03 「이미 한 요청」 카드의 팀원 답도 같은 규칙으로 그린다 (2.9s)
+  ✓  4 [feature] › tests/feature/safe-html.spec.js:250:1 › F-SH-04 스킬 초안의 SKILL.md 전체 보기 · 작업 메모도 같은 규칙으로 그린다 (3.7s)
+  ✓  5 [feature] › tests/feature/safe-html.spec.js:271:1 › F-SH-05 인스턴스 화면의 산출물(단계의 긴 글 결과)도 같은 규칙으로 그린다 (1.9s)
+  ✓  6 [feature] › tests/feature/safe-html.spec.js:291:1 › F-SH-06 페이지는 <object> · <base> 를 받지 않고, 설치 번들의 nginx 는 틀 넣기 · 저장소 HTML 의 스크립트를 막는다 (2.3s)
+  ✓  7 [feature] › tests/feature/safe-html.spec.js:353:1 › F-SH-07 작업실의 파일 원본: 그림 · 소리 · 영상 · PDF · 일반 텍스트만 sandbox 없이, 나머지(.html · .xhtml · .svg · .xml · .xsl …)는 sandbox 로 (784ms)
+
+  7 passed (22.8s)

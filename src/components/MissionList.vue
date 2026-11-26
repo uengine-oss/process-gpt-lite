@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../safeMarkdown.js'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
@@ -18,7 +18,8 @@ const kindOf = (s) => (s.skill ? `스킬 ${s.skill}` : s.process_id ? `프로세
 const items = ref([])
 const open = ref(null)
 const runs = ref([])
-const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
+// (raw HTML in it reads as text; only plain document elements reach the page — src/safeMarkdown.js)
+const md = (t) => safeMarkdown(t, { html: 'text' })
 const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')
 const statusText = { running: '실행 중', done: '완료됨', failed: '실패' }
 

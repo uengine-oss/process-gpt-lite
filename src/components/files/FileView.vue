@@ -9,10 +9,12 @@
 // 「내려받기」 is the host's (its header: FilePreview · the workroom · a meeting's stage — spec file-download): the editors inside keep
 // theirs out of the way, so a screen has one.
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../../safeMarkdown.js'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
 import CraftEditorFrame from '../CraftEditorFrame.vue'
 import { viewOf, baseName, highlight, parseCsv } from '../folders/fileKind.js'
+// a Markdown file's YAML front matter (a SKILL.md's name · description): a small table above the body, not a rule and a bold heading
+import { splitFrontMatter } from '../../frontMatter.js'
 // a TIFF (a fax): drawn by the app, page by page (loaded only when one is shown)
 const TiffView = defineAsyncComponent(() => import('../TiffView.vue'))
 
@@ -42,7 +44,9 @@ watch(dirty, (d) => emit('dirty', d))
 const editing = computed(() => props.editable && isText.value && (props.mode === 'edit' || ['code', 'text'].includes(view.value)))
 function onKey(e) { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (dirty.value) emit('save', draft.value) } }
 
-const html = computed(() => (view.value === 'markdown' ? marked.parse(draft.value) : ''))
+const md = computed(() => (view.value === 'markdown' ? splitFrontMatter(draft.value) : { meta: null, body: '' }))
+// (a folder's Markdown is anyone's text: only plain document elements reach the page — safeMarkdown.js)
+const html = computed(() => (view.value === 'markdown' ? safeMarkdown(md.value.body, { breaks: false }) : ''))
 const codeLines = computed(() => draft.value.replace(/\n$/, '').split('\n'))
 const csv = computed(() => (view.value === 'csv' ? parseCsv(draft.value) : []))
 const lines = computed(() => Math.max(1, draft.value.split('\n').length))
@@ -78,7 +82,12 @@ defineExpose({ draft, dirty, flush, writable })
       <pre class="gut">{{ Array.from({ length: lines }, (_, i) => i + 1).join('\n') }}</pre>
       <textarea v-model="draft" class="code" spellcheck="false" @keydown="onKey" />
     </div>
-    <div v-else-if="view === 'markdown'" class="mdv" v-html="html" />
+    <div v-else-if="view === 'markdown'" class="mdv">
+      <table v-if="md.meta?.length" class="fm" data-test="md-front-matter" aria-label="머리말">
+        <tbody><tr v-for="([k, v], i) in md.meta" :key="i"><th data-no-i18n>{{ k }}</th><td :class="{ nm: k === 'name' }" data-no-i18n>{{ v }}</td></tr></tbody>
+      </table>
+      <div v-html="html" />
+    </div>
     <div v-else-if="view === 'code' || view === 'text'" class="codev">
       <div v-for="(l, i) in codeLines" :key="i" class="ln"><span class="no">{{ i + 1 }}</span><span class="tx" v-html="view === 'code' ? highlight(l) : l.replace(/&/g, '&amp;').replace(/</g, '&lt;')" /></div>
     </div>
@@ -109,6 +118,13 @@ defineExpose({ draft, dirty, flush, writable })
 .mdv :deep(pre) { padding: 14px 16px; border-radius: 10px; background: rgba(127, 127, 127, .12); overflow: auto; }
 .mdv :deep(pre code) { background: none; padding: 0; }
 .mdv :deep(table) { border-collapse: collapse; } .mdv :deep(th), .mdv :deep(td) { border: 1px solid rgba(127, 127, 127, .3); padding: 6px 12px; }
+/* the front matter: keys and values, small, above the body (as GitHub shows it) */
+.mdv .fm { width: 100%; margin: 0 0 20px; border-collapse: separate; border-spacing: 0; border: 1px solid rgba(127, 127, 127, .25); border-radius: 10px; overflow: hidden; background: rgba(127, 127, 127, .06); font-size: 13px; line-height: 1.55; }
+.mdv .fm th, .mdv .fm td { border: 0; padding: 7px 12px; vertical-align: top; text-align: left; }
+.mdv .fm tr + tr th, .mdv .fm tr + tr td { border-top: 1px solid rgba(127, 127, 127, .16); }
+.mdv .fm th { width: 1%; white-space: nowrap; font: 500 12px/1.65 "SF Mono", Menlo, monospace; color: #6e7781; opacity: 1; }
+.mdv .fm td { white-space: pre-line; overflow-wrap: anywhere; color: inherit; }
+.mdv .fm td.nm { font-weight: 600; }
 .codev { padding: 12px 0; font: 12.5px/1.7 "SF Mono", Menlo, monospace; }
 .ln { display: flex; white-space: pre; }
 .no { flex: none; width: 46px; padding-right: 12px; text-align: right; color: #a9a9a2; user-select: none; }
@@ -128,4 +144,5 @@ th { font-weight: 600; opacity: .7; font-size: 12.5px; }
 .fv.dark .gut { background: #191b21; color: #5d6370; }
 .fv.dark .tx :deep(.k) { color: #ff7b72; } .fv.dark .tx :deep(.s) { color: #a5d6ff; } .fv.dark .tx :deep(.c) { color: #8b949e; } .fv.dark .tx :deep(.n) { color: #79c0ff; }
 .fv.dark .mdv :deep(h1), .fv.dark .mdv :deep(h2) { color: #8ab4ff; }
+.fv.dark .mdv .fm th { color: #8b949e; }
 </style>

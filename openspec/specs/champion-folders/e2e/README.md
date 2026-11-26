@@ -64,9 +64,9 @@ BFF 포트는 8963(`CH_PORT`), 회사는 `champion-e2e`를 사용한다. 테스�
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/champion-folders.spec.js
 ```
 
-테스트 전용 스택(회사 `champion-web`, BFF 8963, Vite 5363)을 실행하고 테스트 후 정리한다.
+테스트 전용 스택(회사 `champion-web`, BFF 8963, Vite 5363 — `RT_CH_API_PORT` · `RT_CH_WEB_PORT`로 바꿈)을 실행하고 테스트 후 정리한다. F-CH-07 · F-CH-10은 데스크톱 연결 인터페이스(`window.pglDesktop.folders` · `localRunner`)를 흉내 낸 페이지로 확인한다.
 
-**결과(2026-11-26): 5개 통과.**
+**결과(2026-11-26): 5개 통과.** 녹화 결함 수정 뒤(같은 날, BFF 8970 · Vite 5370): **7개 통과**(F-CH-08 · F-CH-10 추가).
 
 | 테스트 | 스크린샷 (`results/`) |
 |---|---|
@@ -74,6 +74,10 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/champ
 | F-CH-05 390px 화면의 「에이전트 자산」 — 라이트·다크 테마 | `f-ch-05-kit-390-light.png` · `f-ch-05-kit-390-light-2.png` · `f-ch-05-kit-390-dark.png` · `f-ch-05-kit-390-dark-2.png` |
 | F-CH-06 넓은 화면의 자산 탭 및 파일 열기 | `f-ch-06-kit-desktop.png` · `f-ch-06-kit-open.png` |
 | F-CH-07 업로드 시트 및 업로드 후 폴더 화면 | `f-ch-07-sheet.png` · `f-ch-07-bound.png` |
+| F-CH-08 SKILL.md 의 머리말을 작은 표로 — 화면 너비 1280px·390px | `f-ch-08-front-matter.png` · `f-ch-08-front-matter-390.png` |
+| F-CH-10 연결된 뒤에만 「내 PC 폴더 올리기」 — 폴더 화면에서 연결, 연결을 해제한 PC 의 안내(1280px·390px) | `f-ch-10-paired-from-folders.png` · `f-ch-10-unpaired.png` · `f-ch-10-unpaired-390.png` |
+
+녹화 결함 수정의 단위 시험: `cd server && node --test test/frontMatter.test.js`(FM-01~03, 머리말 나누기 · YAML 일부 · 머리말이 아닌 것) · `cd desktop && node --test test/sync.test.js`(F-CH-09, 확인 창의 설명).
 
 ## 데스크톱 앱 (Playwright `_electron`)
 

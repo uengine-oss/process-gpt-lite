@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../safeMarkdown.js'
 import { hidePaths } from '../paths.js'
 import StepTimeline from './StepTimeline.vue'
 import AgentActivity from './AgentActivity.vue'
@@ -71,7 +71,9 @@ async function retry(s) {
   try { await api(`/todos/${encodeURIComponent(s.todoId)}/retry`, { method: 'POST' }); emit('refresh') }
   catch (e) { retryErr.value = `다시 시도하지 못했어요. ${e.message.slice(0, 120)}` }
 }
-const md = (t) => marked.parse(hidePaths(t || '').replace(/</g, '&lt;'), { breaks: true })
+// a step's output, whoever wrote it (a participant, an agent): raw HTML in it reads as text, only plain document elements reach the page
+// (src/safeMarkdown.js)
+const md = (t) => safeMarkdown(hidePaths(t || ''), { html: 'text' })
 const fieldLabel = (a) => a.label || a.field?.replace(/_/g, ' ')
 const when = (d) => (d ? new Date(d).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '')
 </script>

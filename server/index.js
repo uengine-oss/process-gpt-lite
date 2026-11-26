@@ -1,4 +1,5 @@
 import express from 'express'
+import { apiHeaders } from './lib/apiHeaders.js'
 import nodeFs from 'node:fs'
 import nodePath from 'node:path'
 import path from 'node:path'
@@ -126,6 +127,8 @@ app.use('/craft', express.static(config.craftWebRoot, {
 }))
 // shared folders over git smart HTTP for agents on another disk (lib/folders/gitHttp.js): ahead of the body
 // parser, the session and the tenant middleware — the folder token is the whole of the auth and names the tenant
+// every /api answer is data: never sniffed, never a page that runs here (lib/apiHeaders.js)
+app.use('/api', apiHeaders)
 app.use('/api/git', gitRoutes())
 // the same for the desktop app's local agents, the one git path the public address serves: a token of one job on one linked desktop, or
 // of one folder a linked desktop uploads (champion folders — after a sync push, what it brought in is checked at once: lib/folders/sources.js)
@@ -956,9 +959,10 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
 }, auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   try {
-    // an agent-written page or SVG must not run script on this origin
-    const active = /\.(html?|svg|xml)$/i.test(String(req.query.path))
-    const headers = { 'X-Content-Type-Options': 'nosniff', ...(active ? { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" } : {}) }
+    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: only pictures, sound, video, PDF and
+    // plain text go without the sandbox (a PDF in it would not show)
+    const passive = /\.(png|jpe?g|gif|webp|avif|bmp|ico|tiff?|mp4|m4v|mov|webm|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|pdf|txt|md|csv|json)$/i.test(String(req.query.path))
+    const headers = { 'X-Content-Type-Options': 'nosniff', ...(passive ? {} : { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" }) }
     const f = await workroom.rawFile(r, req.query.path)
     if (f.path) return res.sendFile(f.path, { headers })
     // a read-only room: the file as the branch has it
@@ -1107,16 +1111,40 @@ app.post('/api/missions/:id/pause', auth, async (req, res) => {
   res.json(s)
 })
 
+// whether this company's process steps name the run in their output's media (run_id compared as text, whatever its JSON
+// type); a video's seeks ask again and again, so the answer is kept for a few minutes per company and run
+const namedRuns = new Map()
+async function runNamed(runId) {
+  const key = `${config.tenantId}|${runId}`
+  const hit = namedRuns.get(key)
+  if (hit && hit.until > Date.now()) return hit.ok
+  const rows = await q(`select 1 from todolist where tenant_id=$1 and exists (select 1 from jsonb_array_elements(case when jsonb_typeof(output->'media')='array' then output->'media' else '[]'::jsonb end) m where m->>'run_id' = $2) limit 1`, [config.tenantId, runId])
+    .catch((e) => { console.warn('[agent-files] lookup', e.message); return null })
+  if (rows === null) return false
+  const ok = rows.length > 0
+  if (namedRuns.size > 5000) namedRuns.clear()
+  namedRuns.set(key, { ok, until: Date.now() + (ok ? 5 : 1) * 60_000 })
+  return ok
+}
+
 // Files a CLI agent produced in its run workspace (e.g. a demo video), streamed from cli-agent.
 // A <video> element cannot send a bearer header, so the token may come as a query parameter.
 app.get('/api/agent-files/:runId', async (req, res) => {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '') || String(req.query.token || '')
   const user = await userFromJwt(token).catch(() => null)
   if (!user) return res.status(401).end()
+  // only a run this company's process steps name (their output's media), and only the media itself (videos · pictures)
+  const runId = String(req.params.runId)
+  const rel = String(req.query.path || '')
+  if (!/\.(mp4|webm|png|jpe?g|gif|webp)$/i.test(rel)) return res.status(415).end()
+  if (!(await runNamed(runId))) return res.status(404).end()
   const url = `${config.cliAgentUrl}/runs/${encodeURIComponent(req.params.runId)}/download?tenant_id=${encodeURIComponent(config.tenantId)}&path=${encodeURIComponent(String(req.query.path || ''))}`
   const up = await fetch(url, { headers: req.headers.range ? { Range: req.headers.range } : {} })
   res.status(up.status)
-  for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges']) if (up.headers.get(h)) res.setHeader(h, up.headers.get(h))
+  for (const h of ['content-length', 'content-range', 'accept-ranges']) if (up.headers.get(h)) res.setHeader(h, up.headers.get(h))
+  // the type comes from the name we allowed, not from upstream
+  const ext = rel.split('.').pop().toLowerCase()
+  res.setHeader('Content-Type', { mp4: 'video/mp4', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext])
   if (!up.body) return res.end()
   const { Readable } = await import('node:stream')
   Readable.fromWeb(up.body).pipe(res)

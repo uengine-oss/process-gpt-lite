@@ -3,6 +3,8 @@
 // 지금 하는 일을 누르면 그 맥락의 시간순 보기(open), 깊이가 모자란 칸은 「제목만」「요약까지」로 표시한다.
 import { computed } from 'vue'
 import { DEPTH, kindColor, ago, stamp, credits } from './fmt.js'
+// (a teammate's file link: followed only when it is a web address — src/safeMarkdown.js)
+import { safeHref } from '../../../safeMarkdown.js'
 import PersonAvatar from '../../PersonAvatar.vue'
 
 const props = defineProps({ card: Object, interactive: { type: Boolean, default: true } })
@@ -64,7 +66,7 @@ const open = (x) => { if (props.interactive && x.conversationId) emit('open', { 
     <section v-if="card.artifacts.length">
       <p class="cap">최근 산출물</p>
       <div class="arts">
-        <component :is="a.url ? 'a' : 'span'" v-for="(a, i) in card.artifacts" :key="i" class="art" :href="a.url" target="_blank" rel="noopener" :title="a.context ? `「${a.context}」에서` : ''">
+        <component :is="safeHref(a.url) ? 'a' : 'span'" v-for="(a, i) in card.artifacts" :key="i" class="art" :href="safeHref(a.url)" target="_blank" rel="noopener" :title="a.context ? `「${a.context}」에서` : ''">
           <i>{{ (a.ext || 'doc').toUpperCase().slice(0, 4) }}</i>{{ a.name }}
         </component>
       </div>

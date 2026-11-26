@@ -4,7 +4,7 @@
 //   /mining/:id    찾은 흐름(단계·역할·도구·스킬·빈도·사례)과 결정(정식 등록 / 보류), 등록된 정의
 //                  단계마다 필수·옵션(빈도 초안 / 관리자 확정), 새 사례 제안, 관리자와의 대화(lib/mining/talk.js)
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../safeMarkdown.js'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import Icon from '../components/Icon.vue'
@@ -34,7 +34,8 @@ const said = ref('')
 const talking = ref(false)
 const talkBox = ref(null)
 const talkInput = ref(null)
-const md = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { breaks: true })
+// (raw HTML in it reads as text; only plain document elements reach the page — src/safeMarkdown.js)
+const md = (t) => safeMarkdown(t, { html: 'text' })
 // 필수·옵션은 프로세스 정의(BPMN)가 말하는 것: 옵션 = 배타 게이트웨이로 건너뛰는 길이 있는 단계. 건수는 근거
 const kindText = { required: '필수', optional: '옵션', choice: '택일', absent: '정의에 없음' }
 const stepTip = (d) => d ? `${kindText[d.kind]}${d.skip_when ? ` — ${d.skip_when} 건너뜀` : ''} · 사례 ${d.cases}/${d.total}건이 거침${d.by === 'admin' ? ' · 관리자 확정' : d.by === 'cases' ? ` · 업무 흐름 ${d.sorted}건 맞음` : ''}` : ''

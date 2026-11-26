@@ -304,7 +304,10 @@ test('동의하지 않으면(시스템 창 「취소」) 서버에 아무것도 
   assert.equal(asked[0].flaggedIn, 1, '확실한 열쇠 모양(app.txt)은 넣을 수 없고, 확인 수준(settings.sh)만 함께')
   const words = S.uploadQuestion({ ...asked[0], host: 'acme.example.test' })
   assert.equal(words.message, `파일 ${asked[0].files}개(${asked[0].bytes >= 102400 ? `${(asked[0].bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(asked[0].bytes / 1024))} KB`})를 acme.example.test 의 폴더 '영업 제안 키트'로 올립니다 — 확인이 필요한 파일 1개도 함께 올라가요`)
-  assert.match(words.detail, /함께 올리기로 고른 확인 파일 1개/)
+  // (the other flagged files stay here: the dialog says how many — F-CH-09)
+  assert.equal(asked[0].flaggedOut, asked[0].report.flagged)
+  assert.ok(asked[0].flaggedOut > 0)
+  assert.match(words.detail, new RegExp(`확인이 필요한 파일 ${asked[0].flaggedOut}개는 빼고, 함께 올리기로 고른 1개는`))
   assert.deepEqual(await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트' }), { ok: false, why: 'cancelled' }, '물을 곳이 없으면 올리지 않는다')
   assert.equal(sent.length, n)
   assert.deepEqual(f.list(), [])
@@ -314,6 +317,51 @@ test('동의하지 않으면(시스템 창 「취소」) 서버에 아무것도 
   try { assert.deepEqual(await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트' }, { confirm: yes }), { ok: false, why: 'not_editor' }) } finally { plays.bind = was }
   assert.deepEqual(f.list(), [])
   assert.throws(() => bare('rev-parse', '--verify', '--quiet', `refs/heads/${BRANCH}`), '이 기기의 가지는 아직 없다')
+})
+
+test('F-CH-09 확인 창: 확인이 필요한 파일 가운데 빼는 수와 함께 올리는 수 — 시트가 뺄 파일을 이름으로 넘겨도(이 훑기는 그 파일을 읽지 않는다)', async () => {
+  const f = makeSync()
+  const n = sent.length
+  const r = await f.pick(PICKED)
+  const flagged = [...new Set(r.preview.flagged.map((x) => x.path))].sort()
+  assert.ok(flagged.length >= 3, JSON.stringify(flagged))
+  assert.ok(flagged.includes('config/settings.sh') && flagged.includes('config/app.txt'))
+  const asked = []
+  const no = async (x) => { asked.push(x); return false }
+  // as the sheet (SourceSheet.vue) sends it: every flagged file it keeps out by name in exclude, the one brought back in include
+  assert.deepEqual(await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트', include: ['config/settings.sh'], exclude: flagged.filter((x) => x !== 'config/settings.sh') }, { confirm: no }),
+    { ok: false, why: 'cancelled' })
+  assert.equal(asked[0].report.flagged, 0, '이 훑기의 보고만으로는 0 — 녹화(11-26)에서 확인 창이 빼는 파일을 말하지 않은 까닭')
+  assert.equal(asked[0].flaggedIn, 1)
+  assert.equal(asked[0].flaggedOut, flagged.length - 1)
+  const both = S.uploadQuestion({ ...asked[0], host: 'acme.example.test' })
+  assert.match(both.message, / — 확인이 필요한 파일 1개도 함께 올라가요$/)
+  assert.match(both.detail, new RegExp(`확인이 필요한 파일 ${flagged.length - 1}개는 빼고, 함께 올리기로 고른 1개는`))
+  // none brought back, all kept out by name (the video's case: one Slack webhook-shaped file) — it still says so
+  await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트', exclude: flagged }, { confirm: no })
+  assert.equal(asked[1].flaggedIn, 0)
+  assert.equal(asked[1].flaggedOut, flagged.length)
+  const out = S.uploadQuestion({ ...asked[1], host: 'acme.example.test' })
+  assert.doesNotMatch(out.message, /확인이 필요한/)
+  assert.match(out.detail, new RegExp(`확인이 필요한 파일 ${flagged.length}개는 빼고 올려요\\.$`))
+  // nothing named: this scan's own count, the same
+  await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트' }, { confirm: no })
+  assert.equal(asked[2].flaggedOut, flagged.length)
+  assert.equal(asked[2].report.flagged, flagged.length)
+  // a flagged file inside a top folder left out stays here too (counted once)
+  await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트', exclude: ['config'] }, { confirm: no })
+  assert.equal(asked[3].flaggedOut, flagged.length)
+  // the words by themselves: none · only out · only in · both, in Korean and English (a file, files)
+  const q = (o) => S.uploadQuestion({ files: 3, bytes: 2048, folderName: '키트', host: 'h.test', report: { excluded: { secret: 1, personal: 0 } }, ...o })
+  assert.equal(q({}).detail, '이 컴퓨터의 폴더는 읽기만 하고 아무것도 쓰지 않아요. 비밀 · 개인 설정으로 보이는 1개는 올리지 않아요.')
+  assert.equal(q({ flaggedOut: 0, report: { excluded: {}, flagged: 2 } }).detail, '이 컴퓨터의 폴더는 읽기만 하고 아무것도 쓰지 않아요.', 'flaggedOut 이 오면 그것을 따른다')
+  assert.match(q({ report: { excluded: {}, flagged: 2 } }).detail, /확인이 필요한 파일 2개는 빼고 올려요\.$/, '없으면 보고의 수')
+  assert.match(q({ flaggedIn: 2 }).detail, /함께 올리기로 고른 확인 파일 2개는 내용 그대로 서버에 남아요\.$/)
+  assert.equal(q({ flaggedOut: 1, flaggedIn: 1, lang: 'en' }).detail,
+    'The folder on this computer is only read, nothing is written to it. 1 file that looks secret or personal stays here. 1 flagged file stays here; 1 flagged file you chose goes to the server as it is.')
+  assert.match(q({ flaggedOut: 2, lang: 'en' }).detail, /2 flagged files stay here\.$/)
+  assert.deepEqual(sent.slice(n), [], '취소했으니 서버로는 아무것도')
+  assert.deepEqual(f.list(), [])
 })
 
 test('F-CH-02 · F-CH-03 올리기: 동의 → 원본 등록 → 첫 올리기 — 서버 main 에 파일이 있고 비밀 · 개인 설정은 없다, 고른 폴더는 그대로', async () => {
