@@ -5,7 +5,7 @@ import express from 'express'
 import { L } from '../lib/lang.js'
 import { getThread, mainThread, addMessage } from '../lib/store.js'
 import { runTurn } from '../lib/agent.js'
-import { TeamError, requireMember, resolveRecipients, rateLimit, isMember } from '../lib/team/access.js'
+import { TeamError, requireMember, resolveRecipients, rateLimit, notOnTeam } from '../lib/team/access.js'
 import * as S from '../lib/team/shares.js'
 import * as W from '../lib/team/worktree.js'
 // the messenger's signed media addresses (no sign-in token in an address — lib/team/mediaLink.js)
@@ -206,7 +206,9 @@ export function teamRoutes(auth) {
   r.post('/team/threads', auth, h(async (req) => {
     const ids = [...new Set((req.body.members || []).map(String))].filter((id) => id !== req.user.id)
     if (!ids.length) throw new TeamError(400, L('대화할 팀원을 골라 주세요.', 'Please choose the teammates to talk with.'))
-    for (const id of ids) if (!(await isMember(id))) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
+    // (no limit on a group's size — only on one request; its people are checked below in one query)
+    if (ids.length > M.PER_REQUEST) throw new TeamError(400, L(`한 번에 ${M.PER_REQUEST}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.`, `Up to ${M.PER_REQUEST} people at a time. Invite the rest once the room is made.`))
+    if ((await notOnTeam(ids)).length) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
     const t = ids.length === 1 ? await M.directThread(req.user, ids[0]) : await M.groupThread(req.user, ids, text(req.body.title, 60))
     return { id: t.id }
   }))
@@ -236,7 +238,8 @@ export function teamRoutes(auth) {
     const ai = req.body.ai === true
     if (!body && !files.length && !refs.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     rateLimit(req.user.id)
-    const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 8) : []
+    // (people named with @ — a room has no size limit, the names a message carries are bounded)
+    const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 50) : []
     // (a mail mention — lib/mailMention.js — is 'mailref' when it is all the message carries)
     const kind = files.length ? 'share' : refs.length ? (refs.every((x) => x.type === 'mail' || x.type === 'mailatt') ? 'mailref' : 'fileref') : 'text'
     const m = await M.post(req.user, req.params.id, { kind, body, refs, ai, mentions,
