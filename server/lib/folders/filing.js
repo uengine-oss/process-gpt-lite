@@ -23,6 +23,7 @@ import { chatJson } from '../llm.js'
 import { skillPack } from '../skillPack.js'
 import * as S from './service.js'
 import * as G from './git.js'
+import * as REFS from './refs.js'
 import { person } from '../people.js'
 
 export const SKILL = 'folder-filing'
@@ -370,8 +371,11 @@ export async function file(user, ref, { slug, sub = '', newFolder = '', by = 'pe
     const list = await G.lsTree(folder.repo_path, folder.default_branch)
     const there = list.find((x) => x.sha === blob)
     if (there) return { path: there.path, already: true, commit: null }
-    const rel = freePath(dir ? `${dir}/${doc.name}` : doc.name, new Set(list.map((x) => x.path)))
+    // (a new file takes a name beside the reference slots, never one of them)
+    const rel = freePath(dir ? `${dir}/${doc.name}` : doc.name, new Set([...list.map((x) => x.path), ...(await REFS.slotPaths(folder))]))
     const p = S.safeRel(rel)
+    // (a reference slot is read only here: nothing is put into one — folders/refs.js)
+    await REFS.assertWritable(folder, p)
     await assertNoLink(folder.repo_path, p)
     const host = path.join(folder.repo_path, p)
     await fs.mkdir(path.dirname(host), { recursive: true })

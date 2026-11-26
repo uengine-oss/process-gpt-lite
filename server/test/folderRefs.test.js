@@ -1,0 +1,359 @@
+// Folder references, P0 (spec openspec/specs/folder-refs): a managed folder holds slots that point at another folder, a sub-folder of
+// it or one file; the server resolves every read with the reader's role in the source, now.
+//   RF-U-01 ~ 03  pure: slots, overlaps
+//   RF-U-04 ~ 15  with the local database and real git: the resolver per reader (ok · locked · dangling · shadowed), sub-path and single
+//                 file, depth 1, the locked shape, the tenant guard in code and in the database (trigger, RLS), writes refused, an agent's
+//                 writes at a slot not kept (and said), the tree and the agent's view, membership taken away, no gitlink in any repository
+// Run: node --test test/folderRefs.test.js  (folders go to a temporary directory, rows in the tenants "folder-refs-test" and
+// "folder-refs-other", everything is removed afterwards)
+import test, { after } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import crypto from 'node:crypto'
+
+const ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'pgl-folderrefs-'))
+const TENANT = 'folder-refs-test'
+const OTHER = 'folder-refs-other'
+process.env.PRO_TENANT_ID = TENANT
+process.env.PRO_FOLDERS_ROOT = path.join(ROOT, 'folders')
+process.env.PRO_LLM_BASE_URL = 'http://127.0.0.1:9/v1'
+process.env.PRO_TENANT_HOSTS = ''
+const R = await import('../lib/folders/refs.js')
+
+// ---------- pure ----------
+test('RF-U-01 자리 찾기: 자리 그 자체와 그 아래만, 이름이 겹쳐 시작하는 옆 경로는 아님', () => {
+  const rows = [{ id: 1, slot: '폴더1' }, { id: 2, slot: '자료/가격표.xlsx' }]
+  assert.equal(R.slotOf(rows, '폴더1')?.id, 1)
+  assert.equal(R.slotOf(rows, '폴더1/가격 정책.docx')?.id, 1)
+  assert.equal(R.slotOf(rows, '폴더10/a.md'), null)
+  assert.equal(R.slotOf(rows, '자료/가격표.xlsx')?.id, 2)
+  assert.equal(R.slotOf(rows, '자료/다른.md'), null)
+  assert.equal(R.slotOf(rows, '제안서 초안.docx'), null)
+})
+test('RF-U-02 겹침: 같은 경로, 한쪽이 다른 쪽 안 — 둘 다 겹침, 옆 경로는 아님', () => {
+  assert.ok(R.overlaps('a', 'a'))
+  assert.ok(R.overlaps('a', 'a/b'))
+  assert.ok(R.overlaps('a/b', 'a'))
+  assert.ok(!R.overlaps('a', 'ab'))
+  assert.ok(!R.overlaps('a/b', 'a/c'))
+})
+test('RF-U-03 거절 말: 잠김은 403 ref_locked, 끊어짐은 404 ref_dangling, 정상 · 이름 겹침 · 자리 밖은 없음', () => {
+  assert.equal(R.refusal({ state: 'locked' }).status, 403)
+  assert.equal(R.refusal({ state: 'locked' }).code, 'ref_locked')
+  assert.equal(R.refusal({ state: 'dangling' }).code, 'ref_dangling')
+  assert.equal(R.refusal({ state: 'ok' }), null)
+  assert.equal(R.refusal({ state: 'shadowed' }), null)
+  assert.equal(R.refusal(null), null)
+})
+
+// ---------- with the database ----------
+const { q, pool } = await import('../lib/supa.js')
+const db = await q('select 1 from pro_folder_refs limit 1').then(() => true).catch(() => false)
+const S = await import('../lib/folders/service.js')
+const G = await import('../lib/folders/git.js')
+const { reindex } = await import('../lib/folders/indexer.js')
+const enc = (s) => Buffer.from(s)
+const owner = { id: crypto.randomUUID(), name: '한서연', email: 'refs-owner@example.test' }   // composes 「제안 준비」, owns every source
+const mate = { id: crypto.randomUUID(), name: '오지후', email: 'refs-mate@example.test' }     // a member of 「제안 준비」 and 「영업 자료」 only
+after(async () => {
+  if (db) {
+    await q('delete from pro_folder_ref_events where tenant_id = any($1)', [[TENANT, OTHER]]).catch(() => {})
+    await q('delete from pro_folders where tenant_id = any($1)', [[TENANT, OTHER]]).catch(() => {})
+    await q("delete from pro_messages where thread_id in (select id from pro_threads where user_id = any($1::uuid[]))", [[owner.id, mate.id]]).catch(() => {})
+    await q('delete from pro_threads where user_id = any($1::uuid[])', [[owner.id, mate.id]]).catch(() => {})
+  }
+  await pool.end()
+  await fs.rm(ROOT, { recursive: true, force: true })
+})
+const put = async (f, p, body) => { await S.upload(f, owner, p, enc(body)); await reindex(await S.folderById(f.id), { cards: false }) }
+let W // the world: folders of the sketch
+async function world() {
+  if (W) return W
+  const sales = await S.createFolder(owner, { name: `영업 자료 ${crypto.randomBytes(2).toString('hex')}` })
+  const rules = await S.createFolder(owner, { name: `규정집 ${crypto.randomBytes(2).toString('hex')}` })
+  const deep = await S.createFolder(owner, { name: `깊은 원본 ${crypto.randomBytes(2).toString('hex')}` })
+  const comp = await S.createFolder(owner, { name: `제안 준비 ${crypto.randomBytes(2).toString('hex')}` })
+  await put(sales, '가격 정책.docx', '가격 정책 — 대량 구매 10% 할인')
+  await put(sales, '가격표.xlsx', 'PK 가격표 2026')
+  await put(sales, '안내/소개.md', '# 소개\n달빛 커피는 원두를 직접 볶아요.\n')
+  await put(rules, '인사/휴가.md', '# 휴가 규정\n연차는 15일\n')
+  await put(rules, '보안/비밀.md', '# 보안 규정\n외부 반출 금지\n')
+  await put(deep, '깊은.md', '# 깊은 원본\n')
+  await put(comp, '제안서 초안.docx', '제안서 초안')
+  // mate: in the composing folder and in 영업 자료, not in 규정집
+  await S.setMember(comp, owner, { type: 'user', id: mate.id, role: 'viewer' })
+  await S.setMember(sales, owner, { type: 'user', id: mate.id, role: 'viewer' })
+  W = { sales, rules, deep, comp }
+  return W
+}
+const role = (f, u) => S.roleOf(f, u)
+
+test('RF-U-04 더하기: 폴더 전체 · 하위 폴더 · 파일 하나 — 이름은 원본 이름, 종류는 원본에서, 기본은 main 따라가기', { skip: !db && 'no database' }, async () => {
+  const { sales, rules, comp } = await world()
+  const a = await R.add(comp, 'owner', owner, { source: sales.slug, slot: '폴더1' })
+  assert.equal(a.state, 'ok'); assert.equal(a.type, 'folder'); assert.equal(a.track, 'main'); assert.equal(a.from.slug, sales.slug)
+  const b = await R.add(comp, 'owner', owner, { source: rules.id, path: '인사', slot: '폴더2' })
+  assert.equal(b.type, 'dir'); assert.equal(b.from.path, '인사')
+  // (a file's slot keeps the file's kind)
+  const c = await R.add(comp, 'owner', owner, { source: sales.slug, path: '가격표.xlsx', slot: '가격표' })
+  assert.equal(c.type, 'file'); assert.equal(c.slot, '가격표.xlsx'); assert.equal(c.label, '가격표')
+  const d = await R.add(comp, 'owner', owner, { source: rules.slug, path: '보안/비밀.md' })
+  assert.equal(d.slot, '비밀.md'); assert.equal(d.label, '비밀.md')
+  await R.remove(comp, 'owner', owner, d.id)
+  const rows = await q('select * from pro_folder_refs where folder_id=$1', [comp.id])
+  assert.deepEqual(rows.map((x) => x.slot).sort(), ['가격표.xlsx', '폴더1', '폴더2'])
+  assert.ok(rows.every((x) => x.tenant_id === TENANT && x.track === 'main' && !x.pinned_commit))
+})
+
+test('RF-U-05 resolve: 원본의 구성원에게는 원본의 그 판 · 그 경로, 구성원이 아니면 잠김(원본 정보 없음)', { skip: !db && 'no database' }, async () => {
+  const { sales, rules, comp } = await world()
+  const o1 = await R.resolve(comp, '폴더1/가격 정책.docx', owner)
+  assert.equal(o1.state, 'ok'); assert.equal(o1.source.id, sales.id); assert.equal(o1.path, '가격 정책.docx')
+  assert.equal(o1.rev, await G.head(sales.repo_path, 'main'))
+  assert.equal((await S.readBlob(o1.source, o1.rev, o1.path)).toString(), '가격 정책 — 대량 구매 10% 할인')
+  // a sub-folder: the slot's path inside it
+  const o2 = await R.resolve(comp, '폴더2/휴가.md', owner)
+  assert.equal(o2.path, '인사/휴가.md'); assert.equal(o2.source.id, rules.id)
+  // one file: the slot itself, nothing under it
+  const o3 = await R.resolve(comp, '가격표.xlsx', owner)
+  assert.equal(o3.path, '가격표.xlsx'); assert.equal(o3.type, 'file')
+  assert.equal((await R.resolve(comp, '가격표.xlsx/x', owner)).path, null)
+  // not under a slot: the folder's own file
+  assert.equal(await R.resolve(comp, '제안서 초안.docx', owner), null)
+  // the mate: 영업 자료 yes, 규정집 no
+  assert.equal((await R.resolve(comp, '폴더1/가격 정책.docx', mate)).state, 'ok')
+  const locked = await R.resolve(comp, '폴더2/휴가.md', mate)
+  assert.deepEqual(Object.keys(locked).sort(), ['ref', 'state'])
+  assert.equal(locked.state, 'locked')
+})
+
+test('RF-U-06 잠긴 자리의 모양: 이름표 · 상태 · 더한 사람 · 요청 여부뿐 — 원본의 id · slug · 이름 · 경로 · 판 · 수는 없다', { skip: !db && 'no database' }, async () => {
+  const { rules, comp } = await world()
+  const list = await R.list(comp, mate)
+  const two = list.find((x) => x.slot === '폴더2')
+  assert.deepEqual(Object.keys(two).sort(), ['by', 'id', 'label', 'requested', 'slot', 'state'])
+  assert.equal(two.state, 'locked'); assert.equal(two.requested, false)
+  const json = JSON.stringify(two)
+  for (const secret of [rules.id, rules.slug, rules.name, '인사', await G.head(rules.repo_path, 'main')]) assert.ok(!json.includes(secret), secret)
+  // the tree and the agent's view carry no file of it, the hint only its name
+  const tree = await R.treeRows(comp, mate)
+  assert.ok(tree.some((f) => f.path === '폴더1/가격 정책.docx'))
+  assert.ok(!tree.some((f) => f.path.startsWith('폴더2')))
+  const av = await R.agentView(comp, mate)
+  assert.ok(!JSON.stringify(av).includes(rules.name) && !JSON.stringify(av).includes('휴가'))
+  assert.deepEqual(av.refs.find((x) => x.slot === '폴더2'), { name: '폴더2', slot: '폴더2', state: 'locked' })
+  const h = await R.hint({ mode: 'ref', folder_id: comp.id, slug: comp.slug }, mate)
+  assert.ok(h.includes('폴더2') && h.includes('볼 수 없는') && !h.includes(rules.name))
+  const ho = await R.hint({ mode: 'ref', folder_id: comp.id, slug: comp.slug }, owner)
+  assert.ok(ho.includes(rules.name))
+})
+
+test('RF-U-07 깊이 1: 참조된 폴더가 다시 참조를 가져도 그 자리는 따라가지 않는다', { skip: !db && 'no database' }, async () => {
+  const { sales, deep, comp } = await world()
+  // 영업 자료 itself references 깊은 원본 at '깊은'
+  await R.add(sales, 'owner', owner, { source: deep.slug, slot: '깊은' })
+  assert.equal((await R.resolve(sales, '깊은/깊은.md', owner)).state, 'ok')
+  // through 제안 준비's slot 폴더1 (= 영업 자료) the nested slot is not there
+  const r = await R.resolve(comp, '폴더1/깊은/깊은.md', owner)
+  assert.equal(r.state, 'ok')
+  await assert.rejects(S.readBlob(r.source, r.rev, r.path), (e) => e.status === 404)
+  assert.ok(!(await R.treeRows(comp, owner)).some((f) => f.path.includes('깊은')))
+  // and a folder cannot reference itself
+  await assert.rejects(R.add(comp, 'owner', owner, { source: comp.slug, slot: '나' }), (e) => e.status === 400)
+})
+
+test('RF-U-08 더하기 거절: 편집자가 아님 · 원본의 구성원이 아님 · 스킬 폴더 · 자리에 파일 · 자리 겹침 · 원본에 없는 경로', { skip: !db && 'no database' }, async () => {
+  const { sales, rules, comp } = await world()
+  await assert.rejects(R.add(comp, 'viewer', mate, { source: sales.slug, slot: 'x' }), (e) => e.status === 403)
+  await S.setMember(comp, owner, { type: 'user', id: mate.id, role: 'editor' })
+  try {
+    await assert.rejects(R.add(comp, 'editor', mate, { source: rules.slug, slot: '몰래' }), (e) => e.status === 404)
+  } finally { await S.setMember(comp, owner, { type: 'user', id: mate.id, role: 'viewer' }) }
+  const [sk] = await q(`insert into pro_folders (tenant_id, slug, name, kind, repo_path, settings) values ($1,$2,$3,'skill',$4,$5) returning *`,
+    [TENANT, `skill-${crypto.randomBytes(3).toString('hex')}`, '스킬 x', path.join(ROOT, 'nope'), { skill_name: 'x' }])
+  await assert.rejects(R.add(comp, 'owner', owner, { source: sk.slug, slot: 's' }), (e) => e.status === 400)
+  await assert.rejects(R.add(comp, 'owner', owner, { source: sales.slug, slot: '제안서 초안.docx' }), (e) => e.status === 409 && e.code === 'ref_taken')
+  await assert.rejects(R.add(comp, 'owner', owner, { source: sales.slug, slot: '폴더1/안' }), (e) => e.status === 409)
+  await assert.rejects(R.add(comp, 'owner', owner, { source: sales.slug, path: '없는/경로.md', slot: 'y' }), (e) => e.status === 404)
+  await assert.rejects(R.add(comp, 'owner', owner, { source: sales.slug, slot: '../밖' }), (e) => e.status === 400)
+  await assert.rejects(R.add(comp, 'owner', owner, { source: sales.slug, slot: 'a/.git/b' }), (e) => e.status === 400)
+})
+
+test('RF-U-09 회사 경계: 다른 회사의 폴더는 서비스가 찾지 못하고, 트리거가 행을 거절하며, 풀 때도 다시 찾지 않는다 · RLS 는 켜져 있다', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  const dir = path.join(ROOT, 'other')
+  await fs.mkdir(dir, { recursive: true })
+  await G.git(dir, ['init', '-q', '-b', 'main'])
+  await fs.writeFile(path.join(dir, '남의.md'), '다른 회사의 자료\n')
+  await G.commitAll(dir, 'x', { name: 'o', email: 'o@example.test' })
+  const [foreign] = await q(`insert into pro_folders (tenant_id, slug, name, kind, repo_path) values ($1,$2,'다른 회사 폴더','managed',$3) returning *`, [OTHER, `other-${crypto.randomBytes(3).toString('hex')}`, dir])
+  await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role) values ($1,'user',$2,'owner')`, [foreign.id, owner.id])
+  // the service: by id and by slug, never another company's
+  await assert.rejects(R.add(comp, 'owner', owner, { source: foreign.id, slot: '남의' }), (e) => e.status === 404)
+  await assert.rejects(R.add(comp, 'owner', owner, { source: foreign.slug, slot: '남의' }), (e) => e.status === 404)
+  // the database: a row whose source (or folder) is of another company is refused
+  await assert.rejects(q(`insert into pro_folder_refs (tenant_id, folder_id, slot, label, source_folder_id, source_type) values ($1,$2,'남의','남의',$3,'folder')`, [TENANT, comp.id, foreign.id]),
+    (e) => e.code === '23514')
+  await assert.rejects(q(`insert into pro_folder_refs (tenant_id, folder_id, slot, label, source_folder_id, source_type) values ($1,$2,'남의','남의',null,'folder')`, [OTHER, comp.id]), (e) => e.code === '23514')
+  const [mine] = await q(`select id from pro_folder_refs where folder_id=$1 and slot='폴더1'`, [comp.id])
+  await assert.rejects(q('update pro_folder_refs set source_folder_id=$2 where id=$1', [mine.id, foreign.id]), (e) => e.code === '23514')
+  // resolving finds the source again in this company only: a row that points elsewhere (put in past the trigger — this session only,
+  // as a restore would) gives nothing
+  let sneaked
+  const raw = await pool.connect()
+  try {
+    await raw.query('begin')
+    await raw.query("set local session_replication_role = 'replica'")
+    ;[sneaked] = (await raw.query(`insert into pro_folder_refs (tenant_id, folder_id, slot, label, source_folder_id, source_type) values ($1,$2,'남의','남의',$3,'folder') returning *`, [TENANT, comp.id, foreign.id])).rows
+    await raw.query('commit')
+  } catch (e) { await raw.query('rollback').catch(() => {}); throw e } finally { raw.release() }
+  try {
+    const r = await R.resolve(comp, '남의/남의.md', owner)
+    assert.equal(r.state, 'dangling')
+    assert.ok(!(await R.treeRows(comp, owner)).some((f) => f.path.startsWith('남의')))
+    assert.ok(!JSON.stringify(await R.list(comp, owner)).includes('다른 회사'))
+  } finally { await q('delete from pro_folder_refs where id=$1', [sneaked.id]) }
+  // RLS: on, and no policy — the API roles read nothing
+  const [{ rls }] = await q(`select relrowsecurity as rls from pg_class where oid='public.pro_folder_refs'::regclass`)
+  assert.equal(rls, true)
+  const c = await pool.connect()
+  try {
+    await c.query('begin')
+    await c.query('set local role authenticated')
+    const { rows } = await c.query('select count(*)::int as n from pro_folder_refs')
+    assert.equal(rows[0].n, 0)
+    await c.query('rollback')
+  } finally { c.release() }
+})
+
+test('RF-U-10 구성하는 폴더에서는 읽기만: 올리기 · 지우기 · 이음오피스 저장 · 작업실 쓰기 · 폴더에 넣기는 자리에서 거절, 옆 경로는 그대로', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  await assert.rejects(S.upload(comp, owner, '폴더1/새 파일.md', enc('x')), (e) => e.status === 409 && e.code === 'ref_readonly')
+  await assert.rejects(S.upload(comp, owner, '가격표.xlsx', enc('x')), (e) => e.status === 409)
+  await assert.rejects(S.removeFile(comp, owner, '폴더2/휴가.md'), (e) => e.status === 409)
+  await assert.rejects(S.saveOfficeEdit(comp, owner, { path: '가격표.xlsx', url: 'http://x/y' }), (e) => e.status === 409)
+  await S.upload(comp, owner, '폴더10/옆.md', enc('옆 경로는 괜찮아요'))
+  const W2 = await import('../lib/workroom.js')
+  const room = { kind: 'folder', id: comp.slug, folder: comp.id, root: comp.repo_path, cwd: comp.repo_path }
+  await assert.rejects(W2.writeFile(room, '폴더1/메모.md', 'x'), (e) => e.status === 409)
+  assert.equal(await fs.stat(path.join(comp.repo_path, '폴더1')).catch(() => null), null)
+  // filing picks a name beside a file slot
+  const F = await import('../lib/folders/filing.js')
+  assert.equal(F.freePath('가격표.xlsx', new Set(['가격표.xlsx'])), '가격표 (2).xlsx')
+  assert.deepEqual((await R.slotPaths(comp)).sort(), ['가격표.xlsx', '폴더1', '폴더2'])
+})
+
+test('RF-U-11 실행이 자리에 쓴 것은 담지 않고, 그 대화에 알린다 — 자기 파일은 그대로 커밋', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  const [th] = await q(`insert into pro_threads (user_id, kind, title) values ($1,'chat','참조 시험') returning id`, [owner.id])
+  const v = await S.createVariation(comp, { title: '에이전트 작업', kind: 'chat', holder: { type: 'user', id: owner.id, name: owner.name }, source: { thread_id: th.id } })
+  const dir = path.join(ROOT, 'run', v.id)
+  await S.checkout(comp, v, dir)
+  await fs.mkdir(path.join(dir, '폴더1'), { recursive: true })
+  await fs.writeFile(path.join(dir, '폴더1', '가격 정책.docx'), '에이전트가 고친 가격')
+  await fs.writeFile(path.join(dir, '가격표.xlsx'), '에이전트가 만든 표')
+  await fs.writeFile(path.join(dir, '개요.md'), '# 제안서 개요\n')
+  await G.git(dir, ['add', '-A']) // (even staged)
+  const sha = await S.commitVariation(comp, await S.variationById(v.id), { name: 'agent', email: 'agent@example.test' }, '작업')
+  assert.ok(sha)
+  const files = (await G.lsTree(comp.repo_path, v.branch)).map((f) => f.path)
+  assert.ok(files.includes('개요.md'))
+  assert.ok(!files.some((p) => p.startsWith('폴더1/') || p === '가격표.xlsx'))
+  const [note] = await q(`select content from pro_messages where thread_id=$1 and kind='chip'`, [th.id])
+  assert.ok(note?.content?.text?.includes('읽기 전용'))
+  assert.deepEqual(note.content.refsReadOnly.sort(), ['가격표.xlsx', '폴더1/가격 정책.docx'])
+  await S.release(comp, await S.variationById(v.id))
+})
+
+test('RF-U-12 끊어짐 · 이름 겹침: 원본 경로가 없어지면 「찾을 수 없음」, 원본 폴더가 지워지면 끊어진 자리, 진짜 파일이 생기면 그 파일이 이긴다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const tmp = await S.createFolder(owner, { name: `잠깐 원본 ${crypto.randomBytes(2).toString('hex')}` })
+  await put(tmp, '안내.md', '# 잠깐\n')
+  await put(tmp, '곧 지움.md', '# 곧 지움\n')
+  const a = await R.add(comp, 'owner', owner, { source: tmp.slug, path: '곧 지움.md', slot: '곧지움' })
+  const b = await R.add(comp, 'owner', owner, { source: tmp.slug, slot: '잠깐' })
+  assert.equal((await R.resolve(comp, '곧지움.md', owner)).state, 'ok')
+  await S.removeFile(tmp, owner, '곧 지움.md')
+  assert.equal((await R.resolve(comp, '곧지움.md', owner)).state, 'dangling')
+  assert.equal((await R.list(comp, owner)).find((x) => x.id === a.id).state, 'dangling')
+  // the source folder goes: the row stays, its source is cleared
+  await q('delete from pro_folders where id=$1', [tmp.id])
+  const [row] = await q('select source_folder_id from pro_folder_refs where id=$1', [b.id])
+  assert.equal(row.source_folder_id, null)
+  const gone = (await R.list(comp, owner)).find((x) => x.id === b.id)
+  assert.deepEqual(Object.keys(gone).sort(), ['by', 'id', 'label', 'slot', 'state'])
+  assert.equal(gone.state, 'dangling')
+  // a real file of the composing folder at a slot (a merge brought it): the slot gives way
+  const c = await R.add(comp, 'owner', owner, { source: sales.slug, path: '안내', slot: '겹침' })
+  await fs.mkdir(path.join(comp.repo_path, '겹침'), { recursive: true })
+  await fs.writeFile(path.join(comp.repo_path, '겹침', '진짜.md'), '이 폴더의 진짜 파일\n')
+  await S.commitMain(comp, owner, '반영으로 들어온 파일')
+  assert.equal((await R.resolve(comp, '겹침/소개.md', owner)).state, 'shadowed')
+  assert.equal((await R.list(comp, owner)).find((x) => x.id === c.id).state, 'shadowed')
+  // (that real file is the folder's own, written as before)
+  await S.upload(comp, owner, '겹침/진짜.md', enc('고쳐도 돼요'))
+  for (const id of [a.id, b.id, c.id]) await R.remove(comp, 'owner', owner, id)
+})
+
+test('RF-U-13 원본 구성원에서 빠지면 다음 읽기부터 잠긴 자리 · 다시 들어오면 열린다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  assert.equal((await R.resolve(comp, '폴더1/가격 정책.docx', mate)).state, 'ok')
+  await S.removeMember(sales, { type: 'user', id: mate.id })
+  try {
+    assert.equal((await R.resolve(comp, '폴더1/가격 정책.docx', mate)).state, 'locked')
+    assert.equal(await role(sales, mate), null)
+  } finally { await S.setMember(sales, owner, { type: 'user', id: mate.id, role: 'viewer' }) }
+  assert.equal((await R.resolve(comp, '폴더1/가격 정책.docx', mate)).state, 'ok')
+})
+
+test('RF-U-14 접근 요청: 잠긴 자리의 사람만 — 기록이 남고, 답에는 원본 이야기가 없으며, 하루에 한 번', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  const two = (await R.list(comp, mate)).find((x) => x.slot === '폴더2')
+  const r1 = await R.requestAccess(comp, mate, two.id)
+  assert.deepEqual(r1, { requested: true })
+  assert.equal((await R.list(comp, mate)).find((x) => x.slot === '폴더2').requested, true)
+  assert.deepEqual(await R.requestAccess(comp, mate, two.id), { requested: true })
+  const [{ n }] = await q(`select count(*)::int as n from pro_folder_ref_events where ref_id=$1 and kind='access_requested'`, [two.id])
+  assert.equal(n, 1)
+  // a reader of the source asks nothing
+  const one = (await R.list(comp, mate)).find((x) => x.slot === '폴더1')
+  assert.deepEqual(await R.requestAccess(comp, mate, one.id), { requested: false, access: true })
+})
+
+test('RF-U-15 폴더 저장소에는 참조가 들어가지 않는다: gitlink · .gitmodules 없음, main 의 파일은 자기 것뿐', { skip: !db && 'no database' }, async () => {
+  const { comp, sales } = await world()
+  for (const f of [comp, sales]) {
+    const all = await G.git(f.repo_path, ['ls-tree', '-r', '--full-tree', 'main'])
+    assert.ok(!/^160000 /m.test(all), `${f.slug} has a gitlink`)
+    assert.ok(!all.includes('.gitmodules'))
+    assert.equal(await fs.stat(path.join(f.repo_path, '.gitmodules')).catch(() => null), null)
+  }
+  const own = (await G.lsTree(comp.repo_path, 'main')).map((x) => x.path)
+  const slotted = (p) => p.startsWith('폴더1/') || p.startsWith('폴더2/') || p === '가격표.xlsx'
+  assert.ok(!own.some(slotted))
+  // the index of the composing folder holds only its own files (no content of a source is copied in)
+  const idx = (await q('select path from pro_folder_files where folder_id=$1', [comp.id])).map((x) => x.path)
+  assert.ok(!idx.some(slotted))
+})
+
+test('RF-U-16 구성하는 폴더와 원본을 한 번에 지워도 된다(원본이 비워지는 기록이 회사 확인에 걸리지 않음)', { skip: !db && 'no database' }, async () => {
+  const src = await S.createFolder(owner, { name: `한꺼번에 원본 ${crypto.randomBytes(2).toString('hex')}` })
+  const comp = await S.createFolder(owner, { name: `한꺼번에 구성 ${crypto.randomBytes(2).toString('hex')}` })
+  await put(src, '자료.md', '# 자료\n')
+  const r = await R.add(comp, 'owner', owner, { source: src.slug, slot: '자료' })
+  await q('delete from pro_folders where id = any($1::uuid[])', [[src.id, comp.id]])
+  assert.equal((await q('select 1 from pro_folder_refs where id=$1', [r.id])).length, 0)
+  assert.equal((await q('select 1 from pro_folders where id = any($1::uuid[])', [[src.id, comp.id]])).length, 0)
+})
+
+test('RF-U-17 이름에 「tree」 · 「blob」이 든 경로: 없는 경로는 없다고, 빈 자리는 비었다고 읽는다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const t = await R.typesAt(comp.repo_path, 'main', ['Family tree', 'Data blob', 'a/Org tree', '제안서 초안.docx'])
+  assert.deepEqual([...t.values()], [null, null, null, 'blob'])
+  const r = await R.add(comp, 'owner', owner, { source: sales.slug, slot: 'Family tree' })
+  assert.equal(r.state, 'ok')
+  await assert.rejects(R.add(comp, 'owner', owner, { source: sales.slug, path: 'a/Org tree', slot: 'z' }), (e) => e.status === 404)
+  await R.remove(comp, 'owner', owner, r.id)
+})

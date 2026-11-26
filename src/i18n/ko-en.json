@@ -1538,6 +1538,39 @@
   "회의 내용 요약하기": "Summarize the meeting",
   "제안을 찾지 못했어요.": "I couldn't find that suggestion.",
   "자료를 찾지 못했어요.": "I couldn't find the material.",
+  "볼 수 없는 자료": "Can't be read",
+  "이름 겹침 · 자리 이름을 바꿔 주세요": "Name taken · rename the slot",
+  "원본에서 찾을 수 없음": "Not found in the original",
+  "접근 요청": "Request access",
+  "파일 올리기": "Upload files",
+  "참조 더하기": "Add a reference",
+  "다른 폴더 · 파일을 가리키기만 해요": "Only points at another folder or file",
+  "원본 열기": "Open original",
+  "이름 바꾸기": "Rename",
+  "참조 빼기": "Remove reference",
+  "원본은 그대로예요": "The original stays as it is",
+  "참조 메뉴": "Reference menu",
+  "자리 이름을 바꿨어요": "Renamed the slot",
+  "참조를 뺐어요 · 원본은 그대로예요": "Reference removed · the original stays as it is",
+  "원본 폴더의 주인에게 접근을 요청했어요": "Asked the original folder's owners for access",
+  "참조된 자료": "Referenced material",
+  "참조 더하기 — 원본 고르기": "Add a reference — choose the original",
+  "무엇을 가리킬까요": "What should it point at?",
+  "자리 이름": "Slot name",
+  "다른 폴더의 자료를 이 폴더 안에 참조로 두면, 내용은 원본에만 있고 이 폴더는 가리키기만 해요. 에이전트에게 이 폴더를 주면 참조된 자료까지 함께 읽어요.": "Keep another folder's material in this folder as a reference: the content stays only in the original, and this folder just points at it. Give this folder to an agent and it reads the referenced material too.",
+  "폴더 찾기": "Find a folder",
+  "참조할 수 있는 폴더가 없어요. 내가 구성원인 폴더만 보여요.": "No folder to reference. Only folders you are a member of are shown.",
+  "폴더 전체": "The whole folder",
+  "이 하위 폴더 아래의 파일을 모두 가리켜요": "Points at every file under this sub-folder",
+  "이 폴더의 파일을 모두 가리켜요": "Points at every file of this folder",
+  "이 폴더에는 아직 파일이 없어요. 폴더 전체를 가리키면 파일이 생길 때 함께 보여요.": "This folder has no files yet. Point at the whole folder and its files show here as they come.",
+  "이 폴더에서 보일 이름": "Name shown in this folder",
+  "원본의 최신(main)을 따라가요 — 원본이 바뀌면 여기서도 바뀐 내용을 읽어요.": "Follows the latest of the original (main) — when the original changes, this reads the change.",
+  "이 이름은 이 폴더의 모든 구성원에게 보여요. 내용은 원본 폴더의 구성원만 볼 수 있어요.": "Every member of this folder sees this name. Only members of the original folder see the content.",
+  "이 폴더에서는 읽기만 해요. 고치려면 원본 폴더에서 고쳐요.": "Read only in this folder. Change it in the original folder.",
+  "더하기": "Add",
+  "더하는 중…": "Adding…",
+  "다음": "Next",
   "파일을 열 수 없어요.": "I can't open the file.",
   "회의에 참여 중인 분만 띄울 수 있어요.": "Only people in the meeting can show material.",
   "받아쓰기 키가 설정되지 않았어요.": "No transcription key is set up.",
@@ -3224,8 +3257,16 @@
    "Couldn't download · {0}"
   ],
   [
+   "‘{0}’를 참조로 더했어요",
+   "Added ‘{0}’ as a reference"
+  ],
+  [
    "올렸어요 — 파일 {0}개",
    "Uploaded — {0} files"
+  ],
+  [
+   "{0} · main 따라감",
+   "{0} · follows main"
   ],
   [
    "채팅의 산출물 {0}개 {1}",
@@ -3270,6 +3311,18 @@
   [
    "진행 중 변경 {0}",
    "Changes in progress {0}"
+  ],
+  [
+   "{0} · 읽기 전용",
+   "{0} · read only"
+  ],
+  [
+   "「{0}」 폴더 전체",
+   "The whole \"{0}\" folder"
+  ],
+  [
+   "{0} · 폴더 전체",
+   "{0} · whole folder"
   ],
   [
    "{0}에 저장했어요",
@@ -3820,6 +3873,10 @@
    "Run settings {0}"
   ],
   [
+   "· 원본: {0}",
+   "· Original: {0}"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -3878,6 +3935,10 @@
   [
    "프롬프트 {0}",
    "Prompts {0}"
+  ],
+  [
+   "참조 · {0}",
+   "Reference · {0}"
   ],
   [
    "{0}(소유)",
@@ -7197,6 +7258,11 @@
    ".dlb",
    "받는 중…",
    "Downloading…"
+  ],
+  [
+   "[data-test=\"slot-pill\"]",
+   "참조",
+   "Reference"
   ]
  ],
  "따로 관리되는 폴더 · 링크 · git 제어 파일": "Folders managed on their own · links · git control files",

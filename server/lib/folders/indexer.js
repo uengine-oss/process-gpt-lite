@@ -16,6 +16,7 @@ import * as G from './git.js'
 import { readableFolderIds } from './service.js'
 import { withTenant, tenants } from '../tenant.js'
 import { discover as discoverKit } from './kit.js'
+import { summaries as refSummaries } from './refs.js'
 
 const DOC = /\.(md|markdown|txt|csv|docx|xlsx|pptx|hwpx|pdf)$/i
 export const kindOf = (p) => (String(p).split('.').pop() || '').toLowerCase()
@@ -311,6 +312,9 @@ export async function catalog(userId, query) {
   const folders = await q('select id, slug, name, description, kind, index_state from pro_folders where id = any($1) order by updated_at desc', [ids])
   const hits = query ? await search(userId, query, 40) : null
   const ws = query ? words(query).map((w) => w.toLowerCase()) : []
+  // each folder's reference slots as this person sees them (name and state; the source's name only for a reader of it — refs.js).
+  // What a slot holds is never copied into this index: it is read through folder_files · folder_read.
+  const slots = await refSummaries(folders.map((f) => f.id), { id: userId }).catch((e) => { console.warn('[folders] refs catalog', e.message); return new Map() })
   const out = []
   for (const f of folders) {
     let files = await q(`select path, kind, size, card from pro_folder_files where folder_id=$1 order by path limit 200`, [f.id])
@@ -324,7 +328,8 @@ export async function catalog(userId, query) {
       best = files[0]?.matched || named
     }
     out.push({ slug: f.slug, name: f.name, description: f.description, kind: f.kind, index: f.index_state?.state, best,
-      files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [], ...(hits ? { matched: x.matched } : {}) })) })
+      files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [], ...(hits ? { matched: x.matched } : {}) })),
+      ...(slots.get(String(f.id))?.length ? { refs: slots.get(String(f.id)) } : {}) })
   }
   if (hits) out.sort((a, b) => b.best - a.best)
   return out.map(({ best, ...f }) => f)

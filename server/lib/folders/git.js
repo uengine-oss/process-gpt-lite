@@ -127,8 +127,13 @@ export async function show(cwd, ref, path) {
   return git(cwd, ['show', `${ref}:${path}`], { buffer: true })
 }
 
+// what runs before commitAll stages a work tree: registered by the modules that keep something out of a commit (folders/refs.js — what a run
+// wrote at a reference slot of a variation's checkout is not kept). A step that fails is said and the commit goes on.
+const beforeCommit = []
+export const onBeforeCommit = (fn) => { beforeCommit.push(fn) }
 // stage everything and commit; returns the new head or null when nothing changed
 export async function commitAll(cwd, message, author = {}) {
+  for (const fn of beforeCommit) await fn(cwd).catch((e) => console.warn('[git] before commit', e.message))
   await git(cwd, ['add', '-A'])
   const staged = (await git(cwd, ['diff', '--cached', '--name-only'])).trim()
   if (!staged) return null
