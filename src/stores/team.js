@@ -16,6 +16,8 @@ import { viewW } from '../viewport.js'
 import { merged } from '../messageMerge.js'
 // reactions on a room's messages: my own toggled at once, the server's answer and the room's live ones after (src/roomReactions.js)
 import { toggled } from '../roomReactions.js'
+// a room read here: its phone notification goes (src/browserNotify.js)
+import { clearRoom } from '../browserNotify.js'
 
 const store = () => { try { return window.localStorage } catch { return null } }
 
@@ -48,6 +50,7 @@ export const useTeam = defineStore('team', {
     tr: {},
     original: {},
     dockState: loadDock(store()), // {dock, width} as chosen on this device (a narrow window floats it: dockNow)
+    replyAt: 0,               // when 「답장」 on a phone notification opened a room (Messenger.vue focuses the composer)
   }),
   getters: {
     // the dock in effect on this window: float · right · left · panel
@@ -191,10 +194,11 @@ export const useTeam = defineStore('team', {
       this._t = setTimeout(() => (this.toast = null), 6000)
     },
 
-    async openMessenger(threadId, messageId) {
+    // reply: opened from 「답장」 on a room's phone notification (public/sw.js) — the composer gets the focus once the room is in (Messenger.vue)
+    async openMessenger(threadId, messageId, { reply = false } = {}) {
       this.open = true
       this.toast = null
-      if (threadId) { this.tab = 'threads'; await this.openThread(threadId, messageId) }
+      if (threadId) { this.tab = 'threads'; await this.openThread(threadId, messageId); if (reply) this.replyAt = Date.now() }
       else this.loadInbox()
     },
     async openThread(id, messageId) {
@@ -225,6 +229,8 @@ export const useTeam = defineStore('team', {
       this.loadThreads()
     },
     async markRead(id) {
+      // its notification on this device goes too (one per room: src/browserNotify.js clearRoom)
+      clearRoom(id)
       const n = this.unread.byThread[id] || 0
       if (n) this.unread = { total: Math.max(0, this.unread.total - n), byThread: { ...this.unread.byThread, [id]: 0 } }
       await api(`/team/threads/${id}/read`, { method: 'POST' }).catch(() => {})
