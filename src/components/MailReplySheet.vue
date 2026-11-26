@@ -9,6 +9,7 @@ import { cardKind, verbLabel } from '../mailKind.js'
 import { isEnglish } from '../i18n/lang.js'
 // not only the reply: the row of follow-up actions (server lib/mailFollow.js), and the mail itself as a mention to drag (src/fileDrag.js)
 import MailFollowRow from './MailFollowRow.vue'
+import MailRoomShare from './MailRoomShare.vue'
 import { startDrag, mailItem } from '../fileDrag.js'
 // the attachments are things to act on (2026-11-25 「메일 첨부를 곧바로 이음오피스 등의 도구로 열어보거나 채팅으로 해당 메일에 대한 질의/액션을
 // 취할 수 있는 뭔가 흐름이 있어야」 — spec mail-attachments): a tap opens one where it belongs, its menu asks about it in the chat
@@ -333,6 +334,8 @@ function dragAtt(e, a, i) {
 }
 // 폴더에 정리: the attachments' folder suggestions come into view
 const origEl = ref(null)
+// 대화방에 공유 (MailRoomShare.vue): the room picker under the row
+const roomsOpen = ref(false)
 const filesLit = ref(false)
 function showFiles() {
   origEl.value?.querySelector('.atts')?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
@@ -441,7 +444,9 @@ function showFiles() {
           </section>
 
           <!-- not only the reply: what else to do with this mail (each says what it does; nothing runs before its button) -->
-          <MailFollowRow v-if="info || loadErr" :action="live" :atts="mail?.attachments || []" @close="emit('close')" @flow="start" @files="showFiles" @ask="askAtt" />
+          <MailFollowRow v-if="info || loadErr" :action="live" :atts="mail?.attachments || []" @close="emit('close')" @flow="start" @files="showFiles" @ask="askAtt" @share="roomsOpen = !roomsOpen" />
+          <!-- 대화방에 공유: the room picker, and where the mail is shared now (server lib/mailRooms.js) -->
+          <MailRoomShare :action="live" :open="roomsOpen" @close="emit('close')" @picked="roomsOpen = false" />
 
           <!-- the card's own work: what it is for decides the main action -->
           <p v-if="kindWait && !kind" class="wait shimmer-text" data-test="mail-kind-wait">무슨 일인지 살펴보는 중…</p>

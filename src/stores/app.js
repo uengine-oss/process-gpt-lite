@@ -617,6 +617,10 @@ export const useApp = defineStore('app', {
     // not only a reply (server lib/mailFollow.js): the sheet's row of follow-up actions, and an agent action run when pressed
     mailFollow(id) { return api(`/actions/${id}/follow`) },
     runMailFollow(id, key, again = false) { return api(`/actions/${id}/follow/${encodeURIComponent(key)}`, { method: 'POST', body: { again } }) },
+    // the mail to a conversation (server lib/mailRooms.js): the picker (only 'shared': where it is shared now), 보내기, and 끄기 (body · files · follow)
+    mailRooms(id, { only } = {}) { return api(`/actions/${id}/rooms${only ? `?only=${only}` : ''}`) },
+    shareMailToRoom(id, body) { return api(`/actions/${id}/rooms`, { method: 'POST', body }) },
+    stopMailRoom(id, room, what) { return api(`/actions/${id}/rooms/${encodeURIComponent(room)}/stop`, { method: 'POST', body: { what } }) },
     // 「채팅에서 이어서」: the mail as a chip in the chat composer (src/fileDrag.js mailItem — the agent turn reads it), the composer focused
     async mailToChat(item) {
       await this.addFileRefs([item])
