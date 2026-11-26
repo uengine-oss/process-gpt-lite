@@ -248,7 +248,7 @@ test('후보: 편집 이상인 관리형 폴더만 — 보기 권한 · 연결�
   await q(`update pro_folders set settings = settings || jsonb_build_object('work', $2::jsonb) where id=$1`, [work.id, JSON.stringify({ instId: 'inst-77', instances: ['inst-77'], mails: [{ mailId: 'mail-5' }] })])
   const repo = path.join(tmp, `linked-${crypto.randomUUID().slice(0, 6)}`)
   fs.mkdirSync(repo); execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo }); execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'x'], { cwd: repo })
-  const linked = await S.linkRepo(me, { repoPath: repo, name: `연결 ${crypto.randomUUID().slice(0, 4)}` })
+  const linked = await S.registerLinked(me, repo, { name: `연결 ${crypto.randomUUID().slice(0, 4)}` })
   folders.push(linked.id)
   const slugs = (await F.candidates(me, {})).map((f) => f.slug)
   assert.ok(slugs.includes(quotes.slug))

@@ -15,6 +15,7 @@ import { L } from '../lang.js'
 import * as PS from '../privateStore.js'
 import { people } from '../people.js'
 import { isAdmin } from '../team.js'
+import { assertNoLink } from '../noLinks.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -142,6 +143,10 @@ export async function linkRepo(user, { repoPath, name, description = '' }) {
   const dir = await linkTarget(repoPath)
   const existing = (await q('select * from pro_folders where tenant_id=$1 and repo_path=$2', [T(), dir]))[0]
   if (existing) throw err(409, L('이 저장소는 이미 연결돼 있어요. 그 폴더의 구성원으로 초대받아 주세요.', 'This repository is already linked. Ask to be invited to that folder.'))
+  return registerLinked(user, dir, { name, description })
+}
+// the row of a linked folder, after linkRepo's checks (tests make linked folders with it directly)
+export async function registerLinked(user, dir, { name, description = '' } = {}) {
   const branch = (await G.git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
   const main = (await G.branchExists(dir, 'main')) ? 'main' : branch
   const slug = await freeSlug(slugify(name || path.basename(dir)))
@@ -245,6 +250,7 @@ export function safeRel(rel) {
 export async function upload(folder, user, rel, buf) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더에는 아직 올릴 수 없어요.', "You can't upload to a linked folder yet."))
   const p = safeRel(rel)
+  await assertNoLink(folder.repo_path, p)
   const host = path.join(folder.repo_path, p)
   await fs.mkdir(path.dirname(host), { recursive: true })
   await fs.writeFile(host, buf)
@@ -253,6 +259,7 @@ export async function upload(folder, user, rel, buf) {
 export async function removeFile(folder, user, rel) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 지울 수 없어요.', "Files of a linked folder can't be deleted."))
   const p = safeRel(rel)
+  await assertNoLink(folder.repo_path, p)
   await fs.rm(path.join(folder.repo_path, p), { force: true })
   return commitMain(folder, { name: user.name, email: user.email }, L(`지우기: ${p}`, `Delete: ${p}`))
 }
@@ -380,6 +387,7 @@ export async function saveOfficeEdit(folder, user, { path: rel, base, url, sessi
     // the version the editor opened is no longer main's (changed, or deleted): keep this edit beside it
     const moved = base ? now !== String(base) : !!now
     const target = moved ? await copyPath(folder, p, user) : p
+    await assertNoLink(folder.repo_path, target)
     const host = path.join(folder.repo_path, target)
     await fs.mkdir(path.dirname(host), { recursive: true })
     await fs.writeFile(host, buf)

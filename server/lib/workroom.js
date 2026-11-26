@@ -16,6 +16,7 @@ import { folderRoom, folderRoomAccess } from './folders/rooms.js'
 import { L, isEn, withLang, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
 import { scopePattern } from './projectTopics.js'
+import { assertNoLink } from './noLinks.js'
 
 // node-pty is a native module: a build without it still serves the workroom's files, and the page
 // says why there is no terminal (terminalStatus)
@@ -136,10 +137,17 @@ export function inside(room, rel) {
   const p = path.resolve(room.root, String(rel || '').replace(/^\/+/, ''))
   if (p !== room.root && !p.startsWith(room.root + path.sep)) throw Object.assign(new Error('outside'), { status: 400 })
   if (gitPart(path.relative(room.root, p))) throw Object.assign(new Error('not a document path'), { status: 400 })
-  let real
-  try { real = realpathSync(p) } catch { return p } // not created yet (write)
+  // where it really lands (a file not made yet: its nearest existing folder): inside the room, not in .git
   const rootReal = realpathSync(room.root)
-  if (real !== rootReal && !real.startsWith(rootReal + path.sep)) throw Object.assign(new Error('outside'), { status: 400 })
+  let probe = p, rest = ''
+  for (;;) {
+    try { const real = realpathSync(probe); probe = rest ? path.join(real, rest) : real; break } catch { /* not there yet */ }
+    if (probe === room.root || probe === path.dirname(probe)) return p
+    rest = rest ? path.join(path.basename(probe), rest) : path.basename(probe)
+    probe = path.dirname(probe)
+  }
+  if (probe !== rootReal && !probe.startsWith(rootReal + path.sep)) throw Object.assign(new Error('outside'), { status: 400 })
+  if (gitPart(path.relative(rootReal, probe))) throw Object.assign(new Error('not a document path'), { status: 400 })
   return p
 }
 
@@ -174,6 +182,7 @@ export function rawPath(room, rel) { return inside(room, rel) }
 // Code injected by a person: written in place, refused if the agent changed the file meanwhile.
 export async function writeFile(room, rel, content, expectedMtime) {
   const p = inside(room, rel)
+  await assertNoLink(room.root, path.relative(room.root, p))
   const st = await fs.stat(p).catch(() => null)
   if (st && expectedMtime && Math.abs(st.mtimeMs - expectedMtime) > 1) throw Object.assign(new Error('changed'), { status: 409, mtime: st.mtimeMs })
   await fs.mkdir(path.dirname(p), { recursive: true })

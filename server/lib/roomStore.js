@@ -9,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { config } from '../config.js'
 import { admin, q } from './supa.js'
+import { linkOnPath } from './noLinks.js'
 
 // same as deepagents' _SAFE_KEY_SEGMENT / _ENCODED_MARK
 const SAFE = /^[A-Za-z0-9_/!\-.*'() &$@=;:+,?]*$/
@@ -132,6 +133,7 @@ export async function pullRoomChanges(dir, seeded, local, { wait = true, timeout
     if (back.has(rel)) continue
     const dest = path.join(local, rel)
     if (!dest.startsWith(path.resolve(local) + path.sep)) continue
+    if (await linkOnPath(local, rel)) continue
     await fs.rm(dest, { force: true })
     changed.push(rel)
   }
@@ -140,6 +142,7 @@ export async function pullRoomChanges(dir, seeded, local, { wait = true, timeout
     for (const rel of back) {
       const buf = await fs.readFile(path.join(copy, rel))
       if (seeded.hashes.get(rel) === digest(buf)) continue
+      if (await linkOnPath(local, rel)) continue
       await fs.mkdir(path.dirname(path.join(local, rel)), { recursive: true })
       await fs.writeFile(path.join(local, rel), buf)
       changed.push(rel)

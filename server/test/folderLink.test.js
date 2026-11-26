@@ -79,3 +79,54 @@ test('workroom paths never reach the repository data', async () => {
   for (const p of ['.git', '.git/config', 'a/.GIT/hooks/pre-commit', 'x\\.git\\config', '.Git /x', '.git./x']) assert.equal(gitPart(p), true, p)
   for (const p of ['.gitignore', '.gitattributes', '.github/workflows/a.yml', 'docs/.gitkeep', 'a.git.md', 'README.md']) assert.equal(gitPart(p), false, p)
 })
+
+// a symbolic link that comes in with a folder's files never leads a write elsewhere: the server's git checks
+// links out as plain files, and writes refuse a path through a link that is already on disk
+test('links in a folder: checked out as plain files, and no write goes through one', async () => {
+  const fsp = await import('node:fs/promises')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const { execFileSync } = await import('node:child_process')
+  const G = await import('../lib/folders/git.js')
+  const { linkOnPath, assertNoLink, dropLinks } = await import('../lib/noLinks.js')
+  const { inside } = await import('../lib/workroom.js')
+  const tmp = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'pgl-links-')))
+  const raw = (cwd, ...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', '-c', 'core.symlinks=true', ...a], { cwd, stdio: 'pipe' })
+  try {
+    const repo = path.join(tmp, 'repo')
+    await fsp.mkdir(repo)
+    raw(repo, 'init', '-q', '-b', 'main')
+    await fsp.writeFile(path.join(repo, 'a.md'), 'a\n')
+    raw(repo, 'add', '-A'); raw(repo, 'commit', '-q', '-m', 'a')
+    // a branch that carries a link to the repository's data (as a push could)
+    raw(repo, 'checkout', '-q', '-b', 'in')
+    await fsp.symlink('.git', path.join(repo, 'x'))
+    raw(repo, 'add', '-A'); raw(repo, 'commit', '-q', '-m', 'link')
+    raw(repo, 'checkout', '-q', 'main')
+    await G.git(repo, ['-c', 'user.name=t', '-c', 'user.email=t@example.test', 'merge', '-q', '--no-edit', 'in'])
+    const st = await fsp.lstat(path.join(repo, 'x'))
+    assert.equal(st.isSymbolicLink(), false, 'the server checked the link out as a plain file')
+    assert.equal((await fsp.readFile(path.join(repo, 'x'), 'utf8')).trim(), '.git')
+
+    // a link already on disk (checked out before): writes through it are refused
+    const room = path.join(tmp, 'room')
+    await fsp.mkdir(room)
+    await fsp.mkdir(path.join(room, '.git'))
+    await fsp.writeFile(path.join(room, '.git', 'config'), '[core]\n')
+    await fsp.symlink('.git', path.join(room, 'x'))
+    await fsp.symlink(tmp, path.join(room, 'out'))
+    assert.equal(await linkOnPath(room, 'x/config'), path.join(room, 'x'))
+    assert.equal(await linkOnPath(room, 'docs/new.md'), null)
+    await assert.rejects(assertNoLink(room, 'x/config'), (e) => e.status === 400)
+    assert.throws(() => inside({ root: room }, 'x/config'), (e) => e.status === 400, 'workroom: lands in .git')
+    assert.throws(() => inside({ root: room }, 'x/hooks/new-file'), (e) => e.status === 400, 'workroom: a new file under .git')
+    assert.throws(() => inside({ root: room }, 'out/repo/a.md'), (e) => e.status === 400, 'workroom: outside the room')
+    assert.equal(inside({ root: room }, 'docs/new.md'), path.join(room, 'docs', 'new.md'))
+    // an extracted archive keeps no links
+    await dropLinks(room)
+    assert.equal(await linkOnPath(room, 'x/config'), null)
+    assert.equal((await fsp.readdir(room)).sort().join(','), '.git')
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true })
+  }
+})
