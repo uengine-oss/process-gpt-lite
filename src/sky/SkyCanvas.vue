@@ -103,7 +103,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <canvas ref="canvas" class="sky" data-test="sky" :data-sky="drawn" />
+  <canvas ref="canvas" class="sky" :data-test="hour == null ? 'sky' : null" :data-sky="drawn" />
 </template>
 
 <style scoped>

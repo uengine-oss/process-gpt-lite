@@ -362,10 +362,10 @@ const simLabel = computed(() => (sky.simHour == null ? '실시간' : `${Math.flo
       <!-- system -->
       <template v-if="page === 'system'">
         <div class="list glass">
-          <div class="li"><div class="main"><b>테마</b><small>자동은 해가 지면 밤 테마로 바뀌어요</small></div>
+          <div class="li"><div class="main"><b>테마</b><small>자동은 해가 지면 밤 테마로 바뀌어요 · 낮이나 밤을 고르면 하늘도 그 테마에 맞춰요</small></div>
             <div class="seg"><button v-for="(t, k) in { auto: '자동', light: '낮', dark: '밤' }" :key="k" :class="{ on: sky.themePref === k }" @click="sky.setTheme(k)">{{ t }}</button></div>
           </div>
-          <div class="li col"><div class="main"><b>하늘 미리보기 · {{ simLabel }}</b><small>시간을 바꿔 하늘과 테마 전환을 확인해요</small></div>
+          <div class="li col"><div class="main"><b>하늘 미리보기 · {{ simLabel }}</b><small>시간을 바꿔 자동 테마의 하늘과 테마 전환을 확인해요</small></div>
             <input type="range" min="0" max="23.9" step="0.1" :value="sky.simHour ?? new Date().getHours()" @input="sky.setSim(Number($event.target.value))" />
             <button class="pill-btn" @click="sky.setSim(null)">실시간으로</button>
           </div>
