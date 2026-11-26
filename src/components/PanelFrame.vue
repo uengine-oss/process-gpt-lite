@@ -28,7 +28,8 @@ async function onMessage(e) {
     else if (m.type === 'save') reply(await api(`/panels/${props.panel.id}/data`, { method: 'PUT', body: m.payload }))
     else if (m.type === 'fetch') reply(await api(`/panel-proxy?url=${encodeURIComponent(m.payload)}`))
     else if (m.type === 'ask') reply((await api('/panel-ask', { method: 'POST', body: { prompt: m.payload } })).text)
-    else if (m.type === 'open') { window.open(m.payload, '_blank', 'noopener'); reply(true) }
+    // (a panel opens web pages only: its code is an agent's, its data may come from anywhere)
+    else if (m.type === 'open') { if (!/^https?:$/.test(new URL(String(m.payload), location.href).protocol)) throw new Error('http(s) only'); window.open(m.payload, '_blank', 'noopener'); reply(true) }
     else if (m.type === 'chat') { app.send(m.payload, app.mainThread.id); reply(true) }
   } catch (err) { reply(null, err.message) }
 }

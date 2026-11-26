@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../safeMarkdown.js'
 import { api } from '../api.js'
 // (sandbox and host paths in an answer read as file names: src/paths.js)
 import { hidePaths } from '../paths.js'
@@ -67,9 +67,9 @@ const instStatus = { RUNNING: '진행 중', COMPLETED: '완료', NEW: '시작 �
 const c = computed(() => props.msg.content || {})
 // a link into the agent's sandbox ("[견적서.xlsx](</workspace/…/견적서.xlsx>)") opens nothing here — its file card does
 const SANDBOX_LINK = /\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g
-// model output is rendered as markdown, never as raw HTML
+// model output is rendered as markdown, never as raw HTML (it reads as text; only plain document elements reach the page — src/safeMarkdown.js)
 // (then any other sandbox or host path reads as its file name: src/paths.js)
-const md = (t) => marked.parse(hidePaths(String(t || '').replace(SANDBOX_LINK, '$1')).replace(/&/g, '&amp;').replace(/</g, '&lt;'), { breaks: true })
+const md = (t) => safeMarkdown(hidePaths(String(t || '').replace(SANDBOX_LINK, '$1')), { html: 'text' })
 const doc = computed(() => {
   if (props.msg.kind !== 'doc') return null
   const [first, ...rest] = c.value.text.split('\n')

@@ -5,6 +5,8 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from '../../Icon.vue'
 import { api } from '../../../api.js'
 import { DEPTH, kindColor, stamp } from './fmt.js'
+// (a teammate's file link: followed only when it is a web address — src/safeMarkdown.js)
+import { safeHref } from '../../../safeMarkdown.js'
 
 const props = defineProps({ target: Object })   // {user, conversationId, title}
 const emit = defineEmits(['close', 'granted'])
@@ -73,7 +75,7 @@ const KIND = { ai: 'AI 작업', artifact: '산출물', excluded: '뺀 턴' }
                   <span class="w">{{ KIND[l.kind] }}</span>
                   <p class="ty">
                     <template v-if="l.kind === 'ai'">{{ l.title || 'AI 작업' }} · {{ l.status_label }}</template>
-                    <template v-else-if="l.kind === 'artifact'"><a v-if="l.url" :href="l.url" target="_blank" rel="noopener">{{ l.name }}</a><span v-else>{{ l.name || '파일' }}</span></template>
+                    <template v-else-if="l.kind === 'artifact'"><a v-if="safeHref(l.url)" :href="safeHref(l.url)" target="_blank" rel="noopener">{{ l.name }}</a><span v-else>{{ l.name || '파일' }}</span></template>
                     <template v-else>주인이 허락에서 뺀 턴</template>
                   </p>
                 </template>

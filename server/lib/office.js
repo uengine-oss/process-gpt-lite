@@ -64,7 +64,8 @@ export function parseToolOutput(raw) {
 // person asked to see this file, so the card opens on their screen as it arrives
 export function documentFrom(output) {
   const o = parseToolOutput(output)
-  const url = o?.file_url || o?.fileUrl
+  // (a web address only: the card's link is followed in people's browsers)
+  const url = [o?.file_url, o?.fileUrl].find((u) => typeof u === 'string' && /^https?:\/\//i.test(u))
   const name = o?.file_name || o?.fileName || (url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : '')
   const ref = o?.folder_ref
   const folder = ref && typeof ref.slug === 'string' && typeof ref.path === 'string' ? { slug: ref.slug, name: String(ref.name || ''), path: ref.path, sha: String(ref.sha || ''), editable: ref.editable === true } : null

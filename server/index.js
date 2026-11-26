@@ -951,9 +951,10 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
 }, auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   try {
-    // an agent-written page or SVG must not run script on this origin
-    const active = /\.(html?|svg|xml)$/i.test(String(req.query.path))
-    res.sendFile(workroom.rawPath(r, req.query.path), { headers: { 'X-Content-Type-Options': 'nosniff', ...(active ? { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" } : {}) } })
+    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: only pictures, sound, video, PDF and
+    // plain text go without the sandbox (a PDF in it would not show)
+    const passive = /\.(png|jpe?g|gif|webp|avif|bmp|ico|tiff?|mp4|m4v|mov|webm|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|pdf|txt|md|csv|json)$/i.test(String(req.query.path))
+    res.sendFile(workroom.rawPath(r, req.query.path), { headers: { 'X-Content-Type-Options': 'nosniff', ...(passive ? {} : { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" }) } })
   } catch (e) { fail(res, e) }
 })
 app.put('/api/workroom/:kind/:id/file', auth, async (req, res) => {

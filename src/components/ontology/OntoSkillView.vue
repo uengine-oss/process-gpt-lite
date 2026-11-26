@@ -4,7 +4,7 @@
 // 형식 규칙만 관리자가 고친다: 항목마다 「꼭 지킬 것」을 켜고 끄거나(글이 다시 써진다) 글을 직접 고치고, 다시 찾을 수 있다(결정 원장에 남음).
 // props: name(스킬 이름) 또는 format({task, form})
 import { ref, computed, onMounted } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../../safeMarkdown.js'
 import { api } from '../../api.js'
 import OntoSheet from './OntoSheet.vue'
 import { dateKo } from './fmt.js'
@@ -20,7 +20,8 @@ const editText = ref(false)
 const text = ref('')
 const ticks = ref({})
 
-const md = (t) => marked.parse(String(t || '').replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/&/g, '&amp;').replace(/</g, '&lt;'), { breaks: true })
+// a company skill others may have edited: raw HTML in it reads as text, only plain document elements reach the page (src/safeMarkdown.js)
+const md = (t) => safeMarkdown(String(t || '').replace(/^---\n[\s\S]*?\n---\n?/, ''), { html: 'text' })
 const front = (t) => (String(t || '').match(/^---\n([\s\S]*?)\n---/)?.[1] || '').split('\n').map((l) => l.match(/^([\w-]+):\s*(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]])
 const fmtPath = () => `/ontology/tasks/${encodeURIComponent(props.format.task)}/forms/format?form=${encodeURIComponent(props.format.form)}`
 

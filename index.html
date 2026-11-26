@@ -2,6 +2,9 @@
 <html lang="ko" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
+    <!-- what the page itself never needs, refused wherever the page is served (Vite, the web image, the desktop app): plug-in objects and
+         a <base> that would move every relative address. frame-ancestors only works as a header: install/docker/nginx.conf -->
+    <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- installable web app: name, icon, standalone window (public/manifest.webmanifest); push and badge: public/sw.js -->
     <link rel="manifest" href="/manifest.webmanifest" />

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../safeMarkdown.js'
 import { hidePaths } from '../paths.js'
 import Message from './Message.vue'
 import Composer from './Composer.vue'
@@ -20,7 +20,8 @@ const scroller = ref(null)
 const list = computed(() => app.thread)
 const draft = computed(() => app.drafts[app.activeId])
 const status = computed(() => app.status[app.activeId] || (app.active?.status === 'working' ? '작업하는 중' : null))
-const md = (t) => marked.parse(hidePaths(t || '').replace(/</g, '&lt;'), { breaks: true })
+// (raw HTML in it reads as text; only plain document elements reach the page — src/safeMarkdown.js)
+const md = (t) => safeMarkdown(hidePaths(t || ''), { html: 'text' })
 // hark: a quiet date line where the day changes, and "읽음" under the last thing the user said
 const dayOf = (m) => new Date(m.created_at).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })
 const newDay = (i) => i > 0 && dayOf(list.value[i]) !== dayOf(list.value[i - 1])

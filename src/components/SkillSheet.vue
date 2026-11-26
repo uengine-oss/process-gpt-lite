@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../safeMarkdown.js'
 import Icon from './Icon.vue'
 
 // The whole skill, opened on demand: SKILL.md rendered, the files that travel with it, and
@@ -8,8 +8,9 @@ import Icon from './Icon.vue'
 const props = defineProps({ skill: Object })
 defineEmits(['close'])
 const body = computed(() => String(props.skill?.markdown || '').replace(/^---\n[\s\S]*?\n---\n?/, ''))
-const html = computed(() => marked.parse(body.value.replace(/</g, '&lt;'), { breaks: false }))
-const noteHtml = computed(() => marked.parse(String(props.skill?.note || '').replace(/</g, '&lt;'), { breaks: true }))
+// a skill can come from anyone in the company: raw HTML in it reads as text, only plain document elements reach the page (src/safeMarkdown.js)
+const html = computed(() => safeMarkdown(body.value, { breaks: false, html: 'text' }))
+const noteHtml = computed(() => safeMarkdown(props.skill?.note, { html: 'text' }))
 </script>
 
 <template>

@@ -1487,6 +1487,28 @@ cd e2e && RT_WORKERS=1 RT_API_FROM=8967 RT_WEB_FROM=5367 RT_OFFICE_FROM=5402 npx
 | **#11** 리본의 단추만 눌러 바꾼 서식은 아직 알아보지 못한다(스펙의 알려진 한계) | 검토 11-26 | — | — | ✗ |
 | 작업실 파일 · 프로세스 지도 문서 · 회의 무대의 단추, 실제 iOS Safari · Android Chrome · Electron에서의 저장 위치, 영어 화면 | — | — (코드 · 사전만) | — | ◐ |
 
+### 63. 글을 그리는 한 가지 규칙 — 대화 · 팀원 답 · 스킬 · 단계 결과의 Markdown 은 문서 요소로만 (스펙 `markdown-rendering`)
+
+에이전트의 답, 「이미 한 요청」 카드의 팀원 답, 스킬 시트, 회사 지도의 스킬 · 일 지시, 인스턴스 화면의 산출물, 양식의 값, 미션 요약, 마이닝 대화, ArtCraft 라이브 답, 팀 맥락 보기는 모두 다른 사람이 작성할 수 있는 글이다. 이 글들은 이제 `src/safeMarkdown.js` 한 곳에서 같은 규칙으로 HTML 로 변환된다(문서 요소만 렌더링, 링크는 웹 주소 · 메일 · 이 사이트의 경로만 허용, 새 탭으로 열기). 대화 화면에서는 글에 작성한 HTML 이 이전처럼 문자 그대로 표시된다. 앱 페이지의 meta 정책과 설치 번들 nginx 의 헤더도 함께 확인한다. 화면 시험은 자체 스택(회사 `safehtml-ui`, BFF 8971 · Vite 5371부터)을 실행하며, 모델은 호출하지 않는다. F-SH-06 의 nginx 부분은 도커와 `nginx:1.27-alpine` 이미지가 있을 때만 실제 nginx 로 실행한다. 증거는 `openspec/specs/markdown-rendering/e2e/README.md` 에 있다.
+
+```bash
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/safe-html.spec.js          # F-SH-01~07
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/local-agents-view.spec.js   # F-LV 회귀 (desktop/node_modules 필요)
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| `safeMarkdown` 을 브라우저에서 직접 확인: 까다로운 입력 47개(속성 처리기 · 문자 참조 · 탭 · 제어 문자로 감싼 `javascript:` · `data:` · `vbscript:` · SVG · MathML · `<iframe srcdoc>` · `<noscript>` · `<math><mtext><table><mglyph><style>` 같은 고전적인 mXSS 사례 · DOM clobbering)를 두 방식(html allow · text) × 두 가지 줄바꿈으로 처리하고, `cleanHtml` 에도 HTML 로 입력하여 실제 문서에 삽입해도 실행되는 것이 없으며 정해진 요소 · 속성만 남는다. 일반적인 Markdown(제목 · 3부터 시작하는 목록 · 정렬된 표 · `a < b && c` · 체크 상자 · 링크 · 인용 · 한국어 조사 앞 굵게)은 그대로 표시하고, 그림은 설명 텍스트로 표시한다. `safeHref` 의 주소 판단 | 스펙 요구 1 · 2 · 3 | F-SH-01 | feature | ✅ |
+| 대화의 에이전트 답: 포함된 HTML 은 문자로, `javascript:` · 문자 참조 링크는 누를 수 없는 텍스트로, 「누리집」은 새 탭 링크로 표시하며, 표 · 코드는 그대로 표시한다 | 스펙 요구 1 · 2 | F-SH-02 | feature | ✅ |
+| 「이미 한 요청」 카드에서 펼친 팀원의 답: 대화와 같은 규칙으로 표시한다 | 스펙 요구 1 | F-SH-03 | feature | ✅ |
+| 스킬 초안의 「SKILL.md 전체 보기」 · 작업 메모: 같은 규칙으로 표시하며, 코드 블록의 `"<tr>"` · `&&` 는 작성한 그대로 표시한다 | 스펙 요구 1 · 2 | F-SH-04 | feature | ✅ |
+| 인스턴스 화면의 산출물(단계의 긴 텍스트 결과): 같은 규칙으로 표시한다 | 스펙 요구 1 | F-SH-05 | feature | ✅ |
+| 페이지 meta 정책(`<object>` · `<base>` 를 허용하지 않으며, 브라우저가 정책에 따른 차단을 알림), nginx 설정 내용, 실제 nginx 의 헤더: 앱 페이지 `frame-ancestors 'self'; object-src 'none'; base-uri 'self'`, 저장소의 HTML · SVG · XML 에만 `sandbox` 적용(그림 · PDF · JSON · REST · 로그인 응답은 그대로 유지) | 스펙 요구 4 | F-SH-06 | feature | ✅ |
+| 작업실의 파일 원본: 그림 · 소리 · 영상 · PDF · 일반 텍스트(txt · md · csv · json)만 sandbox 없이 전송하고, 나머지(`.html` · `.xhtml` · `.xht` · `.shtml` · `.svg` · `.xml` · `.xsl` · `.rdf` · 확장자 없음 …)는 `sandbox`를 적용해 전송한다 | 스펙 요구 4 | F-SH-07 | feature | ✅ |
+| 파일 카드의 새 탭 열기 · 팀 활동 산출물 링크 · 패널 앱 「열기」의 웹 주소 확인 | 스펙 요구 3 | — (코드만, 서버 쪽 `documentFrom` 은 folderFindOpen · folderEditSave 단위 시험이 그대로 통과) | — | ◐ |
+| 내 PC 의 CLI 대화 보기(`LocalConversation`, html allow) 회귀 | 스펙 요구 2 | F-LV-01~10 | feature | ✅ |
+| 운영(게이트웨이 뒤)의 저장소 응답 헤더 · `script-src` 제한 | — | — (이 저장소 밖 · 패널 앱 구조) | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

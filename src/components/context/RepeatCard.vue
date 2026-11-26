@@ -5,7 +5,7 @@
 //   요청하기 — 제목·요약만 보이는 팀원 맥락이면 원문 참고를 요청한다(같은 팀은 자동 허용 → 바로 그 답 보기).
 //   그래도 새로 하기 — 같은 요청을 다시 보낸다(이번에는 알아보지 않는다).
 import { computed, ref } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../../safeMarkdown.js'
 import { api } from '../../api.js'
 import { useApp } from '../../stores/app.js'
 
@@ -18,7 +18,9 @@ const req = ref({})         // 후보 번호 → 요청 상태
 const busy = ref('')
 const err = ref('')
 const chose = ref('')
-const md = (s) => marked.parse(String(s || ''), { breaks: true })
+// a teammate's answer, as it shows in its own chat: raw HTML in it reads as text, only plain document elements reach the page
+// (src/safeMarkdown.js)
+const md = (s) => safeMarkdown(s, { html: 'text' })
 
 function ago(at) {
   const t = new Date(at), ms = Date.now() - t, m = Math.round(ms / 6e4)

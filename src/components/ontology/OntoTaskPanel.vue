@@ -4,7 +4,7 @@
 // 방법 후보(v0.3 §10, OntoWays): 같은 일을 사람마다 다르게 하는 방법 — 고른 방법이 스킬이 되면 정의를 다시 불러온다.
 // emits changed({kind:'definition'|'pin'|'skill', ...})
 import { ref, computed, watch } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../../safeMarkdown.js'
 import { api } from '../../api.js'
 import { HOW_KO } from './fmt.js'
 import OntoWhenReason from './OntoWhenReason.vue'
@@ -65,7 +65,8 @@ const withFile = computed(() => templates.value.filter((x) => x.file))
 const hasDef = computed(() => !!(d.value?.definition || '').trim())
 const dirty = computed(() => text.value !== (d.value?.definition || ''))
 const kindOfFile = (type) => ({ xlsx: 'xls', docx: 'doc', hwpx: 'hwp', pptx: 'ppt' }[type] || 'etc')
-const md = (s) => marked.parse(String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;'), { breaks: true })
+// (raw HTML in it reads as text; only plain document elements reach the page — src/safeMarkdown.js)
+const md = (s) => safeMarkdown(s, { html: 'text' })
 const outName = (o) => (typeof o === 'string' ? o : [o.name, o.format].filter(Boolean).join(' · '))
 
 async function draft() {
