@@ -143,7 +143,7 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   if (r.ok && r.headers.get('X-Long-Json')) {
     const j = await r.json()
     if (j && typeof j === 'object' && !Array.isArray(j) && j.error && Number(j.status) >= 400) {
-      throw Object.assign(new Error(String(j.error).slice(0, 300)), { status: Number(j.status), ...(j.conflicts ? { conflicts: j.conflicts } : {}) })
+      throw Object.assign(new Error(String(j.error).slice(0, 300)), { status: Number(j.status), ...(j.conflicts ? { conflicts: j.conflicts } : {}), ...(j.code ? { code: j.code } : {}) })
     }
     return j
   }

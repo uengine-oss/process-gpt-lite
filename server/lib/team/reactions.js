@@ -65,6 +65,18 @@ async function namesFor(ids) {
 }
 
 // The reactions of a room's messages, for one viewer: Map chats uuid → chips (lib/team/messenger.js messages)
+// Whether this database has reactions yet (sql/062): asked once, again every minute while it has not — the room says so with its
+// messages, and the screen offers no reactions until then (2026-11-26 운영: 「반응은 곧 쓸 수 있어요.라고 나오고 좋아요 붙힌게 유지되지
+// 않는…」 — every tap was put on, refused and taken back off)
+let avail = { on: null, at: 0 }
+export async function available({ now = Date.now(), query = q } = {}) {
+  if (avail.on === true || (avail.on === false && now - avail.at < 60_000)) return avail.on
+  const [r] = await query(`select to_regclass('pro_chat_reactions') is not null as on`).catch(() => [{ on: false }])
+  avail = { on: !!r?.on, at: now }
+  return avail.on
+}
+export const forgetAvailable = () => { avail = { on: null, at: 0 } }
+
 export async function forMessages(viewerId, roomId, uuids) {
   const ids = (uuids || []).filter((u) => MSG.test(String(u)))
   if (!ids.length) return new Map()
@@ -104,7 +116,7 @@ export async function react(me, messageId, key, on, { memberThread, membersOf })
   } catch (e) {
     await c.query('rollback').catch(() => {})
     // a database without 062 yet: say so plainly (the screen puts the chip back)
-    if (e.code === '42P01') throw new TeamError(503, L('반응은 곧 쓸 수 있어요.', 'Reactions will be available soon.'))
+    if (e.code === '42P01') { avail = { on: false, at: Date.now() }; throw Object.assign(new TeamError(503, L('반응은 곧 쓸 수 있어요.', 'Reactions will be available soon.')), { code: 'reactions_off' }) }
     throw e
   } finally { c.release() }
   const members = await membersOf(row.id)
