@@ -40,7 +40,7 @@ const cand = ref(null)
 const skill = ref(null)        // skill folders: author, visibility, agents & bosses, contributions, merge right
 const sharing2 = ref(false)
 const fileInput = ref(null)
-// the folder's reference slots as I see them: ok (its files come with the tree, each with `ref`) · locked · dangling · shadowed
+// the folder's reference slots as I see them: ok (its files come with the tree, each with `ref`) · locked · dangling
 const refs = ref([])
 const addingRef = ref(false)
 const say = (t) => { toast.value = t; setTimeout(() => { if (toast.value === t) toast.value = '' }, 2800) }
@@ -90,8 +90,11 @@ const tree = computed(() => {
   return { dirs: groups.sort((a, b) => a.d.localeCompare(b.d)), top: rows.sort((a, b) => (a.f?.path || '').localeCompare(b.f?.path || '')) }
 })
 // a slot's second words: where it points (for a reader of the original), or why it gives nothing
-const slotMeta = (s) => (s.state === 'locked' ? '볼 수 없는 자료' : s.state === 'shadowed' ? '이름 겹침 · 자리 이름을 바꿔 주세요' : s.state === 'dangling' ? '원본에서 찾을 수 없음'
-  : `${s.from?.name || ''}${s.type === 'folder' ? '' : ` / ${s.from?.path || ''}`} · main 따라감`)
+// (hidden: files of this folder a commit from elsewhere put under the slot — the slot wins, they show again when it goes)
+const slotMeta = (s) => (s.state === 'locked' ? '볼 수 없는 자료' : s.state === 'dangling' ? '원본에서 찾을 수 없음'
+  : `${s.from?.name || ''}${s.type === 'folder' ? '' : ` / ${s.from?.path || ''}`} · main 따라감`) + (s.hidden ? ` · 이 폴더의 파일 ${s.hidden}개를 가림` : '')
+// a slot's file is of its original's kind (the slot's name need not carry the extension)
+const kindOfRow = (f) => kindOf(f.source_path || f.path)
 const inSlot = (s, f) => (f.path.startsWith(`${s.slot}/`) ? f.path.slice(s.slot.length + 1) : baseName(f.path))
 // the slot's menu (⋯): 원본 열기 · 이름 바꾸기 · 참조 빼기 — beside the button on a wide screen, a sheet from the bottom on a phone
 const menu = ref(null)  // {s, x, y}
@@ -358,7 +361,7 @@ const ix = computed(() => folder.value?.index_state || {})
                 </button>
                 <span class="by meta">{{ slotMeta(g.slot) }}</span>
                 <span class="sz">
-                  <template v-if="g.slot.state === 'ok'">{{ g.list.length }}개</template>
+                  <template v-if="g.slot.state === 'ok'">{{ g.slot.count ?? g.list.length }}개</template>
                   <button v-else-if="g.slot.state === 'locked' && !g.slot.requested" class="ask press" data-test="slot-request" @click="askAccess(g.slot)">접근 요청</button>
                   <span v-else-if="g.slot.state === 'locked'" class="asked" data-test="slot-requested">요청했어요</span>
                   <button v-if="slotActs(g.slot).length" class="more press" title="참조 메뉴" data-test="slot-more" @click="openMenu($event, g.slot)"><FIcon name="more" :size="18" /></button>
@@ -370,16 +373,20 @@ const ix = computed(() => folder.value?.index_state || {})
               <template v-if="!closed.has(g.d)">
                 <!-- a slot's files: read only here (no drag, no delete) — opened, they read the original -->
                 <div v-for="f in g.list" :key="f.path" class="fr file" :class="{ sel: !g.slot && sel.has(f.path), reffile: !!g.slot }" :draggable="!g.slot" data-test="folder-file" :data-file="f.path" @dragstart="!g.slot && dragRow($event, f)">
-                  <button class="fn in press" @click="g.slot ? preview(f) : clickRow($event, f)"><span class="fic sm" :class="kindOf(f.path)">{{ kindLabel[kindOf(f.path)] }}</span><span class="nm">{{ g.slot ? inSlot(g.slot, f) : baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
+                  <button class="fn in press" @click="g.slot ? preview(f) : clickRow($event, f)"><span class="fic sm" :class="kindOfRow(f)">{{ kindLabel[kindOfRow(f)] }}</span><span class="nm">{{ g.slot ? inSlot(g.slot, f) : baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
                   <span class="by"><Avatar v-if="f.author" :who="whoOf({ name: f.author, id: f.author })" :size="20" /> {{ f.author }} · {{ ago(f.mtime) }}</span>
                   <span class="sz">{{ fmtSize(Number(f.size)) }}<button v-if="!g.slot && can('editor') && folder.kind === 'managed'" class="del" title="지우기" @click="removeFile(f)"><Icon name="trash" :size="14" /></button></span>
                 </div>
+                <!-- more than are listed here: the rest in the original folder -->
+                <button v-if="g.slot && g.slot.count > g.list.length" class="fr file more-row press" data-test="slot-more-files" @click="openSource(g.slot)">
+                  <span class="fn in"><span class="nm">… 외 {{ (g.slot.count - g.list.length).toLocaleString() }}개 · 원본 폴더에서 보기</span></span><span /><span />
+                </button>
               </template>
             </template>
             <template v-for="t in tree.top" :key="t.key">
               <!-- a readable file slot -->
               <div v-if="t.slot" class="fr file slot ok" data-test="folder-slot" :data-slot="t.slot.slot" data-state="ok">
-                <button class="fn press" @click="preview(t.f)"><span class="fw"><span class="fic sm" :class="kindOf(t.f.path)">{{ kindLabel[kindOf(t.f.path)] }}</span><i class="arr"><FIcon name="ref" :size="11" /></i></span><span class="sl"><span class="sn"><span class="nm">{{ baseName(t.f.path) }}</span><span class="rp" data-test="slot-pill">참조</span><span class="ra" aria-hidden="true"><FIcon name="ref" :size="13" /></span></span><small class="sm-meta">참조 · {{ slotMeta(t.slot) }}</small></span></button>
+                <button class="fn press" @click="preview(t.f)"><span class="fw"><span class="fic sm" :class="kindOfRow(t.f)">{{ kindLabel[kindOfRow(t.f)] }}</span><i class="arr"><FIcon name="ref" :size="11" /></i></span><span class="sl"><span class="sn"><span class="nm">{{ baseName(t.f.path) }}</span><span class="rp" data-test="slot-pill">참조</span><span class="ra" aria-hidden="true"><FIcon name="ref" :size="13" /></span></span><small class="sm-meta">참조 · {{ slotMeta(t.slot) }}</small></span></button>
                 <span class="by meta">{{ slotMeta(t.slot) }}</span>
                 <span class="sz">{{ t.f.size != null ? fmtSize(Number(t.f.size)) : '' }}<button v-if="slotActs(t.slot).length" class="more press" title="참조 메뉴" data-test="slot-more" @click="openMenu($event, t.slot)"><FIcon name="more" :size="18" /></button></span>
               </div>
@@ -490,7 +497,7 @@ const ix = computed(() => folder.value?.index_state || {})
 
       <MergeSheet v-if="merging" :folder="folder" :ids="merging.ids" :integration="merging.integration" @close="merging = null; load()" @done="merged" />
       <ShareSheet v-if="sharing" :folder="folder" :pick="pickShare" @close="sharing = false; pickShare = ''; load()" />
-      <RefSheet v-if="addingRef" :folder="folder" @close="addingRef = false" @added="refAdded" />
+      <RefSheet v-if="addingRef" :folder="folder" :taken="[...refs.map((r) => r.label), ...refs.map((r) => r.slot)]" @close="addingRef = false" @added="refAdded" />
       <!-- the menus: beside their button on a wide screen, a sheet from the bottom on a phone -->
       <div v-if="upMenu" class="mveil" @click.self="upMenu = null">
         <div class="pop glass" role="menu" :style="{ left: `${upMenu.x}px`, top: `${upMenu.y}px` }">
@@ -642,20 +649,21 @@ section.pane { position: relative; }
 .fr.slot { position: relative; }
 .fr.slot .fn:disabled { cursor: default; opacity: 1; }
 .si { position: relative; flex: none; display: grid; place-items: center; width: 17px; margin-right: 4px; color: var(--text-primary); }
-.si.locked { color: var(--text-secondary); } .si.dangling, .si.shadowed { color: #c27a12; }
+.si.locked { color: var(--text-secondary); } .si.dangling { color: #c27a12; }
 .fw { position: relative; flex: none; display: grid; }
 .fw .arr { position: absolute; right: -4px; bottom: -4px; width: 14px; height: 14px; border-radius: 7px; display: grid; place-items: center; background: #2a78d6; color: #fff; box-shadow: 0 0 0 1.5px var(--regular-solid-bg); }
 .si .arr { position: absolute; right: -5px; bottom: -4px; width: 13px; height: 13px; border-radius: 7px; display: grid; place-items: center; background: #2a78d6; color: #fff; }
 .sl { min-width: 0; display: flex; flex-direction: column; }
 .sn { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rp { flex: none; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; background: rgba(42, 120, 214, .14); color: #1f63b8; }
-.slot.locked .rp, .slot.dangling .rp, .slot.shadowed .rp { background: var(--button-bg); color: var(--text-secondary); }
+.slot.locked .rp, .slot.dangling .rp { background: var(--button-bg); color: var(--text-secondary); }
 .ra { display: none; color: #2a78d6; }
 .sm-meta { display: none; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .by.meta { color: var(--text-secondary); }
-.slot.locked .nm, .slot.dangling .nm, .slot.shadowed .nm { color: var(--text-secondary); }
-.slot.dangling .by.meta, .slot.shadowed .by.meta { color: #b06a0c; }
+.slot.locked .nm, .slot.dangling .nm { color: var(--text-secondary); }
+.slot.dangling .by.meta { color: #b06a0c; }
 .fr.reffile .fn.in { padding-left: 34px; }
+.more-row .nm { color: var(--text-secondary); font-size: 13px; }
 .caret { font-size: 10px; margin-left: -2px; opacity: .7; }
 .more { flex: none; width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; color: var(--text-secondary); }
 .more:hover { background: var(--button-bg); color: var(--text-primary); }
@@ -670,8 +678,8 @@ section.pane { position: relative; }
 @media (hover: hover) { .mi:hover { background: var(--cell-bg); } }
 .mi.danger { color: var(--color-error); }
 :root[data-theme="dark"] .rp { background: rgba(120, 175, 255, .2); color: #9cc7ff; }
-:root[data-theme="dark"] .slot.locked .rp, :root[data-theme="dark"] .slot.dangling .rp, :root[data-theme="dark"] .slot.shadowed .rp { background: var(--button-bg); color: var(--text-secondary); }
-:root[data-theme="dark"] .si.dangling, :root[data-theme="dark"] .si.shadowed, :root[data-theme="dark"] .slot.dangling .by.meta, :root[data-theme="dark"] .slot.shadowed .by.meta { color: #f0b45a; }
+:root[data-theme="dark"] .slot.locked .rp, :root[data-theme="dark"] .slot.dangling .rp { background: var(--button-bg); color: var(--text-secondary); }
+:root[data-theme="dark"] .si.dangling, :root[data-theme="dark"] .slot.dangling .by.meta { color: #f0b45a; }
 :root[data-theme="dark"] .ra { color: #8cc1ff; }
 @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; overflow-y: auto; } .fd { overflow-y: auto; } }
 /* phone (src/viewport.js): the title gets the first line, members and 공유·작업실 the next; the tab row
@@ -702,8 +710,8 @@ section.pane { position: relative; }
   .slot .rp { display: none; }
   .slot.ok .ra { display: inline-flex; }
   .slot .sm-meta { display: block; }
-  .slot.dangling .sm-meta, .slot.shadowed .sm-meta { color: #b06a0c; }
-  :root[data-theme="dark"] .slot.dangling .sm-meta, :root[data-theme="dark"] .slot.shadowed .sm-meta { color: #f0b45a; }
+  .slot.dangling .sm-meta { color: #b06a0c; }
+  :root[data-theme="dark"] .slot.dangling .sm-meta { color: #f0b45a; }
   .fr.reffile .fn.in { padding-left: 22px; }
   /* the menus come up from the bottom */
   .pop { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; border-radius: 20px 20px 0 0; padding: 10px 10px calc(14px + env(safe-area-inset-bottom)); animation: sheet-up .28s var(--spring) both; }

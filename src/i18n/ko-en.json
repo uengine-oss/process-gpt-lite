@@ -1539,7 +1539,6 @@
   "제안을 찾지 못했어요.": "I couldn't find that suggestion.",
   "자료를 찾지 못했어요.": "I couldn't find the material.",
   "볼 수 없는 자료": "Can't be read",
-  "이름 겹침 · 자리 이름을 바꿔 주세요": "Name taken · rename the slot",
   "원본에서 찾을 수 없음": "Not found in the original",
   "접근 요청": "Request access",
   "파일 올리기": "Upload files",
@@ -3157,6 +3156,14 @@
    "Sent to {0} devices. This browser can't receive push, so it was shown here."
   ],
   [
+   "이름에 파일 형식({0})을 붙여요 — 형식도 모든 구성원에게 보여요",
+   "Add the file type ({0}) to the name — every member sees the type too"
+  ],
+  [
+   "{0} · main 따라감 · 이 폴더의 파일 {1}개를 가림",
+   "{0} · follows main · hides {1} file(s) of this folder"
+  ],
+  [
    "보냈어요 · 기기 {0}대. 몇 초 안에 알림이 와요.",
    "Sent · {0} devices. The notification arrives in a few seconds."
   ],
@@ -3179,6 +3186,10 @@
   [
    "지금 쓰는 PC 앱은 {0} 버전, 최신은 {1} 버전이에요",
    "This desktop app is version {0}; the latest is {1}"
+  ],
+  [
+   "… 외 {0}개 · 원본 폴더에서 보기",
+   "… {0} more · see them in the original folder"
   ],
   [
    "PC 앱 새 버전({0})이 나왔어요",
@@ -4099,6 +4110,10 @@
   [
    "스펙 {0}",
    "Specs {0}"
+  ],
+  [
+   "참조 {0}",
+   "Reference {0}"
   ],
   [
    "시작{0}",

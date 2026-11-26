@@ -1,13 +1,15 @@
 <script setup>
 // 참조 더하기 (server lib/folders/refs.js add): ① 내가 읽을 수 있는 폴더 고르기 → ② 그 폴더 전체, 또는 안으로 들어가 하위 폴더 · 파일 하나 →
 // ③ 자리 이름 → 더하기. 원본의 최신(main)을 따라간다. 휴대폰에서는 아래에서 올라오는 전체 높이 시트로, 단계를 한 화면씩 보여 준다.
+// 자리 이름은 이 폴더의 모든 구성원에게 보이므로 처음 이름은 「참조 N」이다(원본의 이름이 아님). 파일의 형식(확장자)도 붙이기로 할 때만 붙는다.
 import { ref, computed, onMounted, nextTick } from 'vue'
 import Icon from '../Icon.vue'
 import FIcon from './FIcon.vue'
 import { folders as F } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName } from './fileKind.js'
 
-const props = defineProps({ folder: Object })
+// taken: the names and slots this folder's references already have (the first free 「참조 N」 is offered)
+const props = defineProps({ folder: Object, taken: { type: Array, default: () => [] } })
 const emit = defineEmits(['close', 'added'])
 const step = ref(1)
 const all = ref(null)
@@ -17,6 +19,7 @@ const files = ref([])
 const cwd = ref('')
 const pick = ref({ path: '', type: 'folder' })
 const name = ref('')
+const keepExt = ref(false)
 const busy = ref(false)
 const err = ref('')
 const nameBox = ref(null)
@@ -53,7 +56,12 @@ const whole = () => { pick.value = cwd.value ? { path: cwd.value, type: 'dir' } 
 const pickFile = (f) => { pick.value = { path: f.path, type: 'file' } }
 const picked = computed(() => (pick.value.path ? `${src.value?.name} / ${pick.value.path}` : `${src.value?.name} · 폴더 전체`))
 async function next() {
-  name.value = pick.value.path ? baseName(pick.value.path) : src.value.name
+  // (a neutral name — every member of this folder sees it, also those who cannot read the original)
+  const taken = new Set(props.taken)
+  let n = 1
+  while (taken.has(`참조 ${n}`)) n++
+  name.value = `참조 ${n}`
+  keepExt.value = false
   step.value = 3
   await nextTick(); nameBox.value?.focus()
 }
@@ -62,10 +70,11 @@ async function add() {
   if (busy.value || !name.value.trim()) return
   busy.value = true; err.value = ''
   try {
-    const r = await F.addRef(props.folder.slug, { source: src.value.slug, path: pick.value.path, label: name.value.trim() })
+    const r = await F.addRef(props.folder.slug, { source: src.value.slug, path: pick.value.path, label: name.value.trim(), keepExt: pick.value.type === 'file' && keepExt.value })
     emit('added', r)
   } catch (e) { err.value = e.message } finally { busy.value = false }
 }
+const extOf = computed(() => (/\.[^./]+$/.exec(pick.value.path || '') || [''])[0])
 const TITLE = { 1: '참조 더하기 — 원본 고르기', 2: '무엇을 가리킬까요', 3: '자리 이름' }
 </script>
 
@@ -114,6 +123,7 @@ const TITLE = { 1: '참조 더하기 — 원본 고르기', 2: '무엇을 가리
         <div class="where"><FIcon name="ref" :size="15" /> {{ picked }}</div>
         <label class="lab" for="ref-name">이 폴더에서 보일 이름</label>
         <input id="ref-name" ref="nameBox" v-model="name" class="field" maxlength="80" data-test="ref-name" @keydown.enter="add" />
+        <label v-if="pick.type === 'file' && extOf" class="chk"><input v-model="keepExt" type="checkbox" data-test="ref-keep-ext" /> 이름에 파일 형식({{ extOf }})을 붙여요 — 형식도 모든 구성원에게 보여요</label>
         <ul class="notes">
           <li>원본의 최신(main)을 따라가요 — 원본이 바뀌면 여기서도 바뀐 내용을 읽어요.</li>
           <li>이 이름은 이 폴더의 모든 구성원에게 보여요. 내용은 원본 폴더의 구성원만 볼 수 있어요.</li>
@@ -160,6 +170,8 @@ const TITLE = { 1: '참조 더하기 — 원본 고르기', 2: '무엇을 가리
 .where { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); margin: 0 2px 8px; min-width: 0; overflow-wrap: anywhere; }
 .where b { color: var(--text-primary); font-weight: 500; }
 .lab { font-size: 12.5px; color: var(--text-tertiary); margin: 6px 2px 6px; }
+.chk { display: flex; align-items: center; gap: 8px; margin: 2px 2px 4px; font-size: 13px; color: var(--text-secondary); word-break: keep-all; }
+.chk input { width: 16px; height: 16px; flex: none; }
 .notes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--text-secondary); word-break: keep-all; }
 .none { font-size: 13.5px; color: var(--text-secondary); padding: 10px 4px; margin: 0; line-height: 1.6; word-break: keep-all; }
 .bad { margin: 0; padding: 8px 18px; font-size: 13px; color: var(--color-error); flex: none; word-break: keep-all; }

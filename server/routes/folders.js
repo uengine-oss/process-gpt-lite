@@ -142,8 +142,9 @@ export function folderRoutes(auth) {
   r.get('/folders/:slug/tree', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
     const own = await S.tree(folder, req.query.ref)
-    // (main: the files of the slots this person may read, at the slots' paths — each with `ref`)
-    return !req.query.ref || req.query.ref === 'main' ? [...own, ...(await REFS.treeRows(folder, req.user))] : own
+    // (main: the files of the slots this person may read, at the slots' paths — each with `ref`; the slot wins over a file of this folder
+    // a commit from elsewhere put under it)
+    return !req.query.ref || req.query.ref === 'main' ? [...(await REFS.ownRows(folder, own)), ...(await REFS.treeRows(folder, req.user))] : own
   }))
   // a file read through a slot answers from its source, for a reader of the source only; locked · dangling: nothing of it
   const through = async (folder, rel, ref, user) => {
@@ -169,13 +170,16 @@ export function folderRoutes(auth) {
     if (via === false) return
     if (via && !via.path) throw Object.assign(new Error(L('파일이 없어요.', "That file isn't there.")), { status: 404 })
     const buf = via ? await S.readBlob(via.source, via.rev, via.path) : await S.readBlob(folder, req.query.ref, req.query.path)
-    const ext = path.extname(String(req.query.path)).slice(1).toLowerCase()
+    // (a slot's file is of its original's kind — the slot's name need not carry the extension)
+    const ext = path.extname(via ? via.path : String(req.query.path)).slice(1).toLowerCase()
+    const named = path.basename(String(req.query.path))
+    const saveAs = via && ext && !path.extname(named) ? `${named}.${ext}` : named
     res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Cache-Control', 'private, max-age=60')
     // a file an agent wrote must not run script on this origin
     if (/^(html?|svg|xml)$/.test(ext)) res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
-    if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(String(req.query.path)))}`)
+    if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(saveAs)}`)
     res.end(buf)
   }))
   // IeumOffice and the ArtCraft apps load documents only from storage: publish a copy of this
@@ -217,10 +221,12 @@ export function folderRoutes(auth) {
 
   // ---------- reference slots (lib/folders/refs.js) ----------
   // (a refusal of a slot carries its code: ref_locked · ref_readonly · ref_taken …)
+  // (a server error is said without its internal words — REFS.answerOf)
   const hr = (fn) => async (req, res) => {
     try { res.json(await fn(req)) } catch (e) {
       if (!e.status) console.warn('[folders] refs', req.method, req.path, e.message)
-      res.status(e.status || 500).json({ error: e.message, ...(e.code && typeof e.code === 'string' && e.code.startsWith('ref_') ? { code: e.code } : {}) })
+      const a = REFS.answerOf(e)
+      res.status(a.status).json(a.body)
     }
   }
   r.get('/folders/:slug/refs', auth, hr(async (req) => {
@@ -230,7 +236,7 @@ export function folderRoutes(auth) {
   r.post('/folders/:slug/refs', auth, hr(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
     const b = req.body || {}
-    return REFS.add(folder, role, user(req), { source: b.source, path: b.path, slot: b.slot, label: b.label })
+    return REFS.add(folder, role, user(req), { source: b.source, path: b.path, slot: b.slot, label: b.label, keepExt: b.keepExt === true })
   }))
   r.patch('/folders/:slug/refs/:id', auth, hr(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)

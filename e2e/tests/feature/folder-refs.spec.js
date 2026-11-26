@@ -199,7 +199,7 @@ const toFolder = async (p, f) => { await p.goto(`/folders/${f.slug}`); await p.l
 const slot = (p, name) => p.locator(`[data-test="folder-slot"][data-slot="${name}"]`)
 const noSideScroll = async (p) => expect(await p.evaluate(() => document.scrollingElement.scrollWidth)).toBeLessThanOrEqual(await p.evaluate(() => window.innerWidth) + 1)
 // the reference sheet: a folder, then what in it, then the slot's name
-async function addRef(p, src, { dir = null, file = null, name, shots = null }) {
+async function addRef(p, src, { dir = null, file = null, name, shots = null, keepExt = false, defaultName = null }) {
   await p.locator('[data-test="folder-add-menu"]').click()
   await p.locator('[data-test="folder-add-ref"]').click()
   const sheet = p.locator('[data-test="ref-sheet"]')
@@ -210,7 +210,10 @@ async function addRef(p, src, { dir = null, file = null, name, shots = null }) {
   if (file) { await sheet.locator(`[data-test="ref-file"][data-path="${file}"]`).click() } else await sheet.locator('[data-test="ref-whole"]').waitFor()
   if (shots) await shot(p, `${shots}-2`)
   await sheet.locator('[data-test="ref-next"]').click()
+  // (the name offered is a neutral 「참조 N」 — never the original's name: every member sees it)
+  if (defaultName) await expect(sheet.locator('[data-test="ref-name"]')).toHaveValue(defaultName)
   await sheet.locator('[data-test="ref-name"]').fill(name)
+  if (keepExt) await sheet.locator('[data-test="ref-keep-ext"]').check()
   if (shots) await shot(p, `${shots}-3`)
   await sheet.locator('[data-test="ref-add"]').click()
   await expect(sheet).toHaveCount(0)
@@ -220,7 +223,7 @@ async function addRef(p, src, { dir = null, file = null, name, shots = null }) {
 test('F-RF-01 참조 더하기 시트로 폴더 전체 · 하위 폴더를 더하면 「참조」 자리가 보인다', async ({ browser }) => {
   const p = await open(browser, A, DESK)
   await toFolder(p, COMP)
-  await addRef(p, SALES, { name: '폴더1', shots: 'f-rf-01-sheet' })
+  await addRef(p, SALES, { name: '폴더1', shots: 'f-rf-01-sheet', defaultName: '참조 1' })
   await expect(slot(p, '폴더1')).toBeVisible()
   await expect(slot(p, '폴더1').locator('[data-test="slot-pill"]')).toHaveText('참조')
   await expect(slot(p, '폴더1')).toContainText('영업 자료 · main 따라감')
@@ -239,7 +242,8 @@ test('F-RF-01 참조 더하기 시트로 폴더 전체 · 하위 폴더를 더�
 test('F-RF-02 파일 하나를 참조로 더한다 — 손그림의 세 자리', async ({ browser }) => {
   const p = await open(browser, A, DESK)
   await toFolder(p, COMP)
-  await addRef(p, SALES, { file: '가격표.xlsx', name: '가격표' })
+  // (the file's type goes on the name only when asked for)
+  await addRef(p, SALES, { file: '가격표.xlsx', name: '가격표', keepExt: true, defaultName: '참조 1' })
   const s = slot(p, '가격표.xlsx')
   await expect(s).toBeVisible()
   await expect(s.locator('[data-test="slot-pill"]')).toHaveText('참조')
@@ -345,6 +349,25 @@ test('RF-E-04 원본 구성원에서 빠지면 다음 요청부터 잠긴 자리
   expect((await call(B, 'GET', `/folders/${COMP.slug}/refs`)).body.find((x) => x.slot === '폴더1').state).toBe('locked')
   await S.api(A.token, `/folders/${SALES.slug}/members`, { method: 'POST', body: { type: 'user', id: B.id, role: 'viewer' } })
   expect((await call(B, 'GET', p)).status).toBe(200)
+})
+
+test('RF-E-05 이름 없이 더하면 「참조 N」 · 경로 끝의 「/」 · 볼 수 없는 사람에게는 원본의 이름이 하나도 없다 · 자리에 직접 커밋된 파일은 가려진다', async () => {
+  const a = await call(A, 'POST', `/folders/${COMP.slug}/refs`, { source: RULES.slug, path: '보안/' })
+  expect(a.status, a.text).toBe(200)
+  expect(a.body.label).toMatch(/^참조 \d+$/); expect(a.body.slot).toBe(a.body.label)
+  expect(a.body.type).toBe('dir'); expect(a.body.from.path).toBe('보안')
+  const b = await call(A, 'POST', `/folders/${COMP.slug}/refs`, { source: RULES.slug, path: '보안/반출 금지.md', slot: '메모' })
+  expect(b.body.slot).toBe('메모')
+  try {
+    const seen = (await call(C, 'GET', `/folders/${COMP.slug}/refs`)).text + JSON.stringify(JSON.parse(await mcp(C.token, 'folder_files', { folder: COMP.slug })))
+    for (const x of ['규정집', '보안', '반출', RULES.slug]) expect(seen, x).not.toContain(x)
+    // a reader of the original opens 「메모」 as the Markdown it is (its kind from the original), and downloads it with its extension
+    const raw = await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${COMP.slug}/raw?path=${enc('메모')}&download=1`, { headers: { Authorization: `Bearer ${A.token}` } })
+    expect(raw.headers.get('content-type')).toContain('text/markdown')
+    expect(raw.headers.get('content-disposition')).toContain(enc('메모.md'))
+  } finally {
+    for (const r of [a, b]) await call(A, 'DELETE', `/folders/${COMP.slug}/refs/${r.body.id}`)
+  }
 })
 
 // ---------- opening, locked, writing ----------

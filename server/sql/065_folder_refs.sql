@@ -3,7 +3,7 @@
 -- 보는 사람의 원본 권한을 확인해 푼다(server/lib/folders/refs.js resolve).
 -- 더하기만 한다. 여러 번 돌려도 된다. RLS 는 켜고 정책은 두지 않는다(다른 pro_* 처럼 서버만 읽고 쓴다).
 --   pro_folder_refs        — 자리 하나: 구성하는 폴더 · 자리 경로 · 이름표 · 원본(폴더 · 경로 · 종류) · 따라가기/고정
---   pro_folder_ref_events  — 참조에 일어난 일(추가만): added · removed · renamed · access_requested …
+--   pro_folder_ref_events  — 참조에 일어난 일(추가만): added · removed · renamed · access_requested … (구성하는 폴더가 지워지면 함께 지워진다)
 --   pro_thread_folders.refs_off — 대화 하나에서 끈 자리(다음 단계에서 쓴다)
 -- 같은 회사 안에서만: 서버 코드가 두 폴더를 그 회사에서 찾는 것에 더해, 트리거가 행 · 구성하는 폴더 · 원본의 회사가 다르면 거절한다.
 create table if not exists pro_folder_refs (
@@ -28,7 +28,7 @@ create table if not exists pro_folder_refs (
 create index if not exists pro_folder_refs_source on pro_folder_refs (source_folder_id);
 alter table pro_folder_refs enable row level security;
 
-create or replace function pro_folder_refs_same_tenant() returns trigger language plpgsql as $$
+create or replace function pro_folder_refs_same_tenant() returns trigger language plpgsql set search_path = public, pg_temp as $$
 declare
   own text;
   src text;
@@ -65,5 +65,16 @@ create table if not exists pro_folder_ref_events (
 );
 create index if not exists pro_folder_ref_events_ref on pro_folder_ref_events (ref_id, kind, actor);
 alter table pro_folder_ref_events enable row level security;
+-- once_key: an event that happens at most once (an access request — once a day per person and slot), claimed by the insert itself
+alter table pro_folder_ref_events add column if not exists once_key text;
+create unique index if not exists pro_folder_ref_events_once on pro_folder_ref_events (once_key) where once_key is not null;
+-- the composing folder going takes its reference records with it
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'pro_folder_ref_events_folder_fk') then
+    delete from pro_folder_ref_events e where not exists (select 1 from pro_folders f where f.id = e.folder_id);
+    alter table pro_folder_ref_events add constraint pro_folder_ref_events_folder_fk foreign key (folder_id) references pro_folders(id) on delete cascade;
+  end if;
+end $$;
 
 alter table pro_thread_folders add column if not exists refs_off uuid[] not null default '{}';

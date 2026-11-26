@@ -187,7 +187,7 @@ export async function writeFile(room, rel, content, expectedMtime) {
   // (a reference slot of a shared folder is read only there — folders/refs.js)
   if (room.folder && (room.kind === 'folder' || room.kind === 'variation')) {
     const [R, FS] = await Promise.all([import('./folders/refs.js'), import('./folders/service.js')])
-    await R.assertWritable(await FS.folderById(room.folder), path.relative(room.root, p), room.kind === 'variation' ? { at: { repo: room.root, rev: 'HEAD' } } : {})
+    await R.assertWritable(await FS.folderById(room.folder), path.relative(room.root, p))
   }
   const st = await fs.stat(p).catch(() => null)
   if (st && expectedMtime && Math.abs(st.mtimeMs - expectedMtime) > 1) throw Object.assign(new Error('changed'), { status: 409, mtime: st.mtimeMs })

@@ -32,7 +32,9 @@ const text = ref(null)
 const info = ref(null)       // index row of main: card, size, author, mtime
 const err = ref('')
 
-const view = computed(() => viewOf(props.file?.path))
+// (a file under a reference slot is of its original's kind — the slot's name need not carry the extension)
+const kindPath = computed(() => props.file?.source_path || info.value?.ref?.from?.path || props.file?.path)
+const view = computed(() => viewOf(kindPath.value))
 const isText = computed(() => ['markdown', 'code', 'text', 'csv'].includes(view.value) || view.value === 'none')
 const url = computed(() => rawUrl(props.folder.slug, props.file.path, props.ref_))
 const card = computed(() => info.value?.card || props.file.card || null)
@@ -120,7 +122,9 @@ async function downloadSource({ last = false } = {}) {
   await freshToken()
   const p = (!last && editing.value?.path) || props.file.path
   const moved = p !== props.file.path
-  return { url: rawUrl(props.folder.slug, p, props.ref_, true), name: baseName(p), ...(moved ? { note: `다른 사람이 먼저 고쳐 내 수정은 따로 저장돼 있어요 — 그 파일을 내려받았어요 · ${baseName(p)}` } : {}) }
+  // (a slot named without the extension: the original's, for the saved file)
+  const ext = !/\.[^./]+$/.test(baseName(p)) ? (/\.[^./]+$/.exec(kindPath.value || '') || [''])[0] : ''
+  return { url: rawUrl(props.folder.slug, p, props.ref_, true), name: baseName(p) + ext, ...(moved ? { note: `다른 사람이 먼저 고쳐 내 수정은 따로 저장돼 있어요 — 그 파일을 내려받았어요 · ${baseName(p)}` } : {}) }
 }
 defineExpose({ leave })
 // (a commit: the version a file mention named — 멘션한 때의 판)
@@ -156,7 +160,7 @@ function ask() {
           </div>
           <p v-if="err" class="none">{{ err }}</p>
           <p v-else-if="isText && text === null" class="none">여는 중…</p>
-          <FileView v-else ref="fv" :path="file.path" :text="text" :url="url" :editor-url="editorUrl" mode="preview" @office-saved="officeSaved" @office-edited="onEdited" />
+          <FileView v-else ref="fv" :path="kindPath" :text="text" :url="url" :editor-url="editorUrl" mode="preview" @office-saved="officeSaved" @office-edited="onEdited" />
         </div>
       </section>
 
