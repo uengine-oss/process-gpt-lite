@@ -330,7 +330,8 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
   // screen keeps the ones it has), this one says what they are now
   const rx = await RX.forMessages(me.id, t.id, list.map((m) => m.id))
   for (const m of list) m.reactions = rx.get(m.id) || []
-  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
+  // (reactions: false — this database has no reactions yet, sql/062: the screen offers none — lib/team/reactions.js available)
+  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, reactions: await RX.available().catch(() => false), members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
     messages: list }
 }
 

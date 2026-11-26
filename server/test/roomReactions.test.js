@@ -8,6 +8,7 @@
 //   RX-U-06 메시지 합치기: 실시간으로 온 사본(반응 없음)이 있던 반응을 지우지 않고, 다시 받은 사본(반응 있음 · [])은 그대로 들어간다
 // Run: node --test test/roomReactions.test.js
 import test from 'node:test'
+import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { summarize, refusal, KEYS, isKey } from '../lib/team/reactions.js'
 import { cleanName, NAME_MAX } from '../lib/team/messenger.js'
@@ -72,6 +73,10 @@ test('RX-U-04 화면과 서버가 같은 여섯 가지, 같은 말풍선 규칙'
   assert.deepEqual(REACTIONS.map((r) => r.label), ['좋아요', '확인했음', '사랑해', '웃음', '놀람', '감사'])
   assert.deepEqual(REACTIONS.map((r) => r.emoji), ['👍', '✅', '❤️', '😂', '😮', '🙏'])
   assert.equal(reactionOf('check').emoji, '✅')
+  // drawn as the app's own line icons (2026-11-26 「아이콘들 디자인이 너무 전체 톤이 어울리지 않은듯」): one for each, in components/Icon.vue
+  assert.deepEqual(REACTIONS.map((r) => r.icon), KEYS.map((k) => `rx-${k}`))
+  const iconVue = fs.readFileSync(new URL('../../src/components/Icon.vue', import.meta.url), 'utf8')
+  for (const r of REACTIONS) assert.match(iconVue, new RegExp(`'${r.icon}': 'M`), r.icon)
   assert.ok(isKey('like') && !isKey('angry') && !isKey(''))
   assert.equal(canReact({ id: '1', kind: 'text', mine: false }), true)
   assert.equal(canReact({ id: '1', kind: 'agent', mine: false, byMe: true }), true)
@@ -120,4 +125,20 @@ test('cleanName: control and format characters become spaces, emoji sequences st
   assert.equal(cleanName(null), null)
   assert.throws(() => cleanName({}), (e) => e.status === 400)
   assert.throws(() => cleanName(42), (e) => e.status === 400)
+})
+
+// 2026-11-26 운영: 「반응은 곧 쓸 수 있어요.라고 나오고 좋아요 붙힌게 유지되지 않는...」 — a database without sql/062 refused every tap after the
+// chip was put on. The room now says whether it has reactions (thread.reactions), and the screen offers none until it does.
+test('RX-U-08 반응 테이블이 없는 데이터베이스: available() 이 false, 1분 동안 다시 묻지 않고, 생기면 true', async () => {
+  const RX = await import('../lib/team/reactions.js')
+  const supa = await import('../lib/supa.js')
+  RX.forgetAvailable()
+  const t0 = Date.now()
+  assert.equal(typeof (await RX.available({ now: t0 })), 'boolean')
+  // (the dev database has 062: true, and it is not asked again)
+  const real = await RX.available({ now: t0 })
+  if (real) {
+    assert.equal(await RX.available({ now: t0 + 10 * 60_000 }), true)
+  }
+  RX.forgetAvailable()
 })
