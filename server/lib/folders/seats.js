@@ -26,8 +26,9 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import os from 'node:os'
+import { Readable } from 'node:stream'
 import { config } from '../../config.js'
-import { q, pool } from '../supa.js'
+import { q, qQuick, pool } from '../supa.js'
 import { emit } from '../bus.js'
 import { L, langOf, withLang } from '../lang.js'
 import * as S from './service.js'
@@ -336,15 +337,25 @@ const LOCK_OWNER = `${os.hostname()}:${process.pid}:${crypto.randomBytes(4).toSt
 const pause = (ms) => new Promise((r) => setTimeout(r, ms))
 const busy = () => err(409, L('이 변형의 작업본을 지금 다른 곳에서 옮기거나 저장하는 중이에요 — 잠시 뒤에 다시 해 주세요.', "This variation's working copy is being moved or saved elsewhere right now — try again in a moment."), { why: 'busy' })
 let lockLegacy = false
+// (the lease queries go through their own few connections with time limits — supa.js quickPool: a busy pool or a stalled database makes
+// them fail within seconds, never wait)
 async function takeLease(vid, owner) {
   if (lockLegacy) return true
   try {
-    const rows = await q(`insert into pro_variation_locks (variation_id, owner, until) values ($1, $2, now() + ($3 || ' milliseconds')::interval)
+    const rows = await qQuick(`insert into pro_variation_locks (variation_id, owner, until) values ($1, $2, now() + ($3 || ' milliseconds')::interval)
                           on conflict (variation_id) do update set owner = excluded.owner, until = excluded.until
                             where pro_variation_locks.until < now() or pro_variation_locks.owner = excluded.owner
                           returning owner`, [vid, owner, String(LEASE_MS)])
     return rows.length > 0
   } catch (e) { if (e.code === '42P01') { lockLegacy = true; return true } throw e }
+}
+// a renewal only extends a lease that is still this work's and still running: it never takes the row again (a row that ran out, or that
+// another server took — and maybe gave back — since, is not this lease any more)
+async function renewLease(vid, owner) {
+  if (lockLegacy) return true
+  const rows = await qQuick(`update pro_variation_locks set until = now() + ($3 || ' milliseconds')::interval
+                             where variation_id=$1 and owner=$2 and until > now() returning owner`, [vid, owner, String(LEASE_MS)])
+  return rows.length > 0
 }
 // the lease of one piece of work: taken (waiting up to `wait`), renewed every third of its time, given back at the end. A renewal the
 // database refuses means another server has the variation now: the lease is lost for good (recorded — check() refuses from then on). A
@@ -359,21 +370,27 @@ async function lease(vid, wait) {
   let sent
   for (;;) {
     sent = Date.now()
-    if (await takeLease(vid, owner)) break
+    // (no connection for it in time, or no answer in time: not taken now — the work then waits its turn or says busy, never a 500)
+    let got = false
+    try { got = await takeLease(vid, owner) } catch (e) { if (!/timeout exceeded when trying to connect|query read timeout/i.test(String(e?.message))) throw e }
+    if (got) break
     if (Date.now() >= until) return null
     await pause(Math.min(250, Math.max(10, until - Date.now())))
   }
-  // (released: something the work left running after its end asks no more — it never takes the lease again)
-  let fresh = sent + LEASE_MS, lost = false, released = false, inFlight = null
+  // (released: something the work left running after its end asks no more — it never renews the lease again)
+  let fresh = sent + LEASE_MS, lost = false, released = false
+  const inFlight = new Set()
   const renewNow = async () => {
     if (lockLegacy || released) return true
     if (lost) return false
     const t = Date.now()
+    const ask = renewLease(vid, owner)
+    inFlight.add(ask)
     try {
-      if (await (inFlight = takeLease(vid, owner))) { fresh = t + LEASE_MS; return true }
+      if (await ask) { fresh = Math.max(fresh, t + LEASE_MS); return true }
     } catch {
       if (Date.now() < fresh - LEASE_SPARE_MS) return true
-    }
+    } finally { inFlight.delete(ask) }
     lost = true
     console.warn(`[seats] the disk lease of variation ${vid} was lost — another server may have it now; this work stops before changing the disk`)
     return false
@@ -383,8 +400,13 @@ async function lease(vid, wait) {
   return {
     lost: () => lost,
     check: async (step) => { if (!(await renewNow())) throw leaseLost(step) },
-    // (a renewal still on its way is waited for first: it would otherwise write the row back after it was given back)
-    release: async () => { released = true; clearInterval(timer); await inFlight?.catch(() => {}); if (!lockLegacy) await q('delete from pro_variation_locks where variation_id=$1 and owner=$2', [vid, owner]).catch(() => {}) },
+    // (every renewal still on its way is waited for first, then the row is given back)
+    release: async () => {
+      released = true
+      clearInterval(timer)
+      await Promise.allSettled([...inFlight])
+      if (!lockLegacy) await qQuick('delete from pro_variation_locks where variation_id=$1 and owner=$2', [vid, owner]).catch(() => {})
+    },
   }
 }
 const disk = new Map()
@@ -596,7 +618,10 @@ async function endRunNow(folder, v, run, { mode = 'agent', why = null } = {}) {
 export async function finishRun(folder, v, run, { fill = null, commit = null, user = null, where = '' } = {}) {
   try {
     return await onDisk(String(v.id), async () => {
-      if (await holdsRun(v.id, run)) {
+      // (the lease is asked once more before the result comes in: when another server has the variation now, the result goes where a
+      // run's result goes when its seat moved — a variation of its own; the live checkout is not touched)
+      const lost = async () => { try { await stillHeld('fill'); return false } catch (e) { if (e.why === 'busy') return true; throw e } }
+      if (await holdsRun(v.id, run) && !(fill && await lost())) {
         const cur = await S.variationById(v.id)
         if (fill && cur?.worktree_path) await fill(cur.worktree_path)
         let sha = null, failed = null
@@ -904,7 +929,22 @@ export async function sweep() {
     const done = await closeServer(f, v, { system: true, status: null, wait: 0, reason: L('아무도 쓰지 않던 작업본을 보관했어요.', 'A working copy nobody used was put away.') }).catch((e) => { if (e.why !== 'busy') failed(v.id, e); return null })
     if (done) { n++; failures.delete(String(v.id)) }
   }
+  n += await freeStoppedEverywhere().catch((e) => { console.warn('[seats] stopped retires', e.message); return 0 })
+  n += await S.keepStoppedStagings().catch((e) => { console.warn('[seats] stopped retires\' copies', e.message); return 0 })
   n += await dropOldKept().catch((e) => { console.warn('[seats] kept', e.message); return 0 })
+  return n
+}
+// every few minutes: the worktree entries that retires left locked when their server stopped mid-way (S.freeStoppedRetires), in every
+// folder of this company
+const RETIRE_SCAN_MS = 5 * 60_000
+const scanned = new Map() // company → when
+async function freeStoppedEverywhere() {
+  if (Date.now() - (scanned.get(T()) || 0) < RETIRE_SCAN_MS) return 0
+  scanned.set(T(), Date.now())
+  let n = 0
+  for (const f of await q('select repo_path from pro_folders where tenant_id=$1', [T()])) {
+    if (f.repo_path) n += (await S.freeStoppedRetires(f.repo_path).catch(() => ({ freed: 0 }))).freed
+  }
   return n
 }
 
@@ -961,19 +1001,27 @@ export async function keptOf(folder, v, { me = null, role = null } = {}) {
 }
 // A kept folder goes down as one zip within limits — PRO_KEPT_ZIP_MAX_MB (200 MB in all) and PRO_KEPT_FILE_MAX_MB (100 MB a file) — its
 // size counted at that moment (what was recorded is not trusted: a whole folder kept before recorded none). Past a limit it is refused
-// (413 'too-big': which file, how much, the limit); the files stay on the server until their days pass. The files are read one after
-// another (within the limit) and the zip streams out as it is made.
+// (413 'too-big': which file, how much, the limit); the files stay on the server until their days pass. A few zips at once on a server
+// (PRO_KEPT_ZIPS_AT_ONCE, 2 — 409 busy past it). Each file is opened only when the zip comes to it and read as it streams out (lazyFile).
 const MB = 1024 * 1024
 const limitMb = (x, d) => { const n = Number(x); return Number.isFinite(n) && n > 0 ? n : d }
 export const keptZipMaxMb = () => limitMb(process.env.PRO_KEPT_ZIP_MAX_MB, 200)
 export const keptFileMaxMb = () => limitMb(process.env.PRO_KEPT_FILE_MAX_MB, 100)
+const zipsAtOnce = () => Math.max(1, Math.floor(Number(process.env.PRO_KEPT_ZIPS_AT_ONCE)) || 2)
+export const keptZipMaxFiles = () => Math.max(1, Math.floor(Number(process.env.PRO_KEPT_ZIP_MAX_FILES)) || 20_000)
+let zipping = 0
+export const zipsGoing = () => zipping
 const mbText = (bytes) => { const m = bytes / MB; return `${m >= 10 ? Math.round(m) : m.toFixed(1)} MB` }
-// the files of a kept folder, a link never followed → {files: [{rel, full, size}], bytes, big: the first file past its limit, over}
-async function keptFiles(dir, { fileMax, allMax }) {
-  const out = { files: [], bytes: 0, big: null, over: false }
+const keptGone = () => err(404, L('남겨 둔 파일을 찾지 못했어요(보관 기간이 지났을 수 있어요).', 'The kept files are not there (their time may have passed).'), { why: 'gone' })
+const zipsBusy = () => err(409, L('지금 다른 내려받기 파일을 만들고 있어요. 잠시 후 다시 시도해 주세요.', 'Other downloads are being made right now. Try again in a moment.'), { why: 'busy' })
+// the files of a kept folder, a link never followed → {files: [{rel, full, size}], bytes, big: the first file past its limit, over}; a
+// folder that went away meanwhile (the sweep) → 404 'gone'
+async function keptFiles(dir, { fileMax, allMax, filesMax = Infinity }) {
+  const out = { files: [], bytes: 0, big: null, over: false, many: false }
   const walk = async (d, rel) => {
-    for (const e of await fsp.readdir(d, { withFileTypes: true })) {
-      if (out.big) return
+    const ents = await fsp.readdir(d, { withFileTypes: true }).catch((e) => { throw ['ENOENT', 'ENOTDIR'].includes(e.code) ? keptGone() : e })
+    for (const e of ents) {
+      if (out.big || out.many) return
       const full = path.join(d, e.name), r = rel ? `${rel}/${e.name}` : e.name
       if (e.isSymbolicLink()) continue
       if (e.isDirectory()) { await walk(full, r); continue }
@@ -983,20 +1031,66 @@ async function keptFiles(dir, { fileMax, allMax }) {
       out.bytes += st.size
       if (out.bytes > allMax) out.over = true
       if (!out.over) out.files.push({ rel: r, full, size: st.size })
+      if (out.files.length > filesMax) { out.many = true; return }
     }
   }
   await walk(dir, '')
   return out
 }
-// one kept folder as a zip (files only — a link is not followed) → {stream, name, bytes, count}; check: only whether it may (→ {ok, bytes,
-// count} — the page asks before it downloads, so a refusal is said on the page)
+// One kept file as the zip reads it: opened only then (never following a link put in its place since it was counted — O_NOFOLLOW), read
+// up to the size counted. A file that grew meanwhile (something still writing it) goes in as it was counted; one that is not a plain file
+// of at least that size any more (shorter, gone, a link) fails the zip — never a wrong or empty copy inside it. A stream given up while it
+// opens its file closes that file.
+const CHUNK = 64 * 1024
+function lazyFile(full, size) {
+  let fh = null, done = 0
+  const changed = () => Object.assign(new Error('a kept file changed while it was being zipped'), { code: 'KEPT_CHANGED' })
+  return new Readable({
+    highWaterMark: CHUNK,
+    async read() {
+      try {
+        if (!fh) {
+          const h = await fsp.open(full, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0))
+          if (this.destroyed) { await h.close().catch(() => {}); return }
+          fh = h
+          const st = await fh.stat()
+          if (!st.isFile() || st.size < size) throw changed()
+        }
+        if (done >= size) {
+          const h = fh
+          fh = null
+          await h.close().catch(() => {})
+          this.push(null)
+          return
+        }
+        const want = Math.min(CHUNK, size - done)
+        const { bytesRead, buffer } = await fh.read(Buffer.alloc(want), 0, want, done)
+        if (!bytesRead) throw changed()
+        done += bytesRead
+        this.push(buffer.subarray(0, bytesRead))
+      } catch (e) { this.destroy(e.code === 'ELOOP' || e.code === 'ENOENT' ? changed() : e) }
+    },
+    destroy(e, cb) {
+      const h = fh
+      fh = null
+      if (!h) return cb(e)
+      h.close().catch(() => {}).finally(() => cb(e))
+    },
+  })
+}
+// one kept folder as a zip (files only — a link is not followed) → {stream (a Node Readable), name, bytes, count}; check: only whether it
+// may now (→ {ok, bytes, count} — the page asks before it downloads, so a refusal is said on the page)
 export async function keptZip(folder, v, id, { me = null, role = null, check = false } = {}) {
   const [r] = await q(`select id, at, by_user, note from pro_variation_seat_log where id=$1 and variation_id=$2 and action='kept'`, [String(id).replace(/\D/g, '') || 0, v.id])
   const p = r && keptPath(r)
-  if (!p || !p.startsWith(S.keptRootOf() + path.sep) || !(await fsp.stat(p).catch(() => null))) throw err(404, L('남겨 둔 파일을 찾지 못했어요(보관 기간이 지났을 수 있어요).', 'The kept files are not there (their time may have passed).'))
+  if (!p || !p.startsWith(S.keptRootOf() + path.sep) || !(await fsp.stat(p).catch(() => null))) throw keptGone()
   if (!mayGetKept(r, v, { me, role })) throw err(403, L('그 작업본을 가졌던 사람과 폴더 소유자만 내려받을 수 있어요.', 'Only whoever had that working copy and the folder owner can download it.'))
-  const fileMb = keptFileMaxMb(), allMb = keptZipMaxMb()
-  const got = await keptFiles(p, { fileMax: fileMb * MB, allMax: allMb * MB })
+  const fileMb = keptFileMaxMb(), allMb = keptZipMaxMb(), filesMax = keptZipMaxFiles()
+  const got = await keptFiles(p, { fileMax: fileMb * MB, allMax: allMb * MB, filesMax })
+  if (got.many) {
+    throw err(413, L(`남긴 파일이 ${filesMax.toLocaleString('ko-KR')}개를 넘어 한 번에 내려받을 수 있는 개수 한도를 넘었어요. 남긴 파일은 보관 기간 동안 서버에 그대로 있으니 관리자에게 파일을 꺼내 달라고 요청해 주세요.`,
+      `There are more than ${filesMax.toLocaleString('en-US')} kept files, more than can be downloaded at once. They stay on the server until their days pass — ask an administrator to get them out.`), { why: 'too-big' })
+  }
   if (got.big) {
     throw err(413, L(`「${got.big.rel}」 파일의 크기가 ${mbText(got.big.size)}로, 한 번에 내려받을 수 있는 한도(파일 하나에 ${fileMb} MB)를 넘었어요. 남긴 파일은 보관 기간 동안 서버에 그대로 있으니 관리자에게 파일을 꺼내 달라고 요청해 주세요.`,
       `"${got.big.rel}" is ${mbText(got.big.size)}, more than can be downloaded at once (${fileMb} MB a file). The kept files stay on the server until their days pass — ask an administrator to get them out.`), { why: 'too-big' })
@@ -1005,12 +1099,34 @@ export async function keptZip(folder, v, id, { me = null, role = null, check = f
     throw err(413, L(`남긴 파일의 전체 크기가 ${mbText(got.bytes)}로, 한 번에 내려받을 수 있는 한도(${allMb} MB)를 넘었어요. 남긴 파일은 보관 기간 동안 서버에 그대로 있으니 관리자에게 파일을 꺼내 달라고 요청해 주세요.`,
       `The kept files come to ${mbText(got.bytes)}, more than can be downloaded at once (${allMb} MB). They stay on the server until their days pass — ask an administrator to get them out.`), { why: 'too-big' })
   }
+  if (zipping >= zipsAtOnce()) throw zipsBusy()
   if (check) return { ok: true, bytes: got.bytes, count: got.files.length }
-  const JSZip = (await import('jszip')).default
-  const zip = new JSZip()
-  for (const f of got.files) zip.file(f.rel, await fsp.readFile(f.full).catch(() => Buffer.alloc(0)))
-  return { stream: zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'DEFLATE' }), bytes: got.bytes, count: got.files.length,
-    name: `${String(v.title || 'kept').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}-kept.zip` }
+  // (the zip counts from here until it is over — read to the end, failed, or given up by the one downloading it — and its files are
+  // closed then; nothing is made before it is read)
+  zipping++
+  let zip, files
+  try {
+    const JSZip = (await import('jszip')).default
+    zip = new JSZip()
+    files = got.files.map((f) => { const s = lazyFile(f.full, f.size); zip.file(f.rel, s); return s })
+  } catch (e) { zipping--; throw e }
+  let inner = null
+  const out = new Readable({
+    read() {
+      if (inner) { inner.resume(); return }
+      inner = zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'DEFLATE' })
+      inner.on('data', (c) => { if (!out.push(c)) inner.pause() })
+      inner.on('end', () => out.push(null))
+      inner.on('error', (e) => out.destroy(e))
+    },
+    destroy(e, cb) {
+      zipping--
+      inner?.pause()
+      for (const f of files) f.destroy()
+      cb(e)
+    },
+  })
+  return { stream: out, bytes: got.bytes, count: got.files.length, name: `${String(v.title || 'kept').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}-kept.zip` }
 }
 let timer = null
 // (the second argument is kept for the callers of P0 — every sweep is the same now: a process that stopped is told by its silence)
