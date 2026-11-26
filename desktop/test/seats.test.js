@@ -37,6 +37,21 @@ const FAKE_GH = `${'gh'}${'p_'}${'Zx9Q'.repeat(9)}`
 const git = (cwd, ...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false', ...a], { cwd, stdio: 'pipe' }).toString()
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const waitFor = async (fn, ms = 8000, what = '') => { const t = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t > ms) throw new Error(`timed out: ${what}`); await sleep(40) } }
+// what the app was asked to do about a variation has all been done (its lock is first in, first out: nothing waits on time)
+const settled = (w, vid) => w.locked(vid, async () => {})
+// a program with its current folder in a working copy (a terminal, a CLI): started, and seen the way the app sees it (lsof) before the
+// test goes on — close() ends it and waits until the app no longer sees it
+async function programIn(w, dir) {
+  const { spawn } = require('node:child_process')
+  const sh = spawn('sleep', ['120'], { cwd: dir, stdio: 'ignore' })
+  await waitFor(() => w.inUse(dir), 20000, 'the program seen in the folder')
+  return {
+    async close() {
+      if (sh.exitCode === null && sh.signalCode === null) { const gone = new Promise((r) => sh.once('exit', r)); sh.kill(); await gone }
+      await waitFor(async () => !(await w.inUse(dir)), 20000, 'the program gone')
+    },
+  }
+}
 const calls = []
 W.setTap((c) => calls.push(c))
 const NEVER = ['reset', 'clean', 'checkout', 'restore', 'stash', 'rebase', 'merge', 'switch', 'pull', 'am', 'cherry-pick', 'revert', 'rm', 'mv']
@@ -122,7 +137,7 @@ const sentOf = (type, vid) => sent.filter((m) => m.type === type && (!vid || m.v
 function make(opts = {}) {
   settings.init(path.join(ROOT, 'app'))
   const w = new W.WorkingCopies({ dataDir: DATA, server: srv.base, userId: USER, store: settings.seatStore(srv.base, USER), send: link, device: { name: '테스트 맥' },
-    user: () => ({ id: USER, name: '박작업' }), log: (s) => logs.push(s), askMs: 5000, takeMs: 10000, quietMs: 60_000, statusMs: 30, turnMs: 60, turnWaitMs: 1500,
+    user: () => ({ id: USER, name: '박작업' }), log: (s) => { logs.push(s); if (process.env.SEATS_TEST_LOG) process.stderr.write(`[app] ${s}\n`) }, askMs: 5000, takeMs: 10000, quietMs: 60_000, statusMs: 30, turnMs: 60, turnWaitMs: 1500,
     claudeHome: CLAUDE, codexHome: CODEX, ...opts })
   w.linkUp({ id: USER, name: '박작업' })
   wc = w
@@ -325,21 +340,23 @@ test('다른 가지로 바뀌어 있으면 올리지 않는다 — 사람이 돌
 
 test('저장 지점: 조용해진 뒤 한 번(그 전에는 아님) · CLI 의 턴이 끝날 때 · 스위치를 끄면 저절로는 안 올림', async () => {
   wc.stop()
-  const w = make({ quietMs: 500 })
+  // (1.5 s of quiet, the two writes 0.3 s apart: a file event that comes late does not make a save point early — the check after the
+  // second write runs on a timer due before any quiet one)
+  const w = make({ quietMs: 1500 })
   await waitFor(() => w.watchers.has(V1), 2000, 'watching again after a restart')
   const vb = vars.get(V1).branch
   const h0 = rev(vb)
-  const t0 = Date.now()
   put(e1.dir, 'docs/a.md', '1\n')
-  await sleep(250)
-  put(e1.dir, 'docs/a.md', '2\n')
   await sleep(300)
-  assert.equal(rev(vb), h0, '바뀐 지 0.5초가 안 됐다')
-  await waitFor(() => rev(vb) !== h0, 8000, 'the quiet save point')
-  assert.ok(Date.now() - t0 >= 1000, '마지막 변경에서 조용한 시간이 지난 뒤')
+  put(e1.dir, 'docs/a.md', '2\n')
+  const last = Date.now()
+  await sleep(600)
+  assert.equal(rev(vb), h0, '바뀐 지 1.5초가 안 됐다')
+  await waitFor(() => rev(vb) !== h0, 15000, 'the quiet save point')
+  assert.ok(Date.now() - last >= 1500, '마지막 변경에서 조용한 시간이 지난 뒤')
   assert.match(at(vb, 'docs/a.md'), /^2/)
   const h1 = rev(vb)
-  await sleep(900)
+  await sleep(2000)
   assert.equal(rev(vb), h1, '한 번만')
   // the turn of a CLI in the working copy ended (Claude Code's own record)
   w.stop()
@@ -382,6 +399,9 @@ test('저장 지점: 조용해진 뒤 한 번(그 전에는 아님) · CLI 의 �
   w3.handle({ type: 'seat:prefs', variation: V1, autoSave: true })
   assert.equal(w3.get(V1).autoSave, true)
   w3.setAuto(V1, false)
+  // (the tests after this one: the app as it starts in make() — no save point 0.3 s after each file they write)
+  w3.stop()
+  make()
 })
 
 test('돌려놓기: 있는 그대로 올리고 서버가 받은 뒤에만 치운다 — git 이 싣지 않는 파일은 앱 휴지통으로, 사람의 폴더는 그대로', async () => {
@@ -414,7 +434,7 @@ test('지난 회차는 이 PC 에서 거절: 더 오래된 준비는 무시 · �
   await prepared(w, v)
   const readies = sentOf('seat:ready', v).length
   w.handle(prepareMsg(v, { epoch: 2 }))
-  await sleep(300)
+  await settled(w, v)
   assert.equal(sentOf('seat:ready', v).length, readies, '옛 회차의 준비는 듣지 않는다')
   assert.equal(w.get(v).epoch, 3)
   // the server's token is for epoch 4: this working copy (3) does not push
@@ -518,7 +538,7 @@ test('이어질 때 맞추기: 서버 목록에 있으면 저장 지점 한 번 
   plays.ready = (m) => ({ type: 'seat:refused', variation: m.variation, why: 'stale' })
   w.handle({ type: 'seat:list', seats: [{ variation: v, folderId: FOLDER, epoch: 1, state: 'moving' }] })
   await waitFor(() => sentOf('seat:ready', v).length === readies + 2, 3000, 'ready again')
-  await sleep(100)
+  await settled(w, v)
   plays.ready = real
   assert.equal(w.get(v).state, 'held', '거절만으로는 치우지 않는다 — 서버 목록이 말한다')
   assert.ok(fs.existsSync(w.get(v).dir))
@@ -594,14 +614,18 @@ test('검토 2 — 치울 때는 작업본 전체를 앱 휴지통으로 옮기�
   const proj = path.join(CLAUDE, 'projects', W.claudeKey(fs.realpathSync(e2.dir)))
   fs.mkdirSync(proj, { recursive: true })
   fs.writeFileSync(path.join(proj, 'turn.jsonl'), claudeLines(PROMPT))
-  await sleep(200)
+  await waitFor(() => w.turnBusy(v2), 8000, 'the turn seen')
   put(e2.dir, 'docs/CLI 가 쓰는 중.md', '반쯤\n')
   const tokens = sentOf('seat:token', v2).length
-  w.handle({ type: 'seat:list', seats: heldNow(w, v2) })
-  await sleep(500)
-  assert.equal(sentOf('seat:token', v2).length, tokens, '턴이 도는 동안에는 올리지 않는다')
-  fs.appendFileSync(path.join(proj, 'turn.jsonl'), claudeLines(ENDED))
-  await waitFor(() => !w.get(v2), 8000, 'leftover after the turn')
+  const turnWait = w.turnWaitMs
+  w.turnWaitMs = 60_000
+  try {
+    w.handle({ type: 'seat:list', seats: heldNow(w, v2) })
+    await sleep(500)
+    assert.equal(sentOf('seat:token', v2).length, tokens, '턴이 도는 동안에는 올리지 않는다')
+    fs.appendFileSync(path.join(proj, 'turn.jsonl'), claudeLines(ENDED))
+    await waitFor(() => !w.get(v2), 15000, 'leftover after the turn')
+  } finally { w.turnWaitMs = turnWait }
   assert.ok(sentOf('seat:left', v2).length, '턴이 끝난 뒤에 남은 변경으로 올린다')
 })
 
@@ -634,10 +658,11 @@ test('검토 5 — 서버 목록은 잠금 안에서 다시 본다: 그사이 �
   const hold = w.locked(v, () => new Promise((r) => { open = r }))
   w.handle({ type: 'seat:list', seats: heldNow(w, v) })
   w.handle({ type: 'seat:list', seats: heldNow(w) })
-  await sleep(50)
+  // (the lock is taken a moment later — both lists wait behind it)
+  await waitFor(() => open, 5000, 'the lock held')
   open()
   await hold
-  await sleep(500)
+  await settled(w, v)
   assert.equal(w.get(v)?.state, 'held', '마지막 목록에 있는 자리')
   assert.ok(fs.existsSync(e.dir))
   assert.equal(sentOf('seat:left', v).length, 0)
@@ -711,8 +736,7 @@ test('검토 9 — CLI 기록 읽기: 이미 있던 턴은 다시 세지 않고,
   fs.mkdirSync(cdir, { recursive: true })
   const roll = path.join(cdir, 'rollout-nometa.jsonl')
   fs.writeFileSync(roll, `${JSON.stringify({ type: 'event_msg', payload: { type: 'agent_message', message: 'x'.repeat(1000) } })}\n`.repeat(80))
-  await sleep(200)
-  assert.equal(hub.codexFiles.get(roll)?.kind, 'other', '읽지 못한 것은 기억한다')
+  await waitFor(() => hub.codexFiles.get(roll)?.kind === 'other', 8000, 'the rollout looked at')
   // one scanner for every working copy
   const dir2 = path.join(ROOT, 'turns', 'b')
   fs.mkdirSync(dir2, { recursive: true })
@@ -835,7 +859,7 @@ test('재검토 2 — 남은 변경을 올린 뒤 치우지 못해도, 다시 �
     await waitFor(() => w.get(v)?.state === 'left', 8000, 'left after a failed move')
     assert.equal(sentOf('seat:left', v).length, 1)
     w.handle({ type: 'seat:list', seats: heldNow(w, v) })
-    await sleep(700)
+    await settled(w, v)
     assert.equal(sentOf('seat:left', v).length, 1, '같은 머리를 또 올리지 않는다')
   } finally { fs.rmSync(trash); fs.renameSync(`${trash}.bak`, trash) }
   w.handle({ type: 'seat:list', seats: heldNow(w, v) })
@@ -920,7 +944,7 @@ test('재검토 6 — 휴지통은 작업본과 같은 자리 아래 · 다른 �
   try {
     w.handle({ type: 'seat:list', seats: [...heldNow(w, v3), { variation: v3, folderId: FOLDER, epoch: 1, state: 'moving' }] })
     await waitFor(() => sentOf('seat:failed', v3).length, 5000, 'failed')
-    await sleep(200)
+    await settled(w, v3)
     assert.ok(w.get(v3), '옮기지 못하면 기록을 지우지 않는다')
   } finally { fs.renameSync = rename }
 })
@@ -930,7 +954,7 @@ test('재검토 7 — 준비 뒤에 도착한 옛 서버 목록은 그 자리를
   const v = variation('늦게 온 목록')
   const e = await prepared(w, v, { at: Date.now() })
   w.handle({ type: 'seat:list', at: Date.now() - 60_000, seats: heldNow(w, v) })
-  await sleep(500)
+  await settled(w, v)
   assert.equal(w.get(v)?.state, 'held', '준비보다 오래된 목록')
   assert.ok(fs.existsSync(e.dir))
   await w.release(v)
@@ -941,15 +965,12 @@ test('재검토 8 — 돌려놓을 때 작업본 폴더에서 도는 프로그�
   const v = variation('열린 터미널')
   const e = await prepared(w, v)
   if (process.platform !== 'win32') {
-    const { spawn } = require('node:child_process')
-    const sh = spawn('sleep', ['30'], { cwd: e.dir, stdio: 'ignore' })
+    const p = await programIn(w, e.dir)
     try {
-      await sleep(200)
       const r = await w.release(v)
       assert.deepEqual([r.ok, r.why], [false, 'in_use'], '터미널 · CLI 가 그 폴더에 있으면 옮기지 않는다')
       assert.ok(fs.existsSync(e.dir))
-    } finally { sh.kill() }
-    await sleep(200)
+    } finally { await p.close() }
   }
   assert.equal((await w.release(v)).ok, true)
   // the Codex rollouts the scanner knows: files that are gone are forgotten
@@ -1014,19 +1035,16 @@ test('3차 검토 2 — 휴지통에서 지우는 것은 내용이 서버와 같
   assert.ok(fs.existsSync(path.join(bin, 'docs', '방금 쓴 글.md')), '서버에 없는 내용은 남는다')
   assert.ok(!fs.existsSync(path.join(bin, 'docs', '제안서.md')), '서버와 같은 파일은 지운다')
   if (process.platform === 'win32') return
-  const { spawn } = require('node:child_process')
   const v2 = variation('터미널이 열린 남은 변경')
   const e2 = await prepared(w, v2)
   put(e2.dir, 'docs/남을 것.md', '터미널이 열려 있음\n')
-  const sh = spawn('sleep', ['30'], { cwd: e2.dir, stdio: 'ignore' })
+  const p = await programIn(w, e2.dir)
   try {
-    await sleep(200)
     w.handle({ type: 'seat:list', seats: heldNow(w, v2) })
     await waitFor(() => w.get(v2)?.state === 'left', 8000, 'kept as a leftover')
     assert.equal(w.get(v2).why, 'in_use')
     assert.ok(fs.existsSync(path.join(e2.dir, 'docs', '남을 것.md')), '옮기지 않는다')
-  } finally { sh.kill() }
-  await sleep(200)
+  } finally { await p.close() }
   w.handle({ type: 'seat:list', seats: heldNow(w, v2) })
   await waitFor(() => !w.get(v2), 8000, 'moved once the terminal closed')
   assert.equal(sentOf('seat:left', v2).length, 1)
@@ -1093,23 +1111,20 @@ test('3차 검토 5 — 다시 만들 수 있는 것만 지운다: 빌드 파일
 
 test('3차 검토 6 — 「여기로 가져오기」(seat:recall auto)를 터미널 때문에 못 하면 서버에 그렇다고 답한다', { skip: process.platform === 'win32' && 'lsof' }, async () => {
   const w = wc
-  const { spawn } = require('node:child_process')
   const v = variation('가져오기 · 열린 터미널')
   const e = await prepared(w, v)
   const notes = []
   const on = (n) => notes.push(n)
   w.on('recall', on)
-  const sh = spawn('sleep', ['30'], { cwd: e.dir, stdio: 'ignore' })
+  const p = await programIn(w, e.dir)
   try {
-    await sleep(200)
     w.handle({ type: 'seat:recall', variation: v, epoch: vars.get(v).epoch, auto: true })
     await waitFor(() => sentOf('seat:refused', v).length, 8000, 'refused said')
     const m = sentOf('seat:refused', v)[0]
     assert.deepEqual([m.re, m.why, m.epoch], ['seat:recall', 'in_use', vars.get(v).epoch])
     assert.ok(fs.existsSync(e.dir))
     assert.ok(notes.some((n) => n.variationId === v && n.inUse), '이 PC 에도 알린다')
-  } finally { sh.kill(); w.off('recall', on) }
-  await sleep(200)
+  } finally { await p.close(); w.off('recall', on) }
   assert.equal((await w.release(v)).ok, true)
 })
 
@@ -1185,15 +1200,13 @@ test('4차 검토 2 — 확인이 필요한 파일이 있으면 「여기로 가
 
 test('4차 검토 3 — 터미널 때문에 남은 변경을 옮기지 못하면 때마다 다시 하고, 그동안 다시 받으려 하면 까닭을 그대로 말한다', { skip: process.platform === 'win32' && 'lsof' }, async () => {
   const w = wc
-  const { spawn } = require('node:child_process')
   const was = w.leftRetryMs
   w.leftRetryMs = 300
   const v = variation('때마다 다시')
   const e = await prepared(w, v)
   put(e.dir, 'docs/남을 것.md', '터미널이 열려 있음\n')
-  const sh = spawn('sleep', ['30'], { cwd: e.dir, stdio: 'ignore' })
+  const p = await programIn(w, e.dir)
   try {
-    await sleep(200)
     w.handle({ type: 'seat:list', seats: heldNow(w, v) })
     await waitFor(() => w.get(v)?.why === 'in_use', 8000, 'in use')
     // asked to have it again meanwhile: the reason is the open terminal, not 「남은 변경」
@@ -1204,10 +1217,72 @@ test('4차 검토 3 — 터미널 때문에 남은 변경을 옮기지 못하면
     assert.equal((await waiting).why, 'in_use')
     await waitFor(() => sentOf('seat:failed', v).length, 8000, 'failed said')
     assert.equal(sentOf('seat:failed', v).at(-1).why, 'in_use')
-  } finally { sh.kill() }
+  } finally { await p.close() }
   // no new seat:list: the app tries again by itself
-  try { await waitFor(() => !w.get(v), 8000, 'moved by the retry') } finally { w.leftRetryMs = was }
+  try { await waitFor(() => !w.get(v), 15000, 'moved by the retry') } finally { w.leftRetryMs = was }
   assert.equal(sentOf('seat:left', v).length, 1)
+})
+
+// ---------- the index shared with the person's own git (flaky runs under load, 11-26) ----------
+test('흔들림 1 — 앱의 git 은 인덱스의 선택 잠금을 잡지 않는다: 사람이 같은 폴더에서 git add 를 해도 앱의 상태 보기 때문에 실패하지 않는다', async () => {
+  const w = wc
+  const v = variation('인덱스 함께 쓰기', Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`docs/f${i}.md`, `${i}\n`])))
+  const e = await prepared(w, v)
+  calls.length = 0
+  await w.counts(w.get(v))
+  const st = calls.filter((c) => c.sub === 'status')
+  assert.ok(st.length && st.every((c) => c.env.GIT_OPTIONAL_LOCKS === '0'), '상태 보기는 잠금 없이')
+  // the person's `git add` while the app keeps looking at the counts (each look after files changed refreshes the index)
+  const { execFile } = require('node:child_process')
+  const add = () => new Promise((resolve) => execFile('git', ['add', '-A'], { cwd: e.dir }, (err, _o, stderr) => resolve(err ? String(stderr) : null)))
+  const failed = []
+  for (let i = 0; i < 40; i++) {
+    for (let k = 0; k < 20; k++) fs.utimesSync(path.join(e.dir, 'docs', `f${k}.md`), new Date(), new Date(Date.now() - i * 1000 - k))
+    const [r] = await Promise.all([add(), w.counts(w.get(v)), w.counts(w.get(v))])
+    if (r) failed.push(r)
+  }
+  assert.deepEqual(failed, [], '사람의 git add 가 index.lock 때문에 실패하지 않는다')
+  git(e.dir, 'reset', '-q')
+  assert.equal((await w.release(v)).ok, true)
+})
+
+test('흔들림 2 — 사람의 git 이 인덱스를 잠그고 있으면 앱의 저장 지점은 잠시 기다렸다가 만든다', async () => {
+  const w = wc
+  const v = variation('잠긴 인덱스')
+  const e = await prepared(w, v)
+  put(e.dir, 'docs/잠긴 동안.md', '잠긴 동안 고침\n')
+  const lock = path.join(git(e.dir, 'rev-parse', '--absolute-git-dir').trim(), 'index.lock')
+  fs.writeFileSync(lock, '')
+  const freed = new Promise((r) => setTimeout(() => { fs.rmSync(lock, { force: true }); r() }, 500))
+  const r = await w.saveNow(v)
+  await freed
+  assert.equal(r.ok, true, JSON.stringify(r))
+  assert.ok(filesAt(vars.get(v).branch).includes('docs/잠긴 동안.md'))
+  assert.equal((await w.release(v)).ok, true)
+})
+
+test('흔들림 3 — 앱이 막 띄우는 자기 프로세스(fork 와 exec 사이)는 폴더를 쓰는 프로그램으로 세지 않는다 · 사람이 띄운 node 는 센다', { skip: process.platform === 'win32' && 'lsof' }, async () => {
+  const w = wc
+  const v = variation('막 띄운 프로세스')
+  const e = await prepared(w, v)
+  const { spawn } = require('node:child_process')
+  const real = fs.realpathSync(e.dir)
+  const cwdOf = (pid) => { try { return execFileSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']).toString().split('\n').find((l) => l.startsWith('n'))?.slice(1) } catch { return null } }
+  // the app's own binary as its child, in the folder — what lsof sees for an instant while the app starts git there
+  const own = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { cwd: e.dir, stdio: 'ignore' })
+  try {
+    await waitFor(() => cwdOf(own.pid) === real, 15000, 'the child in the folder')
+    assert.equal(await w.inUse(e.dir), false, '앱 자신의 자식(아직 exec 전)은 세지 않는다')
+  } finally { own.kill() }
+  // a node program the person started there (a dev server in their terminal — not the app's child): it counts
+  const out = execFileSync('/bin/sh', ['-c', '( cd "$1" && exec "$2" -e "setTimeout(() => {}, 60000)" ) </dev/null >/dev/null 2>&1 & echo $!', 'sh', e.dir, process.execPath]).toString().trim()
+  const theirs = Number(out)
+  try {
+    await waitFor(() => cwdOf(theirs) === real, 15000, 'their program in the folder')
+    assert.equal(await w.inUse(e.dir), true, '사람이 띄운 node 는 센다')
+  } finally { try { process.kill(theirs) } catch { /* gone */ } }
+  await waitFor(async () => !(await w.inUse(e.dir)), 15000, 'gone')
+  assert.equal((await w.release(v)).ok, true)
 })
 
 test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {

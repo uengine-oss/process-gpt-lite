@@ -112,12 +112,27 @@ const NO_CONFIG = process.platform === 'win32' ? 'NUL' : '/dev/null'
 // A call in a working copy (cwd, no gitDir) never looks for a repository above it: GIT_CEILING_DIRECTORIES is the folder the working copies
 // sit in, so a working copy whose .git went missing makes git fail — never find the person's own repository further up (a dotfiles one at
 // ~) and commit there.
-function wcGit(args, { gitDir = null, cwd, hooks, token = '', url = '', input = null, env = {}, timeout = LOCAL_MS, check = true, ceiling = null, net = [] } = {}) {
+// The index is shared with the person's own git in that folder (their terminal, an editor, a CLI). The app's reads never take its lock
+// (GIT_OPTIONAL_LOCKS=0: a `git status` of the app's would otherwise refresh the index under index.lock, and the person's `git add` — or
+// the app's own commit a moment later — fails with 「index.lock: File exists」), and a command that writes the index waits a little for a
+// lock the person's git holds before it gives up.
+const INDEX_WRITERS = new Set(['add', 'update-index', 'commit'])
+const LOCK_TRIES = [150, 300, 600, 1000, 1500]
+const isLockBusy = (err) => /index\.lock': File exists|Unable to create '[^']*\.lock'/.test(String(err?.message || ''))
+async function wcGit(args, o = {}) {
+  for (let i = 0; ; i++) {
+    try { return await wcGitOnce(args, o) } catch (err) {
+      if (!INDEX_WRITERS.has(args[0]) || !isLockBusy(err) || i >= LOCK_TRIES.length) throw err
+      await new Promise((r) => setTimeout(r, LOCK_TRIES[i]))
+    }
+  }
+}
+function wcGitOnce(args, { gitDir = null, cwd, hooks, token = '', url = '', input = null, env = {}, timeout = LOCAL_MS, check = true, ceiling = null, net = [] } = {}) {
   const sub = args[0]
   if (!ALLOWED.has(sub) || (sub === 'worktree' && !WORKTREE.has(args[1]))) return Promise.reject(new G.GitError(`git ${sub}${sub === 'worktree' ? ` ${args[1]}` : ''} is not used on a working copy`))
   const full = [...(gitDir ? [`--git-dir=${gitDir}`] : []), ...args]
   const pairs = [...quietPairs(hooks), ...net.filter(([k]) => NET_KEYS.test(k))]
-  const fenced = { GIT_CONFIG_GLOBAL: NO_CONFIG, GIT_CONFIG_NOSYSTEM: '1', ...(ceiling || (cwd && !gitDir) ? { GIT_CEILING_DIRECTORIES: ceiling || path.dirname(path.resolve(cwd)) } : {}) }
+  const fenced = { GIT_CONFIG_GLOBAL: NO_CONFIG, GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0', ...(ceiling || (cwd && !gitDir) ? { GIT_CEILING_DIRECTORIES: ceiling || path.dirname(path.resolve(cwd)) } : {}) }
   try { tap?.({ sub, args: full, gitDir, cwd, env: { ...fenced }, config: Object.fromEntries(pairs) }) } catch { /* tests */ }
   const e = { ...baseEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C', ...fenced, ...G.authEnv(token, pairs, url), ...env }
   return new Promise((resolve, reject) => {
@@ -1129,16 +1144,24 @@ class WorkingCopies extends Uploader {
     const real = realOf(dir)
     const under = (p) => p === real || p.startsWith(real + path.sep)
     return new Promise((resolve) => {
-      execFile('lsof', ['-a', '-u', String(os.userInfo().uid), '-d', 'cwd', '-Fpcn'], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      execFile('lsof', ['-a', '-u', String(os.userInfo().uid), '-d', 'cwd', '-FpRcn'], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
         if (err && !stdout) return resolve(false)
-        // (records: p<pid> c<command> n<folder> — git itself is not a reason to wait: the app's own status · commit run there, and a person's
-        // git ends by itself)
-        let pid = 0, cmd = ''
+        // (records: p<pid> R<parent> c<command> n<folder>. Not a reason to wait: git itself — the app's own status · commit run there, and a
+        // person's git ends by itself — and a process this app is just starting there, caught between its fork and its exec: it still
+        // carries the app's own name (node · Electron), with the app as its parent — flaky under load otherwise, 11-26)
+        const recs = []
+        let cur = null
         for (const l of String(stdout).split('\n')) {
-          if (l.startsWith('p')) { pid = Number(l.slice(1)); cmd = '' } else if (l.startsWith('c')) cmd = l.slice(1)
-          else if (l.startsWith('n') && under(l.slice(1)) && pid !== process.pid && !/^git(-|$)/.test(cmd)) return resolve(true)
+          if (l.startsWith('p')) recs.push(cur = { pid: Number(l.slice(1)), ppid: 0, cmd: '', dirs: [] })
+          else if (!cur) continue
+          else if (l.startsWith('R')) cur.ppid = Number(l.slice(1))
+          else if (l.startsWith('c')) cur.cmd = l.slice(1)
+          else if (l.startsWith('n')) cur.dirs.push(l.slice(1))
         }
-        resolve(false)
+        const own = recs.find((r) => r.pid === process.pid)?.cmd || path.basename(process.execPath)
+        const holder = recs.find((r) => r.pid !== process.pid && r.dirs.some(under) && !/^git(-|$)/.test(r.cmd) && !(r.ppid === process.pid && r.cmd === own))
+        if (holder) this.log(`[seats] in use: ${holder.cmd} (${holder.pid}) in ${path.basename(dir)}`)
+        resolve(!!holder)
       })
     })
   }
