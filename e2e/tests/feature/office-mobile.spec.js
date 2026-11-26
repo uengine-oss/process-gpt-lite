@@ -226,4 +226,80 @@ test.describe('휴대폰 문서 보기 (녹화 회차 2026-11-21)', () => {
     }
     expect(page.errors).toEqual([])
   })
+
+  // 2026-11-26 사용자: 「엑셀 이음오피스를 모바일에서 열었을때 쓰기모드라서 스크롤 할 수 없는문제」 — 편집기의 표는 손가락을
+  // 마우스처럼 읽어 끌면 칸이 골라졌다. 이제 끌면 스크롤, 탭은 칸, 두 번 탭은 편집, 길게 누른 뒤 끌면 범위 (src/officeTouchPan.js)
+  test('F-OM-05 휴대폰 엑셀: 손가락으로 끌면 표가 스크롤되고, 탭은 칸 · 길게 눌러 끌면 범위 · 두 번 탭은 편집', async ({ browser, as, db, cleanup }, testInfo) => {
+    const page = await phone(browser, as, 'nb1121-office', { width: 390, height: 844 }, { touch: true })
+    cleanup(() => page.ctx.close())
+    const rows = [['번호', '고객', '금액', '지역', '메모']]
+    for (let i = 1; i <= 200; i++) rows.push([i, `고객${i}`, i * 1000, ['서울', '부산', '대구'][i % 3], `메모 ${i}`])
+    await seed(db, page.user, [['주문 목록.xlsx', MIME.xlsx, await XLSX(rows)]])
+    const ed = await openDeck(page, '주문 목록.xlsx', 'sheets')
+    const grid = ed.locator('#univer-container canvas[id^="univer-sheet-main-canvas"]')
+    await expect(grid).toBeVisible({ timeout: 60_000 })
+    // the editor's name box (A1, C12, B7:D17 …)
+    const nameBox = () => ed.locator('input').evaluateAll((els) => els.map((e) => e.value).find((v) => /^[A-Z]+\d+(:[A-Z]+\d+)?$/.test(v)) || '')
+    const rowOf = (ref) => Number(/(\d+)$/.exec(ref)?.[1] || 0)
+    await expect.poll(nameBox, { timeout: 30_000 }).toBe('A1')
+    await page.waitForTimeout(1500)
+    // the grid canvas runs past the screen's right edge: aim inside what is on screen
+    const c = await grid.boundingBox()
+    const f = await page.locator('.oef iframe.frm').boundingBox()
+    const right = Math.min(c.x + c.width, f.x + f.width, page.viewportSize().width)
+    const g = { x: c.x, y: c.y, width: right - c.x, height: c.height }
+    const cdp = await page.ctx.newCDPSession(page)
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts })
+    const tap = async (x, y) => { await touch('touchStart', [{ x, y }]); await page.waitForTimeout(60); await touch('touchEnd', []) }
+    const drag = async (x0, y0, x1, y1, steps = 14) => {
+      await touch('touchStart', [{ x: x0, y: y0 }])
+      for (let i = 1; i <= steps; i++) { await touch('touchMove', [{ x: x0 + ((x1 - x0) * i) / steps, y: y0 + ((y1 - y0) * i) / steps }]); await page.waitForTimeout(30) }
+      await page.waitForTimeout(250) // the finger rests before it lifts: no flick, the sheet stays where it was taken
+      await touch('touchEnd', [])
+    }
+    const x = g.x + g.width * 0.55
+    const top = g.y + 90
+    const bottom = Math.min(g.y + g.height, page.viewportSize().height) - 40
+
+    // a tap picks the cell under the finger
+    await tap(x, top)
+    await expect.poll(nameBox).toMatch(/^[A-Z]+\d+$/)
+    const before = await nameBox()
+    await shot(page, testInfo, 'om-sheet-1-tap')
+
+    // a drag up scrolls the rows (before: it selected a range and the sheet stayed)
+    await drag(x, bottom, x, top)
+    await page.waitForTimeout(400)
+    expect(await nameBox()).toBe(before)
+    await tap(x, top)
+    await expect.poll(async () => rowOf(await nameBox())).toBeGreaterThan(rowOf(before) + 5)
+    const scrolled = await nameBox()
+    await shot(page, testInfo, 'om-sheet-2-scrolled')
+
+    // a drag left scrolls the columns
+    await drag(g.x + g.width * 0.85, top + 60, g.x + g.width * 0.2, top + 60)
+    await page.waitForTimeout(400)
+    await tap(x, top)
+    await expect.poll(async () => (await nameBox()).replace(/\d+$/, '')).not.toBe(scrolled.replace(/\d+$/, ''))
+    await shot(page, testInfo, 'om-sheet-3-sideways')
+
+    // press and hold, then drag: a range
+    await touch('touchStart', [{ x, y: top + 40 }])
+    await page.waitForTimeout(700)
+    for (let i = 1; i <= 8; i++) { await touch('touchMove', [{ x: x - i * 12, y: top + 40 + i * 25 }]); await page.waitForTimeout(30) }
+    await touch('touchEnd', [])
+    await expect.poll(nameBox).toMatch(/^[A-Z]+\d+:[A-Z]+\d+$/)
+    await shot(page, testInfo, 'om-sheet-4-hold-range')
+
+    // a double tap opens the cell for editing (the cell editor comes on screen)
+    const cellEditor = ed.locator('[id="__editor___INTERNAL_EDITOR__DOCS_NORMAL"]')
+    expect((await cellEditor.boundingBox())?.x ?? -1).toBeLessThan(0)
+    // a finger's second tap never lands on the same pixel: a few pixels off, as on a phone
+    await tap(x, top + 120)
+    await page.waitForTimeout(120)
+    await tap(x + 5, top + 123)
+    await expect.poll(async () => (await cellEditor.boundingBox())?.x ?? -1).toBeGreaterThan(0)
+    await shot(page, testInfo, 'om-sheet-5-double-tap-edit')
+    expect(page.errors).toEqual([])
+  })
 })
