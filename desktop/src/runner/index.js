@@ -46,7 +46,7 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
   if (seats) {
     seats.on('state', (list) => ev.emit('seats', list))
     // (the server or the work itself has something to tell the person: main shows a notification)
-    for (const k of ['recall', 'left', 'released', 'trashed']) seats.on(k, (n) => ev.emit('seat-notice', { kind: k, ...n }))
+    for (const k of ['recall', 'left', 'released', 'trashed', 'trash-full']) seats.on(k, (n) => ev.emit('seat-notice', { kind: k, ...n }))
   }
   const changed = () => ev.emit('state', status())
   link.on('welcome', (m) => { state = { ...state, connected: true, refused: null, user: m.user || null, device: m.device || null }; runner.welcome(m); folders?.linkUp(m.user); seats?.linkUp(m.user); changed() })

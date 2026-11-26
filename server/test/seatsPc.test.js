@@ -480,6 +480,28 @@ test('WL-P-11 자리 목록과 준비에는 서버의 시각이 실린다(PC 가
   assert.ok(Number.isFinite(prep.at) && Number.isFinite(list.at) && list.at >= prep.at, `${prep.at} ${list.at}`)
 })
 
+test('WL-P-12 「여기로 가져오기」를 PC 가 지금 못 하면(작업본에 열린 터미널) 그렇다고 답하고, 그 변형을 보는 그 사람에게 보인다 — 지난 회차 · 남의 PC 는 무시', { skip: !db && 'no database' }, async () => {
+  const f = await folderWith('가져오기 거절')
+  const d = await device(owner, '터미널 연 PC')
+  const v = await personVar(f, owner, '열린 터미널')
+  const { L, epoch } = await onPc(f, v, d)
+  const at = L.sent.length
+  await SL.receive(L, { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch, why: 'in_use' })
+  assert.equal(L.sent.length, at, '거절에 다시 거절로 답하지 않는다')
+  const seat = await SE.seatOf(v.id)
+  assert.deepEqual(SL.pcSays(v.id, seat) && [SL.pcSays(v.id, seat).why, SL.pcSays(v.id, seat).device], ['in_use', '터미널 연 PC'])
+  SL.pcSaysClear(v.id)
+  // an older epoch, another computer, another question, an unknown reason: nothing
+  await SL.receive(L, { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch: epoch - 1, why: 'in_use' })
+  await SL.receive(linkOf(await device(owner, '다른 PC')), { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch, why: 'in_use' })
+  await SL.receive(L, { type: 'seat:refused', re: 'seat:save', variation: v.id, epoch, why: 'in_use' })
+  await SL.receive(L, { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch, why: '<b>x</b>' })
+  assert.equal(SL.pcSays(v.id, seat), null)
+  // said, then the seat moved on: gone
+  await SL.receive(L, { type: 'seat:refused', re: 'seat:recall', variation: v.id, epoch, why: 'in_use' })
+  assert.equal(SL.pcSays(v.id, { ...seat, epoch: epoch + 1 }), null)
+})
+
 test('WL-P-08 설정에서 기기 연결을 끊으면 그 기기의 작업본 자리는 보관 중 — 채팅 실행의 자리 · 다른 기기의 자리는 그대로', { skip: !db && 'no database' }, async () => {
   const f = await folderWith('끊음')
   const d = await device(owner, '끊을 PC')

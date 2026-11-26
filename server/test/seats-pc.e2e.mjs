@@ -337,6 +337,16 @@ await step('SP-E-06 내 PC 가 켜져 있으면 「여기로 가져오기」는 
   assert.equal(tk.waiting, true)
   const rc = await pc.next('seat:recall', at)
   assert.deepEqual([rc.variation, rc.epoch, rc.auto], [v2.id, p.epoch, true])
+  // (a terminal open in the working copy: the PC says it cannot now — the page that waits sees why, and only its person)
+  pc.send({ type: 'seat:refused', re: 'seat:recall', variation: v2.id, epoch: p.epoch, why: 'in_use' })
+  const says = await waitFor(async () => (await api(OWN.token, `/folders/${folder.slug}/variations/${v2.id}`)).seat?.pcSays, 10000, 'pcSays')
+  assert.deepEqual([says.why, says.device], ['in_use', '한소유의 맥북'])
+  assert.equal((await api(KIM.token, `/folders/${folder.slug}/variations/${v2.id}`)).seat?.pcSays, undefined, '다른 사람에게는 보이지 않는다')
+  // asked again: the old word goes, the PC is asked again
+  at = pc.got.length
+  assert.equal((await api(OWN.token, `/folders/${folder.slug}/variations/${v2.id}/seat/take`, { method: 'POST', body: {} })).waiting, true)
+  await pc.next('seat:recall', at)
+  assert.equal((await api(OWN.token, `/folders/${folder.slug}/variations/${v2.id}`)).seat?.pcSays, undefined)
   // (the PC gives it back — here with nothing new)
   assert.equal((await pc.ask({ type: 'seat:release', variation: v2.id, epoch: p.epoch }, ['seat:released', 'seat:refused'])).type, 'seat:released')
   assert.equal((await api(OWN.token, `/folders/${folder.slug}/variations/${v2.id}/seat`)).place, null)

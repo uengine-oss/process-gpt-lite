@@ -10,7 +10,8 @@
 // pushes into the variation again: its old token is refused, and what it still had comes in as a variation of its own (seats.leftover —
 // 「<title> — <PC>에 남아 있던 변경」) through a one-push token on pgpt-agent/left-<variation id>-<device 8>/head.
 // Every message is looked up in the link's company and for the link's person only; nothing here takes a path from a computer or sends one.
-//   PC → server   seat:ready · seat:failed · seat:token {for: push | left} · seat:pushed · seat:release · seat:status · seat:prefs · seat:left
+//   PC → server   seat:ready · seat:failed · seat:token {for: push | left} · seat:pushed · seat:release · seat:status · seat:prefs · seat:left ·
+//                 seat:refused {re: 'seat:recall'} (what the server asked it cannot do now — pcSays)
 //   server → PC   seat:list · seat:prepare · seat:held · seat:token · seat:taken · seat:released · seat:left-taken · seat:refused ·
 //                 seat:save · seat:recall · seat:prefs
 // why (seat:refused): stale (another epoch) · not_here (the seat is not this computer's) · not_runner · no_variation · device_revoked ·
@@ -177,6 +178,7 @@ export async function receive(link, msg) {
     if (msg.type === 'seat:status') return await status(link, vid, msg)
     if (msg.type === 'seat:prefs') return await prefs(link, vid, msg)
     if (msg.type === 'seat:left') return await left(link, vid, msg, refuse)
+    if (msg.type === 'seat:refused') return await pcRefused(link, vid, msg)
   } catch (e) {
     // (the variation's lease is held elsewhere a while — a move, a save: the computer tries again later)
     if (e.why === 'busy') return refuse('busy', msg.type === 'seat:token' ? { for: msg.for === 'left' ? 'left' : 'push' } : {})
@@ -351,6 +353,32 @@ async function status(link, vid, msg) {
   const f = await S.folderById(rows[0].folder_id)
   if (f) await told(f, vid, link.userId)
 }
+// The computer cannot do now what the server asked of it — 「여기로 가져오기」 (seat:recall auto) while a terminal or a program is open in the
+// working copy, or another branch is checked out there: the page that waits says so (the seat's view, pcSays) for a few minutes, until the
+// seat moves on or the person tries again. Kept in memory: the link and the page's poll are this server's.
+const PC_SAYS = new Set(['in_use', 'branch', 'remove', 'failed', 'offline'])
+const PC_SAYS_MS = 10 * 60_000
+const pcSaid = new Map() // variation → {why, at, epoch, device}
+async function pcRefused(link, vid, msg) {
+  if (!UUID.test(vid) || msg.re !== 'seat:recall' || !PC_SAYS.has(String(msg.why))) return
+  const at = await lookup(link, vid)
+  if (at.why) return
+  const seat = await SE.seatOf(vid, { v: at.v })
+  if (whyNot(seat, link, msg.epoch)) return
+  const [d] = await q('select name from pro_local_devices where id=$1', [link.id]).catch(() => [])
+  pcSaid.set(vid, { why: String(msg.why), at: Date.now(), epoch: Number(seat.epoch), device: String(d?.name || link.name || '').slice(0, 80) })
+  if (pcSaid.size > 2000) for (const [k, x] of pcSaid) if (Date.now() - x.at > PC_SAYS_MS) pcSaid.delete(k)
+  await told(at.folder, vid, link.userId)
+}
+// what the computer that holds the seat said back (null when nothing, or it is about another epoch, or old) → {why, device, at}
+export function pcSays(vid, seat) {
+  const s = pcSaid.get(String(vid))
+  if (!s) return null
+  if (!seat || Number(seat.epoch) !== s.epoch || Date.now() - s.at > PC_SAYS_MS) { pcSaid.delete(String(vid)); return null }
+  return { why: s.why, device: s.device, at: new Date(s.at).toISOString() }
+}
+export const pcSaysClear = (vid) => pcSaid.delete(String(vid))
+
 // 「자동으로 올리기」 switched on the computer
 async function prefs(link, vid, msg) {
   if (!UUID.test(vid) || typeof msg.autoSave !== 'boolean') return

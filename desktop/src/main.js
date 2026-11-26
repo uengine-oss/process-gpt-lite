@@ -628,9 +628,19 @@ function seatNotice(n) {
   const t = n.title || ''
   let title = ''
   let body = ''
-  if (n.kind === 'recall') {
+  if (n.kind === 'recall' && n.inUse) {
+    // (「여기로 가져오기」 from elsewhere, while a terminal or a program is in the working copy: nothing moved — the person closes it first)
+    title = ko ? `「${t}」 작업본을 다른 곳에서 가져가려고 해요` : `"${t}" is being taken elsewhere`
+    body = ko ? '작업본 폴더에 열린 터미널 · 프로그램을 닫은 뒤 다시 가져와 주세요.' : 'Close the terminal or program open in the working copy\'s folder, then take it again.'
+  } else if (n.kind === 'recall') {
     title = ko ? `${n.by || '다른 사람'} 님이 「${t}」 작업본을 돌려 달라고 해요` : `${n.by || 'Someone'} asks for "${t}" back`
     body = n.why || (ko ? '앱의 작업실에서 「돌려놓기」를 누르면 돌아가요.' : 'Press "Give back" in the app\'s workroom.')
+  } else if (n.kind === 'trash-full') {
+    // (nothing in the trash goes before its 30 days — what is there is what only this PC had)
+    const gb = (Number(n.bytes) || 0) / 1024 ** 3
+    const size = gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.max(1, Math.round((Number(n.bytes) || 0) / 1024 ** 2))} MB`
+    title = ko ? `앱 휴지통이 ${size}까지 찼어요` : `The app's trash holds ${size}`
+    body = ko ? '이 PC 에만 있던 파일이라 30일이 지나야 저절로 비워져요. 작업실의 「휴지통」에서 필요 없는 것을 지워 주세요.' : 'These are files only this PC had, so they go by themselves only after 30 days. Delete what you do not need from "Trash" in the workroom.'
   } else if (n.kind === 'left') {
     title = ko ? `「${t}」 — 이 PC 에 남아 있던 변경이 새 변형으로 올라왔어요` : `"${t}" — the changes left on this PC came up as a new variation`
     body = n.newVariation?.title || ''

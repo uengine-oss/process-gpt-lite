@@ -224,6 +224,9 @@ export function folderRoutes(auth) {
     const v = await S.variation(folder, req.params.vid)
     const row = await SE.seatOf(v.id, { v }).catch(() => null)
     const seat = SE.seatsOn() ? await SE.viewOf(row, v, { me: req.user, role }).catch(() => null) : null
+    // (what the computer holding it said back to 「여기로 가져오기」 — a terminal open in its working copy: seatLink.js pcSays)
+    const says = seat && row && row.place === 'device' && String(row.user_id) === String(req.user.id) ? SL.pcSays(v.id, row) : null
+    if (says) seat.pcSays = says
     const { worktree_path, ...d } = await S.variationDetail(folder, v)
     // (kept: what git does not carry, kept when a place left the disk — listed with a download until it is removed)
     const kept = SE.seatsOn() ? await SE.keptOf(folder, v, { me: req.user, role }).catch(() => []) : []
@@ -340,6 +343,7 @@ export function folderRoutes(auth) {
     if (cur?.place === 'device' && !cur.job_id && cur.state === 'held' && String(cur.user_id) === String(req.user.id)) {
       const H = await import('../lib/localAgents/hub.js')
       const link = H.linkOf(config.tenantId, String(cur.device_id))
+      SL.pcSaysClear(v.id)
       if (link?.caps?.seats && link.send({ type: 'seat:recall', variation: v.id, epoch: Number(cur.epoch), auto: true })) {
         return { ok: true, waiting: true, seat: await SE.viewOf(cur, v, { me: req.user, role }) }
       }

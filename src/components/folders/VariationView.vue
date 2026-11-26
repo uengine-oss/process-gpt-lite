@@ -127,6 +127,13 @@ async function getKept(ev, k) {
     a.remove()
   } catch (e) { say(e.message) }
 }
+// what the computer holding my working copy said back to 「여기로 가져오기」 (server seatLink.js pcSays — a terminal open in its folder)
+function pcSaysText(s) {
+  const d = s?.device || 'PC'
+  if (s?.why === 'in_use') return `${d}의 작업본 폴더에서 터미널이나 프로그램이 열려 있어 가져오지 못했어요 — 열려 있는 터미널이나 프로그램을 닫은 뒤 다시 「여기로 가져오기」를 눌러 주세요.`
+  if (s?.why === 'branch') return `${d}의 작업본이 다른 가지로 바뀌어 있어 가져오지 못했어요 — 해당 PC 의 터미널에서 원래 가지로 돌아간 뒤 다시 눌러 주세요.`
+  return `${d}에서 작업본을 돌려놓지 못했어요 — 잠시 뒤에 다시 「여기로 가져오기」를 눌러 주세요.`
+}
 async function seatAct(what) {
   if (what === 'take' && !confirm(seatMine.value ? '이 변형을 마지막으로 올린 데서부터 여기로 가져올까요? PC 에 남은 변경은 새 변형으로 올라와요.' : '작업본을 가져올까요? 저장 안 한 변경은 그대로 저장되고, PC 에 남은 변경은 새 변형으로 올라와요.')) return
   seatBusy.value = true
@@ -207,6 +214,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
           <b v-else>{{ seat.who?.name }} 님이 이 변형을 고치는 중이에요</b>
           <small>{{ seatMine ? '그 PC 에서 끝내거나, 마지막으로 올린 데서부터 여기로 가져올 수 있어요.' : '여기서는 마지막으로 저장된 내용을 읽기만 해요. 반영 · 인계 · 버리기는 작업본이 돌아온 뒤에 할 수 있어요.' }}</small>
           <small v-if="seat.recall" class="rq">돌려 달라는 요청 · {{ seat.recall.by?.name }} · {{ ago(seat.recall.at) }}</small>
+          <small v-if="seatMine && seat.pcSays" class="rq" data-test="seat-pc-says">{{ pcSaysText(seat.pcSays) }}</small>
         </span>
         <span class="sp" />
         <button class="tb press" data-test="seat-readonly" @click="readOnly">읽기 전용으로 보기</button>

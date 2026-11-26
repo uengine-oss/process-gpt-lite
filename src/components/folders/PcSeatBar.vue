@@ -39,6 +39,8 @@ const warn = computed(() => {
   if (p.branchOk === false) return seatWhy('branch')
   if (p.why && p.why !== 'flagged' && p.state === 'blocked') return seatWhy(p.why)
   if (p.flagged) return `확인이 필요한 파일 ${p.flagged}개는 올리지 않았어요 — 비밀로 보이는 내용 · 링크 · 큰 파일은 이 PC 에만 둬요.`
+  // (a pair this PC shows as one file — README.md · readme.md: which name was changed is not known, so it never goes up as it is)
+  if (p.unsure) return `확인이 필요한 파일이 ${p.unsure}개 있어요 — 이 PC 에서는 이름이 대소문자(또는 한글 조합)만 다른 두 파일을 하나의 파일로 인식해 어느 쪽을 수정했는지 알 수 없어 올리지 않았어요. 파일은 이 PC 에 그대로 두고, 돌려놓으면 앱 휴지통에 남겨요.`
   return ''
 })
 

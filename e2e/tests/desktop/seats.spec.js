@@ -11,7 +11,8 @@
 //   F-WL-10 앱에서 「작업실」 → 「이 PC 에서 작업」(기본) → 알약 「이 PC 에서」 · 작업본은 앱 데이터 아래에만 · 폴더 열기 · 터미널 열기
 //   F-WL-11 파일을 고치면 「저장 안 한 변경 1」 → 저절로 올라감 → 웹에 「김작업의 PC 에서 · 방금 올림」 (1280 · 390, 밝은 · 어두운)
 //   F-WL-12 「돌려놓기」 → 보관 중, 작업 트리 없음, .env 는 앱 휴지통 → 서버 작업실에서 같은 내용
-//   F-WL-13 꺼진 PC 의 자리를 웹에서 가져오면, PC 가 돌아와 「남아 있던 변경」 변형으로 올린다
+//   F-WL-13 꺼진 PC 의 자리를 웹에서 가져오면, PC 가 돌아와 「남아 있던 변경」 변형으로 올린다 (그 전에: 작업본에 터미널이 열려 있으면
+//           「여기로 가져오기」가 까닭을 보인다)
 //   F-WL-14 웹(앱 아님)의 「작업실」은 서버 작업실과 데스크톱 앱 안내만
 //   F-WL-15 남이 넣은 실행 설정(.mcp.json)이 든 변형: 시트가 먼저 파일과 바꾼 사람을 알리고, 「그래도 열기」로 이 PC 에 받는다
 // It starts its own stack — a BFF (PRO_BACKGROUND=0, tenant seats-pc-ui) on 8972 and Vite on 5372 in front of it (the next free port when
@@ -312,12 +313,21 @@ test('F-WL-13 꺼진 PC 의 자리를 웹에서 가져오면, PC 가 돌아와 �
   ;[wt] = workingCopies()
   fs.writeFileSync(path.join(wt, '오프라인 메모.md'), 'PC 가 꺼진 동안 남은 변경\n')
   await expect(bar.locator('[data-test=pc-counts]')).toContainText('저장 안 한 변경 1', { timeout: 15000 })
+  // 「여기로 가져오기」 from her browser while a terminal is open in the working copy (3rd review #6): nothing moves, the page says why
+  const w = await browserAs(browser, me)
+  const term = spawn('sleep', ['90'], { cwd: wt, stdio: 'ignore' })
+  try {
+    await w.goto(`${WEB()}/folders/${encodeURIComponent(slug)}/v/${vid}`)
+    await w.locator('[data-test=seat-take]').click()
+    await expect(w.locator('[data-test=seat-pc-says]')).toContainText('터미널이나 프로그램이 열려 있어 가져오지 못했어요', { timeout: 30000 })
+    await shot(w, 'f-wl-13-pc-in-use')
+    expect(fs.existsSync(path.join(wt, '오프라인 메모.md'))).toBe(true)
+  } finally { term.kill() }
   // the PC goes off
   await app.close()
   app = null
   const head = (await q('select head_commit from pro_folder_variations where id=$1', [vid]))[0].head_commit
   // her browser: 「김작업의 맥북 · PC 꺼짐」 → 「여기로 가져오기」 (from the last upload; what the PC still has comes back on its own)
-  const w = await browserAs(browser, me)
   await w.goto(`${WEB()}/folders/${encodeURIComponent(slug)}/v/${vid}`)
   await expect(w.locator('.vv .meta [data-test=seat-pill]')).toContainText('PC 꺼짐', { timeout: 30000 })
   await shot(w, 'f-wl-13-pc-off')
