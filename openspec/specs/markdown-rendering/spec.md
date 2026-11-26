@@ -82,3 +82,14 @@ Lite 의 화면에는 사람이 직접 작성하지 않은 글이 많이 표시�
 
 ## 시험
 화면: `e2e/tests/feature/safe-html.spec.js`(F-SH-01~07, 자체 스택 — 테넌트 `safehtml-ui`, BFF 8971 · Vite 5371부터). F-SH-01 은 변환 모듈을 브라우저에서 직접 불러와 까다로운 입력 모음과 일반적인 Markdown 을 확인하고, F-SH-02~05 는 대화 · 「이미 한 요청」 · 스킬 시트 · 인스턴스 산출물 화면을 확인하며, F-SH-06 은 meta 정책과 실제 nginx(도커가 있을 때)의 헤더를, F-SH-07 은 작업실 파일 원본의 헤더를 확인한다. 명령과 증거는 `e2e/README.md` 63절과 `openspec/specs/markdown-rendering/e2e/README.md` 에 있다.
+
+### Requirement: API 응답은 해당 주소에서 실행되는 페이지로 열리지 않는다
+시스템은 `/api` 아래의 모든 응답에 `X-Content-Type-Options: nosniff`를 추가하고, PDF가 아니면서 경로에 별도 정책이 지정되지 않은 응답에는 스크립트 실행을 허용하지 않는 sandbox 정책(`Content-Security-Policy: sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'`)을 적용해야 한다(SHALL). 이에 따라 저장된 XML·SVG·HTML을 링크로 열어도 텍스트만 표시되는 문서로 열린다. 화면에서 데이터를 가져오거나 이미지·동영상을 표시하는 동작은 이 정책의 영향을 받지 않고 그대로 유지된다. 에이전트가 생성한 파일은 해당 회사의 프로세스 단계 결과에 이름이 기록된 실행의 동영상·이미지만 표시하며, 형식은 파일 이름을 기준으로 결정한다.
+
+#### Scenario: 저장된 XML을 링크로 연다
+- **WHEN** 사용자가 프로세스 정의의 BPMN 주소를 링크로 연다
+- **THEN** 응답에 nosniff와 sandbox 정책이 적용되어 문서 안의 어떤 스크립트도 실행되지 않는다
+
+#### Scenario: PDF와 경로별 정책
+- **WHEN** PDF를 열거나, 작업실 원본처럼 경로에 별도 정책이 지정된 응답을 받는다
+- **THEN** PDF는 브라우저에서 열리고, 경로에 지정된 정책은 그대로 적용된다
