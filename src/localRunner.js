@@ -1,12 +1,14 @@
 // The desktop app's local runner, as the page sees it (desktop/src/runner, design docs/local-agents/design.md). Only inside the desktop
 // app (window.pglDesktop.localRunner, its preload bridge): the signed-in page pairs this computer — it asks its server for a device token
 // and hands it to the app's main process — and shows what runs. Main never reads this page's storage; the page never sees the CLIs.
-//   pairing: once per person on this computer, by itself after sign-in — unless the person disconnected this computer here
+//   pairing: once per person on this computer, by itself after sign-in — unless the person disconnected this computer here. It starts on
+//            whatever page the signed-in app opens first (App.vue — it was the chat's boot only: a desktop that opened 「폴더」 first was
+//            never paired, so 「내 PC 폴더 올리기」 could not pick — champion folders video, 2026-11-26)
 //   logout:  this computer's token is revoked and forgotten (another person signing in pairs it for themselves)
 import { reactive } from 'vue'
 import { api } from './api.js'
 
-export const runner = reactive({ desktop: false, status: null, error: '' })
+export const runner = reactive({ desktop: false, status: null, error: '', starting: false })
 const bridge = () => (typeof window !== 'undefined' ? window.pglDesktop?.localRunner || null : null)
 let listening = false
 
@@ -40,10 +42,20 @@ export function hereWhy(uid) {
   return null
 }
 
-export async function startDesktopRunner(me) {
-  const b = bridge()
+// one start at a time for a person: the chat's boot and the page that opened first may both ask (one device token, not two)
+let starting = null
+export function startDesktopRunner(me) {
   const uid = me?.user?.id
-  if (!b || !uid) return
+  if (!bridge() || !uid) return Promise.resolve()
+  if (starting?.uid === uid) return starting.p
+  runner.starting = true
+  const p = start(me).finally(() => { if (starting?.p === p) { starting = null; runner.starting = false } })
+  starting = { uid, p }
+  return p
+}
+async function start(me) {
+  const b = bridge()
+  const uid = me.user.id
   runner.desktop = true
   if (!listening) { listening = true; b.onState((st) => { runner.status = st }) }
   let st = await b.status().catch(() => null)

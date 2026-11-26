@@ -547,12 +547,13 @@ async function pickFolder() {
   })
   return r.canceled ? null : r.filePaths[0] || null
 }
-// the person's yes before the first upload: what goes up, where (and how many flagged files go with it) — in a system dialog
-async function confirmUpload({ files, bytes, folderName, report, flaggedIn }) {
+// the person's yes before the first upload: what goes up, where (and how many flagged files stay here, how many go with it) — in a
+// system dialog
+async function confirmUpload({ files, bytes, folderName, report, flaggedIn, flaggedOut }) {
   let host = ''
   try { host = new URL(serverUrl()).host } catch { /* none */ }
   const ko = folderWords()
-  const { message, detail } = uploadQuestion({ files, bytes, folderName, host, report, flaggedIn, lang: ko ? 'ko' : 'en' })
+  const { message, detail } = uploadQuestion({ files, bytes, folderName, host, report, flaggedIn, flaggedOut, lang: ko ? 'ko' : 'en' })
   const t = testDialogs()
   if (t) { (global.__pglFolderDialogs ||= []).push({ message, detail }); return t.confirm === 'yes' }
   if (win) { if (win.isMinimized()) win.restore(); win.show() }

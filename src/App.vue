@@ -8,7 +8,7 @@ import { useBackground } from './stores/background.js'
 import { useApp } from './stores/app.js'
 import { useTeam } from './stores/team.js'
 import { newVersion, watchVersion } from './appVersion.js'
-import { runner } from './localRunner.js'
+import { runner, startDesktopRunner } from './localRunner.js'
 
 // On every page, loaded when first shown (not with the sign-in page):
 // - the open document and a mail's sheet: opened from the team messenger, a meeting or a Home card, they showed only on the
@@ -32,6 +32,9 @@ onMounted(() => { sky.init(); watchVersion() })
 // the day's background photo this person chose (Home's date · weather panel), from GET /api/me; never on the sign-in pages
 const bg = useBackground()
 watch(() => app.me, (me) => { if (me && me.user?.id !== bg.owner) bg.init(me) }, { immediate: true })
+// in the desktop app: this computer pairs for the signed-in person on whatever page opens first (the folders page too, not only the chat —
+// src/localRunner.js); a browser has no bridge and nothing happens
+watch(() => app.me?.user?.id, (id) => { if (id) startDesktopRunner(app.me).catch(() => {}) }, { immediate: true })
 const photoHere = computed(() => !!app.me && !!route.matched.length && !route.meta.public)
 // Home's dock and the chat's thread list share the left column: Home opened from anywhere (its button, a notification, a mail's
 // sheet) puts the list away (and the list opened puts Home away: app.setThreadList)
