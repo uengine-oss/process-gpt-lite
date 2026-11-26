@@ -113,7 +113,7 @@ export async function calendarMode(userId, provider) {
   if (!sec) return 'none'
   return String(sec.scope || '').split(/\s+/).some((s) => CAL_SCOPES.includes(s)) ? 'google' : 'scope'
 }
-const modeError = (mode) => mode === 'scope'
+export const modeError = (mode) => mode === 'scope'
   ? fail(403, L('Google 캘린더에 일정을 넣을 권한이 없어요. 설정에서 Google을 다시 연결해 주세요.', "Google hasn't allowed adding calendar events. Connect Google again in Settings."), 'calendar_scope')
   : fail(403, L('Google 캘린더가 연결되어 있지 않아요. 설정에서 Google을 연결해 주세요.', "Google Calendar isn't connected. Connect Google in Settings."), 'calendar_none')
 
@@ -160,6 +160,22 @@ export async function eventOfCard(user, actionId, { tz } = {}, deps = {}) {
   return { mode, draft: await reading.get(key) }
 }
 
+// The event in the person's Google Calendar: the same event already there (the same title at the same start — its whole day when all
+// day) is said, not made twice; else it is made. where: one line of where it came from (「메일: …」), under its description.
+// → {existing, made} (one of them). Also 「캘린더에 추가」 on Home's 다가오는 약속 (lib/agenda/store.js addToCalendar).
+export async function toGoogleCalendar(userId, ev, where = '', deps = {}) {
+  const G = deps.google || await import('./google.js')
+  const w = E.eventWindow(ev)
+  const existing = E.findSame(await G.calendarList(userId, { timeMin: w.timeMin, timeMax: w.timeMax }), ev)
+  if (existing) return { existing, made: null }
+  const description = [ev.description, ev.link && ev.link !== ev.location ? ev.link : '', where].filter(Boolean).join('\n\n')
+  const made = await G.calendarCreate(userId, {
+    summary: ev.title, start: ev.allDay ? ev.date : E.eventStart(ev).toISOString(), durationMin: ev.durationMin,
+    description, location: ev.location || ev.link || undefined, timeZone: ev.tz,
+  })
+  return { existing: null, made }
+}
+
 // POST /actions/:id/event {title, date, start, durationMin, allDay, location, link, description, tz}
 // deps.google: {calendarList, calendarCreate} (tests); deps.now
 export async function addEvent(user, actionId, input = {}, deps = {}) {
@@ -185,17 +201,8 @@ export async function addEvent(user, actionId, input = {}, deps = {}) {
   let made = null, existing = null
   try {
     if (mode === 'google') {
-      const G = deps.google || await import('./google.js')
-      const w = E.eventWindow(ev)
-      existing = E.findSame(await G.calendarList(user.id, { timeMin: w.timeMin, timeMax: w.timeMax }), ev)
-      if (!existing) {
-        const description = [ev.description, ev.link && ev.link !== ev.location ? ev.link : '',
-          L(`메일: ${a.source.subject || ''} — ${a.source.from || ''}`, `Mail: ${a.source.subject || ''} — ${a.source.from || ''}`)].filter(Boolean).join('\n\n')
-        made = await G.calendarCreate(user.id, {
-          summary: ev.title, start: ev.allDay ? ev.date : E.eventStart(ev).toISOString(), durationMin: ev.durationMin,
-          description, location: ev.location || ev.link || undefined, timeZone: ev.tz,
-        })
-      }
+      const where = L(`메일: ${a.source.subject || ''} — ${a.source.from || ''}`, `Mail: ${a.source.subject || ''} — ${a.source.from || ''}`)
+      ;({ existing, made } = await toGoogleCalendar(user.id, ev, where, deps))
     }
   } catch (e) {
     await q(`update pro_actions set source = source - 'adding' where id=$1`, [a.id]).catch(() => {})

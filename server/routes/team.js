@@ -49,6 +49,8 @@ export function teamRoutes(auth) {
     M.startRoomFeed()
     // team assist watches every new person-written message in a room (lib/team/assist.js)
     watchRooms()
+    // …and so do plans agreed there (lib/agenda/rooms.js — a message written in Process GPT's own screens too)
+    import('../lib/agenda/rooms.js').then((A) => A.watch()).catch((e) => console.warn('[agenda] watch', e.message))
   }
   const h = (fn) => async (req, res) => {
     try {
@@ -200,6 +202,8 @@ export function teamRoutes(auth) {
   r.get('/team/threads/:id/messages', auth, h(async (req) => {
     const out = await M.messages(req.user, req.params.id, { before: req.query.before })
     await RT.attachCached(req.user, out.messages)
+    // (a message that made or changed a plan of mine: its small mark — lib/agenda/store.js)
+    await import('../lib/agenda/store.js').then((A) => A.markMessages(req.user, out.thread.id, out.messages)).catch((e) => console.warn('[agenda] marks', e.message))
     return out
   }))
   // messages in another language than my main one, translated for me (once per text and language)
