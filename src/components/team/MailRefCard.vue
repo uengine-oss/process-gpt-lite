@@ -35,7 +35,8 @@ async function act(what, fn) {
 }
 const open = () => act('open', async () => {
   const x = await team.openMailRef(props.m, props.i)
-  if (x?.mail) body.value = x.mail
+  // (a late answer after the owner stopped sharing is not kept)
+  if (x?.mail && st.value === 'shared') body.value = x.mail
 })
 const request = () => act('req', () => team.requestRef(props.m, props.i))
 const share = (on) => act('share', () => team.shareMailRef(props.m, props.i, on))

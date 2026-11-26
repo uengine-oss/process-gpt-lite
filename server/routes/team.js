@@ -265,8 +265,24 @@ export function teamRoutes(auth) {
     await M.deliver(updated.uuid)
     // the room's other mentions of the same mail (or the same attachment) follow at once: what each one shows is the owner's card's word
     // for this room (2026-11-27 recording: an older mention kept 「본문 보기」 until a reload)
+    // (each one is rewritten as the card now says — a row sent before unchanged is not sent again — newest first, at most 50)
     const same = ref?.type === 'mailatt' ? [{ type: 'mailatt', actionId: ref.actionId, i: ref.i }] : [{ type: 'mail', actionId: ref?.actionId }]
-    for (const o of await q(`select uuid from chats where id=$1 and tenant_id=$2 and uuid <> $3 and messages->'pgpt'->'refs' @> $4::jsonb`, [row.id, config.tenantId, row.uuid, JSON.stringify(same)]).catch(() => [])) await M.deliver(o.uuid)
+    const on = req.body.on !== false
+    const others = await q(`select uuid, messages from chats where id=$1 and tenant_id=$2 and uuid <> $3 and messages->'pgpt'->'refs' @> $4::jsonb
+                            order by coalesce(public.pro_chat_ts(messages), now()) desc limit 50`, [row.id, config.tenantId, row.uuid, JSON.stringify(same)])
+      .catch((e) => { console.warn('[team] same mentions', e.message); return [] })
+    for (const o of others) {
+      const refs = o.messages?.pgpt?.refs || []
+      let changed = false
+      for (const [k, r] of refs.entries()) {
+        if (r?.type !== ref.type || String(r.actionId) !== String(ref.actionId) || String(r.owner) !== String(req.user.id)) continue
+        if (ref.type === 'mailatt' && Number(r.i) !== Number(ref.i)) continue
+        await q(`update chats set messages = jsonb_set(messages, $2::text[], $3::jsonb) where uuid=$1 and tenant_id=$4`,
+          [o.uuid, ['pgpt', 'refs', String(k)], JSON.stringify({ ...r, share: on ? 'room' : null, sharedAt: on ? new Date().toISOString() : null }), config.tenantId])
+        changed = true
+      }
+      if (changed) await M.deliver(o.uuid)
+    }
     return member ? M.message(req.user, updated.uuid) : { id: updated.uuid, refs: [], left: true }
   }))
   assistRoutes(r, auth, h)
