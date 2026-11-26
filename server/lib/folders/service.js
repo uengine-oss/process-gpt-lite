@@ -7,6 +7,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import os from 'node:os'
+import { execFile } from 'node:child_process'
 import { config } from '../../config.js'
 import { q, admin } from '../supa.js'
 import * as G from './git.js'
@@ -509,6 +510,7 @@ export async function keepWhatIsThere(folder, dir, branch) {
   const [owner] = await q('select holder_name, holder_id from pro_folder_variations where folder_id=$1 and branch=$2', [folder.id, branch]).catch(() => [])
   const [p] = owner?.holder_id ? await q('select name, email from pro_profile where user_id::text=$1', [String(owner.holder_id)]).catch(() => []) : []
   let sha
+  await clearStaleLocks(dir, branch).catch(() => 0)
   try { sha = await G.commitAll(dir, L('작업실에서 옮김', 'Moved from the workroom'), { name: p?.name || owner?.holder_name || 'Process GPT Lite', email: p?.email || undefined }) } catch (e) {
     const why = (await import('./seats.js')).gitWhy(e)
     throw Object.assign(new Error(L(`작업본의 변경을 저장하지 못해 옮기지 않았어요 — 작업본은 그대로예요 (${why})`, `The working copy's changes could not be saved, so it did not move — it is as it was (${why})`)), { status: 409, why: 'unsaved' })
@@ -516,45 +518,106 @@ export async function keepWhatIsThere(folder, dir, branch) {
   if (sha) await q('update pro_folder_variations set head_commit=$3, updated_at=now() where folder_id=$1 and branch=$2', [folder.id, branch, await G.head(folder.repo_path, `refs/heads/${branch}`)])
   return sha
 }
-// What git does not carry in a checkout — ignored files, files it could not take, a repository inside it (git keeps only a link to that) —
-// as paths; null when it cannot tell (git failed: then nothing is deleted either)
+// A stale git lock — index.lock / HEAD.lock of a checkout, or its branch's ref lock — left by a git that was killed (a pod stopped
+// mid-commit, a shell's `git commit` closed with its workroom): removed when it is older than twice git's time limit and no process has it
+// open. A lock git may still be using is left alone (the commit then fails and nothing moves).
+export const STALE_LOCK_MS = 2 * 60_000
+const openBy = (file) => new Promise((resolve) => execFile('lsof', ['-t', '--', file], { timeout: 5000 }, (e, out) => resolve(!e && !!String(out).trim())))
+export async function clearStaleLocks(dir, branch = null) {
+  const gitDir = (await G.git(dir, ['rev-parse', '--absolute-git-dir'], { check: false })).trim()
+  if (!gitDir) return 0
+  const common = path.resolve(dir, (await G.git(dir, ['rev-parse', '--git-common-dir'], { check: false })).trim() || gitDir)
+  const files = [path.join(gitDir, 'index.lock'), path.join(gitDir, 'HEAD.lock'), ...(branch ? [path.join(common, 'refs', 'heads', `${branch}.lock`)] : [])]
+  let n = 0
+  for (const f of files) {
+    const st = await fs.stat(f).catch(() => null)
+    if (!st || Date.now() - st.mtimeMs < STALE_LOCK_MS || await openBy(f)) continue
+    await fs.rm(f, { force: true })
+    console.warn(`[folders] removed a stale git lock (${path.basename(f)}, ${Math.round((Date.now() - st.mtimeMs) / 60000)} min old)`)
+    n++
+  }
+  return n
+}
+// What git does not carry in a checkout, as [{path, kind}] — kind: ignored (.gitignore), untracked or changed (git could not take it),
+// repo (a repository inside it: git keeps only a link to that); null when it cannot tell (git failed)
 export async function leftIn(dir) {
   let out
   try { out = await G.git(dir, ['status', '--porcelain', '--ignored', '--untracked-files=all', '-z']) } catch { return null }
-  const left = out.split('\0').filter((x) => /^.. /.test(x)).map((x) => x.slice(3))
-  if (left.length) return left
+  const left = []
+  const parts = out.split('\0')
+  for (let i = 0; i < parts.length; i++) {
+    const x = parts[i]
+    if (!/^.. /.test(x)) continue
+    const code = x.slice(0, 2)
+    left.push({ path: x.slice(3).replace(/\/$/, ''), kind: code === '!!' ? 'ignored' : code === '??' ? 'untracked' : 'changed' })
+    if (/^R|^C/.test(code)) i++ // (a rename names its source next)
+  }
   const walk = async (d, depth) => {
     for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
-      if (e.name === '.git') { if (d !== dir) left.push(path.relative(dir, d)); continue }
-      if (e.isDirectory() && depth < 16) await walk(path.join(d, e.name), depth + 1)
+      if (e.name === '.git') { if (d !== dir) left.push({ path: path.relative(dir, d), kind: 'repo' }); continue }
+      if (e.isDirectory() && depth < 16 && !left.some((l) => l.kind === 'ignored' && path.join(dir, l.path) === path.join(d, e.name))) await walk(path.join(d, e.name), depth + 1)
     }
   }
   await walk(dir, 0)
   return left
 }
-// A checkout (or a folder left where one goes) leaves the disk: removed only when git carries everything in it; otherwise moved aside next to
-// where it was (<dir>.kept-<time>) — never deleted. → {kept: how many things were kept aside (-1: could not tell), aside}
-export async function retire(repo, dir) {
+// Where a checkout goes while it leaves the disk: beside the folders or the agents' workspace it belongs to (same filesystem: a rename),
+// never inside a room's tree
+function stagingFor(dir) {
+  const base = [foldersRoot(), workspaceDir()].map((b) => path.resolve(b)).find((b) => path.resolve(dir).startsWith(b + path.sep))
+  const name = `${path.basename(dir)}-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`
+  return base ? path.join(base, '.retiring', name) : `${dir}.retiring-${crypto.randomBytes(3).toString('hex')}`
+}
+export const keptRootOf = () => path.join(foldersRoot(), '.kept')
+// one path moved into the kept folder: a rename (same filesystem), else a copy that follows no link; a path that cannot be moved is
+// reported (the staging folder is then not removed)
+async function keepPath(from, to) {
+  await fs.mkdir(path.dirname(to), { recursive: true })
+  try { await fs.rename(from, to); return true } catch (e) { if (e.code !== 'EXDEV') return false }
+  try { await fs.cp(from, to, { recursive: true, dereference: false, verbatimSymlinks: true, filter: async (src) => !(await fs.lstat(src)).isSymbolicLink() }); return true } catch { return false }
+}
+const sizeOf = async (p) => { const st = await fs.lstat(p).catch(() => null); if (!st) return 0; if (!st.isDirectory()) return st.size; let n = 0; for (const e of await fs.readdir(p)) n += await sizeOf(path.join(p, e)); return n }
+// A checkout (or a folder left where one goes) leaves the disk, nothing in it lost:
+//   1. it is moved out of the way first (an atomic rename) — nothing writes into it any more and nothing new shows up where it was
+//   2. what git does not carry is found (leftIn): mode 'person' (a person's workroom, or not known) keeps all of it; mode 'agent' (a server
+//      agent run) drops what .gitignore names — caches, logs, node_modules it made — and keeps the rest; mode 'all' keeps everything git
+//      lists as not saved (a run whose commit failed)
+//   3. only those paths are moved to <folders>/.kept/<variation>/<time> (outside every room; removed after keptDays), the rest is deleted
+// → {kept: how many paths were kept (-1: could not tell — the whole folder was kept), keptDir, bytes}
+export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
   if (!dir || !(await fs.stat(dir).catch(() => null))) { await G.git(repo, ['worktree', 'prune'], { check: false }); return { kept: 0 } }
-  const checkout = !!(await fs.stat(path.join(dir, '.git')).catch(() => null))
-  const left = checkout ? await leftIn(dir) : ((await fs.readdir(dir).catch(() => null)) || null)
-  if (left && !left.length) {
-    if (checkout) await G.git(repo, ['worktree', 'remove', '--force', dir], { check: false })
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
-    await G.git(repo, ['worktree', 'prune'], { check: false })
-    return { kept: 0 }
+  const staging = stagingFor(dir)
+  await fs.mkdir(path.dirname(staging), { recursive: true })
+  await fs.rename(dir, staging)
+  const checkout = !!(await fs.stat(path.join(staging, '.git')).catch(() => null))
+  let left = checkout ? await leftIn(staging) : (await fs.readdir(staging).catch(() => [])).map((n) => ({ path: n, kind: 'untracked' }))
+  const whole = left === null
+  if (!whole) left = mode === 'agent' ? left.filter((l) => l.kind !== 'ignored') : left
+  let keptDir = null, bytes = 0, stuck = false
+  if (whole || left.length) {
+    keptDir = path.join(keptRootOf(), String(vid || 'none'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(2).toString('hex')}`)
+    if (whole) { if (!(await keepPath(staging, keptDir))) stuck = true }
+    else {
+      for (const l of left) {
+        const from = path.join(staging, l.path)
+        if (!(await fs.lstat(from).catch(() => null))) continue
+        bytes += await sizeOf(from).catch(() => 0)
+        if (!(await keepPath(from, path.join(keptDir, l.path)))) stuck = true
+      }
+    }
   }
-  const aside = `${dir}.kept-${Date.now().toString(36)}`
-  await fs.rename(dir, aside)
+  if (stuck) console.warn(`[folders] some of what git does not carry could not be moved to the kept folder — left at ${staging}`)
+  else if (!whole) await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
   await G.git(repo, ['worktree', 'prune'], { check: false })
-  console.warn(`[folders] ${left ? left.length : 'some'} thing(s) git does not carry kept aside: ${aside}`)
-  return { kept: left ? left.length : -1, aside }
+  return { kept: whole ? -1 : left.length, keptDir, bytes, staging: stuck ? staging : null }
 }
 
 // commit what changed in the checkout; the variation becomes ready for review
-export async function commitVariation(folder, v, author, message) {
+// strict: a commit git refuses throws (a run's end — folders/seats.js finishRun — keeps everything then) instead of being logged
+export async function commitVariation(folder, v, author, message, { strict = false } = {}) {
   if (!v.worktree_path) return null
-  const sha = await G.commitAll(v.worktree_path, message || `${v.title}`, author).catch((e) => { console.warn('[folders] commit', e.message); return null })
+  await clearStaleLocks(v.worktree_path, v.branch).catch(() => 0)
+  const sha = await G.commitAll(v.worktree_path, message || `${v.title}`, author).catch((e) => { if (strict) throw e; console.warn('[folders] commit', e.message); return null })
   const head = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
   await q(`update pro_folder_variations set head_commit=$2, status=case when status in ('open','conflicted') then 'ready' else status end, updated_at=now() where id=$1`, [v.id, head])
   await touch(folder)
@@ -563,9 +626,16 @@ export async function commitVariation(folder, v, author, message) {
 
 // take the checkout off disk (retire: what git does not carry is moved aside, never deleted); the branch (the variation's content) stays.
 // Its seat is the seat module's to end (folders/seats.js endRun · closeServer) — a release never drops a seat. → {kept, aside}
-export async function release(folder, v, { keep = false } = {}) {
-  const gone = v.worktree_path ? await retire(folder.repo_path, v.worktree_path) : { kept: 0 }
+// mode: whose place it was (retire) — 'person' unless the caller knows it was a server agent run; who: that place's person (the record)
+export async function release(folder, v, { keep = false, mode = 'person', who = null, why = null } = {}) {
+  const gone = v.worktree_path ? await retire(folder.repo_path, v.worktree_path, { mode, vid: v.id }) : { kept: 0 }
   if (!keep) await q('update pro_folder_variations set worktree_path=null, updated_at=now() where id=$1', [v.id])
+  // what was kept is recorded on the variation (its screen lists it with a download until it is removed — folders/seats.js keptOf)
+  if (gone.keptDir && v.id) {
+    await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, note) values ($1,$2,$3,$4,'kept',$5)`,
+      [T(), v.id, folder.id, who ? String(who) : null, JSON.stringify({ dir: path.relative(keptRootOf(), gone.keptDir), count: gone.kept, bytes: gone.bytes || 0, mode, why })])
+      .catch((e) => { if (e.code !== '42P01') console.warn('[folders] kept record', e.message) })
+  }
   return gone
 }
 

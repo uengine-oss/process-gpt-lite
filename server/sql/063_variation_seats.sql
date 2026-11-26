@@ -50,6 +50,15 @@ create index if not exists pro_variation_seats_folder on pro_variation_seats (fo
 create index if not exists pro_variation_seats_job on pro_variation_seats (job_id) where job_id is not null;
 alter table pro_variation_seats enable row level security;
 
+-- A variation's disk lock (what follows a seat decision on disk — a commit, a checkout, a removal — one at a time, across servers): a lease
+-- row, renewed while the work goes on and free once `until` has passed (a server that stopped leaves nothing held for long)
+create table if not exists pro_variation_locks (
+  variation_id uuid primary key,
+  owner        text not null,
+  until        timestamptz not null
+);
+alter table pro_variation_locks enable row level security;
+
 create table if not exists pro_variation_seat_log (
   id           bigint generated always as identity primary key,
   tenant_id    text not null,

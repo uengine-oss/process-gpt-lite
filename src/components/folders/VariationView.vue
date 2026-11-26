@@ -10,7 +10,7 @@ import Avatar from './Avatar.vue'
 import HandoverSheet from './HandoverSheet.vue'
 import MergeSheet from './MergeSheet.vue'
 import SeatPill from './SeatPill.vue'
-import { folders as F, rawUrl, whoOf, holderName, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
+import { folders as F, rawUrl, keptUrl, whoOf, holderName, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName, lineDiff, highlight, viewOf } from './fileKind.js'
 
 const props = defineProps({ slug: String, vid: String })
@@ -89,6 +89,8 @@ async function workroom() {
   try { const r = await F.openSeat(props.slug, props.vid); router.push(r.workroom) } catch (e) { say(e.message); if (e.seat) v.value = { ...v.value, seat: e.seat } }
 }
 const readOnly = () => router.push(`/workroom/variation/${props.vid}`)
+// what git does not carry, kept when the working copy left the disk (server lib/folders/seats.js keptOf): a download each, until removed
+const daysLeft = (until) => Math.max(0, Math.ceil((new Date(until).getTime() - Date.now()) / 86400_000))
 async function seatAct(what) {
   if (what === 'take' && !confirm(seatMine.value ? '이 변형을 마지막으로 올린 데서부터 여기로 가져올까요? PC 에 남은 변경은 새 변형으로 올라와요.' : '작업본을 가져올까요? 저장 안 한 변경은 그대로 저장되고, PC 에 남은 변경은 새 변형으로 올라와요.')) return
   seatBusy.value = true
@@ -169,6 +171,15 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
         <button class="tb press" data-test="seat-readonly" @click="readOnly">읽기 전용으로 보기</button>
         <button v-if="seat.can.recall" class="tb press dk" data-test="seat-recall" :disabled="seatBusy" @click="seatAct('recall')">{{ seat.recall ? '다시 돌려 달라고 하기' : '돌려 달라고 하기' }}</button>
         <button v-if="seat.can.take" class="tb press dk" data-test="seat-take" :disabled="seatBusy" @click="seatAct('take')">{{ seatMine ? '여기로 가져오기' : '작업본 가져오기' }}</button>
+      </div>
+
+      <div v-if="v.kept?.length" class="keptbar glass" data-test="seat-kept">
+        <FIcon name="archive" :size="18" />
+        <span class="sbt"><b>따로 남긴 파일</b><small>작업본을 치울 때 git 이 싣지 않는 파일(.gitignore 대상 · 안쪽 저장소 · 저장하지 못한 것)을 서버에 따로 남겨 두었어요. 보관 기간이 지나면 지워져요.</small></span>
+        <span class="kl">
+          <a v-for="k in v.kept" :key="k.id" class="tb press" :class="{ off: !k.canGet }" data-test="seat-kept-get" :href="k.canGet ? keptUrl(slug, vid, k.id) : undefined"
+            :title="k.canGet ? '' : '그 작업본을 가졌던 사람과 폴더 소유자만 내려받아요'" download>{{ ago(k.at) }}<template v-if="k.count > 0"> · {{ k.count }}개</template><template v-if="k.why === 'unsaved'"> · 저장 못 함</template> · {{ daysLeft(k.until) }}일 남음</a>
+        </span>
       </div>
 
       <div v-if="isSkill && review" class="rev glass">
@@ -302,6 +313,11 @@ h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.02em; disp
 .seatbar > svg { flex: none; color: #8e6fe6; }
 .sbt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; } .sbt b { font-weight: 600; } .sbt small { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
 .seatbar .tb.dk { background: var(--ink); color: var(--ink-inverse); }
+.keptbar { margin: 0 0 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 16px; font-size: 13.5px; }
+.keptbar > svg { flex: none; color: var(--text-secondary); }
+.keptbar .kl { display: flex; gap: 6px; flex-wrap: wrap; }
+.keptbar .tb { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+.keptbar .tb.off { opacity: .5; pointer-events: none; }
 .sbt .rq { color: #e0613f; font-weight: 500; }
 .seatbar .tb:disabled { opacity: .5; }
 .ib:disabled { opacity: .4; cursor: default; }

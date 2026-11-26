@@ -88,6 +88,8 @@ export const folders = {
     return r.text()
   },
 }
+// a kept folder of a variation (what git does not carry, kept when its working copy left the disk) as a zip
+export const keptUrl = (slug, vid, id) => `${BASE}/api/folders/${enc(slug)}/variations/${vid}/kept/${enc(id)}?token=${enc(auth.get()?.session?.access_token || '')}`
 export const rawUrl = (slug, path, ref = 'main', download = false) =>
   `${BASE}/api/folders/${enc(slug)}/raw?ref=${enc(ref)}&path=${enc(path)}&token=${enc(auth.get()?.session?.access_token || '')}${download ? '&download=1' : ''}`
 

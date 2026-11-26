@@ -241,12 +241,20 @@ export async function finishProjectWork(work, { stopped = false } = {}) {
   // (only while this turn still holds the variation's seat; when it moved meanwhile, what the turn made becomes a variation of its own)
   const end = await SE.finishRun(folder, await S.variationById(v.id), work.run, {
     fill: seeded ? (dir) => pullRoomChanges(container, seeded, dir, { wait: !stopped }) : null,
-    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`프로젝트 「${thread.title || ''}」 작업`, `Project "${thread.title || ''}" work`)),
+    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`프로젝트 「${thread.title || ''}」 작업`, `Project "${thread.title || ''}" work`), { strict: true }),
     user: user.id, where: L('서버 에이전트 턴', 'a server agent turn'),
   })
   if (!end.held) {
     await announce(user.id, thread.id)
     return { changed: [], variation: await S.variationById(v.id), left: end.left || null }
+  }
+  // (the turn's files could not be committed: they are kept on the variation — its screen lists them with a download — and the chat says so)
+  if (end.saved === false) {
+    await addMessage(user.id, thread.id, 'agent', 'chip', { icon: 'check', folderVariation: v.id, ...(work.conv ? { conv: work.conv } : {}),
+      text: L(`'${folder.name}' 폴더의 프로젝트 변형에 이번 턴의 파일을 담지 못했어요 — 변형 화면의 「따로 남긴 파일」에서 내려받을 수 있어요`,
+        `This turn's files could not be put in the project's variation of '${folder.name}' — download them from "Kept files" on the variation`) }).catch(() => {})
+    await announce(user.id, thread.id)
+    return { changed: [], variation: await S.variationById(v.id), kept: end.kept }
   }
   const after = await S.variationById(v.id)
   const changed = before && after.head_commit && after.head_commit !== before ? await G.changes(folder.repo_path, before, after.branch).catch(() => []) : []

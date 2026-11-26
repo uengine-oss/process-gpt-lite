@@ -167,7 +167,7 @@ When you are done, say briefly what you changed.`)
   // (only while this run still holds the variation's seat; when it moved meanwhile, what it made becomes a variation of its own)
   await SE.finishRun(folder, await S.variationById(v.id), run, {
     fill: seeded ? (d) => pullRoomChanges(container, seeded, d, { wait: ran }).catch((e) => console.warn('[folders] handover pull', e.message)) : null,
-    commit: (cur) => S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`),
+    commit: (cur) => S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`, { strict: true }),
     user: String(to.id), where: L('인계받은 에이전트', 'the receiving agent'),
   })
   const after = await S.variationById(v.id)

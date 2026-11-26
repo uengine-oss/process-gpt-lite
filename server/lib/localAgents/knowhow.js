@@ -170,7 +170,7 @@ async function toSkill(user, job, c) {
         await fs.writeFile(p, f.text)
       }
     },
-    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, `${provenance(c)}: ${c.skill.files.map((f) => f.path).join(', ')}`),
+    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, `${provenance(c)}: ${c.skill.files.map((f) => f.path).join(', ')}`, { strict: true }),
     user: user.id, where: L('로컬 실행의 노하우', 'a local run\'s know-how'),
   })
   const after = await S.variationById(v.id)

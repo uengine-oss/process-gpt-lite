@@ -124,11 +124,13 @@ export async function finishChatWork({ user, folder, v, threadId, room, seeded, 
   const r = run || await SE.runOf(v.id, { work: 'chat', ref: room || v.source?.room_id })
   const end = await SE.finishRun(folder, await S.variationById(v.id), r, {
     fill: seeded ? (dir) => pullRoomChanges(S.runCheckoutContainer(room, folder), seeded, dir, { wait: !stopped }) : null,
-    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`채팅 요청: ${cur.title}`, `Chat request: ${cur.title}`)),
+    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`채팅 요청: ${cur.title}`, `Chat request: ${cur.title}`), { strict: true }),
     user: user.id, where: L('채팅 요청', 'a chat request'),
   })
-  // (its seat moved meanwhile: what it made is a variation of its own — leftover — and this one is left as it is)
+  // (its seat moved meanwhile: what it made is a variation of its own — leftover — and this one is left as it is; its files could not be
+  // committed: they are kept on the variation and the chat says so)
   if (!end.held) return null
+  if (end.saved === false) return addMessage(user.id, threadId, 'agent', 'chip', { icon: 'check', text: L(`'${folder.name}' 폴더의 변형에 파일을 담지 못했어요 — 변형 화면의 「따로 남긴 파일」에서 내려받을 수 있어요`, `The files could not be put in the '${folder.name}' folder's variation — download them from "Kept files" on the variation`) })
   const after = await S.variationById(v.id)
   const changed = await G.changes(folder.repo_path, folder.default_branch, after.branch)
   if (!changed.length) {
@@ -206,7 +208,7 @@ export async function finishStep(folder, v, row) {
   }
   const end = await SE.finishRun(folder, await S.variationById(v.id), run, {
     fill: (dir) => pullStep(v, dir).catch((e) => console.warn('[folders] step pull', row.id, e.message)),
-    commit: (cur) => S.commitVariation(folder, cur, { name: v.holder_name || 'agent', email: 'agent@pgpt-pro.local' }, L(`${row.activity_name || '단계'} 결과`, `${row.activity_name || 'Step'} result`)),
+    commit: (cur) => S.commitVariation(folder, cur, { name: v.holder_name || 'agent', email: 'agent@pgpt-pro.local' }, L(`${row.activity_name || '단계'} 결과`, `${row.activity_name || 'Step'} result`), { strict: true }),
     user: v.holder_id, where: L('프로세스 단계', 'a process step'),
   })
   return { ...end, reopened }
@@ -306,7 +308,7 @@ async function recoverChatRuns() {
       // the chat's person gets the card in their saved language
       await asUser(v.holder_id, async () => {
         if (!v.source?.thread_id) {
-          await SE.finishRun(folder, v, await SE.runOf(v.id, { work: 'chat', ref: v.source?.room_id }), { commit: (cur) => S.commitVariation(folder, cur, user, L(`채팅 요청(중단 후 저장): ${v.title}`, `Chat request (saved after a stop): ${v.title}`)) })
+          await SE.finishRun(folder, v, await SE.runOf(v.id, { work: 'chat', ref: v.source?.room_id }), { commit: (cur) => S.commitVariation(folder, cur, user, L(`채팅 요청(중단 후 저장): ${v.title}`, `Chat request (saved after a stop): ${v.title}`), { strict: true }) })
           return
         }
         await finishChatWork({ user, folder, v, threadId: v.source.thread_id })

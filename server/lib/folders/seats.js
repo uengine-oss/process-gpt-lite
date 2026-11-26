@@ -25,7 +25,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import pg from 'pg'
+import os from 'node:os'
 import { config } from '../../config.js'
 import { q, pool } from '../supa.js'
 import { emit } from '../bus.js'
@@ -323,30 +323,63 @@ export async function refusal(out, folder, { me = null, role = null } = {}) {
 }
 
 // ---------- the server's own places ----------
-// What follows a decision on disk, one at a time per variation: in this process (a queue) and across servers (a database advisory lock of
-// the variation, on a pool of its own so the work inside can still use the main pool). tryOnly: give up at once when another holds it
-// ({busy: true}) — the sweep does not wait for a move in progress, nor expire it.
-const lockPool = new pg.Pool({ ...config.db, max: 4, allowExitOnIdle: true })
-lockPool.on('error', (e) => console.warn('[seats] lock client:', e.message))
-export const lockKey = (vid) => BigInt.asIntN(64, BigInt(`0x${crypto.createHash('sha1').update(`pgl-seat:${vid}`).digest('hex').slice(0, 16)}`)).toString()
+// What follows a decision on disk, one at a time per variation: in this process (a queue) and across servers (a lease row of the variation,
+// pro_variation_locks — renewed while the work goes on, free once its time passed: no database connection is held through the work).
+// wait: how long to wait for it — a person's action a few seconds (then 409 busy), a save its own budget, the server's own work longer;
+// tryOnly: not at all ({busy: true}) — the sweep never waits for a move in progress, nor expires it.
+export const USER_WAIT_MS = 5_000
+export const SAVE_WAIT_MS = 15_000
+export const SYSTEM_WAIT_MS = 10 * 60_000
+export const LEASE_MS = 60_000
+const LOCK_OWNER = `${os.hostname()}:${process.pid}:${crypto.randomBytes(4).toString('hex')}`
+const pause = (ms) => new Promise((r) => setTimeout(r, ms))
+const busy = () => err(409, L('이 변형의 작업본을 지금 다른 곳에서 옮기거나 저장하는 중이에요 — 잠시 뒤에 다시 해 주세요.', "This variation's working copy is being moved or saved elsewhere right now — try again in a moment."), { why: 'busy' })
+let lockLegacy = false
+async function takeLease(vid, owner) {
+  if (lockLegacy) return true
+  try {
+    const rows = await q(`insert into pro_variation_locks (variation_id, owner, until) values ($1, $2, now() + ($3 || ' milliseconds')::interval)
+                          on conflict (variation_id) do update set owner = excluded.owner, until = excluded.until
+                            where pro_variation_locks.until < now() or pro_variation_locks.owner = excluded.owner
+                          returning owner`, [vid, owner, String(LEASE_MS)])
+    return rows.length > 0
+  } catch (e) { if (e.code === '42P01') { lockLegacy = true; return true } throw e }
+}
+// the lease of one piece of work: taken (waiting up to `wait`), renewed every third of its time, given back at the end
+async function lease(vid, wait) {
+  const owner = `${LOCK_OWNER}:${crypto.randomBytes(3).toString('hex')}`
+  const until = Date.now() + wait
+  for (;;) {
+    if (await takeLease(vid, owner)) break
+    if (Date.now() >= until) return null
+    await pause(Math.min(250, Math.max(10, until - Date.now())))
+  }
+  const timer = setInterval(() => { takeLease(vid, owner).catch(() => {}) }, LEASE_MS / 3)
+  timer.unref?.()
+  return { release: async () => { clearInterval(timer); if (!lockLegacy) await q('delete from pro_variation_locks where variation_id=$1 and owner=$2', [vid, owner]).catch(() => {}) } }
+}
 const disk = new Map()
-export function onDisk(vid, fn, { tryOnly = false } = {}) {
+export function onDisk(vid, fn, { wait = SYSTEM_WAIT_MS, tryOnly = false } = {}) {
+  if (tryOnly && disk.has(vid)) return Promise.resolve({ busy: true })
+  const until = Date.now() + (tryOnly ? 0 : wait)
+  let gaveUp = false, started = false
   const work = async () => {
-    const c = await lockPool.connect()
-    const key = lockKey(vid)
-    try {
-      if (tryOnly) {
-        const { rows: [r] } = await c.query('select pg_try_advisory_lock($1::bigint) as ok', [key])
-        if (!r.ok) return { busy: true }
-      } else await c.query('select pg_advisory_lock($1::bigint)', [key])
-      try { return await fn() } finally { await c.query('select pg_advisory_unlock($1::bigint)', [key]).catch(() => {}) }
-    } finally { c.release() }
+    if (gaveUp) return undefined
+    started = true
+    const l = await lease(vid, tryOnly ? 0 : Math.max(0, until - Date.now()))
+    if (!l) { if (tryOnly) return { busy: true }; throw busy() }
+    try { return await fn() } finally { await l.release() }
   }
   const run = (disk.get(vid) || Promise.resolve()).then(work, work)
   const tail = run.catch(() => {})
   disk.set(vid, tail)
   tail.then(() => { if (disk.get(vid) === tail) disk.delete(vid) })
-  return run
+  if (tryOnly) return run
+  // (waiting in this process's queue counts against the same budget: a person's action does not wait behind a long run's end)
+  let timer
+  // (only the wait in the queue: work that started runs to its end — the lease has the same budget)
+  const late = new Promise((_, reject) => { timer = setTimeout(() => { if (!started) { gaveUp = true; reject(busy()) } }, Math.max(0, until - Date.now()) + 50); timer.unref?.() })
+  return Promise.race([run, late]).finally(() => clearTimeout(timer))
 }
 // a move in progress says it still goes on before each of its steps on disk (a slow commit or checkout does not run out its time)
 async function renew(vid, epoch) {
@@ -354,20 +387,26 @@ async function renew(vid, epoch) {
     .catch((e) => { if (!isLegacy(e)) throw e })
 }
 
-// the runs of this process that hold a server seat say so every BEAT_MS (seen_at); a run whose process stopped is put away by the sweep
-const beats = new Map() // variation id → epoch
+// the runs of this process that hold a server seat say so every BEAT_MS (seen_at) — each for its own seat (its epoch): a run that lost its
+// seat never keeps the next holder alive; a run whose process stopped is put away by the sweep
+const beats = new Map() // `${variation}:${epoch}` → {vid, epoch}
 let beatTimer = null
 function beat(vid, epoch) {
-  beats.set(String(vid), Number(epoch))
+  beats.set(`${vid}:${epoch}`, { vid: String(vid), epoch: Number(epoch) })
   if (beatTimer) return
-  beatTimer = setInterval(() => {
-    const ids = [...beats.keys()]
-    if (ids.length) q('update pro_variation_seats set seen_at=now() where variation_id = any($1::uuid[])', [ids]).catch(() => {})
-  }, BEAT_MS)
+  beatTimer = setInterval(() => { beatNow().catch(() => {}) }, BEAT_MS)
   beatTimer.unref?.()
 }
-// (a run that ended — or a test that plays a process that stopped)
-export function forget(vid) { beats.delete(String(vid)) }
+export async function beatNow() {
+  const all = [...beats.values()]
+  if (!all.length) return 0
+  const rows = await q(`update pro_variation_seats s set seen_at=now() from unnest($1::uuid[], $2::int[]) as b(vid, ep)
+                        where s.variation_id=b.vid and s.epoch=b.ep and s.place='server' and s.run='agent' returning s.variation_id`, [all.map((b) => b.vid), all.map((b) => b.epoch)]).catch(() => [])
+  return rows.length
+}
+export const beating = (vid, epoch = null) => [...beats.values()].some((b) => b.vid === String(vid) && (epoch == null || b.epoch === Number(epoch)))
+// (a run that ended — epoch: only that run's; none: every run of the variation in this process, or a test that plays a process that stopped)
+export function forget(vid, epoch = null) { for (const [k, b] of beats) if (b.vid === String(vid) && (epoch == null || b.epoch === Number(epoch))) beats.delete(k) }
 
 async function personOf(id, v) {
   if (!id) return { name: v?.holder_name || 'Process GPT Lite', email: undefined }
@@ -378,7 +417,11 @@ async function personOf(id, v) {
 }
 // a commit that did not happen stops the move: nothing is taken off disk and the seat is put back (409 'unsaved', git's first words)
 // (git's own words: its first error line — 「error: open("…"): Permission denied」 · 「'안쪽/' does not have a commit checked out」 — else its last)
-export const gitWhy = (e) => { const ls = String(e?.stderr || e?.message || '').trim().split('\n').map((x) => x.trim()).filter(Boolean); return (ls.find((x) => /^error:/.test(x)) || ls.pop() || '').slice(0, 200) }
+// (no server path goes out: an absolute path is cut to its last part)
+export const gitWhy = (e) => {
+  const ls = String(e?.stderr || e?.message || '').trim().split('\n').map((x) => x.trim()).filter(Boolean)
+  return (ls.find((x) => /^error:/.test(x)) || ls.pop() || '').replace(/(?:[A-Za-z]:)?(?:\/[^\s'"/]+)+\/?/g, (m) => `…/${path.basename(m)}`).slice(0, 200)
+}
 const unsaved = (e) => err(409, L(`작업본의 변경을 저장하지 못해 옮기지 않았어요 — 작업본은 그대로예요 (${gitWhy(e)})`,
   `The working copy's changes could not be saved, so it did not move — it is as it was (${gitWhy(e)})`), { why: 'unsaved' })
 // What a server checkout holds, committed as it is (its person the author — nothing reset, nothing cleaned), the variation's head
@@ -388,6 +431,8 @@ export async function commitAsIs(folder, v, { author, message } = {}) {
   const cur = await S.variationById(v.id)
   if (!cur?.worktree_path || !fs.existsSync(cur.worktree_path)) return null
   let sha
+  // (a lock left by a git that was killed would refuse every commit from then on: removed when it is surely stale)
+  await S.clearStaleLocks(cur.worktree_path, cur.branch).catch(() => 0)
   try { sha = await G.commitAll(cur.worktree_path, message || L('작업실에서 옮김', 'Moved from the workroom'), author || await personOf(cur.holder_id, cur)) } catch (e) { throw unsaved(e) }
   const head = await G.head(folder.repo_path, `refs/heads/${cur.branch}`)
   await q('update pro_folder_variations set head_commit=$2, updated_at=now() where id=$1', [cur.id, head])
@@ -403,10 +448,18 @@ async function clearServer(folder, v, prev, { reason, by } = {}) {
   const author = await personOf(prev?.user_id || v.holder_id, v)
   const sha = await commitAsIs(folder, v, { author, message: L('작업실에서 옮김', 'Moved from the workroom') })
   const cur = await S.variationById(v.id)
-  const gone = cur?.worktree_path ? await S.release(folder, cur) : { kept: 0 }
+  const gone = cur?.worktree_path ? await S.release(folder, cur, { mode: prev?.run === 'agent' ? 'agent' : 'person', who: prev?.user_id || null }) : { kept: 0 }
   forget(v.id)
   if (by) emit(String(by), 'folders', { slug: folder.slug, variation: v.id })
   return { sha, kept: gone?.kept || 0 }
+}
+// Before a move takes a server place off disk, what it holds is saved first — outside any change of seat: a commit git refuses ends here
+// with nothing changed (no new epoch, no record, no shell closed). (The move commits once more after closing the shells.)
+async function saveFirst(folder, v, seat) {
+  if (!seat || seat.place !== 'server') return null
+  const cur = await S.variationById(v.id)
+  if (!cur?.worktree_path) return null
+  return commitAsIs(folder, cur, { author: await personOf(seat.user_id, cur), message: L('작업실에서 옮김', 'Moved from the workroom') })
 }
 // A move that could not finish (its commit failed, the checkout failed): the seat goes back to where it was when that place is still on
 // disk (a new epoch: whatever was read before the move is refused), else to none
@@ -432,8 +485,12 @@ export async function openServer(folder, v, { user, run = 'agent', dir, work = n
   if (run === 'workroom' && !mayHold(v, user.id)) throw await refusal({ ok: false, why: v.kind === 'instance' ? 'line' : 'not-yours', v, seat: await seatOf(v.id) }, folder, { me: user })
   if (await integrating(folder, v.id)) throw await refusal({ ok: false, why: 'integrating', v }, folder, { me: user })
   const kind = run === 'workroom' ? null : (RUNS.includes(work) ? work : 'turn')
+  const ev = { type: 'open', run, user: user.id, work: kind, ref }
   return onDisk(String(v.id), async () => {
-    const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'open', run, user: user.id, work: kind, ref }, { v: vv }), { by: user.id })
+    const peek = await seatOf(v.id)
+    const pre = peek ? decide(peek, ev, { v: await S.variationById(v.id) }) : null
+    if (pre?.ok && pre.clear) await saveFirst(folder, v, peek)
+    const out = await transition(v.id, (vv, seat) => decide(seat, ev, { v: vv }), { by: user.id })
     if (out.legacy) { await S.checkout(folder, await S.variationById(v.id), dir); return { ...out, epoch: 0, work: kind, ref, base: await G.head(folder.repo_path, `refs/heads/${v.branch}`) } }
     if (!out.ok) throw await refusal(out, folder, { me: user })
     let cleared = false
@@ -452,7 +509,7 @@ export async function openServer(folder, v, { user, run = 'agent', dir, work = n
       if (out.action !== 'same') await putBack(v.id, cleared ? { ...out, prev: null } : out, e.message)
       throw e
     }
-  })
+  }, { wait: run === 'workroom' ? USER_WAIT_MS : SYSTEM_WAIT_MS })
 }
 // open a server agent run and set it up (a seed upload, a prompt): a setup that fails gives the seat back and takes the checkout off disk
 export async function withRun(folder, v, opts, setup) {
@@ -490,30 +547,36 @@ export async function holdsRun(vid, run) {
 export async function endRun(folder, v, run) {
   return onDisk(String(v.id), () => endRunNow(folder, v, run))
 }
-async function endRunNow(folder, v, run) {
-  forget(v.id)
+async function endRunNow(folder, v, run, { mode = 'agent', why = null } = {}) {
+  forget(v.id, run?.epoch)
   if (!(await holdsRun(v.id, run))) return { held: false }
   const cur = await S.variationById(v.id)
-  const gone = cur?.worktree_path ? await S.release(folder, cur) : { kept: 0 }
+  const seat = await seatOf(v.id)
+  // (a run's ignored files — caches, logs — are dropped; everything is kept when its result could not be committed)
+  const gone = cur?.worktree_path ? await S.release(folder, cur, { mode, who: seat?.user_id || null, why }) : { kept: 0 }
   if (run.epoch > 0) await transition(v.id, (vv, seat) => decide(seat, { type: 'drop', epoch: run.epoch }, { v: vv }), { note: run.work || null })
   return { held: true, kept: gone?.kept || 0 }
 }
 // A run's end with its result: while it still holds the seat, fill (bring what the agent made into the checkout) → commit → end; when the
 // seat moved meanwhile its result is never mixed in nor lost — it is filled into a checkout of where the run started and becomes a variation
-// of its own (leftover). → {held, sha?, left?}
+// of its own (leftover). A commit that fails (commit should throw then — S.commitVariation {strict: true}) ends the run all the same, with
+// everything its checkout held kept and recorded on the variation (saved: false) — never mixed in, never a silent copy. → {held, saved,
+// sha?, kept?, left?}
 export async function finishRun(folder, v, run, { fill = null, commit = null, user = null, where = '' } = {}) {
-  return onDisk(String(v.id), async () => {
-    if (await holdsRun(v.id, run)) {
-      const cur = await S.variationById(v.id)
-      if (fill && cur?.worktree_path) await fill(cur.worktree_path)
-      const sha = commit ? await commit(await S.variationById(v.id)) : null
-      const end = await endRunNow(folder, v, run)
-      return { held: true, sha, kept: end.kept || 0 }
-    }
-    forget(v.id)
-    const left = fill ? await leftoverFrom(folder, v, run?.base || v.base_commit, fill, { user, where }).catch((e) => { console.warn('[seats] leftover', e.message); return null }) : null
-    return { held: false, left }
-  })
+  try {
+    return await onDisk(String(v.id), async () => {
+      if (await holdsRun(v.id, run)) {
+        const cur = await S.variationById(v.id)
+        if (fill && cur?.worktree_path) await fill(cur.worktree_path)
+        let sha = null, failed = null
+        try { sha = commit ? await commit(await S.variationById(v.id)) : null } catch (e) { failed = e; console.warn('[seats] a run\'s result could not be committed:', gitWhy(e)) }
+        const end = await endRunNow(folder, v, run, failed ? { mode: 'all', why: `commit failed: ${gitWhy(failed)}` } : {})
+        return { held: true, saved: !failed, sha, kept: end.kept || 0 }
+      }
+      const left = fill ? await leftoverFrom(folder, v, run?.base || v.base_commit, fill, { user, where }).catch((e) => { console.warn('[seats] leftover', e.message); return null }) : null
+      return { held: false, saved: !!left, left }
+    })
+  } finally { forget(v.id, run?.epoch) }
 }
 // a fresh checkout of `base` (detached, next to the folders), filled and committed → a leftover variation of v from that commit
 async function leftoverFrom(folder, v, base, fill, { user, where }) {
@@ -525,15 +588,19 @@ async function leftoverFrom(folder, v, base, fill, { user, where }) {
     const me = await personOf(user, v)
     const sha = await G.commitAll(tmp, L(`${where || '실행'}에 남아 있던 변경`, `Changes left on ${where || 'a run'}`), me)
     return sha ? await leftover(folder, v, sha, { user, where }) : null
-  } finally { await S.release(folder, { id: null, worktree_path: tmp }, { keep: true }).catch(() => {}) }
+  } finally { await S.release(folder, { id: null, worktree_path: tmp }, { keep: true, mode: 'agent' }).catch(() => {}) }
 }
 
 // Put a server place away (돌려놓기 · 작업실 닫기): what it holds is committed as it is, it goes off disk, the seat is none (보관 중) and the
 // variation is ready to review. by: who asks (the seat's person, unless system); epoch: the one the page saw. A commit that fails puts the
 // seat back (409 'unsaved'). A checkout with no seat (from before seats, or left by a crash) is put away the same way. → {action, kept}
-export async function closeServer(folder, v, { by, epoch = null, system = false, status = 'ready', reason, me = null } = {}) {
+export async function closeServer(folder, v, { by, epoch = null, system = false, status = 'ready', reason, me = null, wait = null } = {}) {
+  const ev = { type: 'release', by, epoch, system }
   return onDisk(String(v.id), async () => {
-    const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'release', by, epoch, system }, { v: vv }), { by })
+    const peek = await seatOf(v.id)
+    const pre = peek ? decide(peek, ev, { v: await S.variationById(v.id) }) : null
+    if (pre?.ok && pre.clear) await saveFirst(folder, v, peek)
+    const out = await transition(v.id, (vv, seat) => decide(seat, ev, { v: vv }), { by })
     if (out.legacy || (out.ok && out.action === 'none')) {
       // no seat: a checkout still on disk is put away (its person, or the system)
       const cur = await S.variationById(v.id)
@@ -541,7 +608,7 @@ export async function closeServer(folder, v, { by, epoch = null, system = false,
       const W = await import('../workroom.js')
       W.closeRoom('variation', String(v.id), reason || L('작업본을 보관했어요 — 고친 것은 저장했어요.', 'The working copy was put away — what was changed is saved.'))
       await commitAsIs(folder, cur, { author: await personOf(by || cur.holder_id, cur), message: L('작업실 닫기', 'Close the workroom') })
-      const gone = await S.release(folder, await S.variationById(v.id))
+      const gone = await S.release(folder, await S.variationById(v.id), { mode: 'person', who: by || cur.holder_id })
       if (status) await q(`update pro_folder_variations set status=$2, updated_at=now() where id=$1 and status in ('open','conflicted')`, [v.id, status])
       return { ok: true, action: 'release', kept: gone?.kept || 0 }
     }
@@ -556,7 +623,7 @@ export async function closeServer(folder, v, { by, epoch = null, system = false,
     }
     if (status) await q(`update pro_folder_variations set status=$2, updated_at=now() where id=$1 and status in ('open','conflicted')`, [v.id, status])
     return { ...out, kept }
-  })
+  }, { wait: wait ?? (system ? SYSTEM_WAIT_MS : USER_WAIT_MS) })
 }
 
 // Before a merge, a discard or a handover of a variation: the actor's own server place is put away first (committed as it is), so what goes
@@ -593,7 +660,7 @@ export async function guardedWrite(room, user, fn) {
       && !!v?.worktree_path && v.worktree_path === room.root && fs.existsSync(room.root)
     if (!ok) throw err(409, L('그사이 작업본이 다른 곳으로 옮겨졌어요 — 새로 고쳐 보고 다시 해 주세요.', 'The working copy moved somewhere else meanwhile — reload and try again.'), { readonly: true })
     return fn()
-  })
+  }, { wait: SAVE_WAIT_MS })
 }
 
 // ---------- a computer's place ----------
@@ -604,8 +671,12 @@ export async function claimDevice(folder, v, { user, device, job = null, ready =
     .catch((e) => { if (isLegacy(e)) return [{ n: 0 }]; throw e })
   if (n >= MAX_DEVICE_SEATS) throw await refusal({ ok: false, why: 'limit', v }, folder, { me: user })
   if (await integrating(folder, v.id)) throw await refusal({ ok: false, why: 'integrating', v }, folder, { me: user })
+  const ev = { type: 'device', device, user: user.id, job, ready }
   return onDisk(String(v.id), async () => {
-    const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'device', device, user: user.id, job, ready }, { v: vv }), { by: user.id })
+    const peek = await seatOf(v.id)
+    const pre = peek ? decide(peek, ev, { v: await S.variationById(v.id) }) : null
+    if (pre?.ok && pre.clear) await saveFirst(folder, v, peek)
+    const out = await transition(v.id, (vv, seat) => decide(seat, ev, { v: vv }), { by: user.id })
     if (out.legacy) return out
     if (!out.ok) throw await refusal(out, folder, { me: user })
     if (out.clear && out.prev?.place === 'server') {
@@ -614,7 +685,7 @@ export async function claimDevice(folder, v, { user, device, job = null, ready =
     }
     if (out.action !== 'same') emit(String(user.id), 'folders', { slug: folder.slug, variation: v.id })
     return out
-  })
+  }, { wait: USER_WAIT_MS })
 }
 // a local run ended (done · failed · stopped · handed to the server): the seat it held goes (보관 중)
 export async function releaseJob(job) {
@@ -691,8 +762,12 @@ export async function take(folder, v, by, { role = null, epoch = null } = {}) {
   const cur = await seatOf(v.id, { v })
   const H = await import('../localAgents/hub.js')
   const online = !!(cur?.device_id && H.linkOf(T(), String(cur.device_id)))
+  const ev = { type: 'take', by: by.id, owner: role === 'owner', online, epoch }
   return onDisk(String(v.id), async () => {
-    const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'take', by: by.id, owner: role === 'owner', online, epoch }, { v: vv }), { by: by.id })
+    const peek = await seatOf(v.id)
+    const pre = peek ? decide(peek, ev, { v: await S.variationById(v.id) }) : null
+    if (pre?.ok && pre.clear) await saveFirst(folder, v, peek)
+    const out = await transition(v.id, (vv, seat) => decide(seat, ev, { v: vv }), { by: by.id })
     if (out.legacy) return out
     if (!out.ok) throw await refusal(out, folder, { me: by, role })
     if (out.prev?.place === 'server') {
@@ -709,7 +784,7 @@ export async function take(folder, v, by, { role = null, epoch = null } = {}) {
     await q(`update pro_folder_variations set status='ready', updated_at=now() where id=$1 and status='open'`, [v.id])
     if (out.prev && String(out.prev.user_id) !== String(by.id) && /^[0-9a-f-]{36}$/i.test(String(out.prev.user_id))) emit(String(out.prev.user_id), 'folders', { slug: folder.slug, variation: v.id })
     return out
-  })
+  }, { wait: USER_WAIT_MS })
 }
 
 // the seat's person's own switches (자동으로 올리기 · 같이 보기 — used by the desktop's working copy, design P1 · P2)
@@ -723,18 +798,33 @@ export async function setPrefs(folder, v, by, { autoSave, watch } = {}) {
 }
 
 // ---------- the sweep ----------
-// Every 30 s, per tenant, and only where no move holds the variation's lock (tryOnly — a move in progress elsewhere is left alone):
+// Every 30 s, per tenant, and only where no other work holds the variation's lease (tryOnly — a move in progress elsewhere is left alone):
 //   · moves that ran out of time end as 보관 중 (what the old place held was committed before it went), server seats whose checkout is gone
 //   · a turn, a handover or a know-how edit whose process stopped saying it runs (seen_at older than DEAD_MS) — committed as it is, put
 //     away. Never a step deepagents runs outside this server (its own end — stepTick — brings its result in), nor a chat change (its
-//     process's next start finishes it: recoverChatRuns)
+//     process's next start finishes it: recoverChatRuns). On two servers a turn in another sub-topic of the same project may take the seat
+//     from a turn still running on the other one: nothing is lost — that turn's result becomes a variation of its own (finishRun)
 //   · a checkout with no seat at all (from before seats, or left by a crash) that nobody touched for ORPHAN_MS: committed as it is, put
 //     away — not a step's or a chat change's (those end by their own paths), not while the variation is being merged
+//   · kept folders older than keptDays are removed
+// A variation whose checkout cannot be saved (a lock git still holds, a file it cannot read) is tried again later and later (BACKOFF), never
+// with a new epoch or a record for the attempt that failed.
 const ORPHAN_MS = 10 * 60_000
+const failures = new Map() // variation id → {n, next}
+export const backoffOf = (vid) => failures.get(String(vid)) || null
+const BACKOFF = (n) => Math.min(30 * 60_000, 30_000 * 2 ** n)
+function failed(vid, e) {
+  const f = failures.get(String(vid)) || { n: 0 }
+  f.n += 1
+  f.next = Date.now() + BACKOFF(f.n)
+  failures.set(String(vid), f)
+  console.warn(`[seats] ${String(vid).slice(0, 8)} could not be put away (${f.n}×, again in ${Math.round(BACKOFF(f.n) / 1000)} s): ${e.message}`)
+}
+const waiting = (vid) => (failures.get(String(vid))?.next || 0) > Date.now()
 export async function sweep() {
   let rows, orphans
   try {
-    rows = await q(`select s.variation_id, s.place, s.run, s.state, s.work, v.worktree_path from pro_variation_seats s join pro_folder_variations v on v.id=s.variation_id
+    rows = await q(`select s.variation_id, s.place, s.run, s.state, s.work, s.epoch, v.worktree_path from pro_variation_seats s join pro_folder_variations v on v.id=s.variation_id
                     where s.tenant_id=$1 and ((s.state in ('moving','returning') and s.deadline < now()) or (s.place='server' and s.state='held' and v.worktree_path is null)
                       or (s.place='server' and s.run='agent' and s.state='held' and s.work = any($2) and coalesce(s.seen_at, s.since) < now() - ($3 || ' milliseconds')::interval))`,
     [T(), SWEPT, String(DEAD_MS)])
@@ -747,30 +837,91 @@ export async function sweep() {
   } catch (e) { if (isLegacy(e)) return 0; throw e }
   let n = 0
   for (const s of rows) {
-    if (beats.has(String(s.variation_id))) continue // (this process runs it)
+    if (beating(s.variation_id, s.epoch) || waiting(s.variation_id)) continue // (this process runs it · tried a moment ago)
     const v = await S.variationById(s.variation_id)
     const f = v && await S.folderById(v.folder_id)
     if (!f) continue
     const dead = s.place === 'server' && s.run === 'agent' && s.state === 'held' && !!v.worktree_path
     const done = await onDisk(String(v.id), async () => {
       if (dead) {
-        const out = await transition(v.id, (vv, seat) => (seat && seat.state === 'held' && seat.run === 'agent' && SWEPT.includes(seat.work) ? { ok: true, next: { ...seat, state: 'returning', deadline: new Date(Date.now() + MOVE_MS) }, bump: true, action: 'expire' } : { ok: false, why: 'none' }), { note: `${s.work} stopped` })
+        // (saved first: a checkout that cannot be saved changes nothing — no new epoch, no record — and is tried again later)
+        await saveFirst(f, v, s)
+        const out = await transition(v.id, (vv, seat) => (seat && seat.state === 'held' && seat.run === 'agent' && SWEPT.includes(seat.work) && Number(seat.epoch) === Number(s.epoch) ? { ok: true, next: { ...seat, state: 'returning', deadline: new Date(Date.now() + MOVE_MS) }, bump: true, action: 'expire' } : { ok: false, why: 'none' }), { note: `${s.work} stopped` })
         if (!out.ok) return null
         try { await clearServer(f, out.v, out.prev, { reason: L('에이전트의 실행이 멈춰 작업본을 보관했어요.', "The agent's run stopped, so its working copy was put away.") }) } catch (e) { await putBack(v.id, out, e.message); throw e }
         return transition(v.id, (vv, seat) => (seat && Number(seat.epoch) === Number(out.epoch) ? { ok: true, next: null, bump: false, action: 'none' } : { ok: false, why: 'none' }))
       }
       return transition(v.id, (vv, seat) => decide(seat, { type: 'expire' }, { v: vv }), { note: 'deadline' })
-    }, { tryOnly: true }).catch((e) => { console.warn('[seats] sweep', e.message); return null })
-    if (done && !done.busy) n++
+    }, { tryOnly: true }).catch((e) => { failed(v.id, e); return null })
+    if (done && !done.busy) { n++; failures.delete(String(v.id)) }
   }
   for (const o of orphans) {
+    if (waiting(o.id)) continue
     const v = await S.variationById(o.id)
     const f = v && await S.folderById(v.folder_id)
     if (!f) continue
-    const done = await closeServer(f, v, { system: true, status: null, reason: L('아무도 쓰지 않던 작업본을 보관했어요.', 'A working copy nobody used was put away.') }).catch((e) => { console.warn('[seats] orphan', e.message); return null })
-    if (done) n++
+    const done = await closeServer(f, v, { system: true, status: null, wait: 0, reason: L('아무도 쓰지 않던 작업본을 보관했어요.', 'A working copy nobody used was put away.') }).catch((e) => { if (e.why !== 'busy') failed(v.id, e); return null })
+    if (done) { n++; failures.delete(String(v.id)) }
+  }
+  n += await dropOldKept().catch((e) => { console.warn('[seats] kept', e.message); return 0 })
+  return n
+}
+
+// ---------- what was kept ----------
+// What git does not carry, kept when a server place left the disk (S.release → retire: <folders>/.kept/<variation>/<time>): a person's
+// workroom keeps it all, a server agent run only what is not .gitignore'd (its caches and logs are dropped), a run whose commit failed
+// everything. Recorded on the variation (pro_variation_seat_log action 'kept'), listed on its screen with a download, removed after
+// keptDays (PRO_KEPT_DAYS, 14 by default).
+export const keptDays = () => Math.max(1, Number(process.env.PRO_KEPT_DAYS) || 14)
+async function dropOldKept() {
+  const root = S.keptRootOf()
+  let n = 0
+  const cut = Date.now() - keptDays() * 86400_000
+  for (const vid of await fsp.readdir(root).catch(() => [])) {
+    for (const at of await fsp.readdir(path.join(root, vid)).catch(() => [])) {
+      const p = path.join(root, vid, at)
+      const st = await fsp.stat(p).catch(() => null)
+      if (st && st.mtimeMs < cut) { await fsp.rm(p, { recursive: true, force: true }); n++ }
+    }
+    if (!(await fsp.readdir(path.join(root, vid)).catch(() => [])).length) await fsp.rmdir(path.join(root, vid)).catch(() => {})
   }
   return n
+}
+// may this person see it: whose place it was, the variation's own person, or the folder's owner
+const mayGetKept = (row, v, { me, role }) => role === 'owner' || (!!me && (String(row.by_user || '') === String(me.id) || (v.holder_type === 'user' && String(v.holder_id) === String(me.id))))
+const keptPath = (row) => { try { const n = JSON.parse(row.note || '{}'); return n.dir ? path.join(S.keptRootOf(), n.dir) : null } catch { return null } }
+// the variation's kept folders that are still there: [{id, at, until, count, bytes, from, why, canGet}] — no path
+export async function keptOf(folder, v, { me = null, role = null } = {}) {
+  const rows = await q(`select id, at, by_user, note from pro_variation_seat_log where variation_id=$1 and action='kept' order by at desc limit 20`, [v.id]).catch(() => [])
+  const out = []
+  for (const r of rows) {
+    const p = keptPath(r)
+    if (!p || !p.startsWith(S.keptRootOf() + path.sep) || !(await fsp.stat(p).catch(() => null))) continue
+    let n = {}
+    try { n = JSON.parse(r.note || '{}') } catch { /* an old row */ }
+    out.push({ id: String(r.id), at: r.at, until: new Date(new Date(r.at).getTime() + keptDays() * 86400_000).toISOString(), count: n.count ?? null, bytes: n.bytes || 0,
+      from: n.mode === 'agent' || n.mode === 'all' ? 'agent' : 'workroom', why: n.why ? 'unsaved' : null, canGet: mayGetKept(r, v, { me, role }) })
+  }
+  return out
+}
+// one kept folder as a zip (files only — a link is not followed) → {buffer, name}
+export async function keptZip(folder, v, id, { me = null, role = null } = {}) {
+  const [r] = await q(`select id, at, by_user, note from pro_variation_seat_log where id=$1 and variation_id=$2 and action='kept'`, [String(id).replace(/\D/g, '') || 0, v.id])
+  const p = r && keptPath(r)
+  if (!p || !p.startsWith(S.keptRootOf() + path.sep) || !(await fsp.stat(p).catch(() => null))) throw err(404, L('남겨 둔 파일을 찾지 못했어요(보관 기간이 지났을 수 있어요).', 'The kept files are not there (their time may have passed).'))
+  if (!mayGetKept(r, v, { me, role })) throw err(403, L('그 작업본을 가졌던 사람과 폴더 소유자만 내려받을 수 있어요.', 'Only whoever had that working copy and the folder owner can download it.'))
+  const JSZip = (await import('jszip')).default
+  const zip = new JSZip()
+  const add = async (dir, rel) => {
+    for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name), r2 = rel ? `${rel}/${e.name}` : e.name
+      if (e.isSymbolicLink()) continue
+      if (e.isDirectory()) await add(full, r2)
+      else if (e.isFile()) zip.file(r2, await fsp.readFile(full).catch(() => Buffer.from('')))
+    }
+  }
+  await add(p, '')
+  return { buffer: await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }), name: `${String(v.title || 'kept').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)}-kept.zip` }
 }
 let timer = null
 // (the second argument is kept for the callers of P0 — every sweep is the same now: a process that stopped is told by its silence)

@@ -66,7 +66,8 @@ const agentVar = (f, kind = 'run') => S.createVariation(f, { title: '실행', ki
 const open = (f, v, who) => SE.openServer(f, v, { user: who, run: 'workroom', dir: S.personCheckoutDir(who, v) })
 const fileOn = async (f, v, p) => (await G.show(f.repo_path, (await S.variationById(v.id)).branch, p).catch(() => Buffer.from(''))).toString()
 const wt = async (v) => (await S.variationById(v.id)).worktree_path
-const asideOf = async (dir) => (await fs.readdir(path.dirname(dir))).filter((n) => n.startsWith(`${path.basename(dir)}.kept-`)).map((n) => path.join(path.dirname(dir), n))
+// (what git does not carry goes to <folders>/.kept/<variation>/<time> — review 2, variationSeats.review2.test.js)
+const asideOf = async (v) => { const r = path.join(S.foldersRoot(), '.kept', String(v.id)); return (await fs.readdir(r).catch(() => [])).map((n) => path.join(r, n)) }
 
 // ---------- the rules ----------
 const A = 'aaaaaaaa-0000-4000-8000-000000000001'
@@ -159,8 +160,8 @@ test('R-02 커밋하지 못하면 옮기지 않고, git 이 싣지 않는 것은
   await G.git(path.join(dir, '안쪽'), [...G.who('x', 'x@example.test'), 'commit', '-q', '-m', 'inner'])
   const out = await SE.closeServer(f, await S.variationById(v.id), { by: owner.id, me: owner })
   assert.ok(out.kept > 0, JSON.stringify(out))
-  const [aside] = await asideOf(dir)
-  assert.ok(aside && existsSync(path.join(aside, '비밀.log')) && existsSync(path.join(aside, '안쪽', '속.md')), '옆에 옮겨 둔 폴더에 있다')
+  const [aside] = await asideOf(v)
+  assert.ok(aside && existsSync(path.join(aside, '비밀.log')) && existsSync(path.join(aside, '안쪽', '속.md')), '남겨 둔 폴더에 있다')
   assert.equal(await SE.seatOf(v.id), null)
   // S.checkout taking a branch from another place whose commit fails: nothing moves
   const v2 = await personVar(f, owner, '직접')
@@ -239,13 +240,13 @@ test('R-06 다른 곳에서 넘기는 중(잠금이 잡혀 있음)이면 쓸기�
   const v = await agentVar(f)
   await SE.transition(v.id, (vv, st) => SE.decide(st, { type: 'open', run: 'agent', user: 'x' }, { v: vv }))
   await q(`update pro_variation_seats set deadline = now() - interval '1 minute' where variation_id=$1`, [v.id])
-  const key = SE.lockKey(v.id)
-  const c = await pool.connect()
+  // (the lock is a lease row since review 2 — another server holds it)
+  await q(`insert into pro_variation_locks (variation_id, owner, until) values ($1, 'another-pod', now() + interval '30 seconds')
+           on conflict (variation_id) do update set owner=excluded.owner, until=excluded.until`, [v.id])
   try {
-    await c.query('select pg_advisory_lock($1::bigint)', [key])
     await SE.sweep()
     assert.equal((await q('select count(*)::int as n from pro_variation_seats where variation_id=$1', [v.id]))[0].n, 1, '잠금을 잡은 쪽이 끝낼 때까지 둔다')
-  } finally { await c.query('select pg_advisory_unlock($1::bigint)', [key]).catch(() => {}); c.release() }
+  } finally { await q('delete from pro_variation_locks where variation_id=$1', [v.id]) }
   await SE.sweep()
   assert.equal((await q('select count(*)::int as n from pro_variation_seats where variation_id=$1', [v.id]))[0].n, 0)
 })

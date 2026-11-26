@@ -224,7 +224,9 @@ export function folderRoutes(auth) {
     const row = await SE.seatOf(v.id, { v }).catch(() => null)
     const seat = SE.seatsOn() ? await SE.viewOf(row, v, { me: req.user, role }).catch(() => null) : null
     const { worktree_path, ...d } = await S.variationDetail(folder, v)
-    return { ...d, worktree_path: worktree_path ? true : null, seat, role, folder: S.publicFolder(folder) }
+    // (kept: what git does not carry, kept when a place left the disk — listed with a download until it is removed)
+    const kept = SE.seatsOn() ? await SE.keptOf(folder, v, { me: req.user, role }).catch(() => []) : []
+    return { ...d, worktree_path: worktree_path ? true : null, seat, kept, role, folder: S.publicFolder(folder) }
   }))
   r.get('/folders/:slug/variations/:vid/diff', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
@@ -289,6 +291,16 @@ export function folderRoutes(auth) {
     const v = await S.variation(folder, req.params.vid)
     const out = await SE.recall(folder, v, { ...user(req), id: req.user.id }, { why: String(req.body?.why || '').slice(0, 300), role })
     return { ok: true, seat: await SE.viewOf(out.seat || null, out.v || v, { me: req.user, role }) }
+  }))
+  // one kept folder as a zip — whoever had that working copy, the variation's own person, or the folder owner
+  r.get('/folders/:slug/variations/:vid/kept/:id', tokenAuth, auth, h(async (req, res) => {
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    const v = await S.variation(folder, req.params.vid)
+    const z = await SE.keptZip(folder, v, req.params.id, { me: req.user, role })
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(z.name)}`)
+    res.setHeader('Cache-Control', 'private, no-store')
+    res.end(z.buffer)
   }))
   r.patch('/folders/:slug/variations/:vid/seat', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
