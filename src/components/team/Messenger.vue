@@ -12,7 +12,7 @@ import { useApp } from '../../stores/app.js'
 import { useTeam, shareable } from '../../stores/team.js'
 import { kindOf, kindLabel, cardKind, viewMedia, mediaKindOf, sawShare } from '../../artifacts.js'
 // what my share's card says about each person it went to: changed · opened · not opened (src/shareReceipts.js)
-import { receiptOf, receiptHint } from '../../shareReceipts.js'
+import { receiptOf, receiptHint, missingReceipts } from '../../shareReceipts.js'
 // a picture · sound · video sent in the room: shown or played in place, opened in the viewer (not an editor) — src/openPlan.js
 import MediaPreview from '../MediaPreview.vue'
 import { openPlan } from '../../openPlan.js'
@@ -198,8 +198,15 @@ const cont = (m, choices) => run(`c${m.id}`, async () => {
 // (server lib/team/shares.js receipts, one request for the room; a first open comes live: stores/team.js 'opened'). Only I, the
 // sender, see it (2026-11-26 사용자: 「아직그대로는 뭔가? 혹시 확인여부 ㅡ 파일을 열어서 봤는지라면 좋은데」).
 const ownShares = computed(() => list.value.filter((m) => m.mine && (m.kind === 'share' || m.kind === 'mention') && m.artifacts?.length).map((m) => m.id))
+// A room opened: all of its cards once (a copy that changed since has no live event). After that only cards not asked for yet — a
+// share just sent, older messages loaded; a first open comes by itself ('opened').
+let freshFor = ''
+watch(() => team.open, (o) => { if (!o) freshFor = '' })
 watch(() => [team.open, team.active, ownShares.value.join()], () => {
-  if (team.open && team.active && ownShares.value.length) team.loadReceipts(team.active, ownShares.value).catch(() => {})
+  if (!team.open || !team.active || !ownShares.value.length) return
+  const ids = freshFor === team.active ? missingReceipts(ownShares.value, team.receipts) : ownShares.value
+  freshFor = team.active
+  if (ids.length) team.loadReceipts(team.active, ids).catch(() => {})
 }, { immediate: true })
 const sentTo = (m) => (m.mine ? team.receipts[m.id] || [] : [])
 const receipt = (r) => receiptOf(r, when)

@@ -29,3 +29,23 @@ export function receiptHint(r, when = (d) => String(d)) {
   if (!r?.openedAt || !r?.lastOpenedAt) return ''
   return new Date(r.lastOpenedAt) - new Date(r.openedAt) > 1000 ? `마지막으로 연 때 ${when(r.lastOpenedAt)}` : ''
 }
+
+// ---- asking for them (stores/team.js loadReceipts; PR #91 review) ----
+// The server looks at 100 message ids per request (lib/team/shares.js RECEIPTS_MAX): ids in parts of n, the most recent first
+// (the room's list is oldest first, and the newest cards are the ones on the screen), each id once.
+export function receiptChunks(ids, n = 100) {
+  const list = [...new Set((ids || []).filter(Boolean).map(String))].reverse()
+  const out = []
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n))
+  return out
+}
+// the ids not asked for yet (a card already answered is kept up to date by the live 'opened' event)
+export const missingReceipts = (ids, have) => (ids || []).filter((id) => id && !Object.prototype.hasOwnProperty.call(have || {}, id))
+// an answer {receipts, asked} put into what is known: a message the server looked at gets its people ([] when none — every share of
+// it taken back); one it did not look at stays as it was, unknown, to be asked for again — never an empty list by mistake
+export function mergeReceipts(prev, answer) {
+  const next = { ...(prev || {}) }
+  const got = answer?.receipts || {}
+  for (const id of answer?.asked || Object.keys(got)) next[id] = got[id] || []
+  return next
+}

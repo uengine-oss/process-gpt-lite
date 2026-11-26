@@ -16,6 +16,8 @@ import { viewW } from '../viewport.js'
 import { merged } from '../messageMerge.js'
 // reactions on a room's messages: my own toggled at once, the server's answer and the room's live ones after (src/roomReactions.js)
 import { toggled } from '../roomReactions.js'
+// my share cards' people: asked in parts, merged without guessing (src/shareReceipts.js)
+import { receiptChunks, mergeReceipts } from '../shareReceipts.js'
 
 const store = () => { try { return window.localStorage } catch { return null } }
 
@@ -364,12 +366,14 @@ export const useTeam = defineStore('team', {
       else if (router) await router.push('/chat')
       return r
     },
-    // my share messages in a room (ids): for each person they went to, opened or not and what their copy changed — one request
+    // my share messages in a room (ids): for each person they went to, opened or not and what their copy changed — in parts of
+    // 100, the most recent first (src/shareReceipts.js); only what the server looked at is kept
     async loadReceipts(threadId, ids) {
-      const list = [...new Set(ids)].filter(Boolean)
-      if (!threadId || !list.length) return
-      const r = await api(`/team/threads/${encodeURIComponent(threadId)}/receipts?ids=${list.map(encodeURIComponent).join(',')}`)
-      this.receipts = { ...this.receipts, ...Object.fromEntries(list.map((id) => [id, r.receipts?.[id] || []])) }
+      if (!threadId) return
+      for (const part of receiptChunks(ids)) {
+        const r = await api(`/team/threads/${encodeURIComponent(threadId)}/receipts?ids=${part.map(encodeURIComponent).join(',')}`)
+        this.receipts = mergeReceipts(this.receipts, r)
+      }
     },
     // a file of a branch, read-only unless the branch is mine — in the panel like any document (same answer as openShared);
     // a picture · sound · video in the viewer (read-only there: no 「편집」)

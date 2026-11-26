@@ -6,6 +6,7 @@
 //           받은 사람의 화면에는 이 줄이 없다
 //   F-SO-02 휴대폰 390px 밤: 정민호가 받은 편지함의 「열어 보기」로 연다 → 보낸 사람 카드: 두 사람 「열어 봄」, 한지우(corp-a) 「안 열어 봄」 · 옆으로 넘치지 않음
 //   F-SO-03 영어 화면: 「Opened · just now」 · 「Not opened」, 이름의 주소 표시는 그대로
+//   F-SO-04 (PR #91 검토) 방을 연 채 새 공유를 보내면 그 메시지만 묻는다(이미 받은 카드는 다시 묻지 않음) — 새 카드도 「안 열어 봄」
 // 자기 스택(lib/localStack.js — 회사 share-open-ui, RT_API_FROM · RT_WEB_FROM 부터 빈 포트, 기본 8977 · 5377)을 띄우고 지운다. 모델은 부르지 않는다.
 //   cd e2e && npx playwright test --project=feature tests/feature/share-opened.spec.js
 import { test, expect } from '@playwright/test'
@@ -189,5 +190,21 @@ test('F-SO-03 영어 화면 — Opened · just now / Not opened, 이름의 주�
   await shot(en, 'f-so-03-sender-english')
   expect(en.errors).toEqual([])
   await en.context().close()
-  if (sender) await sender.context().close()
+})
+
+test('F-SO-04 방을 연 채 새 공유를 보내면 그 메시지만 묻는다', async ({ browser }) => {
+  const p = sender || await page(browser, DY)
+  if (!sender) await openRoom(p)
+  await expect(line(p, J1)).toBeVisible({ timeout: 15000 })
+  const asked = []
+  p.on('request', (r) => { if (r.url().includes('/receipts?')) asked.push(new URL(r.url()).searchParams.get('ids')) })
+  const card = await rawPost(DY.token, '/team/uploads', picture(), { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent('두 번째 화면.png'), 'X-File-Type': 'image/png' })
+  const second = (await S.api(DY.token, `/team/threads/${room}/messages`, { method: 'POST', body: { text: '이것도 봐 주세요', artifactIds: [card.id] } })).id
+  const fresh = p.locator(`.ms [data-id="${second}"] [data-test="share-receipt"][data-person="${MH.id}"] [data-test="receipt-state"]`)
+  await expect(fresh).toHaveText('안 열어 봄', { timeout: 15000 })
+  expect(asked, '새 메시지만 묻는다').toEqual([second])
+  // the first card is still as it was (not asked again, not emptied)
+  await expect(stateOf(p, J1)).toHaveText('열어 봄 · 방금')
+  expect(p.errors).toEqual([])
+  await p.context().close()
 })

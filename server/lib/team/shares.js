@@ -14,6 +14,7 @@ import * as W from './worktree.js'
 import { linkKey, signLink, linkPath } from './mediaLink.js'
 import { person, people } from '../people.js'
 import { emit } from '../bus.js'
+import { pool } from '../pool.js'
 
 const T = () => config.tenantId
 const KIND = (n) => String(n || '').split('.').pop().toLowerCase().slice(0, 12)
@@ -266,30 +267,36 @@ export async function branchAttachments(user, room) {
 // another company) changes nothing: a forward is a share of its own, with its own row. The sender hears of a first open at once
 // ('opened', to the sender only — nobody else in the room). ids: share ids. → how many rows it marked
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Does this database have sql/066 (last_opened_at)? Asked once; a database that does not yet is asked again after a while (the
+// migration may run while this server is up). Without it, only the first open is written, as before.
+let has066 = null, askedAt = 0
+async function lastOpenedReady() {
+  if (has066 === true || (has066 === false && Date.now() - askedAt < 5 * 60_000)) return has066
+  askedAt = Date.now()
+  has066 = await q('select last_opened_at from pro_shares limit 0').then(() => true, (e) => { if (e.code !== '42703') throw e; return false })
+  return has066
+}
 export async function recordOpen(user, ids) {
   const list = [...new Set((ids || []).map(String))].filter((x) => UUID.test(x)).slice(0, 50)
   if (!list.length || !UUID.test(String(user?.id || ''))) return 0
   const where = 'tenant_id=$1 and recipient_id=$2::uuid and id = any($3::uuid[]) and revoked_at is null'
-  let rows
-  try {
-    rows = await q(`with prev as (select id, opened_at from pro_shares where ${where})
-                    update pro_shares s set opened_at = coalesce(s.opened_at, now()), last_opened_at = now() from prev where s.id = prev.id
-                    returning s.owner_id, s.room_id, s.chat_uuid, prev.opened_at is null as first`, [T(), String(user.id), list])
-  } catch (e) {
-    // a database the 066 migration has not reached: the first open only, as before
-    if (e.code !== '42703') throw e
-    rows = await q(`with prev as (select id, opened_at from pro_shares where ${where})
-                    update pro_shares s set opened_at = coalesce(s.opened_at, now()) from prev where s.id = prev.id
-                    returning s.owner_id, s.room_id, s.chat_uuid, prev.opened_at is null as first`, [T(), String(user.id), list])
-  }
+  const args = [T(), String(user.id), list]
+  const last = await lastOpenedReady()
+  // the first open, once: only the statement that finds opened_at still empty gets the row back (a second open at the same moment
+  // waits for the row and then no longer matches) — so the sender hears of it once
+  const first = await q(`update pro_shares set opened_at = now()${last ? ', last_opened_at = now()' : ''} where ${where} and opened_at is null
+                         returning owner_id, room_id, chat_uuid`, args)
+  // every open: the last time (rows opened before, or just now). Without 066: the rows that have their first open.
+  const marked = (await q(last ? `update pro_shares set last_opened_at = now() where ${where} returning id`
+    : `select id from pro_shares where ${where} and opened_at is not null`, args)).length
   const told = new Set()
-  for (const r of rows) {
+  for (const r of first) {
     const k = `${r.owner_id}|${r.chat_uuid}`
-    if (!r.first || told.has(k)) continue
+    if (told.has(k)) continue
     told.add(k)
     emit(String(r.owner_id), 'team', { type: 'opened', threadId: r.room_id, messageId: r.chat_uuid })
   }
-  return rows.length
+  return marked
 }
 
 // POST …/opened: the recipient's own screen opened a share where the server does not see it (their copy's card in their work
@@ -301,16 +308,17 @@ export async function markOpened(user, id) {
 }
 
 // The sender's cards in one room: for each of my share messages asked for, each person it went to — how many of its files they
-// opened (first · last), and what their copy (branch) changed since (worktree.js branchStatus). Mine only: rows I own (a message
-// someone else sent answers nothing, and no one else learns who opened what). messageIds: chats uuids → {messageId: [person]}
+// opened (first · last), and what their copy (branch) changed since (worktree.js branchStatus, a few at a time). Mine only: rows I
+// own (a message someone else sent answers nothing, and no one else learns who opened what). messageIds: chats uuids (the first
+// 100) → {receipts: {messageId: [person]}, asked: the ids looked at} — an id not in asked was not looked at (the screen asks again)
+export const RECEIPTS_MAX = 100
 export async function receipts(me, roomId, messageIds) {
-  const ids = [...new Set((messageIds || []).map(String))].filter((x) => /^[\w.:-]{1,120}$/.test(x)).slice(0, 100)
-  if (!ids.length || !/^[\w.:-]{1,120}$/.test(String(roomId || '')) || !UUID.test(String(me?.id || ''))) return {}
-  const sql = (last) => `select recipient_id::text as recipient_id, chat_uuid, opened_at, ${last} as last_opened_at, branch_room_id, start_commit_id
-                           from pro_shares where tenant_id=$1 and owner_id=$2::uuid and room_id=$3 and chat_uuid = any($4::text[]) and revoked_at is null
-                          order by created_at, id`
-  const args = [T(), String(me.id), String(roomId), ids]
-  const rows = await q(sql('coalesce(last_opened_at, opened_at)'), args).catch((e) => { if (e.code !== '42703') throw e; return q(sql('opened_at'), args) })
+  const ids = [...new Set((messageIds || []).map(String))].filter((x) => /^[\w.:-]{1,120}$/.test(x)).slice(0, RECEIPTS_MAX)
+  if (!ids.length || !/^[\w.:-]{1,120}$/.test(String(roomId || '')) || !UUID.test(String(me?.id || ''))) return { receipts: {}, asked: [] }
+  const last = (await lastOpenedReady()) ? 'coalesce(last_opened_at, opened_at)' : 'opened_at'
+  const rows = await q(`select recipient_id::text as recipient_id, chat_uuid, opened_at, ${last} as last_opened_at, branch_room_id, start_commit_id
+                          from pro_shares where tenant_id=$1 and owner_id=$2::uuid and room_id=$3 and chat_uuid = any($4::text[]) and revoked_at is null
+                         order by created_at, id`, [T(), String(me.id), String(roomId), ids])
   const who = await people(rows.map((r) => r.recipient_id))
   const out = {}, branchRow = new Map()
   const iso = (d) => (d ? new Date(d).toISOString() : null)
@@ -330,12 +338,12 @@ export async function receipts(me, roomId, messageIds) {
     if (r.last_opened_at && (!p.lastOpenedAt || new Date(r.last_opened_at) > new Date(p.lastOpenedAt))) p.lastOpenedAt = iso(r.last_opened_at)
     if (r.branch_room_id && !branchRow.has(p)) branchRow.set(p, r)
   }
-  // what each copy changed (a database without the worktree tables: none)
-  for (const [p, r] of branchRow) {
+  // what each copy changed, four at a time (a database without the worktree tables: none)
+  await pool([...branchRow], 4, async ([p, r]) => {
     const b = await W.branchStatus({ ...r, name: p.name }).catch(() => null)
     if (b) p.branch = { room: b.room, added: b.added, modified: b.modified, removed: b.removed, at: b.at, by: b.by }
-  }
-  return out
+  })
+  return { receipts: out, asked: ids }
 }
 
 export async function revoke(user, id) {

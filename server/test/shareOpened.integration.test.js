@@ -1,16 +1,20 @@
 // 받은 사람이 공유된 파일을 열어 봤는지(2026-11-26 사용자 휴대폰 화면: 단체방 「보냄 · 공유」 카드에 「… 아직 그대로」 — 「아직그대로는 뭔가?
 // 혹시 확인여부 ㅡ 파일을 열어서 봤는지라면 좋은데 ○○○께서 열어보셨다는데 아직그대로로 표시된」). lib/team/shares.js recordOpen · markOpened ·
 // receipts, routes/team.js. 실제 DB · 로컬 Storage, 팀 경로는 실제 Express 라우트에 대고(로그인만 대역). 사람 이름은 지어낸 것이다.
-//   SO-I-01 보낸 직후: 받은 사람마다 「안 열어 봄」(열어 본 수 0), 같은 이름의 두 계정은 주소로 가를 수 있게 이름과 주소가 함께 온다
-//   SO-I-02 방의 작은 미리 보기(open 없이 raw)는 열어 본 것이 아니다 · 받은 사람이 raw 로 열면(open=1) 처음 · 마지막 연 때가 적히고 보낸 사람에게만
+//   SH-I-01 보낸 직후: 받은 사람마다 「안 열어 봄」(열어 본 수 0), 같은 이름의 두 계정은 주소로 가를 수 있게 이름과 주소가 함께 온다
+//   SH-I-02 방의 작은 미리 보기(open 없이 raw)는 열어 본 것이 아니다 · 받은 사람이 raw 로 열면(open=1) 처음 · 마지막 연 때가 적히고 보낸 사람에게만
 //           'opened' 가 간다 · 다시 열면 마지막 연 때만 바뀐다
-//   SO-I-03 서명된 주소(메신저의 보기 화면)로 열어도 같다 — 그 사람의 행에만
-//   SO-I-04 보낸 사람이 같은 공유를 열면(raw open=1 · 열기 · opened) 아무 행도 바뀌지 않는다(보낸 사람의 공유 id 는 첫 받은 사람의 행이다)
-//   SO-I-05 다른 회사 · 방 밖 팀원: raw 403 · 404, 그 회사로 서명한 주소도 404, 아무 행도 바뀌지 않는다
-//   SO-I-06 칩으로 편집기에서 열기(POST …/open), 자기 사본 카드에서 열기(POST …/opened), 「이어서 작업」도 연 것으로 적힌다
-//   SO-I-07 누가 열었는지는 보낸 사람만: 받은 사람 · 방 밖 팀원이 같은 메시지를 물으면 빈 목록
-//   SO-I-08 전달: 받은 사람이 자기 사본을 다른 사람에게 보내고 그 사람이 열면 그 사람의 행만 — 처음 보낸 사람의 카드에는 아무것도 바뀌지 않는다
-//   SO-I-09 거둔 공유는 열 수도 없고(404) 적히지도 않는다
+//   SH-I-03 서명된 주소(메신저의 보기 화면)로 열어도 같다 — 그 사람의 행에만
+//   SH-I-04 보낸 사람이 같은 공유를 열면(raw open=1 · 열기 · opened) 아무 행도 바뀌지 않는다(보낸 사람의 공유 id 는 첫 받은 사람의 행이다)
+//   SH-I-05 다른 회사 · 방 밖 팀원: raw 403 · 404, 그 회사로 서명한 주소도 404, 아무 행도 바뀌지 않는다
+//   SH-I-06 칩으로 편집기에서 열기(POST …/open), 자기 사본 카드에서 열기(POST …/opened), 「이어서 작업」도 연 것으로 적힌다
+//   SH-I-07 누가 열었는지는 보낸 사람만: 받은 사람 · 방 밖 팀원이 같은 메시지를 물으면 빈 목록
+//   SH-I-08 전달: 받은 사람이 자기 사본을 다른 사람에게 보내고 그 사람이 열면 그 사람의 행만 — 처음 보낸 사람의 카드에는 아무것도 바뀌지 않는다
+//   SH-I-09 거둔 공유는 열 수도 없고(404) 적히지도 않는다
+//   (PR #91 검토) SH-I-10 회의의 AI 제안이 작업 지시에 자료를 붙이는 것은 연 것이 아니다 — 회의에서 그 자료를 직접 열면 적힌다
+//   SH-I-11 raw open=1 의 구간 요청(재생 · 넘기기)은 처음부터(bytes=0-)일 때만 적는다 · 적기를 기다리지 않고 보낸다
+//   SH-I-12 한 사람이 동시에 여러 번 처음 열어도 보낸 사람에게 'opened' 는 한 번
+//   SH-I-13 받은 사람 목록 응답은 살펴본 메시지 id(asked)를 함께 준다 — 100개를 넘긴 id 는 asked 에 없다
 // Run: node --test --test-concurrency=1 test/shareOpened.integration.test.js  (로컬 Supabase, sql/066 적용)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -100,6 +104,8 @@ async function call(u, method, p, body, headers = {}) {
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 const sendFile = (u, name, buf, type) => call(u, 'POST', '/team/uploads', buf, { 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(name), 'x-file-type': type })
 const row = async (id) => (await q('select opened_at, last_opened_at, recipient_id from pro_shares where id=$1', [id]))[0]
+// (raw ?open=1 writes alongside the answer, not before it: wait for the row)
+const settle = async (fn, ms = 3000) => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v || Date.now() - t0 > ms) return v; await new Promise((r) => setTimeout(r, 50)) } }
 const opened = (u, after) => bus.poll(u.id, after, 0).then((l) => l.filter((e) => e.type === 'team' && e.data?.type === 'opened'))
 
 // 서도윤 sends a screenshot to the group room 「시니어 모임」: 한지우 (two accounts, one person), 정민호; 오세린 is on the team, not in the room
@@ -125,7 +131,7 @@ async function setup() {
 }
 const receipts = async (u, room, ids) => call(u, 'GET', `/team/threads/${room}/receipts?ids=${ids.join(',')}`)
 
-test('SO-I-01 보낸 직후: 받은 사람마다 안 열어 봄, 같은 이름의 두 계정은 이름과 주소가 함께', { skip: !db }, async () => {
+test('SH-I-01 보낸 직후: 받은 사람마다 안 열어 봄, 같은 이름의 두 계정은 이름과 주소가 함께', { skip: !db }, async () => {
   const { sender, j1, j2, mh, room, msg } = await setup()
   const r = await receipts(sender, room, [msg])
   assert.equal(r.status, 200, r.text)
@@ -137,7 +143,7 @@ test('SO-I-01 보낸 직후: 받은 사람마다 안 열어 봄, 같은 이름�
   assert.deepEqual(two.map((p) => p.email).sort(), [j1.email, j2.email].sort())
 })
 
-test('SO-I-02 방의 미리 보기는 연 것이 아니고, 받은 사람이 raw 로 열면(open=1) 처음 · 마지막 연 때 — 보낸 사람에게만 알림', { skip: !db }, async () => {
+test('SH-I-02 방의 미리 보기는 연 것이 아니고, 받은 사람이 raw 로 열면(open=1) 처음 · 마지막 연 때 — 보낸 사람에게만 알림', { skip: !db }, async () => {
   const { sender, j1, j2, mh, a1, a2, am } = await setup()
   // the room's small preview of the picture asks without open: shown, not opened
   const pre = await call(j1, 'GET', `/team/shares/${a1.shareId}/raw?inline=1`)
@@ -148,14 +154,14 @@ test('SO-I-02 방의 미리 보기는 연 것이 아니고, 받은 사람이 raw
   const o1 = await call(j1, 'GET', `/team/shares/${a1.shareId}/raw?inline=1&open=1`)
   assert.equal(o1.status, 200, o1.text)
   assert.deepEqual(o1.bytes, PNG)
-  const r1 = await row(a1.shareId)
-  assert.ok(r1.opened_at && r1.last_opened_at, '처음 · 마지막 연 때')
+  const r1 = await settle(async () => { const x = await row(a1.shareId); return x.opened_at && x.last_opened_at ? x : null })
+  assert.ok(r1, '처음 · 마지막 연 때')
   assert.equal(String(r1.recipient_id), j1.id)
   // the other recipients' rows are untouched
   assert.equal((await row(a2.shareId)).opened_at, null)
   assert.equal((await row(am.shareId)).opened_at, null)
   // the sender hears of it (to open their card again), no one else does
-  const ev = await opened(sender, before)
+  const ev = await settle(async () => { const l = await opened(sender, before); return l.length ? l : null })
   assert.equal(ev.length, 1)
   assert.equal(ev[0].data.messageId, (await setup()).msg)
   for (const u of [j1, j2, mh]) assert.equal((await opened(u, before)).length, 0)
@@ -163,7 +169,7 @@ test('SO-I-02 방의 미리 보기는 연 것이 아니고, 받은 사람이 raw
   await new Promise((r) => setTimeout(r, 30))
   const seq2 = bus.lastSeq()
   assert.equal((await call(j1, 'GET', `/team/shares/${a1.shareId}/raw?open=1`)).status, 200)
-  const r2 = await row(a1.shareId)
+  const r2 = await settle(async () => { const x = await row(a1.shareId); return x.last_opened_at > r1.last_opened_at ? x : null })
   assert.equal(r2.opened_at.toISOString(), r1.opened_at.toISOString())
   assert.ok(r2.last_opened_at > r1.last_opened_at)
   assert.equal((await opened(sender, seq2)).length, 0)
@@ -174,21 +180,22 @@ test('SO-I-02 방의 미리 보기는 연 것이 아니고, 받은 사람이 raw
   assert.equal(list.find((p) => p.id === j2.id).opened, 0)
 })
 
-test('SO-I-03 서명된 주소(메신저의 보기 화면)로 열어도 그 사람의 행에만 적힌다', { skip: !db }, async () => {
+test('SH-I-03 서명된 주소(메신저의 보기 화면)로 열어도 그 사람의 행에만 적힌다', { skip: !db }, async () => {
   const { j2, a2, mh, am } = await setup()
   assert.match(a2.link, /^\/team\/shares\/[0-9a-f-]{36}\/raw\?u=/)
   const r = await call(null, 'GET', `${a2.link}&open=1`)
   assert.equal(r.status, 200, r.text)
-  assert.ok((await row(a2.shareId)).opened_at)
+  assert.ok(await settle(async () => (await row(a2.shareId)).opened_at))
   assert.equal(String((await row(a2.shareId)).recipient_id), j2.id)
   assert.equal((await row(am.shareId)).opened_at, null)
   // the same address without open (the room's preview): nothing for 정민호
   assert.equal((await call(null, 'GET', am.link)).status, 200)
+  await new Promise((r) => setTimeout(r, 300))
   assert.equal((await row(am.shareId)).opened_at, null)
   assert.equal(String((await row(am.shareId)).recipient_id), mh.id)
 })
 
-test('SO-I-04 보낸 사람이 열면 아무 행도 바뀌지 않는다', { skip: !db }, async () => {
+test('SH-I-04 보낸 사람이 열면 아무 행도 바뀌지 않는다', { skip: !db }, async () => {
   const { sender, mine, msg, room } = await setup()
   // the sender's share id is the first recipient's row (viewArtifacts): opening it must not mark that person
   const target = (await q('select id, recipient_id from pro_shares where id=$1', [mine.shareId]))[0]
@@ -197,6 +204,7 @@ test('SO-I-04 보낸 사람이 열면 아무 행도 바뀌지 않는다', { skip
   assert.equal((await call(sender, 'GET', `/team/shares/${mine.shareId}/raw?open=1`)).status, 200)
   assert.equal((await call(null, 'GET', `${mine.link}&open=1`)).status, 200)
   assert.equal((await call(sender, 'POST', `/team/shares/${mine.shareId}/open`)).status, 200)
+  await new Promise((r) => setTimeout(r, 300))
   const o = await call(sender, 'POST', `/team/shares/${mine.shareId}/opened`)
   assert.equal(o.status, 200, o.text)
   assert.equal(o.body.recorded, false)
@@ -207,7 +215,7 @@ test('SO-I-04 보낸 사람이 열면 아무 행도 바뀌지 않는다', { skip
   assert.equal(p.opened, 0)
 })
 
-test('SO-I-05 다른 회사 · 방 밖 팀원은 열지 못하고 아무것도 적히지 않는다', { skip: !db }, async () => {
+test('SH-I-05 다른 회사 · 방 밖 팀원은 열지 못하고 아무것도 적히지 않는다', { skip: !db }, async () => {
   const { out, far, mh, am } = await setup()
   assert.equal((await call(out, 'GET', `/team/shares/${am.shareId}/raw?open=1`)).status, 404)
   assert.equal((await call(out, 'POST', `/team/shares/${am.shareId}/opened`)).status, 404)
@@ -225,7 +233,7 @@ test('SO-I-05 다른 회사 · 방 밖 팀원은 열지 못하고 아무것도 �
   assert.equal(String((await row(am.shareId)).recipient_id), mh.id)
 })
 
-test('SO-I-06 칩으로 편집기에서 열기 · 자기 사본 카드에서 열기 · 「이어서 작업」도 연 것으로 적힌다', { skip: !db }, async () => {
+test('SH-I-06 칩으로 편집기에서 열기 · 자기 사본 카드에서 열기 · 「이어서 작업」도 연 것으로 적힌다', { skip: !db }, async () => {
   const { sender, mh, am, j2, room } = await setup()
   // the chip → the editor: POST …/open (the recipient's own card)
   const o = await call(mh, 'POST', `/team/shares/${am.shareId}/open`)
@@ -252,7 +260,7 @@ test('SO-I-06 칩으로 편집기에서 열기 · 자기 사본 카드에서 열
   assert.equal(list.filter((p) => p.opened).length, 1)
 })
 
-test('SO-I-07 누가 열었는지는 보낸 사람만 본다', { skip: !db }, async () => {
+test('SH-I-07 누가 열었는지는 보낸 사람만 본다', { skip: !db }, async () => {
   const { j1, out, room, msg } = await setup()
   const asRecipient = await receipts(j1, room, [msg])
   assert.equal(asRecipient.status, 200)
@@ -265,7 +273,7 @@ test('SO-I-07 누가 열었는지는 보낸 사람만 본다', { skip: !db }, as
   assert.ok(!/opened/i.test(br.text), br.text)
 })
 
-test('SO-I-08 전달: 받은 사람이 자기 사본을 보내면, 그 사람이 열어도 처음 보낸 사람의 카드는 그대로', { skip: !db }, async () => {
+test('SH-I-08 전달: 받은 사람이 자기 사본을 보내면, 그 사람이 열어도 처음 보낸 사람의 카드는 그대로', { skip: !db }, async () => {
   const { sender, j1, mh, out, room, msg } = await setup()
   // 한지우 (mail-b) forwards their own copy (the card POST …/open gave them) to 오세린 in a 1:1
   const card = (await call(j1, 'POST', `/team/shares/${(await setup()).a1.shareId}/open`)).body.message
@@ -278,8 +286,8 @@ test('SO-I-08 전달: 받은 사람이 자기 사본을 보내면, 그 사람이
   const before = bus.lastSeq()
   assert.equal((await call(out, 'GET', `/team/shares/${fwShare}/raw?open=1`)).status, 200)
   // 오세린's own row (the forward) is marked; its sender (한지우) hears of it, 서도윤 does not
-  assert.ok((await row(fwShare)).opened_at)
-  assert.equal((await opened(j1, before)).length, 1)
+  assert.ok(await settle(async () => (await row(fwShare)).opened_at))
+  assert.equal((await settle(async () => { const l = await opened(j1, before); return l.length ? l : null })).length, 1)
   assert.equal((await opened(sender, before)).length, 0)
   assert.equal(JSON.stringify((await receipts(sender, room, [msg])).body.receipts[msg]), firstCard)
   const fwList = (await receipts(j1, dm.body.id, [fw.body.id])).body.receipts[fw.body.id]
@@ -287,7 +295,7 @@ test('SO-I-08 전달: 받은 사람이 자기 사본을 보내면, 그 사람이
   assert.ok(!fwList.some((p) => p.id === mh.id))
 })
 
-test('SO-I-09 거둔 공유는 열 수도, 적히지도 않는다', { skip: !db }, async () => {
+test('SH-I-09 거둔 공유는 열 수도, 적히지도 않는다', { skip: !db }, async () => {
   const { sender, mh, am } = await setup()
   await q('update pro_shares set opened_at=null, last_opened_at=null where id=$1', [am.shareId])
   assert.equal((await call(sender, 'DELETE', `/team/shares/${am.shareId}`)).status, 200)
@@ -295,4 +303,79 @@ test('SO-I-09 거둔 공유는 열 수도, 적히지도 않는다', { skip: !db 
   assert.equal((await call(mh, 'POST', `/team/shares/${am.shareId}/opened`)).status, 404)
   assert.equal(await S.recordOpen({ id: mh.id }, [am.shareId]), 0)
   assert.equal((await row(am.shareId)).opened_at, null)
+})
+
+// ---- PR #91 review ----
+// a fresh file in the room: every recipient's row unopened
+async function freshShare(name) {
+  const { sender, room } = await setup()
+  const up = await sendFile(sender, name, PNG, 'image/png')
+  assert.equal(up.status, 200, up.text)
+  const m = await call(sender, 'POST', `/team/threads/${room}/messages`, { text: `${name} 보내요`, artifactIds: [up.body.id] })
+  assert.equal(m.status, 200, m.text)
+  return { cardId: up.body.id, msgId: m.body.id }
+}
+const shareOfMsg = async (u, room, msgId) => (await call(u, 'GET', `/team/threads/${room}/messages`)).body.messages.find((x) => x.id === msgId).artifacts[0].shareId
+
+test('SH-I-10 회의의 AI 제안이 작업 지시에 자료를 붙이는 것은 연 것이 아니다 — 직접 열면 적힌다', { skip: !db }, async () => {
+  const { sender, j1, room } = await setup()
+  const { cardId, msgId } = await freshShare('회의 화면.png')
+  const j1Share = await shareOfMsg(j1, room, msgId)
+  const [mt] = await q(`insert into pro_meetings(tenant_id, room_id, started_by, state, ended_at) values ('localhost',$1,$2,'ended',now()) returning id`, [room, sender.id])
+  const [mat] = await q(`insert into pro_meeting_materials(meeting_id, room_id, kind, ref, key, title, presented_by, presented_at)
+                         values ($1,$2,'file',$3,$4,'회의 화면.png',$5,now()) returning *`, [mt.id, room, { ownerId: sender.id, sourceId: cardId }, `file:${cardId}`, sender.id])
+  // 한지우 (mail-b) presses 시작 on the meeting's suggestion: the agent's work order carries the material — not an open
+  const { meetingOrder } = await import('../lib/meetings/order.js')
+  const order = await meetingOrder({ id: j1.id, email: j1.email, name: j1.name }, { meeting_id: mt.id, chat_uuid: 'minutes', title: '회의 화면 정리' })
+  assert.equal(order.files.length, 1, '자료는 작업 지시에 붙는다')
+  assert.equal((await row(j1Share)).opened_at, null, 'AI 제안의 작업 지시는 연 것이 아니다')
+  // opening the material in the meeting is
+  const MAT = await import('../lib/meetings/materials.js')
+  assert.ok(await MAT.openFile({ id: j1.id, email: j1.email, name: j1.name }, mat))
+  assert.ok((await row(j1Share)).opened_at, '회의에서 직접 연 것은 적힌다')
+})
+
+test('SH-I-11 raw open=1 의 구간 요청은 처음부터일 때만 적는다', { skip: !db }, async () => {
+  const { j1, j2, room } = await setup()
+  const { msgId } = await freshShare('구간 요청.png')
+  const s1 = await shareOfMsg(j1, room, msgId), s2 = await shareOfMsg(j2, room, msgId)
+  // a seek further in (a player asks for the middle): not an open
+  const mid = await call(j1, 'GET', `/team/shares/${s1}/raw?inline=1&open=1`, null, { Range: 'bytes=10-20' })
+  assert.equal(mid.status, 206, mid.text)
+  await new Promise((r) => setTimeout(r, 400))
+  assert.equal((await row(s1)).opened_at, null, '중간 구간은 연 것이 아니다')
+  // from the start (the first request of a player, the viewer): an open — written after the answer, not before it
+  const head = await call(j1, 'GET', `/team/shares/${s1}/raw?inline=1&open=1`, null, { Range: 'bytes=0-' })
+  assert.equal(head.status, 206, head.text)
+  assert.ok(await settle(async () => (await row(s1)).opened_at), 'bytes=0- 은 적힌다')
+  // no Range at all (the viewer's picture): an open
+  assert.equal((await call(j2, 'GET', `/team/shares/${s2}/raw?open=1`)).status, 200)
+  assert.ok(await settle(async () => (await row(s2)).opened_at), 'Range 없이 열면 적힌다')
+})
+
+test('SH-I-12 한 사람이 동시에 여러 번 처음 열어도 보낸 사람에게 opened 는 한 번', { skip: !db }, async () => {
+  const { sender, mh, room } = await setup()
+  const { msgId } = await freshShare('동시에 열기.png')
+  const id = await shareOfMsg(mh, room, msgId)
+  // (several rounds: two first opens at the same moment are a race — each round starts unopened again)
+  for (let round = 0; round < 8; round++) {
+    await q('update pro_shares set opened_at=null, last_opened_at=null where id=$1', [id])
+    const before = bus.lastSeq()
+    const marked = await Promise.all(Array.from({ length: 8 }, () => S.recordOpen({ id: mh.id }, [id])))
+    assert.deepEqual(marked, Array(8).fill(1), '모두 마지막 연 때를 적는다')
+    assert.equal((await opened(sender, before)).filter((e) => e.data.messageId === msgId).length, 1, `${round}번째: 처음 연 알림은 한 번`)
+  }
+})
+
+test('SH-I-13 받은 사람 목록 응답은 살펴본 메시지 id(asked)를 함께 준다 — 100개 넘게 물으면 뒤의 것은 asked 에 없다', { skip: !db }, async () => {
+  const { sender, room, msg } = await setup()
+  const filler = Array.from({ length: 100 }, (_, i) => `none-${i}`)
+  const r = await receipts(sender, room, [...filler, msg])
+  assert.equal(r.status, 200, r.text)
+  assert.equal(r.body.asked.length, 100)
+  assert.ok(!r.body.asked.includes(msg), '100개를 넘긴 id 는 살펴보지 않았다')
+  assert.equal(r.body.receipts[msg], undefined)
+  const ok = await receipts(sender, room, [msg, 'none-x'])
+  assert.deepEqual(ok.body.asked, [msg, 'none-x'])
+  assert.ok(ok.body.receipts[msg].length >= 2)
 })

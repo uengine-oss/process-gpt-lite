@@ -112,7 +112,10 @@ export function teamRoutes(auth) {
     const f = await S.stream(req.user, req.params.id, req.headers.range)
     // open=1: the person opened it (the viewer, its 「새 창에서 열기」) — their open is recorded (only on their own row as its recipient;
     // its sender opening it records nothing). The room's small preview of a picture · a video's first frame asks without it: shown, not opened.
-    if (req.query.open === '1' && f.res.ok) await S.recordOpen(req.user, [req.params.id]).catch((e) => console.warn('[team] opened', e.message))
+    // A player asks in parts (Range): only the request from the start counts — a seek or the next part is the same open. Written
+    // alongside, not before the file goes out.
+    const fromStart = !req.headers.range || /^bytes=0-/i.test(String(req.headers.range).trim())
+    if (req.query.open === '1' && f.res.ok && fromStart) S.recordOpen(req.user, [req.params.id]).catch((e) => console.warn('[team] opened', e.message))
     res.status(f.res.status)
     for (const k of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) if (f.res.headers.get(k)) res.setHeader(k, f.res.headers.get(k))
     res.setHeader('Content-Type', f.type)
@@ -140,9 +143,8 @@ export function teamRoutes(auth) {
   r.post('/team/shares/:id/opened', auth, h((req) => S.markOpened(req.user, req.params.id)))
   // my share messages in a room, as their sender sees them: for each person they went to, opened or not (first · last), and what
   // their copy changed — ?ids=<message ids> (the room's messages on my screen). Nobody else is told who opened what.
-  r.get('/team/threads/:id/receipts', auth, h(async (req) => ({
-    receipts: await S.receipts(req.user, String(req.params.id), String(req.query.ids || '').split(',').filter(Boolean)),
-  })))
+  // (→ {receipts, asked}: asked — the ids looked at, the first 100; the screen asks for more in parts of 100)
+  r.get('/team/threads/:id/receipts', auth, h((req) => S.receipts(req.user, String(req.params.id), String(req.query.ids || '').split(',').filter(Boolean))))
   // the sender's view of the branches a share message started: what each recipient changed, when, by whom
   // (the sender, or a recipient of the same batch; anyone else gets 403)
   r.get('/team/messages/:id/branches', auth, h(async (req) => {
