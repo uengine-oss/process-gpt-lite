@@ -6629,10 +6629,6 @@
    "{0} asked: \"{1}\" · routing model {2}%"
   ],
   [
-   "그룹 대화는 {0}명까지예요.",
-   "A group conversation has at most {0} people."
-  ],
-  [
    "{0}님은 더 이상 팀원이 아니에요.",
    "{0} is no longer a teammate."
   ],
@@ -7235,6 +7231,14 @@
   [
    "첨부 파일 {0}개도 열 수 있어요.",
    "They can open the {0} attachments too."
+  ],
+  [
+   "한 번에 {0}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.",
+   "Up to {0} people at a time. Invite the rest once the room is made."
+  ],
+  [
+   "한 번에 {0}명까지 초대할 수 있어요.",
+   "Up to {0} people can be invited at a time."
   ],
   [
    "서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {0}번째 · 「{1}」",

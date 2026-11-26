@@ -1,7 +1,7 @@
 // 메일을 대화방에 (2026-11-27 사용자: 「메일이 왔을때 그걸 대화방에 공유하는 기능도 필요.」 — 스펙 openspec/specs/mail-room-share, 서버 lib/mailRooms.js).
 // 메일 시트의 「대화방에 공유」(모든 시트에 있음)를 누르면 시트 안에서 대화방을 고른다: 판정 모델이 고른 방이 먼저(「추천」 · 까닭), 그다음 내 대화방,
 // 대화가 없는 팀원. 한마디 · 「본문도 공유」 · 「앞으로 오는 메일도 이 방에 올리기」(보낸 사람 · 회사)를 정하고, 방에 무엇이 보일지 읽은 뒤 「보내기」.
-// 약속을 정하면 그 회사의 새 메일은 들어올 때 그 방에 저절로 올라간다(「메일 자동 공유」, 요약만).
+// 약속을 정하면 그 회사의 새 메일은 들어올 때 그 방에 저절로 올라간다(「메일 자동 공유」, 본문은 약속을 정할 때의 「본문도 공유」대로 — 화면에서는 켜짐이 기본).
 // 서버는 가짜 모델(PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59961>/v1)로 띄운다 — 이 파일이 띄운다. 메일함은 데모 메일함(보내지 않음).
 // 사람 이름 · 회사 · 메일은 지어낸 것이다(에이스정밀 김하늘 · 이준호).
 import http from 'node:http'
@@ -146,22 +146,25 @@ test.describe('메일을 대화방에 — 고르기 · 보내기 · 들어올 �
       await picker.locator('[data-test="room-follow"]').check()
       await expect(picker.locator('[data-test="room-follow-by"]')).toHaveText(['김하늘(haneul@ace-precision.example)에게서 오는 메일', 'ace-precision.example에서 오는 메일'])
       await expect(picker.locator('[data-test="room-follow-by"][data-by="domain"]')).toHaveAttribute('aria-checked', 'true')
-      await expect(picker.locator('[data-test="room-says"]')).toHaveText(`「${title}」에는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보여요. 앞으로 ace-precision.example에서 오는 메일도 이 방에 올려요.`)
+      // 「본문도 공유」 is on unless turned off (2026-11-27 「메일 본문 내용 공유는 기본값임」)
+      await expect(picker.locator('[data-test="room-body"]')).toBeChecked()
+      await expect(picker.locator('[data-test="room-says"]')).toHaveText(`「${title}」에는 보낸 사람 · 제목 · 날짜와 본문이 보여요. 앞으로 ace-precision.example에서 오는 메일도 이 방에 올려요. 그 메일의 본문도 함께 보여요.`)
       await shot(page, 'f-mr-01b-compose')
       expect((await messages(mate, room)).length).toBe(before)
       await picker.locator('[data-test="room-send"]').click()
       await expect(sheet.locator('[data-test="room-sent"]')).toContainText(`「${title}」에 공유했어요`)
       await expect(picker).toHaveCount(0)
       const line = sheet.locator(`[data-test="room-shared-line"][data-room="${room}"]`)
-      await expect(line).toContainText('요약만')
+      await expect(line).toContainText('본문 공유 중')
       await expect(line.locator('[data-test="room-rule"]')).toContainText('앞으로 ace-precision.example에서 오는 메일도 이 방에 올려요')
+      await expect(line.locator('[data-test="room-rule"]')).toContainText('본문도 함께 보여요')
       await shot(page, 'f-mr-01c-shared')
-      // the teammate: a mail mention with its summary, never its body
+      // the teammate: a mail mention they may open (the body is read from the owner's mailbox when opened — the message never holds it)
       const m = (await messages(mate, room)).at(-1)
       expect(m.kind).toBe('mailref')
       expect(m.body).toBe('견적 요청 왔어요. 수량 확인 부탁드려요')
       expect(m.refs[0].subject).toBe(MAIL.subject)
-      expect(m.refs[0].state.card).toBe('summary')
+      expect(m.refs[0].state.card).toBe('shared')
       expect(JSON.stringify(m)).not.toContain('베어링 하우징')
       expect(await noOverflow(page)).toBe(true)
       expect(page.errors).toEqual([])
@@ -266,6 +269,84 @@ test.describe('메일을 대화방에 — 고르기 · 보내기 · 들어올 �
       expect(await noOverflow(page)).toBe(true)
       await shot(page, 'f-mr-04c-phone-body-off')
       expect(page.errors).toEqual([])
+    } finally {
+      if (dm) await dropRoom(db, dm)
+      for (const r of rooms) await dropRoom(db, r)
+      await cleanup(db, u)
+    }
+  })
+
+  test('F-MR-05 본문을 펼쳐 둔 동료: 주인이 「본문 끄기」를 누르면 펼친 본문이 곧바로 접히고, 같은 메일의 앞선 멘션도 요약으로 — 새로 고치지 않아도', async ({ pageAs, as, db }) => {
+    const { u, a, rooms } = await setup(pageAs, as, db, 'mr-bodyoff')
+    const mate = await pageAs('mr-bodyoff-m1', { viewport: { width: 1440, height: 900 } })
+    let dm = null
+    try {
+      const first = await u.post(`/actions/${a.id}/rooms`, { person: mate.user.id, body: true, note: '본문까지 봐 주세요' })
+      expect(first.status).toBe(200)
+      dm = first.body.room.id
+      expect((await u.post(`/actions/${a.id}/rooms`, { room: dm, body: true, note: '한 번 더 올려요' })).status).toBe(200)
+      await mate.goto('/chat')
+      await mate.locator('.msg-btn').click()
+      const ms = mate.locator('.ms')
+      await ms.locator('.tabs button').filter({ hasText: '대화' }).first().click()
+      await ms.locator('.th').filter({ hasText: u.name || '회귀-mr-bodyoff' }).first().click()
+      const cards = ms.locator('[data-test="mail-ref"]')
+      await expect(cards).toHaveCount(2)
+      for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'shared')
+      await cards.last().getByText('본문 보기').click()
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toContainText('베어링 하우징')
+      // the owner turns it off on the mail sheet (the same request the sheet sends)
+      expect((await u.post(`/actions/${a.id}/rooms/${dm}/stop`, { what: 'body' })).status).toBe(200)
+      for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'summary')
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toHaveCount(0)
+      await shot(mate, 'f-mr-05-body-off-live')
+      expect(mate.errors).toEqual([])
+    } finally {
+      if (dm) await dropRoom(db, dm)
+      for (const r of rooms) await dropRoom(db, r)
+      await cleanup(db, u)
+    }
+  })
+
+  test('F-MR-06 동료가 앞선 멘션의 본문을 펼쳐 둔 채, 주인이 메신저 카드의 「공유 그만두기」로 뒤 멘션을 끈다 — 두 멘션 모두 요약, 펼친 본문도 곧바로 접힘', async ({ pageAs, as, db }) => {
+    const { u, a, rooms } = await setup(pageAs, as, db, 'mr-cardoff')
+    const mate = await pageAs('mr-cardoff-m1', { viewport: { width: 1440, height: 900 } })
+    let dm = null
+    try {
+      const first = await u.post(`/actions/${a.id}/rooms`, { person: mate.user.id, body: true, note: '앞선 멘션' })
+      expect(first.status).toBe(200)
+      dm = first.body.room.id
+      const second = await u.post(`/actions/${a.id}/rooms`, { room: dm, body: true, note: '뒤 멘션' })
+      expect(second.status).toBe(200)
+      await mate.goto('/chat')
+      await mate.locator('.msg-btn').click()
+      const ms = mate.locator('.ms')
+      await ms.locator('.tabs button').filter({ hasText: '대화' }).first().click()
+      await ms.locator('.th').filter({ hasText: u.name || '회귀-mr-cardoff' }).first().click()
+      const cards = ms.locator('[data-test="mail-ref"]')
+      await expect(cards).toHaveCount(2)
+      await cards.first().getByText('본문 보기').click()
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toContainText('베어링 하우징')
+      // the owner's 「공유 그만두기」 on the second (newer) mention's card — the request that card sends
+      expect((await u.post('/team/refs/share', { messageId: second.body.message, index: 0, on: false })).status).toBe(200)
+      for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'summary')
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toHaveCount(0)
+      // again: the same mail posted anew (the body on — the default) shares it once more; the colleague opens the oldest one's body;
+      // the owner stops it on the newest — the older ones, already stored as not shared, are sent again all the same
+      const third = await u.post(`/actions/${a.id}/rooms`, { room: dm, body: true, note: '다시 올려요' })
+      expect(third.status).toBe(200)
+      await mate.reload()
+      await mate.locator('.msg-btn').click()
+      await ms.locator('.tabs button').filter({ hasText: '대화' }).first().click()
+      await ms.locator('.th').filter({ hasText: u.name || '회귀-mr-cardoff' }).first().click()
+      await expect(cards).toHaveCount(3)
+      await expect(cards.first()).toHaveAttribute('data-state', 'shared')
+      await cards.first().getByText('본문 보기').click()
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toContainText('베어링 하우징')
+      expect((await u.post('/team/refs/share', { messageId: third.body.message, index: 0, on: false })).status).toBe(200)
+      for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'summary')
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toHaveCount(0)
+      expect(mate.errors).toEqual([])
     } finally {
       if (dm) await dropRoom(db, dm)
       for (const r of rooms) await dropRoom(db, r)

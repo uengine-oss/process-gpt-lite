@@ -262,8 +262,9 @@ async function addItems(items) {
   temp.forEach((t, i) => {
     const r = res[i]
     if (!r?.ok) { t.wait = false; t.error = r?.error || '보낼 수 없는 파일이에요'; return }
-    // a mail of mine: a mention — its summary for the others, the body only when 「본문도 공유」 is on (off unless I turn it on)
-    if (r.as === 'mail') { Object.assign(t, { wait: false, name: r.name, mail: r.mail, from: r.mail?.from || '', body: false }); return }
+    // a mail of mine: a mention — its summary for the others, the body only when 「본문도 공유」 is on (on unless I turn it off —
+    // 2026-11-27 사용자 「메일 본문 내용 공유는 기본값임」; a file of it stays off)
+    if (r.as === 'mail') { Object.assign(t, { wait: false, name: r.name, mail: r.mail, from: r.mail?.from || '', body: true }); return }
     // an attachment of my mail (server lib/mailAttachments.js): its name and the mail's summary — the file only when 「파일도 공유」 is on
     if (r.as === 'mailatt') { Object.assign(t, { wait: false, name: r.name, att: r.att, share: false }); return }
     if (r.as === 'share') {
@@ -692,7 +693,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div v-if="attach.length || ups.length || refs.length" class="chips">
               <!-- a shared folder's file: a link (링크); an artifact of mine: shared as a copy for each (공유) -->
               <template v-for="r in refs" :key="r.key">
-                <!-- a mail of mine: a mention — 「본문도 공유」 (off) lets this room read its body -->
+                <!-- a mail of mine: a mention — 「본문도 공유」 (on unless turned off) lets this room read its body -->
                 <span v-if="r.mail" class="chip ref mailchip" data-test="msg-ref-chip" data-kind="mail" :data-file="r.name" data-state="ready" :title="`${r.from} · ${r.name}`">
                   <span class="fx env"><Icon name="mail" :size="12" /></span><span class="cn">{{ r.name }}</span><small>{{ r.from }}</small>
                   <label class="sharebody" data-test="msg-mail-body" :title="r.body ? '이 대화방 사람들이 메일 본문을 볼 수 있어요' : '다른 사람에게는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보여요'">

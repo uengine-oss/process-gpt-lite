@@ -569,7 +569,7 @@ export async function unshare(user, actionId, iRaw, room) {
       if (r?.type !== 'mailatt' || String(r.actionId) !== String(card.id) || Number(r.i) !== i || String(r.owner) !== String(user.id)) continue
       await q(`update chats set messages = jsonb_set(messages, $2::text[], $3::jsonb) where uuid=$1 and tenant_id=$4`, [row.uuid, ['pgpt', 'refs', String(k)], JSON.stringify({ ...r, share: null, sharedAt: null }), T()])
     }
-    await deliver(row.uuid)
+    await deliver(row.uuid, { force: true, update: true })
   }
   return sharesOf(user, card.id)
 }
