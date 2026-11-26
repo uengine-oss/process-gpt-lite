@@ -45,7 +45,14 @@ cd server && node --test test/folderRefs.test.js
   - **RF-U-30 유니코드:** NFD로 전달한 자리는 NFC로 저장된다. NFD 경로도 NFC 자리와 같은 자리로 인식하며, 쓰기는 409로 거절하고 읽기는 원본에서 한다(수정 전: NFD 그대로 저장했다).
   - **RF-U-31 회사의 날짜:** 접근 요청의 「하루」는 Asia/Seoul의 날짜를 기준으로 한다(수정 전: UTC).
 
-**결과(2026-11-26): 31개 통과.**
+- **RF-U-32 ~ RF-U-36 (병합 후 후속 시험, fix/folder-refs-followup)** — 먼저 ce72e8d의 코드에서 각 시험이 실패하는 것을 확인했다(괄호 안은 수정 전 결과).
+  - **RF-U-32 쓰고 있는 파일:** 셸이 main에 있는 파일을 열어 쓰는 도중 다른 저장 작업에서 커밋하더라도 그 파일은 통째로 보관 자리로 옮겨진다. 따라서 끝까지 쓴 내용이 보관 자리에 남고, main의 파일은 main의 내용으로 복원된다(수정 전: 복사한 뒤 복원해 마지막 줄이 사라졌다).
+  - **RF-U-33 동시 정리:** 두 정리 작업이 같은 자리를 동시에 처리해도 둘 다 성공하고, 40개 파일은 각각 한 곳에만 남는다(수정 전: `ENOENT`로 실패했다).
+  - **RF-U-34 칩은 파일마다 한 번:** 같은 파일이 작업 폴더에 남아 있으면 다음 커밋에는 칩을 다시 남기지 않는다. 새 파일이 생기면 그 파일만 담은 칩을 남긴다(수정 전: 커밋마다 칩을 남겼다).
+  - **RF-U-35 NFD 경로의 「가림」 수:** NFC 자리 아래의 NFD 경로도 「가림」 수에 포함된다(수정 전: 세지 않았다).
+  - **RF-U-36 30일 보관:** main을 커밋할 때 30일이 지난 보관 묶음은 지우고 최근 묶음은 남긴다. 알림에도 30일 뒤에 지워진다고 명시한다(수정 전: 지우지 않았다).
+
+**결과(2026-11-26): 36개 통과.**
 
 ## HTTP · 화면 시험
 
@@ -76,7 +83,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/folde
 
 | 묶음 | 결과 |
 |---|---|
-| `server/test`: folderRefs · folderGitRemote · folderLink · championFolders · folderFindOpen · folderEditSave · filing.integration · threadFolders · fileMention(+integration) · folderGc · i18n-dictionary · chatAgents · worktree | 174 / 174 (회의 자료 · 공유 열기 시험 meetingAnswers · lang-meetings · capture-fixes-2 · shareOpened 포함) |
+| `server/test`: folderRefs · folderGitRemote · folderLink · championFolders · folderFindOpen · folderEditSave · filing.integration · threadFolders · fileMention(+integration) · folderGc · i18n-dictionary · chatAgents · worktree | 179 / 179 (회의 자료 · 공유 열기 시험 meetingAnswers · lang-meetings · capture-fixes-2 · shareOpened 포함) |
 | `server/test/localAgents.test.js` (따로) | 31 / 31 — 위 묶음과 한 번에 실행했을 때 fileMention.integration의 「@AI 차은솔 이력서 첨부해」 한 건이 한 번 불안정한 결과를 보였으나, 다시 두 번 실행해 통과했다 |
 | `server/test/champion-sync.e2e.mjs` (`CH_PORT=8976`) | 9 / 9 |
 | `e2e` folders.spec · folder-open.spec (BFF 8976 · Vite 5376, 회사 localhost) | 16 / 16 |

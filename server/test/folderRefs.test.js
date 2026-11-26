@@ -634,3 +634,100 @@ test('RF-U-31 접근 요청의 「하루」는 회사의 날짜(기본 Asia/Seou
   assert.equal(R.dayOf(new Date('2026-11-26T16:30:00Z')), '2026-11-27')
   assert.equal(R.dayOf(new Date('2026-11-26T14:59:00Z')), '2026-11-26')
 })
+
+// ---------- follow-up of PR #92 (each written first against ce72e8d, before its fix) ----------
+test('RF-U-32 제자리에서 고친 main 의 파일은 먼저 통째로 옮긴 뒤 main 의 내용으로 되돌린다 — 쓰던 셸이 끝까지 쓴 내용이 보관 자리에 남는다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const r = await R.add(comp, 'owner', owner, { source: sales.slug, path: '안내', slot: '쓰는중' })
+  await commitOutside(comp.repo_path, '쓰는중/log.md', '원래 내용\n')
+  const host = path.join(comp.repo_path, '쓰는중', 'log.md')
+  const fh = await fs.open(host, 'w')
+  try {
+    await fh.write('셸이 쓰는 첫 줄\n')
+    await S.upload(comp, owner, '옆/while-writing.md', enc('다른 저장'))
+    await fh.write('셸이 이어 쓴 끝 줄\n')
+  } finally { await fh.close() }
+  try {
+    assert.equal(await fs.readFile(host, 'utf8'), '원래 내용\n')
+    const kept = path.join(comp.repo_path, '.slot-leftover')
+    const stamp = (await fs.readdir(kept)).find((x) => fsSync.existsSync(path.join(kept, x, '쓰는중', 'log.md')))
+    assert.equal(await fs.readFile(path.join(kept, stamp, '쓰는중', 'log.md'), 'utf8'), '셸이 쓰는 첫 줄\n셸이 이어 쓴 끝 줄\n')
+  } finally {
+    await R.remove(comp, 'owner', owner, r.id)
+    await G.git(comp.repo_path, ['rm', '-q', '-r', '--', '쓰는중'])
+    await G.git(comp.repo_path, [...G.who('t', 't@example.test'), 'commit', '-q', '-m', '정리'])
+    await fs.rm(path.join(comp.repo_path, '.slot-leftover'), { recursive: true, force: true })
+  }
+})
+
+test('RF-U-33 두 정리가 동시에 돌아도 실패하지 않는다 — 이미 옮겨진 파일은 건너뛰고, 파일은 한 곳에만 있다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const r = await R.add(comp, 'owner', owner, { source: sales.slug, path: '안내', slot: '동시정리' })
+  const names = [...Array(40).keys()].map((i) => `f${i}.md`)
+  await fs.mkdir(path.join(comp.repo_path, '동시정리'), { recursive: true })
+  for (const n of names) await fs.writeFile(path.join(comp.repo_path, '동시정리', n), n)
+  try {
+    const both = await Promise.allSettled([R.sweepLeftovers(comp, ['동시정리']), R.sweepLeftovers(comp, ['동시정리'])])
+    assert.deepEqual(both.map((x) => x.status), ['fulfilled', 'fulfilled'], JSON.stringify(both.map((x) => x.reason?.message)))
+    const kept = path.join(comp.repo_path, '.slot-leftover')
+    const found = []
+    for (const s of await fs.readdir(kept)) for (const n of await fs.readdir(path.join(kept, s, '동시정리')).catch(() => [])) found.push(n)
+    assert.deepEqual(found.sort(), [...names].sort())
+    assert.deepEqual(await fs.readdir(path.join(comp.repo_path, '동시정리')).catch(() => []), [])
+  } finally {
+    await R.remove(comp, 'owner', owner, r.id)
+    await fs.rm(path.join(comp.repo_path, '동시정리'), { recursive: true, force: true })
+    await fs.rm(path.join(comp.repo_path, '.slot-leftover'), { recursive: true, force: true })
+  }
+})
+
+test('RF-U-34 변형의 「담지 않았어요」 칩은 파일마다 한 번 — 같은 파일이 남아 있는 다음 커밋에는 다시 올리지 않는다', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  const [th] = await q(`insert into pro_threads (user_id, kind, title) values ($1,'chat','칩 한 번') returning id`, [owner.id])
+  const v = await S.createVariation(comp, { title: '칩 한 번', kind: 'chat', holder: { type: 'user', id: owner.id, name: owner.name }, source: { thread_id: th.id } })
+  const dir = path.join(ROOT, 'chip-once', v.id)
+  await S.checkout(comp, v, dir)
+  try {
+    await fs.mkdir(path.join(dir, '폴더1'), { recursive: true })
+    await fs.writeFile(path.join(dir, '폴더1', 'a.md'), 'a')
+    const commit = async (name) => { await fs.writeFile(path.join(dir, name), name); await S.commitVariation(comp, await S.variationById(v.id), { name: 'agent', email: 'agent@example.test' }, name) }
+    await commit('one.md')
+    await commit('two.md')
+    let chips = await q(`select content from pro_messages where thread_id=$1 and kind='chip' order by created_at`, [th.id])
+    assert.equal(chips.length, 1)
+    await fs.writeFile(path.join(dir, '폴더1', 'b.md'), 'b')
+    await commit('three.md')
+    chips = await q(`select content from pro_messages where thread_id=$1 and kind='chip' order by created_at`, [th.id])
+    assert.equal(chips.length, 2)
+    assert.deepEqual(chips[1].content.refsReadOnly, ['폴더1/b.md'])
+  } finally { await S.release(comp, await S.variationById(v.id)) }
+})
+
+test('RF-U-35 「이 폴더의 파일 N개를 가림」은 NFD 경로도 센다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const nfc = 'résumé'.normalize('NFC'), nfd = nfc.normalize('NFD')
+  const r = await R.add(comp, 'owner', owner, { source: sales.slug, slot: nfc })
+  await q(`insert into pro_folder_files (folder_id, path, kind, size) values ($1,$2,'md',1)`, [comp.id, `${nfd}/nfd.md`])
+  try {
+    assert.equal((await R.list(comp, owner)).find((x) => x.id === r.id).hidden, 1)
+  } finally {
+    await q('delete from pro_folder_files where folder_id=$1 and path=$2', [comp.id, `${nfd}/nfd.md`])
+    await R.remove(comp, 'owner', owner, r.id)
+  }
+})
+
+test('RF-U-36 보관 자리는 30일이 지나면 비운다(커밋할 때) · 알림이 그렇게 말한다', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  const kept = path.join(comp.repo_path, '.slot-leftover')
+  const old = '2025-01-01T00-00-00-000Z'
+  const fresh = new Date(Date.now() - 2 * 86400_000).toISOString().replace(/[:.]/g, '-')
+  for (const s of [old, fresh]) { await fs.mkdir(path.join(kept, s, '폴더1'), { recursive: true }); await fs.writeFile(path.join(kept, s, '폴더1', 'x.md'), s) }
+  try {
+    await S.upload(comp, owner, '옆/expire.md', enc('커밋 하나'))
+    const left = await fs.readdir(kept)
+    assert.ok(!left.includes(old), 'the old one is gone')
+    assert.ok(left.includes(fresh), 'the recent one stays')
+    const n = R.leftoverNotice(comp, ['폴더1/x.md'], fresh)
+    assert.ok(n.description.includes('30일'))
+  } finally { await fs.rm(kept, { recursive: true, force: true }) }
+})
