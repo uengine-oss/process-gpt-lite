@@ -16,6 +16,17 @@ import { convOf as convsOf, convRows, asideOf } from '../convOf.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
+// how long a message the restarting server did not take is asked again (a deploy's restart has taken 1½ – 4 minutes)
+const SEND_RETRY_MS = 4 * 60_000
+// sends whose words the person took back while they were being asked again (by the time they were asked)
+const takenBack = new Set()
+// the message is in the room after all (the line broke after the server saved it): the same words from me since I asked
+async function sentAlready(threadId, text, since) {
+  try {
+    const rows = await api(`/threads/${threadId}/messages`)
+    return rows.some((m) => m.role === 'user' && String(m.content?.text || '') === String(text) && new Date(m.created_at).getTime() >= since - 10_000)
+  } catch { return false }
+}
 
 // turns this page saw end (turnId → when): a snapshot or a late event does not bring their cards back (src/turnState.js)
 const endedTurns = new Map()
@@ -49,6 +60,9 @@ export const useApp = defineStore('app', {
     activeId: null,            // thread shown in the center column
     messages: {},              // threadId -> []
     drafts: {},                // threadId -> streaming text
+    // a message the server did not take (src/api.js stream: accepted false): threadId -> {state: 'retrying'|'failed', text, tries, error}.
+    // A restarting server (502 · 503 · 504, no connection) is asked again for a while; anything else gives the text back to the composer
+    sendIssue: {},
     askedAt: {},               // threadId -> when this screen last sent a message there (a file the agent opens on request opens here)
     status: {},                // threadId -> live status text
     // threadId -> {turnId -> the turn as it runs}: plan, stage, to-dos, steps, notes (server lib/turnPlan.js; TurnPlanCard · TurnProgress)
@@ -464,17 +478,49 @@ export const useApp = defineStore('app', {
       this.drafts[threadId] = ''
       const asked = this.askedAt[threadId] = Date.now()
       let ended = false
-      try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(refs.length ? { refs } : {}), ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
-          if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
-          // the draft was an interim text after all (a tool call followed it — server lib/turnPlan.js): back to 「생각하는 중」
-          if (ev === 'retract' && this.drafts[threadId] != null) this.drafts[threadId] = ''
-          if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
-          // a document whose card is in no conversation: the one its first message went to is the document's from now on
-          const went = ev === 'done' && data?.content?.context?.conversationId
-          if (went && openDoc && !docConv && !chosen && this.officeDoc === d && threadId === this.mainThread?.id) this.officeDoc = { ...d, conv: went }
-        })
-      } catch (e) { console.warn('[send]', e.message) }
+      // (this send's own issue, by the time it was asked: a newer send in the same room shows its own, this one keeps trying)
+      const mine = () => this.sendIssue[threadId]?.id === asked
+      const say = (x) => { this.sendIssue[threadId] = { id: asked, text, ...x } }
+      if (this.sendIssue[threadId]?.state === 'failed') delete this.sendIssue[threadId]
+      for (let tries = 0; ; tries++) {
+        try {
+          await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(refs.length ? { refs } : {}), ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
+            if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
+            // the draft was an interim text after all (a tool call followed it — server lib/turnPlan.js): back to 「생각하는 중」
+            if (ev === 'retract' && this.drafts[threadId] != null) this.drafts[threadId] = ''
+            if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
+            // a document whose card is in no conversation: the one its first message went to is the document's from now on
+            const went = ev === 'done' && data?.content?.context?.conversationId
+            if (went && openDoc && !docConv && !chosen && this.officeDoc === d && threadId === this.mainThread?.id) this.officeDoc = { ...d, conv: went }
+          })
+          if (mine()) delete this.sendIssue[threadId]
+          break
+        } catch (e) {
+          // taken by the server, the stream broke after: its answer comes as a live event (below)
+          if (e.accepted !== false) { console.warn('[send]', e.message); break }
+          // not taken. The server restarting (a gateway's 502 · 503 · 504, no connection at all — 2026-11-27 recording: a deploy's
+          // restart ate the message): asked again for a while, said under the composer meanwhile — unless the message is in the
+          // room after all (it reached the server before the line broke)
+          const restarting = !e.status || [502, 503, 504].includes(e.status)
+          if (restarting && Date.now() - asked < SEND_RETRY_MS && !takenBack.has(asked)) {
+            this.drafts[threadId] = null
+            say({ state: 'retrying', tries: tries + 1, error: e.message })
+            await new Promise((ok) => setTimeout(ok, Math.min(15_000, 2_000 * (tries + 1))))
+            // (× on the line took the words back — they went to the composer, nothing more is sent)
+            if (takenBack.has(asked)) { ended = true; break }
+            if (await sentAlready(threadId, text, asked)) { if (mine()) delete this.sendIssue[threadId]; break }
+            this.drafts[threadId] = ''
+            continue
+          }
+          // anything else (a refusal, or the server still away): the text goes back to the composer with why — and the files picked
+          // for it back to the composer's attachments
+          ended = true
+          this.drafts[threadId] = null
+          if (!attachments && pending.length && !this.attachments.length) this.attachments = pending
+          say({ state: 'failed', error: e.message, ...(refs.length ? { refs: refs.length } : {}) })
+          break
+        }
+      }
       // the connection dropped before the answer (a proxy cutting a long request, a server restart):
       // stop showing "생각하는 중"; the answer, if it comes, arrives as a live event
       if (!ended) { this.drafts[threadId] = null; this.load(threadId).catch(() => {}) }
@@ -482,6 +528,14 @@ export const useApp = defineStore('app', {
       setTimeout(() => { if (this.askedAt[threadId] === asked) delete this.askedAt[threadId] }, ended ? 15_000 : 10 * 60_000)
       if (threadId === this.mainThread?.id) this.loadConversations()
       else if (this.projects.some((p) => p.id === threadId)) this.loadTopics(threadId)
+    },
+    // × on the composer's line of a message not sent: it is not asked again — its words come back (the composer puts them in its box)
+    takeBackSend(threadId = this.activeId) {
+      const x = this.sendIssue[threadId]
+      if (!x) return ''
+      takenBack.add(x.id)
+      delete this.sendIssue[threadId]
+      return x.text || ''
     },
     // 멈추기: the answer being written in this thread (in a conversation view, only that conversation's)
     async stopTurn(threadId = this.activeId) {

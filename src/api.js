@@ -161,13 +161,27 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
 }
 
 // POST that streams SSE events back: onEvent(type, data)
+// A failure says whether the server took the request (accepted): false — no answer at all (no connection) or an error status before
+// any event (a gateway's 502 while the server restarts, a refusal) — the message was not taken and may be sent again; true — the
+// stream broke after the server took it (its answer still arrives as a live event: never sent twice). Before 2026-11-27 an error
+// status was read as an empty stream and the message vanished without a word (recording 07:03: sent during a deploy's restart).
 export async function stream(path, body, onEvent) {
-  const r = await api(path, { method: 'POST', body, raw: true })
+  let r
+  try { r = await api(path, { method: 'POST', body, raw: true }) } catch (e) { throw Object.assign(e, { accepted: false }) }
+  if (!r.ok) {
+    const t = await r.text().catch(() => '')
+    let m = t
+    try { m = JSON.parse(t).error || t } catch { /* plain text */ }
+    if (m === t && (!t || htmlPage(r, t))) m = `서버가 응답하지 못했어요 (${r.status}).`
+    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.status, accepted: false })
+  }
   const reader = r.body.getReader()
   const dec = new TextDecoder()
   let buf = ''
   for (;;) {
-    const { done, value } = await reader.read()
+    let got
+    try { got = await reader.read() } catch (e) { throw Object.assign(e, { accepted: true }) }
+    const { done, value } = got
     if (done) break
     buf += dec.decode(value, { stream: true })
     const chunks = buf.split('\n\n')

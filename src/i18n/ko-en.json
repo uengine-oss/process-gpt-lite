@@ -3173,7 +3173,9 @@
   "본문도 함께 보여요": "The body shows too",
   "그 메일의 본문도 함께 보여요.": "Their bodies show too.",
   "지금은 꺼 둔 약속이에요": "This rule is off now",
-  "메일 자동 공유": "Mail shared automatically"
+  "메일 자동 공유": "Mail shared automatically",
+  "입력창에 다시 넣어 두었어요": "Put back in the box",
+  "끌어 놓은 파일은 다시 놓아 주세요": "Drop the dragged files again"
  },
  "patterns": [
   [
@@ -7227,6 +7229,18 @@
   [
    "첨부 파일 {0}개도 열 수 있어요.",
    "They can open the {0} attachments too."
+  ],
+  [
+   "서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {0}번째 · 「{1}」",
+   "The server isn't answering for a moment — sending again · try {0} · “{1}”"
+  ],
+  [
+   "보내지 못했어요 — {0}",
+   "Couldn't send — {0}"
+  ],
+  [
+   "서버가 응답하지 못했어요 ({0}).",
+   "The server didn't answer ({0})."
   ]
  ],
  "context": [

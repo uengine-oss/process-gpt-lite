@@ -161,6 +161,17 @@ onMounted(() => {
 onBeforeUnmount(() => { window.removeEventListener('dragstart', arm); window.removeEventListener('dragend', disarm); window.removeEventListener('drop', disarm) })
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
 
+// A message the server did not take (stores/app.js send — sendIssue, 2026-11-27 recording: sent while a deploy restarted the server, the
+// words vanished): said here while it is sent again, and given back to the box with why when it cannot be. 「그만두기」 takes the words back.
+const issue = computed(() => (props.overlay ? null : app.sendIssue[app.activeId] || null))
+const putBack = (t) => { if (t && !text.value.trim()) { text.value = t; nextTick(() => ta.value?.focus()) } }
+watch(() => (issue.value?.state === 'failed' ? issue.value.id : null), (id) => { if (id) putBack(issue.value.text) })
+function closeIssue() {
+  if (issue.value?.state === 'retrying') putBack(app.takeBackSend(app.activeId))
+  else delete app.sendIssue[app.activeId]
+}
+const clipText = (t) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > 40 ? `${s.slice(0, 40)}…` : s }
+
 async function submit() {
   const v = text.value.trim() || (app.panelMode ? suggestions[si.value].t : '')
   if (!v && !app.attachments.length && !app.fileRefs.some((r) => !r.error)) return
@@ -208,6 +219,14 @@ defineExpose({ focus: () => ta.value?.focus() })
     <Transition name="fade">
       <button v-if="app.panelMode" class="undo press" aria-label="취소" @click="app.panelMode = false"><Icon name="undo" :size="20" /></button>
     </Transition>
+    <p v-if="issue" class="sendissue" :class="issue.state" role="status" data-test="send-issue" :data-state="issue.state">
+      <Icon :name="issue.state === 'retrying' ? 'refresh' : 'alert'" :size="14" />
+      <span v-if="issue.state === 'retrying'" class="shimmer-text">서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {{ issue.tries }}번째 · 「{{ clipText(issue.text) }}」</span>
+      <span v-else>보내지 못했어요 — {{ issue.error }}</span>
+      <span v-if="issue.state !== 'retrying'">입력창에 다시 넣어 두었어요</span>
+      <span v-if="issue.state !== 'retrying' && issue.refs">끌어 놓은 파일은 다시 놓아 주세요</span>
+      <button class="press" data-test="send-issue-close" @click="closeIssue">{{ issue.state === 'retrying' ? '그만두기' : '닫기' }}</button>
+    </p>
     <ComposerTeam v-if="!overlay" :tm="tm" />
     <div v-if="app.mentions.length || app.docSelChip" class="mentions">
       <!-- what is selected in the open document right now (src/docSelection.js): it goes with the next message -->
@@ -287,6 +306,12 @@ defineExpose({ focus: () => ta.value?.focus() })
 .mention .x { width: 20px; height: 20px; border-radius: 10px; color: inherit; opacity: .7; }
 .mention .x:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
 .composer { position: relative; width: 100%; }
+.sendissue { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 0 10px 6px; padding: 7px 12px; border-radius: 14px; font-size: 12.5px; line-height: 1.45;
+  color: var(--text-primary); background: var(--thin-bg); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); overflow-wrap: anywhere; }
+.sendissue > :deep(svg) { flex: none; color: var(--text-secondary); }
+.sendissue.failed > :deep(svg) { color: #c2410c; }
+.sendissue span { min-width: 0; }
+.sendissue button { margin-left: auto; flex: none; height: 24px; padding: 0 10px; border-radius: 9999px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--hairline); }
 .agentrow { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin: 0 6px 6px; }
 .box { display: flex; align-items: flex-end; min-height: 48px; border-radius: 24px; padding-right: 6px; --thin-bg: var(--composer-bg); transition: background-color 1s, margin .4s var(--spring); }
 .panel .box { margin-left: 60px; }
