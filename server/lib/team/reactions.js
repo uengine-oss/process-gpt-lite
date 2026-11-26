@@ -69,9 +69,9 @@ async function namesFor(ids) {
 // messages, and the screen offers no reactions until then (2026-11-26 운영: 「반응은 곧 쓸 수 있어요.라고 나오고 좋아요 붙힌게 유지되지
 // 않는…」 — every tap was put on, refused and taken back off)
 let avail = { on: null, at: 0 }
-export async function available({ now = Date.now() } = {}) {
+export async function available({ now = Date.now(), query = q } = {}) {
   if (avail.on === true || (avail.on === false && now - avail.at < 60_000)) return avail.on
-  const [r] = await q(`select to_regclass('public.pro_chat_reactions') is not null as on`).catch(() => [{ on: false }])
+  const [r] = await query(`select to_regclass('pro_chat_reactions') is not null as on`).catch(() => [{ on: false }])
   avail = { on: !!r?.on, at: now }
   return avail.on
 }

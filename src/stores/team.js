@@ -55,9 +55,9 @@ export const useTeam = defineStore('team', {
     // my share messages as their sender sees them (server lib/team/shares.js receipts): message id -> [{id, name, email, files, opened,
     // openedAt, lastOpenedAt, branch}] — for each person it went to, opened or not, and what their copy changed
     receipts: {},
-    replyAt: 0,
+    replyAt: 0,               // when 「답장」 on a phone notification opened a room (Messenger.vue focuses the composer)
     // this database has no reactions yet (sql/062 — the room's messages say so): none are offered, so none are put on and taken back off
-    rxOff: false,               // when 「답장」 on a phone notification opened a room (Messenger.vue focuses the composer)
+    rxOff: false,
   }),
   getters: {
     // the dock in effect on this window: float · right · left · panel
@@ -285,8 +285,9 @@ export const useTeam = defineStore('team', {
         return r
       } catch (e) {
         this.setReactions(m.threadId, m.id, was)
-        // (the database has none yet: no more are offered — sql/062)
-        if (e.status === 503) this.rxOff = true
+        // (the database has none yet: no more are offered — sql/062. Only the server's own word for it: a 503 from a proxy during a
+        // rollout is not that)
+        if (e.code === 'reactions_off') this.rxOff = true
         throw e
       }
     },

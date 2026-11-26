@@ -129,16 +129,23 @@ test('cleanName: control and format characters become spaces, emoji sequences st
 
 // 2026-11-26 운영: 「반응은 곧 쓸 수 있어요.라고 나오고 좋아요 붙힌게 유지되지 않는...」 — a database without sql/062 refused every tap after the
 // chip was put on. The room now says whether it has reactions (thread.reactions), and the screen offers none until it does.
-test('RX-U-08 반응 테이블이 없는 데이터베이스: available() 이 false, 1분 동안 다시 묻지 않고, 생기면 true', async () => {
+test('RX-U-08 반응 테이블이 없는 데이터베이스: available() 이 false, 1분 동안 다시 묻지 않고, 생기면 true 이고 그 뒤로는 묻지 않음', async () => {
   const RX = await import('../lib/team/reactions.js')
-  const supa = await import('../lib/supa.js')
+  let has = false, asked = 0
+  const query = async () => { asked++; return [{ on: has }] }
   RX.forgetAvailable()
-  const t0 = Date.now()
-  assert.equal(typeof (await RX.available({ now: t0 })), 'boolean')
-  // (the dev database has 062: true, and it is not asked again)
-  const real = await RX.available({ now: t0 })
-  if (real) {
-    assert.equal(await RX.available({ now: t0 + 10 * 60_000 }), true)
-  }
+  const t0 = 1_000_000
+  assert.equal(await RX.available({ now: t0, query }), false)
+  assert.equal(await RX.available({ now: t0 + 30_000, query }), false)
+  assert.equal(asked, 1, 'a missing table is asked again only after a minute')
+  has = true
+  assert.equal(await RX.available({ now: t0 + 61_000, query }), true)
+  assert.equal(asked, 2)
+  has = false
+  assert.equal(await RX.available({ now: t0 + 600_000, query }), true, 'once there, it stays')
+  assert.equal(asked, 2)
+  // a failing check counts as none yet
+  RX.forgetAvailable()
+  assert.equal(await RX.available({ now: t0, query: async () => { throw new Error('down') } }), false)
   RX.forgetAvailable()
 })

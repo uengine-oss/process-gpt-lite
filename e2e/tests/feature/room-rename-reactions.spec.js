@@ -365,7 +365,7 @@ test('F-RX-07 반응 테이블이 아직 없는 데이터베이스 — 반응을
 
   // the room said yes, the server then refuses (503 — the table went missing): the chip goes back off and no more are offered
   const d = await page(browser, HY, DESK)
-  await d.route('**/api/team/messages/*/reactions', (route) => route.fulfill({ status: 503, json: { error: '반응은 곧 쓸 수 있어요.', status: 503 } }))
+  await d.route('**/api/team/messages/*/reactions', (route) => route.fulfill({ status: 503, json: { error: '반응은 곧 쓸 수 있어요.', status: 503, code: 'reactions_off' } }))
   await openRoom(d, '반응 없는 방')
   const db = bubble(d, '내일 자료는 오전에 올릴게요')
   await db.hover()
