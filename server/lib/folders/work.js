@@ -221,7 +221,7 @@ export async function stepOne(row) {
         // token for it, or the path — projectRepoFor)
         if (!row.agent_config.project_repo && !done) {
           const base = await baseOf(folder, row)
-          await q(`update todolist set agent_config = agent_config || $2 where id=$1`, [row.id, { ...projectRepoFor(folder), base_ref: base }])
+          await q(`update todolist set agent_config = agent_config || $2 where id=$1`, [row.id, { ...projectRepoFor(folder, { user: row.user_id }), base_ref: base }])
         }
         const wt = row.output?.worktree
         // over HTTP the branch is here only once cli-agent pushed it: a run that changed nothing pushes nothing

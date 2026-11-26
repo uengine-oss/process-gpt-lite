@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { auth } from '../api.js'
+import { auth, leaveRefused } from '../api.js'
 import { BASE } from '../base.js'
 import { sessionFromFragment } from '../authFragment.js'
 
@@ -15,8 +15,15 @@ onMounted(async () => {
   auth.set(got)
   try {
     const r = await fetch(BASE + '/api/me', { headers: { Authorization: `Bearer ${got.session.access_token}` } })
-    // behind the gateway: a Google account that is not a member of this address's company
-    if (r.status === 403) return fail('이 회사의 ProcessGPT 계정이 아니에요. 회사 관리자에게 초대를 요청하거나 그 회사 주소에서 로그인해 주세요.')
+    // not an approved member of this address's company (invite-only — server lib/membership.js): the session is not kept, the sign-in
+    // becomes a request an administrator can approve, and the refusal screen says so (src/api.js leaveRefused)
+    if (r.status === 403) {
+      const j = await r.json().catch(() => null)
+      if (j?.code === 'invite_only' && await leaveRefused(j)) return
+      if (j?.code !== 'invite_only') return fail('이 회사의 ProcessGPT 계정이 아니에요. 회사 관리자에게 초대를 요청하거나 그 회사 주소에서 로그인해 주세요.')
+      // (a member after all — approved meanwhile)
+      return router.replace('/chat')
+    }
     if (!r.ok) return fail('로그인에 실패했어요')
     const me = await r.json()
     router.replace(me.profile?.onboarded_at || me.profile?.birth ? '/chat' : '/welcome/age')

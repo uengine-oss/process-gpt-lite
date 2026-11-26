@@ -22,7 +22,12 @@ const verify = async (hash) => (await fetch(`${config.supabaseUrl}/auth/v1/verif
 })).json()
 
 test('원인: 같은 사람의 로그인 링크를 둘 만들면 앞의 것은 otp_expired', async () => {
-  await sessionFor(EMAIL, '시험') // (사람을 만든다)
+  // (사람을 만든다: 계정과 이 회사의 승인된 행 — 세션은 승인된 구성원만 받는다, 스펙 team-membership)
+  const { ensureUser } = await import('../lib/supa.js')
+  const { admit } = await import('../lib/membership.js')
+  const u = await ensureUser(EMAIL, '시험')
+  await admit(u.id, EMAIL, '시험', u.id)
+  await sessionFor(EMAIL, '시험')
   const a = await admin.auth.admin.generateLink({ type: 'magiclink', email: EMAIL })
   const b = await admin.auth.admin.generateLink({ type: 'magiclink', email: EMAIL })
   const first = await verify(a.data.properties.hashed_token)

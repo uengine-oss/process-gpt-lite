@@ -4,7 +4,9 @@ import nodePath from 'node:path'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from './config.js'
-import { q, sessionFor, refresh, userFromJwt, isMember, isMemberEmail, normEmail } from './lib/supa.js'
+import { q, admin as supabaseAdmin, sessionFor, refresh, userFromJwt, isMember, isMemberEmail, normEmail, ensureUser, authUserByEmail } from './lib/supa.js'
+// invite-only (2026-11-25): only a company's approved members come in; the rest is a request an administrator approves
+import * as members from './lib/membership.js'
 import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns, onceTurn } from './lib/agent.js'
@@ -68,6 +70,7 @@ import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
 import { profilePictureRoutes, myPicture, rememberGooglePicture } from './routes/profilePicture.js'
+import { memberRoutes } from './routes/members.js'
 import { signedIn, forget as forgetPerson } from './lib/people.js'
 import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
@@ -153,10 +156,14 @@ async function auth(req, res, next) {
   // the sign-in check could not be made (auth server slow or restarting): 503 + X-Auth-Retry, the client retries
   try { u = jwt && await userFromJwt(jwt, { unavailable: true }) } catch { return res.status(503).set('X-Auth-Retry', '1').json({ error: 'auth unavailable' }) }
   if (!u) return res.status(401).json({ error: 'unauthorized' })
-  // behind the ProcessGPT gateway a ProcessGPT account works only at its own tenant's address; with
-  // tenants by host name the person's own tenant is the request's (lib/tenant.js)
-  if (config.tenantFromHeader && !(await isMember(u.id, config.tenantId))) return res.status(403).json({ error: 'not a member of this tenant' })
+  // with tenants by host name the person's own tenant is the request's (lib/tenant.js)
   if (multiTenant()) req.tenantId = tenantOfAuthUser(u)
+  // only the company's approved members (lib/membership.js): behind the ProcessGPT gateway a ProcessGPT account works only at its own
+  // tenant's address, and nowhere does a sign-up waiting for an administrator, or a membership an administrator ended, get in.
+  // code invite_only: the page takes the person out to the refusal screen (POST /api/auth/refuse)
+  if (!(await isMember(u.id, req.tenantId || config.tenantId))) {
+    return res.status(403).json(withTenant(req.tenantId || config.tenantId, () => members.refusal({ email: u.email })))
+  }
   // the person's name by the one rule every screen uses (lib/people.js: Lite's profile → Process GPT's username → the sign-in's own
   // name → the address), with their saved language — one query
   const p = await signedIn(u, req.tenantId || config.tenantId)
@@ -174,14 +181,70 @@ async function auth(req, res, next) {
 }
 
 // (the address as GoTrue keeps it: 「Kim@Corp.com」 signs in as kim@corp.com, and pro_profile says so)
-async function finishLogin(email0, name) {
+// Only after lib/membership.js decideSignIn said yes. admit: the decision lets a new person in (the first person of a company nobody runs
+// yet · the demo code on an install): their row is approved here — the session (lib/supa.js) is only for approved members.
+// first: the first person of a company nobody runs yet (no ADMIN_EMAIL on an install) makes it — or, when someone else made it first (two
+// signing in at once), is refused like anyone uninvited; demo: the demo code on an install lets a new address in as a member.
+async function finishLogin(email0, name, { first = false, demo = false } = {}) {
   const email = normEmail(email0)
+  if (first || demo) {
+    const u = await ensureUser(email, name)
+    if (first && !(await members.claimCompany(u.id, email, name))) {
+      throw Object.assign(new Error(members.refusal({ email }).error), { status: 403, code: 'invite_only', refusal: (await members.decideSignIn(email)).refusal })
+    }
+    if (!first) await members.admit(u.id, email, name, u.id)
+  }
   const { user, session } = await sessionFor(email, name)
   await q(`insert into pro_profile(user_id,name,email) values ($1,$2,$3) on conflict (user_id) do nothing`, [user.id, name, email])
-  // no administrator yet (an install without install.sh's ADMIN_EMAIL): the first one in becomes it
-  await team.claimFirstAdmin(user.id).catch((e) => console.warn('[team] first admin', e.message))
   return { user, session: { access_token: session.access_token, refresh_token: session.refresh_token, expires_at: session.expires_at } }
 }
+
+// A refused sign-in's screen, for a redirect that cannot carry it (an install's own Google sign-in): kept here under a one-time key
+// for a few minutes — a link never puts its own words on the page
+const refusals = new Map() // key → {at, refusal}
+function keepRefusal(refusal) {
+  for (const [k, v] of refusals) if (Date.now() - v.at > 10 * 60_000) refusals.delete(k)
+  const k = crypto.randomBytes(16).toString('hex')
+  refusals.set(k, { at: Date.now(), refusal })
+  return k
+}
+app.get('/api/auth/refusal/:key', (req, res) => {
+  const hit = refusals.get(String(req.params.key))
+  refusals.delete(String(req.params.key))
+  if (!hit || Date.now() - hit.at > 10 * 60_000) return res.status(404).json({ error: 'gone' })
+  res.set('Cache-Control', 'no-store').json(hit.refusal)
+})
+
+// The page was refused (403 invite_only) with a session it holds: Google through Process GPT's Supabase (/auth/done), or a Process GPT
+// session taken from its cookies. A session made for this sign-in is ended at the auth server — one taken from Process GPT ({host: true})
+// is Process GPT's, and stays. Nothing is kept: → the refusal the screen shows (with the ticket its 「가입 요청 보내기」 sends), or
+// {ok: true} when the person is a member by now.
+app.post('/api/auth/refuse', async (req, res) => {
+  const jwt = (req.headers.authorization || '').replace(/^Bearer /, '')
+  let u
+  try { u = jwt && await userFromJwt(jwt, { unavailable: true }) } catch { return res.status(503).set('X-Auth-Retry', '1').json({ error: 'auth unavailable' }) }
+  if (!u) return res.status(401).json({ error: 'unauthorized' })
+  const tenantId = multiTenant() ? tenantOfAuthUser(u) : config.tenantId
+  const r = await withTenant(tenantId, () => members.refuseSession(u))
+  if (r.ok) return res.json({ ok: true })
+  if (!req.body?.host) await supabaseAdmin.auth.admin.signOut(jwt, 'local').catch((e) => console.warn('[auth] sign out refused session', e.message))
+  res.status(403).json(r.refusal)
+})
+// 「가입 요청 보내기」 on the refusal screen: the ticket of a refused sign-in (it proved the address; the session is gone by then) → the
+// request kept in this company, and the refusal as it reads now. At most once a minute per person, and a company takes
+// PRO_JOIN_REQUESTS_PER_HOUR new requests an hour (lib/membership.js requestToJoin).
+app.post('/api/auth/join-request', async (req, res) => {
+  try {
+    const c = members.readTicket(req.body?.ticket)
+    if (!c) return res.status(400).json({ error: L('요청할 수 있는 시간이 지났어요. 다시 로그인한 뒤 요청해 주세요.', 'The time to send a request has passed. Sign in again, then send it.') })
+    // (behind the gateway the address's company; on an install the one it serves)
+    const t = config.tenantFromHeader || !multiTenant() ? config.tenantId : c.tenant
+    res.status(201).json(await withTenant(t, () => members.requestToJoin(req.body.ticket)))
+  } catch (e) {
+    if (!e.status) { console.warn('[auth] join request', e.message); return res.status(500).json({ error: L('보내지 못했어요.', "Couldn't send it.") }) }
+    res.status(e.status).json({ error: e.message })
+  }
+})
 
 // craft: which ArtCraft apps this install has ({web, cli} flags only); contextRouter: whether messages are routed
 // to conversations (services/context-router) — flags only
@@ -306,7 +369,15 @@ app.get('/api/auth/google/callback', async (req, res) => {
       if (!client) throw new Error(L('이 회사의 Google 연결 설정이 지워졌어요. 관리자에게 알려 주세요.', "This company's Google connection settings were removed. Please tell an administrator."))
       const { tok, me } = await mail.googleExchange(req.query.code, st.verifier, { client, redirectUri: st.redirectUri })
       if (st.mode === 'login') {
-        const login = await finishLogin(me.email, me.name)
+        // invite-only (lib/membership.js): someone who is not a member here is refused before a session — the screen says why
+        const d = await members.decideSignIn(me.email)
+        if (!d.ok) return res.redirect(`${st.base}/invite-only?k=${keepRefusal(d.refusal)}`)
+        let login
+        try { login = await finishLogin(me.email, me.name, d) } catch (e) {
+          // (the first person of the company was someone else, a moment before)
+          if (e.code === 'invite_only' && e.refusal) return res.redirect(`${st.base}/invite-only?k=${keepRefusal(e.refusal)}`)
+          throw e
+        }
         // the Google account's picture: the default picture of who signs in with Google (routes/profilePicture.js)
         await rememberGooglePicture(login.user.id, me.picture).catch((e) => console.warn('[picture] google', e.message))
         return res.redirect(`${st.base}/auth/done#${encodeURIComponent(JSON.stringify(login))}`)
@@ -362,31 +433,54 @@ app.delete('/api/admin/google-client', auth, adminOnly, async (req, res) => {
 })
 
 // Email OTP through Supabase GoTrue (needs SMTP on the auth service).
-// Behind the ProcessGPT gateway the accounts are ProcessGPT's: a code goes only to someone already in
-// this address's tenant, and no account is made (the answer is the same either way)
-const tenantEmail = async (email) => !config.tenantFromHeader || isMemberEmail(email, config.tenantId)
+// Invite-only (lib/membership.js): a code goes to this company's approved members; on an install also to the first person of a company
+// nobody runs yet (the account is made then) and to an address with an account elsewhere (the code proves the address, the refusal
+// screen follows and offers to ask to join). Behind the gateway nobody else gets a code. Anyone who is not a member gets the same
+// answer, {sent: true}, whatever the auth server said — nothing is made for an uninvited address, and nobody learns who has an account
+// or who is a member.
+async function codeFor(email) {
+  if (!members.EMAIL.test(email)) return 'none'
+  if (await isMemberEmail(email, config.tenantId)) return 'member'
+  if (config.tenantFromHeader) return 'none'
+  if (!(await members.companyHasAdmin())) return 'create'
+  return (await authUserByEmail(email).catch(() => null)) ? 'send' : 'none'
+}
 app.post('/api/auth/email/start', async (req, res) => {
-  if (!(await tenantEmail(req.body.email))) return res.json({ sent: true, demo: demoLogin })
+  const email = normEmail(req.body.email)
+  const plan = await codeFor(email)
+  if (plan === 'none') return res.json({ sent: true, demo: demoLogin })
   const r = await fetch(`${config.supabaseUrl}/auth/v1/otp`, {
     method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: req.body.email, create_user: !config.tenantFromHeader }),
-  })
-  res.status(r.ok ? 200 : 400).json(r.ok ? { sent: true, demo: demoLogin } : { error: (await r.text()).slice(0, 200), demo: demoLogin })
+    body: JSON.stringify({ email, create_user: plan === 'create' }),
+  }).catch(() => null)
+  if (plan !== 'member' || r?.ok) return res.json({ sent: true, demo: demoLogin })
+  res.status(400).json({ error: (await r?.text().catch(() => '') || 'auth server unavailable').slice(0, 200), demo: demoLogin })
 })
 app.post('/api/auth/email/verify', async (req, res) => {
-  const { code } = req.body
+  const code = String(req.body.code || '')
   // (lower case from here on: the name made from it, the account and its rows — lib/supa.js normEmail)
   const email = normEmail(req.body.email)
-  if (!(await tenantEmail(email))) return res.status(400).json({ error: '코드가 맞지 않아요' })
+  if (!members.EMAIL.test(email)) return res.status(400).json({ error: L('코드가 맞지 않아요', "That code doesn't match") })
   // (an account of another tenant: 403 with where to sign in — lib/tenant.js)
-  const done = (p) => p.then((login) => res.json(login), (e) => { if (!e.status) throw e; res.status(e.status).json({ error: e.message }) })
-  if (demoLogin && code === '000000') return done(finishLogin(email, email.split('@')[0]))
-  const r = await fetch(`${config.supabaseUrl}/auth/v1/verify`, {
-    method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'email', email, token: code }),
-  })
-  if (!r.ok) return res.status(400).json({ error: L('코드가 맞지 않아요', "That code doesn't match") })
-  await done(finishLogin(email, email.split('@')[0]))
+  const done = (p) => p.then((login) => res.json(login), (e) => { if (!e.status) throw e; res.status(e.status).json(e.refusal || { error: e.message, ...(e.code ? { code: e.code } : {}) }) })
+  // the demo code (PRO_DEMO_LOGIN — local development) stands for a code that matched; a real one is checked by the auth server, whose
+  // session for it is ended again when the address is not let in
+  const demo = demoLogin && code === '000000'
+  let proved = null
+  if (!demo) {
+    const r = await fetch(`${config.supabaseUrl}/auth/v1/verify`, {
+      method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'email', email, token: code }),
+    })
+    if (!r.ok) return res.status(400).json({ error: L('코드가 맞지 않아요', "That code doesn't match") })
+    proved = await r.json().catch(() => null)
+  }
+  const d = await members.decideSignIn(email, { demo })
+  if (!d.ok) {
+    if (proved?.access_token) await supabaseAdmin.auth.admin.signOut(proved.access_token, 'local').catch(() => {})
+    return res.status(403).json(d.refusal)
+  }
+  await done(finishLogin(email, email.split('@')[0], d))
 })
 app.post('/api/auth/refresh', async (req, res) => {
   const j = await refresh(req.body.refresh_token).catch(() => ({ unavailable: true }))
@@ -627,7 +721,13 @@ app.get('/api/events', auth, (req, res) => {
   // the client falls back to long polling when this never arrives (a proxy holding streams back)
   res.write(`event: hello\ndata: ${JSON.stringify({ seq: lastSeq() })}\n\n`)
   const off = subscribe(req.user.id, res)
-  const ping = setInterval(() => res.write(': ping\n\n'), 20000)
+  // (a membership that ended closes the stream: 「내보내기」 here at once — lib/bus.js closeStreams — and one ended in Process GPT at the
+  // next heartbeat; the page's reconnect then meets the door)
+  const tenant = req.tenantId || config.tenantId
+  const ping = setInterval(async () => {
+    if (!(await isMember(req.user.id, tenant).catch(() => true))) { clearInterval(ping); off(); return res.end() }
+    res.write(': ping\n\n')
+  }, 20000)
   req.on('close', () => { off(); clearInterval(ping) })
 })
 
@@ -846,10 +946,16 @@ app.post('/api/notifications/:id/dismiss', auth, async (req, res) => {
 // the tenant's people, and teammate features only work between members). Changing who is on it,
 // and who holds a role for every process, is for administrators (users.is_admin / tenants.owner).
 const ADMIN_ONLY = () => L('관리자만 바꿀 수 있어요.', 'Only administrators can change this.')
+// (for an administrator each teammate says whether 「내보내기」 is offered: not oneself, not the company's owner, not the last
+// administrator — lib/membership.js removable)
 app.get('/api/team', auth, async (req, res) => {
   await team.ensureMember(req.user)
-  res.json(await team.listTeam())
+  const list = await team.listTeam()
+  if (!(await team.isAdmin(req.user))) return res.json(list)
+  res.json(await members.removableAll(req.user, list))
 })
+// invitations, sign-up requests and 「내보내기」 (routes/members.js)
+app.use('/api', memberRoutes(auth))
 app.post('/api/team', auth, async (req, res) => {
   if (!(await team.isAdmin(req.user))) return res.status(403).json({ error: ADMIN_ONLY() })
   if (!/^[^@\s]+@[^@\s]+$/.test(String(req.body.email || ''))) return res.status(400).json({ error: 'email' })
@@ -1102,6 +1208,8 @@ app.get('/api/agent-files/:runId', async (req, res) => {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '') || String(req.query.token || '')
   const user = await userFromJwt(token).catch(() => null)
   if (!user) return res.status(401).end()
+  // (the request's company's approved members only — lib/membership.js)
+  if (!(await isMember(user.id, multiTenant() ? tenantOfAuthUser(user) : config.tenantId))) return res.status(403).end()
   const url = `${config.cliAgentUrl}/runs/${encodeURIComponent(req.params.runId)}/download?tenant_id=${encodeURIComponent(config.tenantId)}&path=${encodeURIComponent(String(req.query.path || ''))}`
   const up = await fetch(url, { headers: req.headers.range ? { Range: req.headers.range } : {} })
   res.status(up.status)

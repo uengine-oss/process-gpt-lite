@@ -214,6 +214,19 @@ export async function memberThread(me, roomId) {
   return r ? roomRow(r) : null
 }
 
+// people out of a room's participants (Process GPT's rows), under the row's lock — an invite at the same moment keeps its own
+export async function dropFromRoom(roomId, ids) {
+  const out = new Set(ids.map(String))
+  const c = await pool.connect()
+  try {
+    await c.query('begin')
+    const { rows: [cur] } = await c.query('select participants from chat_rooms where id=$1 and tenant_id=$2 for update', [roomId, T()])
+    const keep = (Array.isArray(cur?.participants) ? cur.participants : []).filter((p) => !(p && !p.is_agent && out.has(String(p.id))))
+    await c.query('update chat_rooms set participants=$2::jsonb where id=$1', [roomId, JSON.stringify(keep)])
+    await c.query('commit')
+  } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
+}
+
 export async function membersOf(roomId) {
   const [r] = await q('select participants from chat_rooms where id=$1', [roomId])
   const { humans } = split(r?.participants)
@@ -341,8 +354,12 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
 export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [] } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
-  const members = await membersOf(t.id)
-  for (const m of members) if (!(await isMember(m.id))) throw new TeamError(403, L(`${m.name}님은 더 이상 팀원이 아니에요.`, `${m.name} is no longer a teammate.`))
+  // someone in the room who is no longer a teammate (let go, or taken off the team) leaves the room here, and the others go on talking
+  const all = await membersOf(t.id)
+  const gone = []
+  for (const m of all) if (m.id !== me.id && !(await isMember(m.id))) gone.push(m.id)
+  if (gone.length) await dropFromRoom(t.id, gone)
+  const members = all.filter((m) => !gone.includes(m.id))
   const uuid = crypto.randomUUID()
   const artifacts = attach ? await attach(members.filter((m) => m.id !== me.id), uuid, t.id) : []
   const files = artifacts.map((a) => a.name)

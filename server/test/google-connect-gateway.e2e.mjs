@@ -51,7 +51,8 @@ Object.assign(process.env, {
   PRO_BROWSER_PROFILES: profiles, PRO_MCP_HUB_URL: 'http://127.0.0.1:9',
 })
 process.chdir(path.resolve(here, '..'))
-const { q, pool, admin: supa, sessionFor } = await import('../lib/supa.js')
+const { q, pool, admin: supa, sessionFor, ensureUser } = await import('../lib/supa.js')
+const { admit } = await import('../lib/membership.js')
 const { withTenant } = await import('../lib/tenant.js')
 const team = await import('../lib/team.js')
 const { getSecret } = await import('../lib/vault.js')
@@ -94,9 +95,11 @@ before(async () => {
   // the company's people (process-gpt accounts of that tenant); the first one is its administrator
   for (const who of ['admin', 'member']) {
     users[who] = await withTenant(TENANT, async () => {
-      const s = await sessionFor(EMAIL[who], `시험-${who}`)
-      if (who === 'admin') await team.claimFirstAdmin(s.user.id)
-      return s
+      // (the account, then the membership — the first one makes the company, the other is let in — then a session: spec team-membership)
+      const u = await ensureUser(EMAIL[who], `시험-${who}`)
+      if (who === 'admin') await team.claimFirstAdmin(u.id)
+      else await admit(u.id, EMAIL[who], `시험-${who}`, u.id)
+      return sessionFor(EMAIL[who], `시험-${who}`)
     })
   }
   await import('../index.js')

@@ -6,7 +6,7 @@ import Wordmark from '../components/Wordmark.vue'
 import Typewriter from '../components/Typewriter.vue'
 import LangSwitch from '../i18n/LangSwitch.vue'
 import InstallNudge from '../components/InstallNudge.vue'
-import { auth, api } from '../api.js'
+import { auth, api, rememberRefusal } from '../api.js'
 import { BASE } from '../base.js'
 
 const router = useRouter()
@@ -73,6 +73,11 @@ async function verify() {
   busy.value = true
   const r = await fetch(BASE + '/api/auth/email/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.value, code: code.value.join('') }) })
   busy.value = false
+  // an address that is not invited to this company (server lib/membership.js): no session was given — the refusal screen says why
+  if (r.status === 403) {
+    const j = await r.json().catch(() => null)
+    if (j?.code === 'invite_only') { rememberRefusal(j); router.replace('/invite-only'); return }
+  }
   if (!r.ok) { error.value = '코드가 맞지 않아요.'; code.value = ['', '', '', '', '', '']; codeEls.value[0]?.focus(); return }
   auth.set(await r.json())
   // the birth date is asked once; returning people go straight in

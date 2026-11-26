@@ -5,7 +5,7 @@
 import crypto from 'node:crypto'
 import { L } from '../lang.js'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, APPROVED } from '../supa.js'
 import { named, namesOf } from '../people.js'
 
 const T = () => config.tenantId
@@ -15,7 +15,7 @@ const JUDGE_MS = Number(process.env.PRO_JUDGE_TIMEOUT_MS || 5000)
 
 async function team(me) {
   const rows = await q(`select u.id, u.email, u.username as name from pro_team_members m
-                        join users u on u.id=m.user_id and u.tenant_id=m.tenant_id
+                        join users u on u.id=m.user_id and u.tenant_id=m.tenant_id and ${APPROVED('u')}
                         where m.tenant_id=$1 and m.user_id <> $2 order by u.username`, [T(), me.id])
   const roles = await q(`select a.role, a.user_id from pro_role_assignments a where a.tenant_id=$1 and a.proc_def_id='*'`, [T()])
   // (the name every screen shows — lib/people.js; ordered by it)

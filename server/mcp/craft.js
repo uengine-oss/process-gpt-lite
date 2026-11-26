@@ -14,7 +14,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { config } from '../config.js'
 import { liveFor, liveEvents } from '../lib/craftLive.js'
-import { userFromJwt } from '../lib/supa.js'
+import { userFromJwt, mcpRefusal } from '../lib/supa.js'
 import { craftRoot, prepareArgs, pushChanged, roomsOf, roomsWorked, forgetRooms, roomGate } from '../lib/craftWork.js'
 
 const IDLE_MS = 20 * 60 * 1000
@@ -246,6 +246,8 @@ export function mountCraft(app) {
     if (agentNoToken) jwt = ''
     const user = jwt ? await userFromJwt(jwt) : null
     if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+    // (an approved member of the request's company only — lib/membership.js)
+    { const no = await mcpRefusal(user); if (no) return res.status(403).json(no) }
     const server = buildServer(name, user, { agentNoToken })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })

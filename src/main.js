@@ -18,6 +18,8 @@ import { useApp } from './stores/app.js'
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
   { path: '/auth/done', component: () => import('./views/AuthDone.vue'), meta: { public: true } },
+  // invite-only (2026-11-25): someone who is not an approved member of this company — no session is kept (src/api.js leaveRefused)
+  { path: '/invite-only', component: () => import('./views/InviteOnly.vue'), meta: { public: true } },
   // (noTeam: a page without the top bar — the team messenger is not shown over it: App.vue)
   { path: '/welcome/age', component: () => import('./views/OnboardAge.vue'), meta: { noTeam: true } },
   { path: '/welcome/intro', component: () => import('./views/OnboardIntro.vue'), meta: { noTeam: true } },

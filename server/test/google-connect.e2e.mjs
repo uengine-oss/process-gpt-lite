@@ -141,16 +141,27 @@ after(async () => {
   setTimeout(() => process.exit(process.exitCode || 0), 300)
 })
 
-test('설치형 「Google로 계속하기」 로그인은 그대로: 이 설치의 클라이언트, 신원 범위만, 콜백이 로그인시킨다', async () => {
+// (invite-only, 2026-11-25 — spec team-membership: an address nobody invited is refused before a session; once invited, the same
+// sign-in comes in)
+test('설치형 「Google로 계속하기」 로그인: 이 설치의 클라이언트, 신원 범위만, 초대받지 않은 주소는 거절 화면 · 초대받으면 콜백이 로그인시킨다', async () => {
   const ctx = await phone(null)
   const p = await ctx.newPage()
-  await p.goto(`${web}/login`)
-  await p.getByRole('button', { name: 'Google로 계속하기' }).click()
-  await p.waitForURL(/\/o\/oauth2\/v2\/auth/)
-  const asked = new URL(p.url()).searchParams
-  assert.deepEqual([asked.get('client_id'), asked.get('scope'), asked.get('redirect_uri'), asked.get('code_challenge_method')], [ENV_CLIENT, 'openid email profile', `${web}/api/auth/google/callback`, 'S256'])
-  await p.fill('input[name=email]', EMAIL.fresh)
-  await p.getByRole('button', { name: '허용' }).click()
+  const google = async () => {
+    await p.goto(`${web}/login`)
+    await p.getByRole('button', { name: 'Google로 계속하기' }).click()
+    await p.waitForURL(/\/o\/oauth2\/v2\/auth/)
+    const asked = new URL(p.url()).searchParams
+    assert.deepEqual([asked.get('client_id'), asked.get('scope'), asked.get('redirect_uri'), asked.get('code_challenge_method')], [ENV_CLIENT, 'openid email profile', `${web}/api/auth/google/callback`, 'S256'])
+    await p.fill('input[name=email]', EMAIL.fresh)
+    await p.getByRole('button', { name: '허용' }).click()
+  }
+  await google()
+  await p.waitForURL((u) => u.pathname === '/invite-only', { timeout: 20000 })
+  await p.getByText('초대받은 분만 들어올 수 있어요.').waitFor()
+  assert.equal(await p.evaluate(() => localStorage.getItem('pgpt-pro-session')), null)
+  const inv = await (await call('admin', '/team/invites', { method: 'POST', body: { emails: EMAIL.fresh } })).json()
+  assert.equal(inv[0].result, 'invited')
+  await google()
   await p.waitForURL((u) => /\/(welcome|chat)/.test(u.pathname), { timeout: 20000 })
   const s = await p.evaluate(() => JSON.parse(localStorage.getItem('pgpt-pro-session')))
   assert.equal(s.user.email, EMAIL.fresh)

@@ -4,7 +4,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { userFromJwt } from '../lib/supa.js'
+import { userFromJwt, mcpRefusal } from '../lib/supa.js'
 import { signedIn } from '../lib/people.js'
 import * as P from '../lib/panelApps/service.js'
 import { L, asUser } from '../lib/lang.js'
@@ -111,6 +111,8 @@ export function mountPanelApps(app) {
     if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
     const u = jwt ? await userFromJwt(jwt) : null
     if (jwt && !u) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+    // (an approved member of the request's company only — lib/membership.js)
+    { const no = await mcpRefusal(u); if (no) return res.status(403).json(no) }
     let user = null
     if (u) {
       // (the name every screen shows — lib/people.js)

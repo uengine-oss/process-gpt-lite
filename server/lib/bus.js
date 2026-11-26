@@ -13,6 +13,16 @@ export function subscribe(userId, res) {
   return () => subs.get(userId)?.delete(res)
 }
 
+// A person whose membership ended (lib/membership.js remove): their open streams end now, and their waiting long polls answer — the
+// page's next request (a reconnect) is then checked at the door. Their buffered events go with them.
+export function closeStreams(userId) {
+  const id = String(userId)
+  for (const res of subs.get(id) || []) { try { res.end() } catch { /* already gone */ } }
+  subs.delete(id)
+  recent.delete(id)
+  for (const wake of waiters.get(id) || []) wake()
+}
+
 // A live-view frame (browser.frame) is the one kind of event that may be left out: a viewer whose connection still holds
 // FRAME_BACKLOG bytes it has not sent (a phone on a slow line) gets no new frame until it has caught up — never a queue
 // growing in this server's memory — and the long-poll buffer keeps a task's newest frame only, so frames (several a

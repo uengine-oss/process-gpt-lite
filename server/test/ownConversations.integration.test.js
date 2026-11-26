@@ -90,6 +90,11 @@ async function seedA() {
 
 before(async () => {
   if (!up) return
+  // (the account and its membership here first — a session is only an approved member's: spec team-membership)
+  const { ensureUser } = await import('../lib/supa.js')
+  const { admit } = await import('../lib/membership.js')
+  const acct = await ensureUser(EMAIL, '회귀-schedconv')
+  await admit(acct.id, EMAIL, '회귀-schedconv', acct.id)
   ;({ user: me, session } = await sessionFor(EMAIL, '회귀-schedconv'))
   await q(`insert into pro_profile(user_id, name, email, onboarded_at) values ($1,'회귀-schedconv',$2, now()) on conflict (user_id) do update set email=excluded.email`, [me.id, EMAIL])
   main = await mainThread(me.id)

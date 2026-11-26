@@ -5,7 +5,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { userFromJwt, q } from '../lib/supa.js'
+import { userFromJwt, q, mcpRefusal } from '../lib/supa.js'
 import { catalog, extract } from '../lib/folders/indexer.js'
 import * as S from '../lib/folders/service.js'
 import { L, asUser } from '../lib/lang.js'
@@ -138,6 +138,8 @@ export function mountFolders(app) {
     if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
     const user = jwt ? await userFromJwt(jwt) : null
     if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+    // (an approved member of the request's company only — lib/membership.js)
+    { const no = await mcpRefusal(user); if (no) return res.status(403).json(no) }
     const server = buildServer(user)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })
