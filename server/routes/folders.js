@@ -16,6 +16,8 @@ import * as SK from '../lib/folders/skills.js'
 import { named } from '../lib/people.js'
 import * as KIT from '../lib/folders/kit.js'
 import * as SRC from '../lib/folders/sources.js'
+// template folders (lib/folders/templates.js): a project's own workspace from a template, and 「원본에 반영 요청」
+import * as TPL from '../lib/folders/templates.js'
 
 const MIME = S.MIME
 
@@ -72,7 +74,13 @@ export function folderRoutes(auth) {
     const { folder, role } = await S.access(req.params.slug, req.user)
     const [members, variations, history] = await Promise.all([S.members(folder.id), S.variations(folder), S.history(folder, 30)])
     const [integration] = await q(`select * from pro_folder_integrations where folder_id=$1 and status in ('running','conflicted','resolving') order by created_at desc limit 1`, [folder.id])
-    return { ...S.publicFolder(folder), role, members, variations, history, integration: integration || null }
+    return { ...S.publicFolder(folder), role, members, variations, history, integration: integration || null, template: await TPL.infoOf(folder).catch(() => null) }
+  }))
+  // 「템플릿으로 시작」: a project whose own workspace is a variation of this template (runner and up — the same right a project's folder needs)
+  r.post('/folders/:slug/start-project', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'runner')
+    const thread = await TPL.startProject(user(req), folder, { title: req.body?.title })
+    return { id: thread.id, title: thread.title, kind: thread.kind }
   }))
   r.get('/folders/:slug/skill', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
@@ -121,6 +129,12 @@ export function folderRoutes(auth) {
   r.patch('/folders/:slug', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'owner')
     const settings = { ...folder.settings, ...(typeof req.body.fulltext === 'boolean' ? { fulltext: req.body.fulltext } : {}) }
+    // 템플릿으로 쓰기 (lib/folders/templates.js) — projects already started keep their workspace
+    if (typeof req.body.template === 'boolean') {
+      if (req.body.template && (folder.kind !== 'managed' || folder.settings?.work)) throw Object.assign(new Error(L('관리형 공유 폴더만 템플릿으로 쓸 수 있어요.', 'Only a managed shared folder can be a template.')), { status: 400 })
+      if (req.body.template) settings.template = folder.settings?.template || { by: String(req.user.id), at: new Date().toISOString() }
+      else delete settings.template
+    }
     await q('update pro_folders set name=coalesce($2,name), description=coalesce($3,description), settings=$4, updated_at=now() where id=$1', [folder.id, req.body.name || null, req.body.description ?? null, settings])
     if (settings.fulltext !== folder.settings?.fulltext) { await q('update pro_folder_files set card_sha=null where folder_id=$1', [folder.id]); reindex(await S.folderById(folder.id)).catch(() => {}) }
     return { ok: true }
@@ -141,14 +155,17 @@ export function folderRoutes(auth) {
   // ---------- files ----------
   r.get('/folders/:slug/tree', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
+    const v = await S.assertRefVisible(folder, req.query.ref, req.user)
     const own = await S.tree(folder, req.query.ref)
     // (main: the files of the slots this person may read, at the slots' paths — each with `ref`; the slot wins over a file of this folder
-    // a commit from elsewhere put under it)
-    return !req.query.ref || req.query.ref === 'main' ? [...(await REFS.ownRows(folder, own)), ...(await REFS.treeRows(folder, req.user))] : own
+    // a commit from elsewhere put under it. A project's workspace from a template reads the template's slots too.)
+    return !req.query.ref || req.query.ref === 'main' || TPL.isWorkspace(v) ? [...(await REFS.ownRows(folder, own)), ...(await REFS.treeRows(folder, req.user))] : own
   }))
   // a file read through a slot answers from its source, for a reader of the source only; locked · dangling: nothing of it
   const through = async (folder, rel, ref, user) => {
-    if (ref && ref !== 'main') return null
+    // (a workspace of a project started from a template is refused to anyone but its person; its slots are the template's)
+    const v = await S.assertRefVisible(folder, ref, user)
+    if (ref && ref !== 'main' && !TPL.isWorkspace(v)) return null
     const res = await REFS.resolve(folder, rel, user)
     const no = REFS.refusal(res)
     if (no) throw no
@@ -288,17 +305,17 @@ export function folderRoutes(auth) {
   }))
   r.get('/folders/:slug/variations/:vid', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     return { ...(await S.variationDetail(folder, v)), role, folder: S.publicFolder(folder) }
   }))
   r.get('/folders/:slug/variations/:vid/diff', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    return S.fileDiff(folder, await S.variation(folder, req.params.vid), req.query.path)
+    return S.fileDiff(folder, await S.variationFor(folder, req.params.vid, req.user), req.query.path)
   }))
   // a person's checkout: put it on disk for the workroom, commit what they changed there
   r.post('/folders/:slug/variations/:vid/checkout', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     if (['merged', 'discarded'].includes(v.status)) throw Object.assign(new Error(L('반영했거나 버린 변형은 열 수 없어요.', "A merged or discarded variation can't be opened.")), { status: 409 })
     await S.checkout(folder, v, S.personCheckoutDir(req.user, v))
     await q(`update pro_folder_variations set status='open' where id=$1 and status='ready'`, [v.id])
@@ -306,7 +323,7 @@ export function folderRoutes(auth) {
   }))
   r.post('/folders/:slug/variations/:vid/commit', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     const sha = await S.commitVariation(folder, v, user(req), req.body.message || `${req.user.name}: ${v.title}`)
     const cur = await S.variationById(v.id)
     if (req.body.release) await S.release(folder, cur)
@@ -315,35 +332,46 @@ export function folderRoutes(auth) {
   }))
   r.post('/folders/:slug/variations/:vid/discard', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    await S.discard(folder, await S.variation(folder, req.params.vid))
+    await S.discard(folder, await S.variationFor(folder, req.params.vid, req.user))
     return { ok: true }
   }))
   r.post('/folders/:slug/variations/:vid/card', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    return changeCard(folder, await S.variation(folder, req.params.vid))
+    return changeCard(folder, await S.variationFor(folder, req.params.vid, req.user))
+  }))
+  // 원본에 반영 요청 (lib/folders/templates.js): the files a project's workspace may send to its template, and the sending
+  r.get('/folders/:slug/variations/:vid/proposal', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user)
+    return TPL.candidates(folder, await S.variationFor(folder, req.params.vid, req.user))
+  }))
+  r.post('/folders/:slug/variations/:vid/propose', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'runner')
+    const v = await S.variationFor(folder, req.params.vid, req.user)
+    return TPL.propose(folder, v, user(req), { paths: req.body?.paths, title: req.body?.title, note: req.body?.note })
   }))
   // 반영 요청 (a skill change: resource_pull_requests row; the author and bosses are notified)
   r.post('/folders/:slug/variations/:vid/request', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
     if (folder.kind !== 'skill') throw Object.assign(new Error(L('반영 요청은 스킬 폴더에서만 써요.', 'Merge requests are for skill folders only.')), { status: 400 })
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     if (v.status !== 'ready') throw Object.assign(new Error(L('실행이 끝난 변형만 반영을 요청할 수 있어요.', 'Only a variation whose run has finished can be put up for merge.')), { status: 409 })
     return SK.requestMerge(folder, v, user(req), req.body || {})
   }))
   r.get('/folders/:slug/variations/:vid/review', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     if (folder.kind !== 'skill') return null
     return { pr: await SK.prOf(v), verification: await SK.latestVerification(v), canMerge: await SK.canMerge(folder, req.user) }
   }))
   r.post('/folders/:slug/variations/:vid/verify', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
     if (folder.kind !== 'skill') throw Object.assign(new Error(L('검증은 스킬 폴더에서만 써요.', 'Verification is for skill folders only.')), { status: 400 })
-    return SK.verify(folder, await S.variation(folder, req.params.vid), user(req), req.session.access_token)
+    return SK.verify(folder, await S.variationFor(folder, req.params.vid, req.user), user(req), req.session.access_token)
   }))
   r.post('/folders/:slug/variations/:vid/handover', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
+    if (TPL.isWorkspace(v)) throw Object.assign(new Error(L('프로젝트의 작업 공간은 넘기지 않아요. 템플릿을 고칠 것은 「원본에 반영 요청」으로 보내 주세요.', "A project's workspace isn't handed over. Send what the template needs with “Request a merge into the original”.")), { status: 409 })
     return handover(folder, v, user(req), { ...req.body, jwt: req.session.access_token })
   }))
 

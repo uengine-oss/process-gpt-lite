@@ -30,6 +30,9 @@ export async function start(folder, user, ids, policy = 'stop') {
   const vs = []
   for (const id of ids) {
     const v = await S.variation(folder, id)
+    // a project's workspace made from a template never goes into it whole (folders/templates.js — 「원본에 반영 요청」 sends its template files)
+    if (v.source?.template && !S.visibleTo(v, user)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
+    if (v.source?.template) throw err(409, L('템플릿에서 시작한 프로젝트의 작업 공간은 통째로 반영하지 않아요. 고친 템플릿 파일만 「원본에 반영 요청」으로 보내 주세요.', "A workspace of a project started from a template isn't merged whole. Send only the template files you fixed with “Request a merge into the original”."))
     if (v.status !== 'ready') throw err(409, L(`'${v.title}' 은(는) 아직 반영할 수 없어요 (${S.STATUS[v.status]}).`, `'${v.title}' can't be merged yet (${S.statusText(v.status)}).`))
     vs.push(v)
   }

@@ -124,7 +124,7 @@ async function folderCandidates(speaker) {
   for (const id of ids) {
     const f = await F.folderById(id)
     if (!f || f.kind === 'skill') continue
-    const vs = await q(`select id, title, status from pro_folder_variations where folder_id=$1 and status <> 'discarded' order by updated_at desc limit 8`, [f.id]).catch(() => [])
+    const vs = await q(`select id, title, status from pro_folder_variations v where folder_id=$1 and status <> 'discarded' and ${F.UNLISTED} order by updated_at desc limit 8`, [f.id]).catch(() => [])
     for (const v of vs) out.push({ kind: 'folder', id: v.id, title: `${f.name} · ${v.title}`, ref: { folderId: f.id, slug: f.slug, variationId: v.id } })
   }
   return out

@@ -15,12 +15,14 @@ export async function folderRoom(kind, id) {
   const v = /^[0-9a-f-]{36}$/.test(String(id)) ? await S.variationById(id) : null
   if (!v?.worktree_path) return null
   const f = await S.folderById(v.folder_id)
-  return { kind, id, folder: f.id, need: 'runner', title: v.title, sub: `${f.name} · ${L('변형', 'variation')}`, agent: 'shell', root: v.worktree_path, cwd: v.worktree_path, branch: v.branch,
+  return { kind, id, folder: f.id, need: 'runner', ...(v.source?.template ? { workspaceOf: { holder_type: v.holder_type, holder_id: v.holder_id, source: { template: true } } } : {}), title: v.title, sub: `${f.name} · ${L('변형', 'variation')}`, agent: 'shell', root: v.worktree_path, cwd: v.worktree_path, branch: v.branch,
     afterWrite: async (rel) => S.commitVariation(f, await S.variationById(v.id), { name: L('작업실', 'Workroom'), email: 'workroom@pgpt-pro.local' }, L(`작업실에서 고침: ${rel}`, `Edited in the workroom: ${rel}`)) }
 }
 
 export async function folderRoomAccess(user, room) {
   const f = await S.folderById(room.folder)
   const role = await S.roleOf(f, user)
+  // (a project's workspace from a template: only its person — folders/templates.js)
+  if (room.workspaceOf && !S.visibleTo(room.workspaceOf, user)) return false
   return !!role && S.RANK[role] >= S.RANK[room.need]
 }

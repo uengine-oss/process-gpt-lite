@@ -22,6 +22,12 @@ export const folders = {
   people: () => call('/folders/people'),
   get: (slug) => call(`/folders/${enc(slug)}`),
   update: (slug, body) => call(`/folders/${enc(slug)}`, { method: 'PATCH', body }),
+  // template folders (server lib/folders/templates.js): mark one, start a project from it (its own workspace), and from that workspace
+  // the template files to send back (「원본에 반영 요청」 → a new variation of the template that its owner merges)
+  setTemplate: (slug, on) => call(`/folders/${enc(slug)}`, { method: 'PATCH', body: { template: !!on } }),
+  startProject: (slug, title) => call(`/folders/${enc(slug)}/start-project`, { method: 'POST', body: { title } }),
+  proposal: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/proposal`),
+  propose: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/propose`, { method: 'POST', body }),
   tree: (slug, ref = 'main') => call(`/folders/${enc(slug)}/tree?ref=${enc(ref)}`),
   file: (slug, path, ref = 'main') => call(`/folders/${enc(slug)}/file?ref=${enc(ref)}&path=${enc(path)}`),
   setMember: (slug, body) => call(`/folders/${enc(slug)}/members`, { method: 'POST', body }),

@@ -24,10 +24,11 @@ export const gitEnv = () => ({ ...ENV })
 
 // how many git processes this server started (the tests hold reads under a reference slot to a few per request)
 export const stats = { spawns: 0 }
-export function git(cwd, args, { buffer = false, check = true, input, timeout = TIMEOUT } = {}) {
+// env: more variables for this one call (a temporary index: GIT_INDEX_FILE — folders/templates.js builds a commit without a work tree)
+export function git(cwd, args, { buffer = false, check = true, input, timeout = TIMEOUT, env = null } = {}) {
   stats.spawns++
   return new Promise((resolve, reject) => {
-    const child = execFile('git', [...BASE, ...args], { cwd, env: ENV, timeout, maxBuffer: 256 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
+    const child = execFile('git', [...BASE, ...args], { cwd, env: env ? { ...ENV, ...env } : ENV, timeout, maxBuffer: 256 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
       if (err && check) return reject(new GitError(args, err.code, stderr, stdout))
       resolve(buffer ? stdout : String(stdout))
     })

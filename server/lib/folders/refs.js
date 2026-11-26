@@ -330,8 +330,9 @@ export async function summaries(folderIds, user) {
   return out
 }
 // What an agent reading the attached folder is told about its slots (threadFolders.js refHint)
+// (a project's folder too: its agent reads the slots with the same tools — folders/threadFolders.js prepareProjectWork)
 export async function hint(link, user) {
-  if (link?.mode !== 'ref' || !user) return ''
+  if (!['ref', 'project'].includes(link?.mode) || !user) return ''
   const folder = await S.folderById(link.folder_id).catch(() => null)
   if (!folder || folder.tenant_id !== T()) return ''
   const { refs } = await agentView(folder, user, { files: false }).catch(() => ({ refs: [] }))

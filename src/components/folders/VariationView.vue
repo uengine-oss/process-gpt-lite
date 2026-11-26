@@ -8,6 +8,8 @@ import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import HandoverSheet from './HandoverSheet.vue'
 import MergeSheet from './MergeSheet.vue'
+// a project's own workspace from a template (server lib/folders/templates.js): never merged whole — 「원본에 반영 요청」
+import ProposeSheet from './ProposeSheet.vue'
 import { folders as F, rawUrl, whoOf, holderName, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName, lineDiff, highlight, viewOf } from './fileKind.js'
 
@@ -103,6 +105,14 @@ async function runVerify() {
   try { await F.verify(props.slug, props.vid); await load(); say('병합 전 검증을 시작했어요 — 변경 전과 후를 같은 요청으로 돌려 봐요') } catch (e) { say(e.message) }
 }
 const ver = computed(() => review.value?.verification)
+// a project's workspace from a template: where it started, where its outputs go, and the way back to its project
+const ws = computed(() => v.value?.source?.template || null)
+const proposing = ref(false)
+const outDir = computed(() => String(ws.value?.outputs || '산출물').replace(/\/+$/, ''))
+// (a file the project made — under its outputs folder, or new — stays in the project; a changed file of the template may be sent back)
+const isOutput = (c) => c.change === 'A' || c.path === outDir.value || c.path.startsWith(`${outDir.value}/`)
+function back() { router.push(ws.value && v.value.source.thread_id ? `/projects/${v.value.source.thread_id}` : `/folders/${props.slug}`) }
+function proposed(r) { proposing.value = false; say(`템플릿 주인에게 반영 요청을 보냈어요 · ${r.files.length}개 파일`); load() }
 function merged(r) { merging.value = false; load(); if (r?.status === 'done') say('main 에 반영했어요') }
 </script>
 
@@ -111,9 +121,9 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
     <p v-if="err" class="missing">{{ err }}</p>
     <template v-else-if="v">
       <div class="head">
-        <button class="back press" :title="folder?.name" @click="router.push(`/folders/${slug}`)"><Icon name="back" :size="18" /></button>
+        <button class="back press" :title="ws ? '프로젝트로' : folder?.name" @click="back"><Icon name="back" :size="18" /></button>
         <div class="ttl">
-          <small class="crumb"><FIcon name="folder" :size="13" /> {{ folder?.name }} <span>/</span> 변형</small>
+          <small class="crumb"><FIcon name="folder" :size="13" /> {{ folder?.name }} <span>/</span> {{ ws ? '프로젝트 작업 공간' : '변형' }}</small>
           <h1><span class="tt">{{ v.title }}</span> <span class="st" :class="v.status"><span v-if="running" class="spin" />{{ statusLabel[v.status] }}</span></h1>
           <span class="meta">
             <code><FIcon name="branch" :size="13" /> {{ v.branch }}</code>
@@ -125,9 +135,10 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
         <span class="sp" />
         <button v-if="live && rank(role) >= 2 && folder?.kind === 'managed'" class="pill-btn hbtn" :disabled="running" title="이 변형을 내 작업 사본으로 열어 파일·셸에서 고치기" @click="workroom"><FIcon name="terminal" :size="16" /> 작업실</button>
         <button v-if="v.kind === 'person' && v.worktree_path && live" class="pill-btn hbtn" @click="saveCheckout">변경 저장</button>
-        <button v-if="live && rank(role) >= 2" class="pill-btn hbtn" :disabled="running" @click="handing = true"><FIcon name="handover" :size="16" /> 인계하기</button>
+        <button v-if="live && rank(role) >= 2 && !ws" class="pill-btn hbtn" :disabled="running" @click="handing = true"><FIcon name="handover" :size="16" /> 인계하기</button>
+        <button v-if="live && ws" class="dark-btn hbtn" data-test="variation-propose" :disabled="v.status === 'open'" @click="proposing = true"><FIcon name="merge" :size="16" /> 원본에 반영 요청</button>
         <button v-if="isSkill && live && !mayMerge && !review?.pr" class="dark-btn hbtn" :disabled="v.status !== 'ready' || asking" @click="requestMerge"><FIcon name="merge" :size="16" /> {{ asking ? '보내는 중…' : '반영 요청' }}</button>
-        <button v-if="live && mayMerge && folder?.kind !== 'linked'" class="dark-btn hbtn" :disabled="v.status !== 'ready'" @click="merging = true"><FIcon name="merge" :size="16" /> 이 변형 반영</button>
+        <button v-if="live && mayMerge && folder?.kind !== 'linked' && !ws" class="dark-btn hbtn" :disabled="v.status !== 'ready'" @click="merging = true"><FIcon name="merge" :size="16" /> 이 변형 반영</button>
         <button v-if="live && rank(role) >= 2" class="ib press" title="버리기" @click="discard"><Icon name="trash" :size="16" /></button>
       </div>
 
@@ -152,6 +163,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
           </div>
         </div>
       </div>
+      <p v-if="ws" class="what glass wsnote" data-test="variation-workspace"><FIcon name="branch" :size="16" /> <span><b>이 프로젝트 전용 작업 공간</b> — 템플릿 「{{ folder?.name }}」의 {{ String(ws.commit || '').slice(0, 7) }} 에서 시작했어요. 결과물은 「{{ outDir }}/」에만 남고 템플릿에는 통째로 반영하지 않아요. 고친 템플릿 파일만 「원본에 반영 요청」으로 보내요.<template v-if="v.source.requests?.length"> · 보낸 요청 {{ v.source.requests.length }}건</template></span></p>
       <p v-if="v.change_card?.summary" class="what glass"><FIcon name="index" :size="16" /> <span><b>바뀐 점</b> — {{ v.change_card.summary }}</span></p>
 
       <div class="cols">
@@ -160,6 +172,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
           <div class="cl scroll">
             <button v-for="c in v.changes" :key="c.path" class="ci press" :class="{ sel: sel === c.path }" @click="sel = c.path">
               <span class="ch" :class="c.change">{{ c.change }}</span>
+              <span v-if="ws" class="own" :class="isOutput(c) ? 'out' : 'tf'" data-test="variation-file-kind">{{ isOutput(c) ? '결과물' : '템플릿 파일' }}</span>
               <span class="fic sm" :class="kindOf(c.path)">{{ kindLabel[kindOf(c.path)] }}</span>
               <span class="cn"><b>{{ baseName(c.path) }}</b><small>{{ dirName(c.path) || '/' }}</small></span>
               <span v-if="!c.binary" class="pm"><i class="a">+{{ c.add }}</i> <i class="d">−{{ c.del }}</i></span>
@@ -220,13 +233,21 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
       </div>
 
       <HandoverSheet v-if="handing" :folder="folder" :variation="v" :members="folder.members" @close="handing = false" @done="handed" />
-      <MergeSheet v-if="merging" :folder="folder" :ids="[v.id]" @close="merging = false; load()" @done="merged" />
+      <!-- (on the page itself: a glass bar is a containing block for fixed children — the sheet would sit inside it) -->
+      <Teleport to="body"><ProposeSheet v-if="proposing" :slug="slug" :vid="v.id" @close="proposing = false" @done="proposed" /></Teleport>
+    <MergeSheet v-if="merging" :folder="folder" :ids="[v.id]" @close="merging = false; load()" @done="merged" />
     </template>
     <Transition name="fade"><div v-if="toast" class="toast">{{ toast }}</div></Transition>
   </div>
 </template>
 
 <style scoped>
+.own { flex: none; padding: 1px 6px; border-radius: 7px; font-size: 11px; font-weight: 600; }
+.own.out { background: rgba(26 143 76 / .13); color: #1a8f4c; }
+.own.tf { background: rgba(124 92 214 / .15); color: #6b4fc8; }
+:root[data-theme="dark"] .own.tf { color: #c3b2ff; }
+:root[data-theme="dark"] .own.out { color: #6fd39b; }
+.wsnote { border: 1px solid rgba(124 92 214 / .35); }
 .vv { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 0 24px 16px; max-width: 1400px; margin: 0 auto; }
 .missing { text-align: center; color: var(--text-secondary); margin-top: 80px; }
 .head { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; }

@@ -709,6 +709,8 @@ app.post('/api/threads', auth, async (req, res) => {
       // (unless it was renamed meanwhile)
       const [named] = await q(`update pro_threads set title=$2 where id=$1 and title=$3 returning *`, [row.id, title, draft])
       if (named) emit(req.user.id, 'thread', named)
+      // (the project's variation was made under the first words — a template's workspace at once: it takes the name too)
+      if (named) await TF.retitleProject(named, draft).catch((e) => console.warn('[folders] project title', e.message))
     })
     .catch((e) => console.warn('[threads] title', e.message))
 })

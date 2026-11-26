@@ -214,7 +214,7 @@ const openDropped = () => { const n = dropNote.value; dropNote.value = null; if 
         <span v-if="over?.slug === f.slug" class="dropword" data-test="folder-row-drop">{{ over.words }}</span>
         <span class="name">
           <span class="fic folder" :class="{ linked: f.kind === 'linked' }"><FIcon :name="f.kind === 'linked' ? 'link' : 'folder'" :size="20" /></span>
-          <span class="nm"><b>{{ f.name }}<span v-if="f.settings?.work" class="wb" data-test="folder-work-badge">작업 폴더</span><span v-if="f.settings?.champion" class="wb pcb" data-test="folder-pc-badge">내 PC 에서 올림</span></b><small>{{ f.description }}</small><small v-if="kitLine(f.kit)" class="kl" data-test="folder-kit-line">{{ kitLine(f.kit) }}</small></span>
+          <span class="nm"><b>{{ f.name }}<span v-if="f.settings?.work" class="wb" data-test="folder-work-badge">작업 폴더</span><span v-if="f.settings?.champion" class="wb pcb" data-test="folder-pc-badge">내 PC 에서 올림</span><span v-if="f.settings?.template && f.kind === 'managed'" class="wb tpl" data-test="folder-template-badge">템플릿</span></b><small>{{ f.description }}</small><small v-if="kitLine(f.kit)" class="kl" data-test="folder-kit-line">{{ kitLine(f.kit) }}</small></span>
         </span>
         <span class="mem">
           <span class="stack"><Avatar v-for="m in f.members.slice(0, 4)" :key="m.type + m.id" :who="whoOf(m)" :size="28" /></span>
@@ -330,6 +330,9 @@ button.row:hover { background: var(--regular-solid-bg); }
 .pchint { flex-basis: 100%; display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; font-size: 12.5px; color: var(--text-secondary); margin-top: -8px; }
 .pairbtn { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12.5px; font-weight: 600; color: var(--text-primary); background: var(--button-bg); }
 .wb.pcb { background: rgba(42 120 214 / .14); color: #2a78d6; }
+/* a template folder (server lib/folders/templates.js): projects start from it */
+.wb.tpl { background: rgba(124 92 214 / .15); color: #6b4fc8; }
+:root[data-theme="dark"] .wb.tpl { color: #c3b2ff; }
 .nm small.kl { color: var(--text-tertiary); }
 :root[data-theme="dark"] .wb.pcb { color: #8cc1ff; }
 @media (max-width: 760px) { .pchint { justify-content: flex-start; margin-top: 0; } }

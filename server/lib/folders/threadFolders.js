@@ -18,6 +18,8 @@ import { reindex, changeCard } from './indexer.js'
 import { rules } from './runner.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { L } from '../lang.js'
+// template folders: a project started from one works in its own workspace (a variation no one else sees — folders/templates.js)
+import * as TPL from './templates.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -76,10 +78,13 @@ export async function payloadOf(l) {
   const v = l.variation_id ? await S.variationById(l.variation_id) : null
   const live = !!v && LIVE.includes(v.status)
   const ab = live ? await G.aheadBehind(l.repo_path, l.default_branch, v.branch).catch(() => ({ ahead: 0, behind: 0 })) : null
+  // (a workspace from a template: which template, from which commit, where outputs go, the requests sent from it)
+  const t = v?.source?.template
   return {
     id: l.folder_id, slug: l.slug, name: l.name, mode: l.mode,
     variation: v ? { id: v.id, branch: v.branch, title: v.title, status: v.status, ahead: ab?.ahead || 0, behind: ab?.behind || 0, url: `/folders/${l.slug}/v/${v.id}` } : null,
     working: live,
+    template: t ? { slug: l.slug, name: l.name, commit: String(t.commit || '').slice(0, 7), outputs: TPL.outputsOf(t.outputs), requests: (v.source.requests || []).length } : null,
   }
 }
 export const folderPayload = async (threadId) => payloadOf(await linkOf(threadId))
@@ -125,6 +130,8 @@ export async function linkProject(user, thread, folder) {
   if (!folder) return null
   await q(`insert into pro_thread_folders (thread_id, user_id, folder_id, mode) values ($1,$2,$3,'project')
            on conflict (thread_id) do update set folder_id=$3, mode='project', variation_id=null, updated_at=now()`, [thread.id, user.id, folder.id])
+  // a template: the project's own workspace now, from the template's main as it is at this moment
+  if (TPL.isTemplate(folder)) await TPL.makeWorkspace(user, thread, folder)
   return folderPayload(thread.id)
 }
 
@@ -171,12 +178,24 @@ ${listing(files) || '(no files yet)'}
 Do not change files in this folder or save into it. A change is made on a variation when the user asks for one, and a person reviews and merges it.)`) + await refsHint(link, user).catch(() => '')
 }
 
+// The project was named by the model after its variation was made under its first words (a template's workspace is made with the
+// project): the variation takes the new name, and its label — only while it still has the first words
+export async function retitleProject(thread, draft) {
+  if (!thread?.title || !draft || thread.title === draft) return 0
+  const rows = await q(`update pro_folder_variations set title=$2, source = jsonb_set(source, '{label}', to_jsonb(replace(source->>'label', $4, $5)), true), updated_at=now()
+                        where source->>'thread_id'=$1 and coalesce(source->>'project','') = 'true' and title=$3 returning id`,
+  [String(thread.id), thread.title, draft, `「${draft}」`, `「${thread.title}」`])
+  return rows.length
+}
+
 // ---------- project: its own variation ----------
 const branchOf = (thread, n) => `var/p/${String(thread.id).replace(/-/g, '').slice(0, 8)}${n > 1 ? `-${n}` : ''}`
 export async function ensureProjectVariation(user, thread, link) {
   const folder = await S.folderById(link.folder_id)
   const cur = link.variation_id ? await S.variationById(link.variation_id) : null
   if (cur && LIVE.includes(cur.status)) return { folder, v: cur }
+  // a project of a template (its workspace was discarded, or it has none yet): a new workspace from the template's main
+  if (TPL.isWorkspace(cur) || (!cur && TPL.isTemplate(folder))) return { folder, v: await TPL.makeWorkspace(user, thread, folder) }
   // first turn, or the last one was merged (반영) or discarded: a new variation from main, named after the project
   const [{ n }] = await q(`select count(*)::int as n from pro_folder_variations where folder_id=$1 and source->>'thread_id'=$2`, [folder.id, String(thread.id)])
   const v = await S.createVariation(folder, {
@@ -210,6 +229,9 @@ export async function prepareProjectWork({ user, thread }) {
   // the agent may run on another pod, with no disk in common: it gets the files from storage
   const seeded = await pushRoomDir(dir, container)
   const files = (await G.lsTree(folder.repo_path, v.branch)).filter((f) => f.path !== '.gitattributes').map((f) => ({ path: f.path }))
+  // (the folder's reference slots, as this person sees them — read with the folder tools: folders/refs.js)
+  const slots = await refsHint({ mode: 'project', folder_id: folder.id, slug: folder.slug }, user).catch(() => '')
+  if (TPL.isWorkspace(v)) return { user, thread, conv, folder, v, dir, container, seeded, before, note: workspaceNote(folder, v, container, files) + slots }
   const note = L(`\n\n(이 프로젝트는 공유 폴더 '${folder.name}' 에서 작업해요. 이 프로젝트의 변형 '${v.branch}' 이 작업 폴더에 열려 있어요: ${container}
 이 폴더의 파일:
 ${listing(files) || '(아직 파일 없음)'}
@@ -217,8 +239,22 @@ ${listing(files) || '(아직 파일 없음)'}
   `\n\n(This project works in the shared folder '${folder.name}'. The project's variation '${v.branch}' is open in the working folder: ${container}
 Files in this folder:
 ${listing(files) || '(no files yet)'}
-Read and change the folder's files in this working folder. ${rules()} What you change here goes into the project's variation, not the original (main); a person merges it with 「반영」 above the project. So do not say "I updated it" as if the original changed — say "I put it in the project's variation".)`)
+Read and change the folder's files in this working folder. ${rules()} What you change here goes into the project's variation, not the original (main); a person merges it with 「반영」 above the project. So do not say "I updated it" as if the original changed — say "I put it in the project's variation".)`) + slots
   return { user, thread, conv, folder, v, dir, container, seeded, before, note }
+}
+// what a project of a template tells its agent: its own workspace, where outputs go, and that the template does not change
+function workspaceNote(folder, v, container, files) {
+  const out = TPL.outputsOf(v.source.template.outputs)
+  return L(`\n\n(이 프로젝트는 템플릿 '${folder.name}' 에서 시작했어요. 이 프로젝트 전용 작업 공간 '${v.branch}' 이 작업 폴더에 열려 있어요: ${container}
+작업 공간의 파일(템플릿에서 온 것 + 이 프로젝트의 결과물):
+${listing(files) || '(아직 파일 없음)'}
+결과물은 '${out}/' 아래에 새 파일로 두세요. 템플릿의 양식 · 스킬(.claude/skills) · 안내(TEMPLATE.md)를 따라 일하세요. ${rules()}
+여기서 바꾼 것은 이 프로젝트에만 남고 템플릿 원본(main)은 바뀌지 않아요 — '이 프로젝트 작업 공간에 담았어요'처럼 말해 주세요. 템플릿 자체(양식 · 스킬)를 고쳐야 하면 작업 공간의 그 파일을 고치고, 다른 프로젝트에도 쓰이려면 사용자가 프로젝트 위의 「원본에 반영 요청」으로 그 파일만 보낼 수 있다고 알려 주세요.)`,
+  `\n\n(This project was started from the template '${folder.name}'. The project's own workspace '${v.branch}' is open in the working folder: ${container}
+Files in the workspace (from the template, plus this project's outputs):
+${listing(files) || '(no files yet)'}
+Put outputs as new files under '${out}/'. Follow the template's forms, skills (.claude/skills) and notes (TEMPLATE.md). ${rules()}
+What you change here stays in this project; the template's original (main) does not change — say "I put it in this project's workspace". If the template itself (a form, a skill) needs fixing, fix that file in the workspace and tell the user they can send just that file with 「원본에 반영 요청」 above the project, for other projects to use.)`)
 }
 
 // After the turn: the agent's changes committed to the project's variation (it stays — no card each
@@ -232,11 +268,14 @@ export async function finishProjectWork(work, { stopped = false } = {}) {
   const after = await S.variationById(v.id)
   const changed = before && after.head_commit && after.head_commit !== before ? await G.changes(folder.repo_path, before, after.branch).catch(() => []) : []
   if (changed.length) {
-    changeCard(folder, after).catch(() => {})
+    // (a template's workspace is never merged: its card's 「반영하면 …」 would mislead — templates.js)
+    if (!TPL.isWorkspace(after)) changeCard(folder, after).catch(() => {})
     // (conv: the turn's conversation — a project's sub-topic, lib/projectTopics.js — this chip belongs with)
+    const names = changed.map((c) => c.path.split('/').pop()).slice(0, 4).join(', ')
     await addMessage(user.id, thread.id, 'agent', 'chip', { icon: 'check', folderVariation: after.id, ...(work.conv ? { conv: work.conv } : {}),
-      text: L(`'${folder.name}' 폴더의 프로젝트 변형에 담았어요 · ${changed.map((c) => c.path.split('/').pop()).slice(0, 4).join(', ')} · 반영 전까지 원본은 그대로예요`,
-        `Put in the project's variation of '${folder.name}' · ${changed.map((c) => c.path.split('/').pop()).slice(0, 4).join(', ')} · the original stays as it is until it is merged`) })
+      text: TPL.isWorkspace(after)
+        ? L(`이 프로젝트 작업 공간에 담았어요 · ${names} · 템플릿 「${folder.name}」 원본은 그대로예요`, `Put in this project's workspace · ${names} · the template "${folder.name}" stays as it is`)
+        : L(`'${folder.name}' 폴더의 프로젝트 변형에 담았어요 · ${names} · 반영 전까지 원본은 그대로예요`, `Put in the project's variation of '${folder.name}' · ${names} · the original stays as it is until it is merged`) })
     emit(user.id, 'folders', { slug: folder.slug, variation: after.id })
   }
   await announce(user.id, thread.id)

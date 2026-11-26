@@ -196,9 +196,9 @@ export async function registerLinked(user, dir, { name, description = '' } = {})
 // ---------- listing ----------
 export async function listFolders(user) {
   const rows = await q(`select f.*, m.role,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status in ('open','ready','conflicted'))::int as live,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='open')::int as open,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready')::int as ready
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status in ('open','ready','conflicted') and ${UNLISTED})::int as live,
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='open' and ${UNLISTED})::int as open,
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready' and ${UNLISTED})::int as ready
     from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
     where f.tenant_id=$1 and f.kind <> 'skill' and (f.kind <> 'linked' or $3) order by f.updated_at desc`, [T(), String(user.id), linkingOn()])
   // (everyone's members at once: one lookup of names for the whole list, not one per folder)
@@ -236,7 +236,7 @@ export async function membersOfFolders(folderIds, { resolve = people } = {}) {
   return out
 }
 async function lastActivity(f) {
-  const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations where folder_id=$1 order by updated_at desc limit 1`, [f.id])
+  const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations v where folder_id=$1 and ${UNLISTED} order by updated_at desc limit 1`, [f.id])
   const [c] = (await G.log(f.repo_path, f.default_branch, 1)) || []
   const vAt = v ? new Date(v.updated_at) : null
   const cAt = c ? new Date(c.at) : null
@@ -453,6 +453,20 @@ export async function variation(folder, id) {
   if (!v) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
   return v
 }
+// …for this person: a project's workspace made from a template (source.template — folders/templates.js) exists only for the project's
+// person; anyone else is told it is not there
+export const UNLISTED = `not (coalesce(v.source, '{}'::jsonb) ? 'template')`
+export const visibleTo = (v, user) => !v?.source?.template || (v.holder_type === 'user' && !!user?.id && String(v.holder_id) === String(user.id))
+export async function variationFor(folder, id, user) {
+  const v = await variation(folder, id)
+  if (!visibleTo(v, user)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
+  return v
+}
+// a ref a route was given (main, a commit, a variation id): refused when it names a workspace this person may not see
+export async function assertRefVisible(folder, ref, user) {
+  if (!ref || ref === 'main' || COMMIT.test(String(ref))) return null
+  return variationFor(folder, ref, user)
+}
 export async function variationById(id) {
   const [v] = await q('select * from pro_folder_variations where id=$1', [id])
   return v || null
@@ -522,7 +536,8 @@ export async function release(folder, v, { keep = false } = {}) {
 }
 
 export async function variations(folder) {
-  const rows = await q('select * from pro_folder_variations where folder_id=$1 order by updated_at desc', [folder.id])
+  // (a project's workspace made from a template is the project's only — folders/templates.js: never in the folder's list)
+  const rows = await q(`select * from pro_folder_variations v where folder_id=$1 and ${UNLISTED} order by updated_at desc`, [folder.id])
   for (const v of rows) {
     if (['open', 'ready', 'conflicted'].includes(v.status)) Object.assign(v, await G.aheadBehind(folder.repo_path, folder.default_branch, v.branch))
   }
