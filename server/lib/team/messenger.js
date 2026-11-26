@@ -365,9 +365,11 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
   await pushRow(row, members)
-  // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees)
+  // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees; a mail sent with its
+  // attachments — lib/mailRooms.js — is one mail, not one mail and N more)
   const attachment = !!refs?.length && refs.every((r) => r.type === 'mailatt')
-  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id), { attachment })
+  const told = kind === 'mailref' && refs.some((r) => r.type === 'mail') ? refs.filter((r) => r.type === 'mail').map((r) => r.name) : [...files, ...linked]
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, told, context, members.filter((m) => m.id !== me.id), { attachment })
   return viewFor(me, row, by)
 }
 

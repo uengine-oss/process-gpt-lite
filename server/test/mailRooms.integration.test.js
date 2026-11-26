@@ -79,13 +79,14 @@ after(async () => {
   globalThis.fetch = real
 })
 
-async function person(name, { mailbox = false } = {}) {
+// (Process GPT's username is not the name every screen shows — lib/people.js: the rooms are named by the profile's name)
+async function person(name, { mailbox = false, team = true } = {}) {
   const id = crypto.randomUUID()
   const u = { id, email: `mr-${id.slice(0, 8)}@lite.example`, name }
   users.push(u)
-  await q(`insert into users (id, email, username, tenant_id) values ($1,$2,$3,'localhost')`, [id, u.email, name])
+  await q(`insert into users (id, email, username, tenant_id) values ($1,$2,$3,'localhost')`, [id, u.email, `pgpt-${id.slice(0, 6)}`])
   await q(`insert into pro_profile(user_id,name,email) values ($1,$2,$3) on conflict (user_id) do nothing`, [id, name, u.email])
-  await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ('localhost',$1,$1) on conflict do nothing`, [id])
+  if (team) await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ('localhost',$1,$1) on conflict do nothing`, [id])
   if (mailbox) await q(`insert into pro_mail_accounts(user_id, provider, address) values ($1,'demo',$2)`, [id, u.email])
   return u
 }
@@ -217,6 +218,21 @@ test('보내기: 방에 메일 멘션 · 동료는 요약만 · 알림 · 카드
   // a room I am not in
   const notMine = await call(me, 'POST', `/actions/${c1.id}/rooms`, { room: 'room-that-is-not-mine' })
   assert.equal(notMine.status, 404)
+  // someone signed in but not on the team: no rooms, and nobody is made a conversation with; nor is oneself
+  const outsider = await person('외부인', { team: false })
+  assert.equal((await call(outsider, 'GET', `/actions/${c1.id}/rooms`)).status, 403)
+  assert.equal((await call(me, 'POST', `/actions/${c1.id}/rooms`, { person: outsider.id })).status, 403)
+  assert.equal((await call(me, 'POST', `/actions/${c1.id}/rooms`, { person: me.id })).status, 403)
+  assert.equal((await q(`select count(*)::int n from chat_rooms where participants @> $1::jsonb`, [JSON.stringify([{ id: outsider.id }])]))[0].n, 0)
+  // a send that is not posted after all (someone in the room is no longer on the team) turns off what it turned on
+  const gone = await person('퇴사자')
+  const t = await call(me, 'POST', '/team/threads', { members: [k.id, gone.id], title: '롤백 방' })
+  rooms.push(t.body.id)
+  await q(`delete from pro_team_members where user_id=$1`, [gone.id])
+  const failed = await call(me, 'POST', `/actions/${c1.id}/rooms`, { room: t.body.id, body: true })
+  assert.equal(failed.status, 403, failed.text)
+  assert.equal((await card(c1.id)).source.mail_share?.[t.body.id], undefined, '본문 공유가 켜진 채 남지 않는다')
+  assert.equal((await card(c1.id)).source.room_posts?.[t.body.id], undefined)
 })
 
 test('메일이 오면: 약속한 회사의 새 메일은 그 방에 저절로(약속의 말 · 요약만) · 다른 회사는 아님 · Home 카드가 없는 메일도(끝난 카드로)', { skip: !db && 'no database' }, async () => {
@@ -287,4 +303,51 @@ test('끄기: 저절로 온 메일의 시트에서 약속 끄기 → 다음 메�
   assert.equal((await call(me, 'POST', `/actions/${c1.id}/rooms/${ace}/stop`, { what: 'follow' })).status, 404)
   assert.equal((await call(me, 'POST', `/actions/${c1.id}/rooms/${ace}/stop`, { what: 'everything' })).status, 400)
   void MR
+})
+
+test('본문까지 정한 약속: 새 메일의 본문도 그 방에서만, 첨부 파일은 저절로 공유하지 않음 → 「본문 끄기」는 약속의 본문도 끔 · 다른 회사의 약속 · 팀에서 빠진 사람은 약속을 지우지 않음', { skip: !db && 'no database' }, async () => {
+  const me = await person('한서진', { mailbox: true }), c = await person('윤가람'), x = await person('도하율')
+  await seenSamples(me)
+  const room = await call(me, 'POST', '/team/threads', { members: [c.id, x.id], title: '루멘 협업' })
+  rooms.push(room.body.id)
+  const LUMEN = '정다온 <daon@lumen-works.example>'
+  const m0 = await mail(me, LUMEN, '공동 개발 범위 협의', '공동 개발 범위를 정리했습니다.')
+  const c0 = await cardOf(me, m0, LUMEN, '공동 개발 범위 협의')
+  await q('insert into pro_mail_seen values ($1,$2) on conflict do nothing', [me.id, m0])
+  const set = await call(me, 'POST', `/actions/${c0.id}/rooms`, { room: room.body.id, body: true, follow: 'domain' })
+  assert.equal(set.status, 200, set.text)
+  const rule = (await card(c0.id)).source.room_follow[room.body.id]
+  assert.deepEqual([rule.by, rule.key, rule.body, rule.tenant], ['domain', 'lumen-works.example', true, 'localhost'])
+  assert.equal(rule.label, undefined, '약속은 말이 아니라 by · key 로 남는다')
+  // the rule's body share: the new mail's body reads in that room, its files are never shared by the rule
+  const m1 = await mail(me, '서지안 <jian@lumen-works.example>', '시제품 일정', '시제품은 12월 둘째 주에 나옵니다.')
+  llm.triage = { actions: [{ mail_id: m1, verb: 'Review', kind: 'task', text: '시제품 일정을 확인합니다.', icon_domain: '', due: null, prompt: '확인' }], brief: '' }
+  try { await pollUser(me.id) } finally { llm.triage = { actions: [], brief: '' } }
+  const auto1 = (await messagesOf(c, room.body.id)).find((m) => m.auto && m.refs?.[0]?.subject === '시제품 일정')
+  assert.ok(auto1, '약속대로 올라갔다')
+  assert.equal(auto1.refs.length, 1, '첨부 멘션은 저절로 붙지 않는다')
+  assert.equal(auto1.refs[0].state.card, 'shared')
+  assert.ok(!auto1.body.includes('@'), '방에 가는 말에 주소가 없다')
+  // 본문 끄기 on the card that holds the rule: the rule shares no more bodies either
+  assert.equal((await call(me, 'POST', `/actions/${c0.id}/rooms/${room.body.id}/stop`, { what: 'body' })).status, 200)
+  assert.equal((await card(c0.id)).source.room_follow[room.body.id].body, false)
+  const m2 = await mail(me, '서지안 <jian@lumen-works.example>', '시제품 사진', '사진을 보냅니다.')
+  llm.triage = { actions: [{ mail_id: m2, verb: 'Review', kind: 'task', text: '시제품 사진을 봅니다.', icon_domain: '', due: null, prompt: '확인' }], brief: '' }
+  try { await pollUser(me.id) } finally { llm.triage = { actions: [], brief: '' } }
+  const auto2 = (await messagesOf(c, room.body.id)).find((m) => m.auto && m.refs?.[0]?.subject === '시제품 사진')
+  assert.equal(auto2.refs[0].state.card, 'summary')
+  // a rule set in another tenant is neither used nor put away by a poll in this one
+  await q(`update pro_actions set source = jsonb_set(source, array['room_follow', $2::text, 'tenant'], '"other-tenant"') where id=$1`, [c0.id, room.body.id])
+  const n0 = (await messagesOf(c, room.body.id)).length
+  const m3 = await mail(me, '서지안 <jian@lumen-works.example>', '다른 회사 공간의 약속', '…')
+  try { await pollUser(me.id) } finally { llm.triage = { actions: [], brief: '' } }
+  assert.equal((await messagesOf(c, room.body.id)).length, n0)
+  assert.equal((await card(c0.id)).source.room_follow[room.body.id].tenant, 'other-tenant', '지우지 않는다')
+  await q(`update pro_actions set source = jsonb_set(source, array['room_follow', $2::text, 'tenant'], '"localhost"') where id=$1`, [c0.id, room.body.id])
+  // someone in the room no longer on the team: that post fails, the rule stays (only leaving the room puts it away)
+  await q(`delete from pro_team_members where user_id=$1`, [x.id])
+  const m4 = await mail(me, '서지안 <jian@lumen-works.example>', '팀이 바뀐 뒤', '…')
+  try { await pollUser(me.id) } finally { llm.triage = { actions: [], brief: '' } }
+  assert.ok((await card(c0.id)).source.room_follow[room.body.id], '약속이 남는다')
+  void m3; void m4
 })

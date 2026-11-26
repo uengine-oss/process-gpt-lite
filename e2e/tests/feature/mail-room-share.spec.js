@@ -132,6 +132,8 @@ test.describe('메일을 대화방에 — 고르기 · 보내기 · 들어올 �
       await expect(first).toContainText('추천')
       await expect(first).toContainText('이 메일과 닿는 이야기를 하는 방')
       await expect(picker.locator('[data-test="room-option"][data-suggested]')).toHaveCount(1)
+      // (a room's line names the others in it, never me)
+      await expect(picker.locator('[data-test="room-option"]').nth(1)).not.toContainText(`${u.name || '회귀-mr-pick'},`)
       await first.scrollIntoViewIfNeeded()
       // (the picture shows the rooms only: this database's other teammates stay out of it)
       await page.evaluate(() => { for (const el of document.querySelectorAll('[data-test="room-person"], .sub')) el.style.visibility = 'hidden' })

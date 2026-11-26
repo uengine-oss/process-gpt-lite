@@ -17,6 +17,8 @@ const props = defineProps({ action: Object, open: Boolean })
 const emit = defineEmits(['close', 'picked'])
 const app = useApp()
 const team = useTeam()
+// (GET /api/me is {user: {…}})
+const myId = computed(() => app.me?.user?.id || null)
 
 // ---------- where it is shared ----------
 const shared = ref([])
@@ -33,7 +35,10 @@ async function loadShared() {
 }
 watch(mark, loadShared, { immediate: true })
 const reads = (x) => [x.body ? '본문 공유 중' : '요약만', x.files ? `첨부 ${x.files}개 공유 중` : ''].filter(Boolean).join(' · ')
+// what was said last wins: a slow picker load does not bring back a list a 끄기 or 보내기 changed meanwhile
+let changed = 0
 async function stop(x, what) {
+  changed++
   busyStop.value = `${x.room}:${what}`
   err.value = ''
   try { shared.value = (await app.stopMailRoom(props.action.id, x.room, what)).shared } catch (e) { err.value = e.message }
@@ -58,18 +63,21 @@ const busy = ref(false)
 const err = ref('')
 const sent = ref(null)          // {id, title}
 watch(() => props.open, async (on) => {
-  if (!on) return
+  // closed (its ✕, the row's pill again): what was being written goes — opened again, it starts from the list
+  if (!on) { reset(); return }
   sent.value = null; err.value = ''; loadErr.value = ''
   if (data.value) return
+  const at = changed
   try {
-    data.value = await app.mailRooms(props.action.id)
-    by.value = data.value.choice || data.value.choices?.[0]?.by || ''
-    if (data.value.shared) shared.value = data.value.shared
+    const d = await app.mailRooms(props.action.id)
+    data.value = d
+    by.value = d.choice || d.choices?.[0]?.by || ''
+    if (d.shared && at === changed) shared.value = d.shared
   } catch (e) { loadErr.value = e.message }
 }, { immediate: true })
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, '')
 const hit = (s) => !find.value.trim() || norm(s).includes(norm(find.value))
-const others = (r) => (r.members || []).filter((m) => m.id !== app.me?.id).map((m) => m.name).join(', ')
+const others = (r) => (r.members || []).filter((m) => m.id !== myId.value).map((m) => m.name).join(', ')
 const rooms = computed(() => (data.value?.rooms || []).filter((r) => hit(r.title) || (r.members || []).some((m) => hit(m.name))))
 const people = computed(() => (data.value?.people || []).filter((p) => hit(p.name) || hit(p.email)))
 const pickTitle = computed(() => pick.value?.room?.title || pick.value?.person?.name || '')
@@ -83,11 +91,13 @@ const says = computed(() => [
 ].filter(Boolean))
 function choose(p) { pick.value = p; err.value = '' }
 function back() { pick.value = null; err.value = '' }
-function cancel() { pick.value = null; note.value = ''; body.value = false; files.value = false; follow.value = false; emit('picked', false) }
+function reset() { pick.value = null; note.value = ''; body.value = false; files.value = false; follow.value = false; find.value = '' }
+function cancel() { reset(); emit('picked', false) }
 async function send() {
   if (busy.value || !pick.value) return
   busy.value = true
   err.value = ''
+  changed++
   try {
     const r = await app.shareMailToRoom(props.action.id, { ...(pick.value.room ? { room: pick.value.room.id } : { person: pick.value.person.id }), note: note.value,
       body: body.value, files: files.value, follow: follow.value && choice.value ? choice.value.by : null })
@@ -123,7 +133,7 @@ async function send() {
           <button v-for="r in rooms" :key="r.id" class="opt press" :class="{ sug: r.suggested }" role="option" data-test="room-option" :data-room="r.id"
             :data-suggested="r.suggested ? '' : null" @click="choose({ room: r })">
             <PersonAvatar v-if="r.kind !== 'direct'" kind="group" size="sm">{{ r.members.length }}</PersonAvatar>
-            <PersonAvatar v-else :id="r.members.find((m) => m.id !== app.me?.id)?.id" :name="r.title" size="sm" />
+            <PersonAvatar v-else :id="r.members.find((m) => m.id !== myId)?.id" :name="r.title" size="sm" />
             <span class="nm"><b>{{ r.title }}</b><small>{{ r.why[0]?.text || others(r) }}</small></span>
             <i v-if="r.suggested" class="tag" data-test="room-suggested">추천</i>
           </button>

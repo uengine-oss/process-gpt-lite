@@ -42,19 +42,36 @@ export const BY = ['thread', 'sender', 'domain']
 // ---------- pure ----------
 // a mail service's domain is many people's: it says nothing of a company
 export const isPersonal = (domain, list = []) => !domain || list.map(lower).includes(lower(domain))
+// the owner's own company (their sign-in's and mailbox's domains, and below them): 「같은 회사」 would be every colleague's mail — HR, payroll
+// (PR #100 review) — so it is neither a rule nor a reason
+export const isOwn = (domain, own = []) => !!domain && own.map(lower).filter(Boolean).some((d) => lower(domain) === d || lower(domain).endsWith(`.${d}`))
+const companyOf = (domain, { personalDomains = [], ownDomains = [] } = {}) => (domain && !isPersonal(domain, personalDomains) && !isOwn(domain, ownDomains) ? lower(domain) : '')
 
-// The 「앞으로 … 메일도 이 방에 올리기」 choices for one mail: its thread (a mailbox that keeps threads — Gmail), its sender, its company (a
-// company's own domain) → [{by, key, label}]
-export function ruleChoices({ from, threadId } = {}, { personalDomains = [] } = {}) {
+// A rule's words, made when they are shown (in the reader's language — a rule keeps {by, key, name}, not words):
+//   owner — the owner's sheet: the sender with their address
+//   room  — what the room may read (the message, its members' notices): a name or the domain, never an address — the summary everyone sees
+//           has none (PR #100 review)
+export function ruleLabel(rule, { room = false } = {}) {
+  if (rule?.by === 'thread') return L('이 메일 스레드의 다음 메일', 'the next mails of this thread')
+  if (rule?.by === 'sender') {
+    const key = String(rule.key || ''), name = clean(rule.name)
+    const who = room ? name || key.split('@').pop() || L('그 보낸 사람', 'that sender') : name && lower(name) !== lower(key) ? `${name}(${key})` : key
+    return L(`${who}에게서 오는 메일`, `mail from ${who}`)
+  }
+  if (rule?.by === 'domain') return L(`${rule.key}에서 오는 메일`, `mail from ${rule.key}`)
+  return ''
+}
+
+// The 「앞으로 … 메일도 이 방에 올리기」 choices for one mail: its thread (a mailbox that keeps threads — Gmail), its sender, its company (another
+// company's own domain — not a mail service's, not the owner's own) → [{by, key, name?, label}]
+export function ruleChoices({ from, threadId } = {}, { personalDomains = [], ownDomains = [] } = {}) {
   const who = MM.senderOf(from)
   const out = []
-  if (threadId) out.push({ by: 'thread', key: String(threadId), label: L('이 메일 스레드의 다음 메일', 'the next mails of this thread') })
-  if (who.address) {
-    const name = who.name && who.name !== who.address ? `${who.name}(${who.address})` : who.address
-    out.push({ by: 'sender', key: lower(who.address), label: L(`${name}에게서 오는 메일`, `mail from ${name}`) })
-  }
-  if (who.domain && !isPersonal(who.domain, personalDomains)) out.push({ by: 'domain', key: lower(who.domain), label: L(`${who.domain}에서 오는 메일`, `mail from ${who.domain}`) })
-  return out
+  if (threadId) out.push({ by: 'thread', key: String(threadId) })
+  if (who.address) out.push({ by: 'sender', key: lower(who.address), ...(who.name && who.name !== who.address ? { name: who.name } : {}) })
+  const company = companyOf(who.domain, { personalDomains, ownDomains })
+  if (company) out.push({ by: 'domain', key: company })
+  return out.map((c) => ({ ...c, label: ruleLabel(c) }))
 }
 // the choice the sheet offers first: the company when there is one, else the sender (the thread is the narrowest)
 export const firstChoice = (choices) => choices.find((x) => x.by === 'domain') || choices.find((x) => x.by === 'sender') || choices[0] || null
@@ -69,17 +86,20 @@ export function ruleTakes(rule, m) {
   return false
 }
 
-// the message an automatic post says (the rule's own words): 「ace.example에서 오는 메일은 이 방에 올리기로 했어요.」
-export const autoNote = (rule) => L(`${rule.label}은 이 방에 올리기로 했어요.`, `${rule.label[0].toUpperCase()}${rule.label.slice(1)} goes to this room, as set.`)
+// the message an automatic post says (the rule's words for the room): 「ace.example에서 오는 메일은 이 방에 올리기로 했어요.」
+export function autoNote(rule) {
+  const t = ruleLabel(rule, { room: true })
+  return L(`${t || '이 메일'}은 이 방에 올리기로 했어요.`, `${t ? `${t[0].toUpperCase()}${t.slice(1)}` : 'This mail'} goes to this room, as set.`)
+}
 
 // The rooms in the order the picker shows them, each with why it is suggested (nothing: it is only one of the owner's rooms).
 //   rooms  [{id, title, kind, members: [{id, name, email}], updatedAt}] — the owner's conversations
 //   posts  [{room, address, domain, thread}] — where the owner put their other mails
 //   mail   {from, to, cc, threadId}
 //   picks  [{key: <room id>, p}] — the judge's
-export function rankRooms(rooms, { me = {}, mail = {}, posts = [], picks = [], personalDomains = [] } = {}) {
+export function rankRooms(rooms, { me = {}, mail = {}, posts = [], picks = [], personalDomains = [], ownDomains = [] } = {}) {
   const who = MM.senderOf(mail.from)
-  const company = who.domain && !isPersonal(who.domain, personalDomains) ? lower(who.domain) : ''
+  const company = companyOf(who.domain, { personalDomains, ownDomains })
   const got = new Set([...(mail.to || []), ...(mail.cc || [])].map((x) => lower(MM.senderOf(x).address)).filter(Boolean))
   got.delete(lower(me.email))
   return rooms.map((r, order) => {
@@ -137,11 +157,20 @@ async function postsOf(userId, exceptId) {
   })
 }
 
-// the rooms' names, as the messenger names them for this person (a room of two: the other one)
+// the rooms' names, as the messenger names them for this person (a room with no name: the other people, by the names every screen uses —
+// lib/people.js, not Process GPT's username)
 async function titlesOf(user, ids) {
   if (!ids.length) return {}
-  const others = (ps) => (Array.isArray(ps) ? ps : []).filter((p) => p && !p.is_agent && String(p.id) !== String(user.id)).map((p) => p.username || p.email || '').filter(Boolean).join(', ')
-  return Object.fromEntries((await q('select id, name, participants from chat_rooms where id = any($1) and tenant_id=$2', [ids, T()])).map((r) => [r.id, r.name || others(r.participants)]))
+  const rows = await q('select id, name, participants from chat_rooms where id = any($1) and tenant_id=$2', [ids, T()])
+  const others = (ps) => (Array.isArray(ps) ? ps : []).filter((p) => p && !p.is_agent && String(p.id) !== String(user.id))
+  const { people } = await import('./people.js')
+  const names = await people(rows.filter((r) => !r.name).flatMap((r) => others(r.participants).map((p) => String(p.id)))).catch(() => new Map())
+  return Object.fromEntries(rows.map((r) => [r.id, r.name || others(r.participants).map((p) => names.get(String(p.id))?.name || p.username || p.email || '').filter(Boolean).join(', ')]))
+}
+// the owner's own domains: their sign-in's and their mailbox's
+async function ownDomainsOf(user) {
+  const [acc] = await q('select address from pro_mail_accounts where user_id=$1', [user.id]).catch(() => [])
+  return [...new Set([user.email, acc?.address].map((a) => MM.senderOf(a || '').domain).filter(Boolean))]
 }
 // where this mail is shared now: [{room, title, at, body, files, follow, auto}]
 export async function sharedOf(user, card) {
@@ -156,8 +185,8 @@ export async function sharedOf(user, card) {
     const post = s.room_posts?.[room] || null
     const rule = s.room_follow?.[room] || null
     return { room, title: titles[room] || '', at: post?.at || s.mail_share?.[room]?.at || rule?.at || null, message: post?.message || null, body: MM.sharedWith(card, room), files: files(room),
-      follow: rule ? { by: rule.by, label: rule.label, body: !!rule.body } : null,
-      auto: post?.auto ? { label: post.auto.label, on: !post.auto.off && !!rules[post.auto.card]?.[room] } : null }
+      follow: rule ? { by: rule.by, label: ruleLabel(rule), body: !!rule.body } : null,
+      auto: post?.auto ? { label: ruleLabel(post.auto), on: !post.auto.off && !!rules[post.auto.card]?.[room] } : null }
   }).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
 }
 
@@ -200,11 +229,12 @@ export async function roomsOfCard(user, actionId, deps = {}) {
     deps.mail ? Promise.resolve(deps.mail) : MM.readMail(user.id, card), postsOf(user.id, card.id)])
   const view = rooms.map((r) => ({ id: r.id, kind: r.kind, title: r.title, members: (r.members || []).map((m) => ({ id: m.id, name: m.name, email: m.email || null })), updatedAt: r.updatedAt, last: r.last || null }))
   const { picks, read } = await judged(user, card, mail, view, { sk, R, judges: deps.judges })
-  const ranked = rankRooms(view, { me: user, mail: { from: mail.from || card.source.from, to: mail.to, cc: mail.cc, threadId: mail.threadId || card.source.thread_id }, posts, picks, personalDomains: F.personalDomains })
+  const ownDomains = await ownDomainsOf(user)
+  const ranked = rankRooms(view, { me: user, mail: { from: mail.from || card.source.from, to: mail.to, cc: mail.cc, threadId: mail.threadId || card.source.thread_id }, posts, picks, personalDomains: F.personalDomains, ownDomains })
   // (teammates with a conversation of two already are found through it)
   const paired = new Set(view.filter((r) => r.kind === 'direct').flatMap((r) => r.members.map((m) => String(m.id))))
   const people = (team || []).filter((p) => String(p.id) !== String(user.id) && !paired.has(String(p.id))).map((p) => ({ id: String(p.id), name: p.name, email: p.email || null }))
-  const choices = ruleChoices({ from: mail.from || card.source.from, threadId: mail.threadId || card.source.thread_id }, { personalDomains: F.personalDomains })
+  const choices = ruleChoices({ from: mail.from || card.source.from, threadId: mail.threadId || card.source.thread_id }, { personalDomains: F.personalDomains, ownDomains })
   return { rooms: ranked.map(({ last, ...r }) => ({ ...r, last: last ? { body: clip(last.body, 80), at: last.at } : null })), people, shared: await sharedOf(user, card),
     choices, choice: firstChoice(choices)?.by || null, files: (mail.attachments || []).length, read }
 }
@@ -225,26 +255,40 @@ export async function shareToRoom(user, actionId, opts = {}, deps = {}) {
     if (!UUID.test(pid) || pid === user.id || !(await isMember(pid))) throw fail(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
     room = await M.directThread(user, pid)
   } else room = await M.memberThread(user, String(opts.room || ''))
-  if (!room) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
+  // (not in it — or no longer: an automatic rule for it is put away, lib/mailRooms.js autoShare)
+  if (!room) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."), 'not_in_room')
   const sk = deps.skill || await cardSkill()
   const R = roomRules(sk)
   const mail = deps.mail || await MM.readMail(user.id, card)
   // the rule first (said before the mail goes: a choice this mail does not offer is refused, and nothing is sent)
   let rule = null
   if (opts.follow) {
-    const c = ruleChoices({ from: mail.from || card.source.from, threadId: mail.threadId || card.source.thread_id }, { personalDomains: followRules(sk).personalDomains }).find((x) => x.by === opts.follow)
+    const c = ruleChoices({ from: mail.from || card.source.from, threadId: mail.threadId || card.source.thread_id }, { personalDomains: followRules(sk).personalDomains, ownDomains: await ownDomainsOf(user) })
+      .find((x) => x.by === opts.follow)
     if (!c) throw fail(400, L('이 메일로는 그 약속을 정할 수 없어요.', "That rule can't be set from this mail."))
-    rule = { ...c, body: opts.body === true, at: new Date().toISOString() }
+    // (its words are made when shown; the tenant it was set in is the only one it posts in)
+    rule = { by: c.by, key: c.key, ...(c.name ? { name: c.name } : {}), body: opts.body === true, tenant: T(), at: new Date().toISOString() }
   }
   const atts = opts.files === true ? (mail.attachments || []).slice(0, 9) : []
   const refs = [{ type: 'mail', actionId: card.id, body: opts.body === true }, ...atts.map((a, i) => ({ type: 'mailatt', actionId: card.id, i, name: a.name || String(a), share: true }))]
   const FR = deps.fileRefs || await import('./fileRefs.js')
-  const kept = await FR.forSend(user, refs, { roomId: room.id })
+  // 「본문도 공유」 · 「첨부 파일도 공유」 are written on the card as the mention is made (forSend): when the message is not posted after all —
+  // a member no longer on the team, a file that cannot be read — what this send turned on is turned off again (PR #100 review)
+  const MA = await import('./mailAttachments.js')
+  const before = { body: MM.sharedWith(card, room.id), files: atts.map((a, i) => MA.attSharedWith(card, i, room.id)) }
+  const undo = async () => {
+    if (opts.body === true && !before.body) await MM.setShare(user.id, card.id, room.id, false).catch((e) => console.warn('[mail rooms] undo body', e.message))
+    for (const [i, was] of before.files.entries()) if (!was) await MA.setShare(user.id, card.id, i, room.id, false).catch(() => {})
+  }
   const note = clean(opts.note).slice(0, R.noteChars)
   let m
   try {
-    m = await M.post(user, room.id, { kind: 'mailref', body: note, refs: kept, ...(opts.auto ? { auto: { by: opts.auto.by, label: opts.auto.label } } : {}) })
-  } catch (e) { throw e instanceof TeamError ? fail(e.status || 400, e.message) : e }
+    const kept = await FR.forSend(user, refs, { roomId: room.id, mail: deps.mail || mail })
+    m = await M.post(user, room.id, { kind: 'mailref', body: note, refs: kept, ...(opts.auto ? { auto: { by: opts.auto.by, label: ruleLabel(opts.auto, { room: true }) } } : {}) })
+  } catch (e) {
+    await undo()
+    throw e instanceof TeamError ? fail(e.status || 400, e.message) : e
+  }
   const at = new Date().toISOString()
   let row = await setIn(card.id, user.id, ['room_posts', room.id], { at, message: m.id, ...(opts.auto ? { auto: opts.auto } : {}) })
   if (rule) row = await setIn(card.id, user.id, ['room_follow', room.id], rule)
@@ -262,6 +306,8 @@ export async function stopRoom(user, actionId, roomId, what) {
   if (!ROOM.test(room)) throw fail(400, L('대화방을 알 수 없어요.', "I don't know which room."))
   if (what === 'body') {
     await MM.setShare(user.id, card.id, room, false)
+    // (this card's rule for the room no longer shares the bodies of the mails it brings either — PR #100 review)
+    if (card.source?.room_follow?.[room]?.body) await setIn(card.id, user.id, ['room_follow', room, 'body'], false)
     const rows = await q(`select uuid, id, messages from chats where id=$1 and tenant_id=$2 and messages->'pgpt'->'refs' @> $3::jsonb`, [room, T(), JSON.stringify([{ type: 'mail', actionId: card.id }])]).catch(() => [])
     const { deliver } = await import('./team/messenger.js')
     for (const row of rows) {
@@ -289,26 +335,28 @@ export async function stopRoom(user, actionId, roomId, what) {
 }
 
 // ---------- a mail arrives ----------
-// the owner's rules: [{card, room, by, key, label, body}]
+// the owner's rules in this tenant: [{card, room, by, key, name, body}] (a card has no tenant: a rule keeps the one it was set in — a poll in
+// another tenant neither uses nor puts away the rules of this one, PR #100 review)
 export async function rulesOf(userId) {
   const rows = await q(`select id, source from pro_actions where user_id=$1 and status <> 'deleted' and source ? 'room_follow' order by created_at desc limit 200`, [userId])
   const seen = new Set()
   const out = []
   for (const c of rows) {
     for (const [room, r] of Object.entries(c.source.room_follow || {})) {
-      if (!r || !BY.includes(r.by) || !r.key) continue
+      if (!r || !BY.includes(r.by) || !r.key || (r.tenant && r.tenant !== T())) continue
       const k = `${room}|${r.by}|${lower(r.key)}`
       if (seen.has(k)) continue
       seen.add(k)
-      out.push({ card: c.id, room, by: r.by, key: r.key, label: r.label || '', body: r.body === true })
+      out.push({ card: c.id, room, by: r.by, key: r.key, ...(r.name ? { name: r.name } : {}), body: r.body === true })
     }
   }
   return out
 }
 
 // lib/mail.js pollUser: the mails just arrived (not the owner's own) and the cards made of them. Each mail a rule takes goes to that rule's
-// room, once per room, as the owner — at most rooms.autoPerPoll a poll. A rule whose room the owner left (or that is gone) is put away.
-// → [{mail, room, message}]
+// room, once per room, as the owner — at most rooms.autoPerPoll posts a poll (a flood guard: the ones over it are not posted). A rule whose
+// room the owner is no longer in (or that is gone) is put away; any other failure (a member no longer on the team, the database) keeps it.
+// → [{mail, room}]
 export async function autoShare(userId, mails, cards = [], deps = {}) {
   const rules = await rulesOf(userId)
   if (!rules.length || !mails.length) return []
@@ -318,6 +366,8 @@ export async function autoShare(userId, mails, cards = [], deps = {}) {
   const p = await person(userId)
   const me = { id: userId, email: p?.email || null, name: p?.name || '' }
   const done = []
+  // the mail as the poll read it (no second read of the mailbox): the shape lib/mailMention.js readMail gives
+  const asRead = (m) => ({ from: m.from, to: m.to || [], cc: m.cc || [], date: m.date || null, subject: m.subject || '', text: m.text || '', attachments: m.attachments || [], threadId: m.thread || null })
   for (const m of mails) {
     if (done.length >= R.autoPerPoll) break
     const hits = rules.filter((r) => ruleTakes(r, m)).filter((r, i, all) => all.findIndex((x) => x.room === r.room) === i)
@@ -330,13 +380,15 @@ export async function autoShare(userId, mails, cards = [], deps = {}) {
         [userId, clip(m.subject, 200) || L('(제목 없음)', '(no subject)'), { mail_id: m.id, from: m.from, subject: m.subject, ...(m.thread ? { thread_id: m.thread } : {}), by_rule: true }])
     }
     for (const r of hits) {
+      if (done.length >= R.autoPerPoll) break
       if (r.card === card.id || card.source?.room_posts?.[r.room]) continue
       try {
-        await (deps.share || shareToRoom)(me, card.id, { room: r.room, note: autoNote(r), body: r.body, auto: { card: r.card, by: r.by, label: r.label } }, { ...deps, skill: sk })
+        await (deps.share || shareToRoom)(me, card.id, { room: r.room, note: autoNote(r), body: r.body, auto: { card: r.card, by: r.by, key: r.key, ...(r.name ? { name: r.name } : {}) } },
+          { ...deps, skill: sk, mail: asRead(m) })
         done.push({ mail: m.id, room: r.room })
       } catch (e) {
-        if (e.status === 404 || e.status === 403) await setIn(r.card, userId, ['room_follow', r.room], undefined).catch(() => {})
-        console.warn('[mail rooms] auto', e.status || '', e.message)
+        if (e.code === 'not_in_room') await setIn(r.card, userId, ['room_follow', r.room], undefined).catch(() => {})
+        console.warn('[mail rooms] auto', e.status || '', e.code || '', e.message)
       }
     }
   }

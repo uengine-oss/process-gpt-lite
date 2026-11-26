@@ -14,7 +14,8 @@ const PERSONAL = ['gmail.com', 'naver.com']
 test('약속 고르기: 스레드(있을 때) · 보낸 사람 · 회사 — 메일 서비스 도메인은 회사가 아니다, 먼저 보이는 것은 회사', () => {
   const c = R.ruleChoices({ from: '김하늘 <Haneul@Ace-Precision.example>', threadId: 'thr-77' }, { personalDomains: PERSONAL })
   assert.deepEqual(c.map((x) => [x.by, x.key]), [['thread', 'thr-77'], ['sender', 'haneul@ace-precision.example'], ['domain', 'ace-precision.example']])
-  assert.equal(c[1].label, '김하늘(Haneul@Ace-Precision.example)에게서 오는 메일')
+  assert.equal(c[1].label, '김하늘(haneul@ace-precision.example)에게서 오는 메일')
+  assert.equal(c[1].name, '김하늘')
   assert.equal(c[2].label, 'ace-precision.example에서 오는 메일')
   assert.equal(R.firstChoice(c).by, 'domain')
   // a mail service: the sender only (no thread in this mailbox)
@@ -41,8 +42,30 @@ test('들어온 메일을 약속이 받는가: 같은 스레드 · 같은 주소
   assert.ok(!R.ruleTakes(null, { from: 'x@x' }))
 })
 
-test('자동으로 올릴 때 하는 말은 약속의 말 그대로', () => {
-  assert.equal(R.autoNote({ label: 'ace-precision.example에서 오는 메일' }), 'ace-precision.example에서 오는 메일은 이 방에 올리기로 했어요.')
+test('내 회사 도메인은 「같은 회사」가 아니다 — 약속에도 까닭에도(인사 · 급여 메일까지 방으로 가지 않게), 하위 도메인도', () => {
+  const own = ['uengine.org']
+  assert.deepEqual(R.ruleChoices({ from: '동료 <colleague@uengine.org>' }, { personalDomains: PERSONAL, ownDomains: own }).map((x) => x.by), ['sender'])
+  assert.deepEqual(R.ruleChoices({ from: 'hr@mail.uengine.org' }, { personalDomains: PERSONAL, ownDomains: own }).map((x) => x.by), ['sender'])
+  assert.deepEqual(R.ruleChoices({ from: 'a@ace-precision.example' }, { personalDomains: PERSONAL, ownDomains: own }).map((x) => x.by), ['sender', 'domain'])
+  assert.equal(R.firstChoice(R.ruleChoices({ from: 'colleague@uengine.org' }, { ownDomains: own })).by, 'sender')
+  const me = { id: 'me', email: 'me@uengine.org' }
+  const out = R.rankRooms([{ id: 'a', members: [] }, { id: 'b', members: [] }], { me, mail: { from: 'colleague@uengine.org' }, posts: [{ room: 'b', address: 'other@uengine.org', domain: 'uengine.org' }], ownDomains: own })
+  assert.deepEqual(out.map((r) => r.suggested), [false, false])
+  assert.ok(R.isOwn('x.uengine.org', own) && !R.isOwn('notuengine.org', own) && !R.isOwn('', own))
+})
+
+test('약속의 말: 주인의 시트에는 주소까지, 방에 가는 말에는 이름이나 도메인만(주소 없음) · 보여 줄 때 그 말로', async () => {
+  const sender = { by: 'sender', key: 'haneul@ace-precision.example', name: '김하늘' }
+  assert.equal(R.ruleLabel(sender), '김하늘(haneul@ace-precision.example)에게서 오는 메일')
+  assert.equal(R.ruleLabel(sender, { room: true }), '김하늘에게서 오는 메일')
+  assert.equal(R.ruleLabel({ by: 'sender', key: 'ops@ace-precision.example' }, { room: true }), 'ace-precision.example에게서 오는 메일')
+  assert.equal(R.autoNote(sender), '김하늘에게서 오는 메일은 이 방에 올리기로 했어요.')
+  assert.ok(!R.autoNote(sender).includes('@'))
+  assert.equal(R.autoNote({ by: 'domain', key: 'ace-precision.example' }), 'ace-precision.example에서 오는 메일은 이 방에 올리기로 했어요.')
+  assert.equal(R.autoNote({ by: 'thread', key: 'thr-1' }), '이 메일 스레드의 다음 메일은 이 방에 올리기로 했어요.')
+  const { withLang } = await import('../lib/lang.js')
+  assert.equal(await withLang('en', () => R.autoNote(sender)), 'Mail from 김하늘 goes to this room, as set.')
+  assert.equal(await withLang('en', () => R.autoNote({})), 'This mail goes to this room, as set.')
 })
 
 test('방 순서: 스레드 > 보낸 사람 > 회사 > 같이 받은 사람 > 판정, 저마다 까닭 — 나머지는 원래(최근) 순서, 나는 같이 받은 사람이 아니다', () => {
@@ -52,7 +75,7 @@ test('방 순서: 스레드 > 보낸 사람 > 회사 > 같이 받은 사람 > �
   const posts = [{ room: 'thread', address: 'other@ace-precision.example', domain: 'ace-precision.example', thread: 'thr-77' },
     { room: 'sender', address: 'haneul@ace-precision.example', domain: 'ace-precision.example', thread: null },
     { room: 'company', address: 'junho@ace-precision.example', domain: 'ace-precision.example', thread: null }]
-  const mail = { from: '김하늘 <haneul@ace-precision.example>', to: ['me@lite.example', '김서연 <SeoYeon@lite.example>'], threadId: 'thr-77' }
+  const mail = { from: '김하늘 <haneul@ace-precision.example>', to: ['me@lite.example'], cc: ['김서연 <SeoYeon@lite.example>'], threadId: 'thr-77' }
   const out = R.rankRooms(rooms, { me, mail, posts, picks: [{ key: 'judge', p: 0.71 }], personalDomains: PERSONAL })
   assert.deepEqual(out.map((r) => r.id), ['thread', 'sender', 'company', 'cc', 'judge', 'recent'])
   assert.deepEqual(out.map((r) => r.suggested), [true, true, true, true, true, false])

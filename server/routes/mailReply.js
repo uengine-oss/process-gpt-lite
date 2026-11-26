@@ -28,7 +28,7 @@ import * as MF from '../lib/mailFlow.js'
 import * as C from '../lib/mailCard.js'
 import * as F from '../lib/mailFollow.js'
 import * as MR from '../lib/mailRooms.js'
-import { rateLimit } from '../lib/team/access.js'
+import { rateLimit, requireMember } from '../lib/team/access.js'
 import { mailCards } from '../lib/homeCards.js'
 import { L } from '../lib/lang.js'
 
@@ -54,8 +54,9 @@ export function mailReplyRoutes(auth) {
   r.post('/actions/:id/flow/decline', auth, (req, res) => send(res, MF.declineFlow(req.user, req.params.id, { undo: req.body?.undo === true })))
   r.get('/actions/:id/follow', auth, (req, res) => send(res, F.followOfCard(req.user, req.params.id)))
   r.post('/actions/:id/follow/:key', auth, (req, res) => send(res, F.runFollow(req.user, req.session, req.params.id, String(req.params.key || ''), { again: req.body?.again === true })))
-  r.get('/actions/:id/rooms', auth, (req, res) => send(res, MR.roomsOfCard(req.user, req.params.id, { only: req.query.only === 'shared' ? 'shared' : null })))
-  r.post('/actions/:id/rooms', auth, (req, res) => send(res, Promise.resolve().then(() => {
+  // (the rooms are the team's: someone signed in but not on the team gets none — routes/team.js does the same)
+  r.get('/actions/:id/rooms', auth, (req, res) => send(res, requireMember(req.user).then(() => MR.roomsOfCard(req.user, req.params.id, { only: req.query.only === 'shared' ? 'shared' : null }))))
+  r.post('/actions/:id/rooms', auth, (req, res) => send(res, requireMember(req.user).then(() => {
     rateLimit(req.user.id)
     const b = req.body || {}
     return MR.shareToRoom(req.user, req.params.id, { room: b.room ? String(b.room) : null, person: b.person ? String(b.person) : null, note: typeof b.note === 'string' ? b.note : '',
