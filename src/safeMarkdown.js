@@ -9,7 +9,8 @@ const DROP = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'M
 
 function clean(node) {
   for (const el of [...node.children]) {
-    if (DROP.has(el.tagName)) { el.remove(); continue }
+    // (SVG and MathML come in their own namespaces, with lowercase names: gone with all they hold)
+    if (DROP.has(el.tagName) || el.namespaceURI !== 'http://www.w3.org/1999/xhtml') { el.remove(); continue }
     clean(el)
     if (!TAGS.has(el.tagName)) { el.replaceWith(...el.childNodes); continue }
     for (const a of [...el.attributes]) {

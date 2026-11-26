@@ -7,13 +7,21 @@
 // line (quotes taken off, `[a, b]` as "a, b"), a folded or literal block below (`>` · `|`), a "- item" list, a nested map as its lines.
 const OPEN = /^\uFEFF?---[ \t]*\r?\n/
 const CLOSE = /^(?:---|\.\.\.)[ \t]*$/
-const KEY = /^([^\s#:\-[{"'][^:]*?)[ \t]*:(?:[ \t]+(.*?))?[ \t]*$/
+// (no two parts of a pattern may take the same characters: a long or odd line is read in one pass, never tried again and again)
+const KEY = /^([^\s#:\-[{"'][^:]*?):(?:[ \t]+(.*))?$/
+const EOL = /\r\n|[\r\n\u2028\u2029]/
 const LINES = 200
 
 const unquote = (v) => {
   const s = String(v || '').trim()
   if (s.length >= 2 && ((s[0] === '"' && s.endsWith('"')) || (s[0] === "'" && s.endsWith("'")))) return s.slice(1, -1).replace(s[0] === "'" ? /''/g : /\\"/g, s[0])
-  if (s.length >= 2 && s[0] === '[' && s.endsWith(']')) return s.slice(1, -1).split(',').map(unquote).filter(Boolean).join(', ')
+  if (s.length >= 2 && s[0] === '[' && s.endsWith(']')) return s.slice(1, -1).split(',').map(unquoteOne).filter(Boolean).join(', ')
+  return s
+}
+// one level only: an item of a [a, b] list loses its quotes, nothing nested is opened
+const unquoteOne = (v) => {
+  const s = String(v || '').trim()
+  if (s.length >= 2 && ((s[0] === '"' && s.endsWith('"')) || (s[0] === "'" && s.endsWith("'")))) return s.slice(1, -1)
   return s
 }
 
@@ -33,12 +41,14 @@ function valueOf(first, more) {
   return [first, ...items.map((l) => l.trim())].filter(Boolean).map(unquote).join(' ')
 }
 
-// text → {meta: [[key, value]] | null, body}
+// text → {meta: [[key, value]] | null, body}; whatever goes wrong, the file is shown as it is
 export function splitFrontMatter(text) {
-  const s = String(text ?? '')
+  try { return split(String(text ?? '')) } catch { return { meta: null, body: String(text ?? '') } }
+}
+function split(s) {
   const open = OPEN.exec(s)
   if (!open) return { meta: null, body: s }
-  const lines = s.slice(open[0].length).split(/\r?\n/)
+  const lines = s.slice(open[0].length).split(EOL)
   const end = lines.slice(0, LINES).findIndex((l) => CLOSE.test(l))
   if (end < 0) return { meta: null, body: s }
   const head = lines.slice(0, end)
@@ -48,7 +58,11 @@ export function splitFrontMatter(text) {
     const top = !/^\s/.test(l) && !/^-(\s|$)/.test(l)
     const k = top && !l.startsWith('#') ? KEY.exec(l) : null
     // (a comment after a plain value goes; a quoted value keeps its #)
-    if (k) { cur = { key: k[1], first: /^["']/.test(k[2] || '') ? k[2] : (k[2] || '').replace(/\s+#.*$/, ''), more: [] }; meta.push(cur); continue }
+    if (k) {
+      const v = (k[2] || '').trimEnd()
+      cur = { key: k[1].trimEnd(), first: /^["']/.test(v) ? v : v.replace(/[ \t]#.*$/, '').trimEnd(), more: [] }
+      meta.push(cur); continue
+    }
     if (cur && !(top && l.startsWith('#'))) cur.more.push(l)
   }
   // (not front matter — a rule, then text, then a rule: shown as it is)

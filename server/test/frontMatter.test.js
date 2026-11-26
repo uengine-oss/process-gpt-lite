@@ -47,3 +47,22 @@ test('FM-03 머리말이 아닌 것은 그대로: 첫 줄이 아님 · 닫는 �
   // (a rule further down the body is the body's)
   assert.equal(splitFrontMatter('---\nname: x\n---\n위\n\n---\n\n아래').body, '위\n\n---\n\n아래')
 })
+
+// a long or odd line is read in one pass: a shared folder's file never stalls the page that shows it (2026-11-26 review)
+test('FM-04 hostile lines are read quickly and never throw', async () => {
+  const { splitFrontMatter } = await import('../../src/frontMatter.js')
+  const cases = [
+    '---\nk:' + ' '.repeat(8000) + '\rx\n---\nbody',
+    '---\nk:' + ' '.repeat(8000) + ' x\n---\nbody',
+    '---\nk: ' + 'a '.repeat(32000) + '#c\n---\nbody',
+    '---\nk: ' + '['.repeat(20000) + '\n---\nbody',
+    '---\n' + 'key'.repeat(20000) + ': v\n---\nbody',
+  ]
+  for (const c of cases) {
+    const t = performance.now()
+    const r = splitFrontMatter(c)
+    assert.ok(performance.now() - t < 50, `took ${Math.round(performance.now() - t)} ms`)
+    assert.ok(r && typeof r.body === 'string')
+  }
+  assert.deepEqual(splitFrontMatter('---\ntools: [Read, "Grep"]  # 주석\n---\n# t').meta, [['tools', 'Read, Grep']])
+})
