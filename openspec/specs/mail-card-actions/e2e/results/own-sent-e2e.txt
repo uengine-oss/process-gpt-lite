@@ -1,0 +1,18 @@
+# 내가 보낸 메일 — HTTP 시험 (2026-11-26): 실제 서버 · 실제 DB, 가짜 Google(fixtures/fake-google.mjs) · 가짜 메일 비서
+# cd server && MO_BFF_PORT=8965 node test/mail-own-sent.e2e.mjs
+
+## 고친 코드 (fix/mail-own-sent)
+✔ Gmail: 내 회사 주소 · send-as 별칭으로 보낸 메일은 카드가 없고 메일 비서도 읽지 않는다, 내가 이미 답한 스레드의 메일은 답장 카드 없이, 고객 · 같은 이름의 다른 주소는 카드 (1966.80175ms)
+✔ 데모 메일함: 내 Lite 주소로 온 연습 메일은 카드가 없고, 고객의 연습 메일은 카드 (147.360083ms)
+
+## 고치기 전 코드 (origin/main 97d77b1 의 server/lib/mail.js, 같은 시험 · TAP)
+not ok 1 - Gmail: 내 회사 주소 · send-as 별칭으로 보낸 메일은 카드가 없고 메일 비서도 읽지 않는다, 내가 이미 답한 스레드의 메일은 답장 카드 없이, 고객 · 같은 이름의 다른 주소는 카드
+not ok 2 - 데모 메일함: 내 Lite 주소로 온 연습 메일은 카드가 없고, 고객의 연습 메일은 카드
+# 첫 시험의 실패 (메일 비서가 내 메일 두 통에도 「Reply」 카드를 만들었다):
+#   + actual - expected
+#   +   actions: 5,
+#   -   actions: 3,
+#   -   answered: 1,
+#       fresh: 5,
+#   -   own: 2
+# 둘째 시험의 실패 (내 Lite 주소로 온 연습 메일을 받은 메일로 읽었다): mine.own — expected: 1, actual: undefined

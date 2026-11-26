@@ -7,6 +7,9 @@
 // 이 묶음의 서버는 PRO_LLM_BASE_URL 을 이 파일이 띄우는 가짜 모델(http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59967>/v1)로, Google 의 Gmail ·
 // 캘린더 주소를 이 파일이 띄우는 가짜 Google(http://127.0.0.1:<RT_FAKE_GOOGLE_PORT, 기본 59966>)로 띄운다. 가짜 판정 모델은 웨비나
 // 카드면 일정(A), 아니면 그 밖의 일(C)을 고르고, 일정 읽기는 「내일 오후 3시 · 웨비나」를 돌려준다. 실제 메일 · 캘린더 없음.
+// F-MC-09(2026-11-26 운영 휴대폰 Home 「이 메일은 내가 보낸건데 왜 내가 받은걸로 뜨는건가.」): 가짜 메일 비서는 받은 메일마다 답장 카드를
+// 만들고(누가 보냈는지 모르면 실제 모델도 그렇게 했다), 가짜 Gmail 은 메일함 · 스레드 · send-as 주소를 돌려준다. 내가 보낸 메일은 서버가
+// 메일 비서에게 보내지 않는다(lib/mailSelf.js).
 import http from 'node:http'
 import crypto from 'node:crypto'
 import { test, expect } from '../../lib/fixtures.js'
@@ -39,9 +42,9 @@ const EVENT = { title: '에이전틱 자동화 웨비나', date: TOMORROW, start
   link: 'https://webinar.robotics-webinar.example/join/8812', description: '웨비나 사무국이 보낸 초대 메일', basis: '내일 오후 3시' }
 
 // ---------- the fake model ----------
-const llm = { calls: [], readDelay: 1500 }
-// ---------- the fake Google (Gmail raw · Calendar events) ----------
-const google = { events: [], inserts: [], mails: new Map() }
+const llm = { calls: [], readDelay: 1500, triage: [] }
+// ---------- the fake Google (Gmail raw · Calendar events · F-MC-09's mailbox: list · message · thread · send-as) ----------
+const google = { events: [], inserts: [], mails: new Map(), inbox: [], sendAs: [] }
 let servers = []
 const listen = (srv, port) => new Promise((ok, no) => srv.once('error', no).listen(port, '127.0.0.1', () => { servers.push(srv); ok() }))
 const b64 = (s) => `=?UTF-8?B?${Buffer.from(s).toString('base64')}?=`
@@ -67,7 +70,12 @@ test.beforeAll(async () => {
         return res.end(JSON.stringify({ choices: [{ message: { content: letter }, logprobs: { content: [{ token: letter, top_logprobs: [{ token: letter, logprob: Math.log(0.94) }, { token: other, logprob: Math.log(0.06) }] }] } }] }))
       }
       let answer = DRAFT
-      if (sys.startsWith('메일 카드가 캘린더에 넣으려는 일정')) { await new Promise((ok) => setTimeout(ok, llm.readDelay)); answer = EVENT }
+      if (sys.startsWith("You read a user's newest emails")) {
+        // the mail assistant (lib/mail.js pollUser): a reply card for every mail it is given
+        const mails = JSON.parse(body.messages?.[1]?.content || '[]')
+        llm.triage.push(mails.map((m) => m.id))
+        answer = { actions: mails.map((m) => ({ mail_id: m.id, verb: 'Reply', kind: 'reply', text: `${String(m.from).split(' <')[0].replace(/"/g, '')}님께 「${m.subject}」 회신`, icon_domain: '', due: null, prompt: '회신' })), brief: '', drafts: [] }
+      } else if (sys.startsWith('메일 카드가 캘린더에 넣으려는 일정')) { await new Promise((ok) => setTimeout(ok, llm.readDelay)); answer = EVENT }
       else if (sys.includes('JSON {"choice"')) answer = { choice: letter, confidence: 0.94 }
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: JSON.stringify(answer) }, finish_reason: 'stop' }] }))
     })
@@ -80,6 +88,15 @@ test.beforeAll(async () => {
       const json = (o, s = 200) => { res.writeHead(s, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)) }
       const m = /^\/gmail\/v1\/users\/me\/messages\/([^/?]+)$/.exec(u.pathname)
       if (m && u.searchParams.get('format') === 'raw' && google.mails.has(m[1])) return json({ id: m[1], threadId: `t-${m[1]}`, raw: Buffer.from(google.mails.get(m[1])).toString('base64url') })
+      // F-MC-09's mailbox, as Gmail's API gives it (the list leaves out what is labelled SENT: -in:sent)
+      const shape = (x) => ({ id: x.id, threadId: x.threadId, labelIds: x.labels, internalDate: String(x.at), snippet: x.text,
+        payload: { mimeType: 'text/plain', headers: [['From', x.from], ['To', x.to], ['Subject', x.subject], ['Date', new Date(x.at).toUTCString()]].map(([name, value]) => ({ name, value })), body: { data: Buffer.from(x.text).toString('base64url') } } })
+      if (u.pathname === '/gmail/v1/users/me/messages') return json({ messages: google.inbox.filter((x) => !x.labels.includes('SENT')).map((x) => ({ id: x.id, threadId: x.threadId })) })
+      const inbox = m && google.inbox.find((x) => x.id === m[1])
+      if (inbox) return json(shape(inbox))
+      const th = /^\/gmail\/v1\/users\/me\/threads\/([^/?]+)$/.exec(u.pathname)
+      if (th && google.inbox.some((x) => x.threadId === th[1])) return json({ id: th[1], messages: google.inbox.filter((x) => x.threadId === th[1]).map(shape) })
+      if (u.pathname === '/gmail/v1/users/me/settings/sendAs') return json({ sendAs: google.sendAs })
       if (u.pathname === '/calendar/v3/calendars/primary/events' && req.method === 'GET') {
         const min = new Date(u.searchParams.get('timeMin')).getTime(), max = new Date(u.searchParams.get('timeMax')).getTime()
         return json({ items: google.events.filter((e) => new Date(e.end.dateTime || `${e.end.date}T00:00:00+09:00`).getTime() > min && new Date(e.start.dateTime || `${e.start.date}T00:00:00+09:00`).getTime() < max) })
@@ -411,5 +428,67 @@ test.describe('메일 카드의 일 — 일정 카드는 일정 양식, 답장�
     expect(await wide()).toBeLessThanOrEqual(PHONE.width)
     await shot(page, 'f-mc-08d-phone-task.png')
     await cleanup(db, u)
+  })
+
+  test('F-MC-09 휴대폰(390px) Home: 내가 보낸 메일(회사 주소에서 보낸 사본 · send-as 별칭)은 카드가 없고, 고객의 메일만 「답장」 카드', async ({ pageAs, db, lib }) => {
+    const page = await pageAs('mc-own', { viewport: PHONE, touch: true })
+    const u = page.user
+    expect((await u.put('/me/lang', { lang: 'ko' })).status).toBe(200)
+    await db.clearMain(u.id)
+    await cleanup(db, u)
+    const forget = async () => {
+      await db.q('delete from pro_mail_seen where user_id=$1', [u.id])
+      await db.q('delete from pro_mail_archive where owner_id=$1', [u.id])
+    }
+    await forget()
+    // a Gmail mailbox connected with a Google account that is not the Lite address (made up), with a send-as alias
+    const GOOGLE_ACCOUNT = 'mc-own.home@inbox.example.test', ALIAS = 'sales@daon.example.test'
+    const vault = await lib('lib/vault.js')
+    const { config } = await lib('config.js')
+    const token = { username: GOOGLE_ACCOUNT, access_token: 'at-e2e-own', refresh_token: 'rt-e2e-own', expires_at: Date.now() + 6 * 3600_000,
+      scope: 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose', client_id: 'cid-e2e' }
+    await vault.putItem(u.id, 'oauth', config.google.vaultSite, token, { actor: 'mail' }).catch(async () => {
+      for (const t of ['pro_vault_items', 'pro_vault_keys']) await db.q(`delete from ${t} where user_id=$1`, [u.id])
+      await vault.putItem(u.id, 'oauth', config.google.vaultSite, token, { actor: 'mail' })
+    })
+    await db.q(`insert into pro_mail_accounts(user_id, provider, address) values ($1,'gmail',$2) on conflict (user_id) do update set provider='gmail', address=$2`, [u.id, GOOGLE_ACCOUNT])
+    const run = crypto.randomBytes(3).toString('hex')
+    const at = (min) => Date.now() - min * 60_000
+    google.sendAs = [{ sendAsEmail: GOOGLE_ACCOUNT, isPrimary: true }, { sendAsEmail: ALIAS, treatAsAlias: true, verificationStatus: 'accepted' }]
+    google.inbox = [
+      // sent from the company (Lite) address with the connected Gmail in Cc — the production case: no SENT label
+      { id: `own-co-${run}`, threadId: `t-co-${run}`, from: `"한서윤" <${u.email}>`, to: '"오하늘" <haneul@vendor.example.test>', subject: '11월 활동 보고서 보내 드립니다', text: '11월 활동 보고서를 보내 드립니다.', labels: ['INBOX'], at: at(20) },
+      // sent as the alias
+      { id: `own-al-${run}`, threadId: `t-al-${run}`, from: `"다온 영업" <${ALIAS}>`, to: '"오하늘" <haneul@vendor.example.test>', subject: '12월 교육 일정 안내', text: '12월 교육 일정을 안내드립니다.', labels: ['INBOX'], at: at(15) },
+      // the customer's mail
+      { id: `in-${run}`, threadId: `t-in-${run}`, from: '"오하늘" <haneul@vendor.example.test>', to: GOOGLE_ACCOUNT, subject: '견적 문의', text: '30명 기준 견적을 부탁드립니다.', labels: ['INBOX'], at: at(5) },
+    ]
+    try {
+      const n = llm.triage.length
+      const polled = await u.post('/mail/poll')
+      expect(polled.status, JSON.stringify(polled.body)).toBe(200)
+      expect(polled.body).toMatchObject({ fresh: 3, actions: 1, own: 2 })
+      expect(llm.triage.slice(n), '메일 비서는 내 메일을 읽지 않는다').toEqual([[`in-${run}`]])
+      await goHome(page, true)
+      const cards = page.locator('[data-test="action-card"]')
+      await expect(cards).toHaveCount(1)
+      await expect(cards.first()).toContainText('오하늘님께 「견적 문의」 회신')
+      await expect(cards.first()).toContainText('답장')
+      await expect(page.getByText('11월 활동 보고서')).toHaveCount(0)
+      await expect(page.getByText('12월 교육 일정')).toHaveCount(0)
+      expect(await page.evaluate(() => document.scrollingElement.scrollWidth)).toBeLessThanOrEqual(PHONE.width)
+      await shot(page, 'f-mc-09-phone-own-sent.png')
+      // read again: my own mail does not come back as a card
+      expect((await u.post('/mail/poll')).body).toEqual({ fresh: 0 })
+      const rows = await db.q(`select source->>'mail_id' as id from pro_actions where user_id=$1 and source ? 'mail_id'`, [u.id])
+      expect(rows.map((r) => r.id)).toEqual([`in-${run}`])
+      expect(page.errors).toEqual([])
+    } finally {
+      google.inbox = []
+      google.sendAs = []
+      await cleanup(db, u)
+      await forget()
+      await db.q('delete from pro_vault_items where user_id=$1', [u.id])
+    }
   })
 })
