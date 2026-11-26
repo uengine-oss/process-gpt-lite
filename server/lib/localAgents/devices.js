@@ -78,6 +78,8 @@ export async function syncAccess(claims, { push = false } = {}) {
   if (claims?.scope !== 'sync' || !/^[0-9a-f-]{36}$/i.test(String(claims?.device || ''))) return 'not a desktop sync token'
   const [d] = await q('select user_id, revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
   if (!d || d.revoked_at) return 'this desktop is not linked any more'
+  // (a membership ended in Process GPT too — not only through Lite's 「내보내기」, which also unlinks the desktop)
+  if (await membershipEnded(d.user_id, claims.tenant)) return 'this desktop\'s person is not a member of this company any more'
   const [s] = await q('select state, user_id from pro_folder_sources where folder_id=$1 and device_id=$2 and tenant_id=$3', [claims.folder, claims.device, claims.tenant])
   if (!s || s.state === 'removed') return 'this folder is not synced from this desktop any more'
   if (s.state === 'paused') return 'syncing this folder from this desktop is paused'

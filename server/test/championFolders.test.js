@@ -300,6 +300,14 @@ test('CH-U-11 동기화 토큰은 요청마다: 기기 · 원본 · 역할을 �
   await q(`update pro_folder_sources set state='removed' where id=$1`, [bound.sourceId])
   assert.match(await D.syncAccess(claims(dMate), { push: false }), /not synced/)
   await q(`update pro_folder_sources set state='active' where id=$1`, [bound.sourceId])
+  // a membership ended in Process GPT (not through Lite's removal, so the desktop is still linked): refused at once
+  // (this person's row in the company, as Process GPT keeps it; the test's people have none until here)
+  const madeTenant = (await q('insert into tenants (id) values ($1) on conflict do nothing returning id', [TENANT])).length > 0
+  await q(`insert into users (id, tenant_id, email, username, membership_status) values ($1,$2,$3,$4,'rejected')`, [mate.id, TENANT, mate.email, mate.name])
+  try { assert.match(await D.syncAccess(claims(dMate), { push: false }), /not a member/) } finally {
+    await q('delete from users where id=$1 and tenant_id=$2', [mate.id, TENANT])
+    if (madeTenant) await q('delete from tenants where id=$1', [TENANT])
+  }
   assert.match(await D.syncAccess(claims(dOwner), { push: false }), /not synced/, '그 기기의 원본이 아니면')
   await q('update pro_local_devices set revoked_at=now() where id=$1', [dMate.id])
   assert.match(await D.syncAccess(claims(dMate), { push: false }), /not linked/)
