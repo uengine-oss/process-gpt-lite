@@ -422,7 +422,7 @@ const localBrowser = () => {
 const runnerLog = (s) => { if (DEV || process.env.PGL_RUNNER_LOG === '1') console.log(s) }
 // (PGL_RUNNER_DEVICE_NAME: a name of one's own — the tests' screenshots carry no machine name)
 const deviceName = () => (process.env.PGL_RUNNER_DEVICE_NAME || require('node:os').hostname().replace(/\.local$/i, '')).slice(0, 60) || 'Desktop'
-function stopRunner() { if (runner) { try { runner.stop() } catch { /* gone */ } runner = null; sendFolderState() } }
+function stopRunner() { if (runner) { try { runner.stop() } catch { /* gone */ } runner = null; sendFolderState(); sendSeatState() } }
 function startRunner() {
   stopRunner()
   const s = serverUrl()
@@ -434,11 +434,15 @@ function startRunner() {
     prefs: () => settings.runnerPrefs(), ask: askRun, log: runnerLog, browser: localBrowser(),
     // (the folders of this computer kept as Lite folders: this person's on this server — another person signed in here has their own)
     folders: settings.folderStore(s, p.userId), userId: p.userId,
+    // (the variations' working copies this computer holds — 작업본, runner/seats.js: this person's on this server)
+    seats: settings.seatStore(s, p.userId),
     // tests: the fake CLIs' folder first (PGL_RUNNER_PATH)
     ...(process.env.PGL_RUNNER_PATH ? { searchPath: `${process.env.PGL_RUNNER_PATH}${path.delimiter}${CLIS.augmentedPath()}` } : {}),
   })
   runner.ev.on('state', sendRunnerState)
   runner.ev.on('folders', sendFolderState)
+  runner.ev.on('seats', sendSeatState)
+  runner.ev.on('seat-notice', seatNotice)
   // someone suggested a prompt for a run of this computer: a system notification (tests: global.__pglNotices)
   runner.ev.on('notice', (n) => {
     const ko = settings.get().lang !== 'en'
@@ -602,6 +606,125 @@ ipcMain.handle('pgl:folders:reveal', async (e, id) => {
   if (process.env.PGL_DESKTOP_EXTERNAL === 'log') { (global.__pglRevealed ||= []).push(dir); return { ok: true } }
   const err = await shell.openPath(dir).catch((x) => x.message)
   return err ? { ok: false, why: 'folder_missing' } : { ok: true }
+})
+
+// ---------- 작업본: a variation's working copy on this computer (runner/seats.js — desktop 0.2.6) ----------
+// The page asks the server for the seat (POST …/seat {to:'device'}); what to fetch and where comes from the server over the link
+// (seat:prepare) — the page's word alone clones nothing. The page sends and gets ids only: main finds the working copy's folder in the
+// app's record and opens it in Finder · Explorer or in the system's terminal (a fixed list of programs; the folder is their only argument).
+const seatEngine = () => runner?.seats || null
+const VID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const vidOf = (v) => (VID.test(String(v || '')) ? String(v) : '')
+// tests only — an app that is not packaged: main's own global answers the system dialog of 「남은 변경 버리기」 ({confirm: 'yes' | 'no'})
+const testSeats = () => (!app.isPackaged && global.__pglTestSeats) || null
+function sendSeatState() {
+  const wc = win?.webContents
+  if (wc && !wc.isDestroyed() && isServerPage(wc.getURL())) wc.send('pgl:seats:state', seatEngine()?.list() || [])
+}
+// what the person should hear from the working copies: someone asks for one back · what was left on this PC came up as a variation of its
+// own · it went back and files only this PC had were kept aside (tests: global.__pglNotices)
+function seatNotice(n) {
+  const ko = settings.get().lang !== 'en'
+  const t = n.title || ''
+  let title = ''
+  let body = ''
+  if (n.kind === 'recall') {
+    title = ko ? `${n.by || '다른 사람'} 님이 「${t}」 작업본을 돌려 달라고 해요` : `${n.by || 'Someone'} asks for "${t}" back`
+    body = n.why || (ko ? '앱의 작업실에서 「돌려놓기」를 누르면 돌아가요.' : 'Press "Give back" in the app\'s workroom.')
+  } else if (n.kind === 'left') {
+    title = ko ? `「${t}」 — 이 PC 에 남아 있던 변경이 새 변형으로 올라왔어요` : `"${t}" — the changes left on this PC came up as a new variation`
+    body = n.newVariation?.title || ''
+  } else if (n.kind === 'released' && n.kept) {
+    title = ko ? `「${t}」을 돌려놓았어요 — 이 PC 에만 있던 파일 ${n.kept}개는 앱의 휴지통에 30일 동안 둬요` : `"${t}" was given back — ${n.kept} files only this PC had are kept in the app's trash for 30 days`
+  } else return
+  ;(global.__pglNotices ||= []).push({ kind: `seat-${n.kind}`, title, body })
+  try { const { Notification } = require('electron'); if (Notification.isSupported()) new Notification({ title, body }).show() } catch { /* no notifications here */ }
+}
+// the system's terminal at a folder: a fixed program per platform, the folder its only argument (or its working folder) — nothing the
+// server sent is run
+function terminalAt(dir) {
+  const { spawn } = require('node:child_process')
+  const fs = require('node:fs')
+  const go = (cmd, args, opts = {}) => new Promise((resolve) => {
+    let child
+    try { child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: false, ...opts }) } catch { return resolve(false) }
+    child.on('error', () => resolve(false))
+    child.on('spawn', () => { child.unref(); resolve(true) })
+  })
+  if (process.platform === 'darwin') return go('open', ['-a', 'Terminal', dir])
+  if (process.platform === 'win32') {
+    const wt = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
+    if (process.env.LOCALAPPDATA && fs.existsSync(wt)) return go(wt, ['-d', dir])
+    // (a detached child gets a console window of its own on Windows: cmd in the folder)
+    return go(process.env.ComSpec || 'cmd.exe', ['/K'], { cwd: dir })
+  }
+  return (async () => {
+    for (const [cmd, args] of [['x-terminal-emulator', ['--working-directory', dir]], ['gnome-terminal', ['--working-directory', dir]], ['konsole', ['--workdir', dir]]]) {
+      if (CLIS.which(cmd, CLIS.augmentedPath()) && await go(cmd, args, { cwd: dir })) return true
+    }
+    return false
+  })()
+}
+ipcMain.handle('pgl:seats:list', (e) => (fromServerPage(e) ? seatEngine()?.list() || [] : []))
+ipcMain.handle('pgl:seats:leftovers', (e) => (fromServerPage(e) ? seatEngine()?.leftovers() || [] : []))
+// wait until this computer holds the variation (after the page asked the server for it)
+ipcMain.handle('pgl:seats:open', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const s = seatEngine()
+  if (!s) return { ok: false, why: 'not_linked' }
+  const vid = vidOf(id)
+  return vid ? s.open(vid) : { ok: false, why: 'invalid' }
+})
+ipcMain.handle('pgl:seats:reveal', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const dir = seatEngine()?.pathOf(vidOf(id))
+  if (!dir) return { ok: false, why: 'not_here' }
+  if (process.env.PGL_DESKTOP_EXTERNAL === 'log') { (global.__pglRevealed ||= []).push(dir); return { ok: true } }
+  const err = await shell.openPath(dir).catch((x) => x.message)
+  return err ? { ok: false, why: 'folder_missing' } : { ok: true }
+})
+ipcMain.handle('pgl:seats:terminal', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const dir = seatEngine()?.pathOf(vidOf(id))
+  if (!dir) return { ok: false, why: 'not_here' }
+  if (process.env.PGL_DESKTOP_EXTERNAL === 'log') { (global.__pglTerminals ||= []).push(dir); return { ok: true } }
+  return (await terminalAt(dir)) ? { ok: true } : { ok: false, why: 'no_terminal' }
+})
+ipcMain.handle('pgl:seats:save-now', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const s = seatEngine()
+  return s ? s.saveNow(vidOf(id)) : { ok: false, why: 'not_linked' }
+})
+ipcMain.handle('pgl:seats:release', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const s = seatEngine()
+  return s ? s.release(vidOf(id)) : { ok: false, why: 'not_linked' }
+})
+ipcMain.handle('pgl:seats:auto', (e, id, on) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const s = seatEngine()
+  return s ? s.setAuto(vidOf(id), on === true) : { ok: false, why: 'not_linked' }
+})
+// 「남은 변경 버리기」: only after the person's yes in a system dialog (the files still go to the app's trash for 30 days)
+ipcMain.handle('pgl:seats:drop-left', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const s = seatEngine()
+  if (!s) return { ok: false, why: 'not_linked' }
+  const vid = vidOf(id)
+  const left = s.leftovers().find((x) => x.variationId === vid)
+  if (!left) return { ok: false, why: 'not_left' }
+  const ko = settings.get().lang !== 'en'
+  const message = ko ? `「${left.title}」 — 이 PC 에 남은 변경을 버릴까요?` : `Discard the changes of "${left.title}" left on this PC?`
+  const detail = ko ? '서버에 올리지 못한 변경이에요. 버려도 30일 동안 앱의 휴지통에 남아요.' : 'They could not be uploaded. They stay in the app\'s trash for 30 days.'
+  let yes = false
+  const t = testSeats()
+  if (t) { (global.__pglSeatDialogs ||= []).push({ message, detail }); yes = t.confirm === 'yes' } else {
+    if (win) { if (win.isMinimized()) win.restore(); win.show() }
+    const r = await dialog.showMessageBox(win || undefined, { type: 'warning', buttons: ko ? ['버리기', '취소'] : ['Discard', 'Cancel'], defaultId: 1, cancelId: 1, noLink: true, message, detail })
+    yes = r.response === 0
+  }
+  if (!yes) return { ok: false, why: 'cancelled' }
+  return s.dropLeft(vid)
 })
 
 // ---------- the tray icon and the count of Home cards waiting (tray.js · badge.js) ----------

@@ -9,6 +9,7 @@ import * as D from './devices.js'
 import * as R from './relay.js'
 import * as BL from './browserLink.js'
 import * as SY from '../folders/sources.js'
+import * as SL from '../folders/seatLink.js'
 
 const HELLO_MS = 10_000
 const PING_MS = 25_000
@@ -57,6 +58,8 @@ export async function open(transport, hello) {
   link.send({ type: 'welcome', device: { id: link.id, name: link.name }, user: { id: link.userId, name: u?.name || '' } })
   console.log(`[local-agents] ${link.name} (${link.userId.slice(0, 8)}) online · ${Object.entries(link.caps.clis).filter(([, c]) => c.installed).map(([k, c]) => `${k} ${c.version || ''}`.trim()).join(', ') || 'no CLI'}`)
   await withTenant(link.tenant, () => handlers.online(link)).catch((e) => console.warn('[local-agents] online', e.message))
+  // (the working copies this computer holds as the server has them: it makes its own list match — folders/seatLink.js)
+  await withTenant(link.tenant, () => SL.linkOn(link)).catch((e) => console.warn('[local-agents] seats', e.message))
   // (a browser task paused because this PC went off goes on — browserLink.js waitForLink)
   BL.linkOn(link)
   return link
@@ -86,6 +89,12 @@ export async function receive(link, msg) {
   if (SY.handles(msg)) {
     const run = withTenant(link.tenant, () => SY.receive(link, msg)).catch((e) => console.warn('[local-agents] sync', msg.type, e.message))
     return msg.type === 'sync:pushed' ? undefined : run
+  }
+  // a variation's working copy on this PC (variation seats P1 — folders/seatLink.js): ready · token · pushed · release · status · left. (A
+  // push taken into the variation, a release and a leftover run in the folder's own lock: the link's other messages do not wait for them.)
+  if (SL.handles(msg)) {
+    const run = withTenant(link.tenant, () => SL.receive(link, msg)).catch((e) => console.warn('[local-agents] seat', msg.type, e.message))
+    return ['seat:pushed', 'seat:release', 'seat:left'].includes(msg.type) ? undefined : run
   }
   await withTenant(link.tenant, () => handlers.message(link, msg)).catch((e) => console.warn('[local-agents] message', msg.type, e.message))
 }

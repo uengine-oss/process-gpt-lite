@@ -36,10 +36,11 @@ const key = () => {
 }
 const sign = (body) => crypto.createHmac('sha256', key()).update(`pgf1.${body}`).digest('base64url')
 
-// (seat, epoch: a desktop's working-copy token — variation seats, design P1: one variation at one epoch; devices.js seatAccess checks it)
-export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now(), scope = null, device = null, job = null, seat = null, epoch = null } = {}) {
+// (seat, epoch: a desktop's working-copy token — variation seats P1, folders/seatLink.js: one variation at one epoch; devices.js seatAccess
+// checks it. once: a desktop's leftover token (scope 'left') — good for one push only; devices.js leftAccess)
+export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now(), scope = null, device = null, job = null, seat = null, epoch = null, once = null } = {}) {
   if (!folderId) throw new Error('a folder git token names its folder')
-  const extra = scope ? { scope: String(scope), device: String(device || ''), job: String(job || ''), ...(seat ? { seat: String(seat), epoch: Number(epoch) || 0 } : {}) } : {}
+  const extra = scope ? { scope: String(scope), device: String(device || ''), job: String(job || ''), ...(seat ? { seat: String(seat), epoch: Number(epoch) || 0 } : {}), ...(once ? { once: String(once) } : {}) } : {}
   const body = Buffer.from(JSON.stringify({ tenant, folder: String(folderId), push, exp: Math.floor(now / 1000 + hours * 3600), ...extra })).toString('base64url')
   return `pgf1.${body}.${sign(body)}`
 }
@@ -250,28 +251,48 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
 // one folder, no job; check() looks again at the device, the folder's source row and the person's role in the folder on every request
 // (devices.js syncAccess), and after() looks at what such a push brought in, still inside the folder's lock (a file that must not be
 // there puts the branch back at once).
-// The desktops' sync branches of a folder (refs/heads/pgpt-agent/sync-<device 8>/…), as git's hidden-ref entries: git hides whole ref
-// path parts, so each device's part is named — those there now and those of every computer bound to the folder (bound before its first
-// push: a branch is never there unhidden). A sync token's own device's part is left out. → ['refs/heads/pgpt-agent/sync-…', …]
+// And a desktop's working-copy token (scope 'seat' — a variation whose seat is that computer, lib/folders/seatLink.js): one variation at one
+// epoch, pushing only to pgpt-agent/seat-<variation 8>-<epoch>/; check() looks again at the device, the seat (still that device, still
+// that epoch) and the role on every request (devices.js seatAccess) — and its one-push sibling (scope 'left', devices.js leftAccess) for
+// what a computer that lost the seat still had.
+// The desktops' own branches of a folder, as git's hidden-ref entries: git hides whole ref path parts, so each part is named —
+//   refs/heads/pgpt-agent/sync-<device 8>/…           a computer's champion folder upload (lib/folders/sources.js)
+//   refs/heads/pgpt-agent/seat-<variation 8>-<epoch>/… a computer's working copy of a variation at one epoch (lib/folders/seatLink.js)
+//   refs/heads/pgpt-agent/left-<variation 8>-<device 8>/… what a computer that lost a variation's seat still had (seatLink.js)
+// those there now, and those about to be (every computer bound to the folder; every computer's seat on it): a branch is never there
+// unhidden. A desktop token's own part is left out (a sync token sees its device's, a seat token its variation and epoch's, a left token its
+// variation and device's). → ['refs/heads/pgpt-agent/sync-…', …]
 export const SYNC_PART = `${PUSH_PREFIX}sync-`
-const ownPart = (claims) => (claims?.scope === 'sync' && String(claims.push || '').startsWith(SYNC_PART) ? `refs/heads/${String(claims.push).replace(/\/+$/, '')}` : null)
+export const SEAT_PART = `${PUSH_PREFIX}seat-`
+export const LEFT_PART = `${PUSH_PREFIX}left-`
+const OWN = { sync: SYNC_PART, seat: SEAT_PART, left: LEFT_PART }
+const DESKTOP_PART = /^(refs\/heads\/pgpt-agent\/(?:sync|seat|left)-[^/]+)(\/|$)/
+const ownPart = (claims) => {
+  const part = OWN[claims?.scope]
+  return part && String(claims.push || '').startsWith(part) ? `refs/heads/${String(claims.push).replace(/\/+$/, '')}` : null
+}
+export const seatPart = (variationId, epoch) => `refs/heads/${SEAT_PART}${String(variationId).slice(0, 8)}-${Number(epoch) || 0}`
 export async function syncHidden(folder, claims) {
   const parts = new Set()
   for (const r of (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', `refs/heads/${PUSH_PREFIX}`])).split('\n')) {
-    const m = /^(refs\/heads\/pgpt-agent\/sync-[^/]+)(\/|$)/.exec(r.trim())
+    const m = DESKTOP_PART.exec(r.trim())
     if (m) parts.add(m[1])
   }
-  // (before sql/059 there is no such table: no computer is bound anywhere)
-  const bound = await q('select device_id::text as d from pro_folder_sources where folder_id=$1', [folder.id]).catch((e) => { if (e.code === '42P01') return []; throw e })
+  // (before sql/059 · sql/063 there are no such tables: no computer is bound anywhere, no variation is on a computer)
+  const none = (e) => { if (e.code === '42P01') return []; throw e }
+  const bound = await q('select device_id::text as d from pro_folder_sources where folder_id=$1', [folder.id]).catch(none)
   for (const r of bound) parts.add(`refs/heads/${SYNC_PART}${r.d.slice(0, 8)}`)
+  const seated = await q(`select variation_id::text as v, epoch from pro_variation_seats where folder_id=$1 and place='device'`, [folder.id]).catch(none)
+  for (const r of seated) parts.add(seatPart(r.v, r.epoch))
   parts.delete(ownPart(claims))
   return [...parts]
 }
-// a push that names another desktop's sync branch (any token but that desktop's own sync token): refused like any other foreign ref
+// a push that names another desktop's branch (sync · seat · left — any token but that desktop's own of that part): refused like any other
+// foreign ref
 export const syncRefusals = (commands, claims) => {
   const own = ownPart(claims)
-  const out = commands.filter((c) => c.ref.startsWith(`refs/heads/${SYNC_PART}`) && !(own && (c.ref === own || c.ref.startsWith(`${own}/`))))
-    .map((c) => ({ ref: c.ref, why: 'a desktop\'s sync branch may be pushed only by that desktop' }))
+  const out = commands.filter((c) => DESKTOP_PART.test(c.ref) && !(own && (c.ref === own || c.ref.startsWith(`${own}/`))))
+    .map((c) => ({ ref: c.ref, why: c.ref.startsWith(`refs/heads/${SYNC_PART}`) ? 'a desktop\'s sync branch may be pushed only by that desktop' : 'a desktop working copy\'s branch may be pushed only by that desktop' }))
   return out.length ? out : null
 }
 const DEVICE_RATE = 120
@@ -295,7 +316,8 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
     if (!claims) return deny(res, 401, 'a folder token is needed', { 'WWW-Authenticate': `Basic realm="${REALM}"` })
     if (claims.folder !== folderId) return deny(res, 403, 'this token is for another folder')
     if (!servesTenant(claims.tenant)) return deny(res, 403, 'this server does not serve the token\'s tenant')
-    if (device && !(claims.device && ((claims.scope === 'device' && claims.job) || claims.scope === 'sync'))) return deny(res, 403, 'only a linked desktop\'s job or sync token is served here')
+    // (seat: a variation's working copy on one desktop at one epoch · left: what a desktop that lost that seat still had — one push)
+    if (device && !(claims.device && ((claims.scope === 'device' && claims.job) || claims.scope === 'sync' || (claims.scope === 'seat' && claims.seat) || (claims.scope === 'left' && claims.seat && claims.once)))) return deny(res, 403, 'only a linked desktop\'s job, sync or working-copy token is served here')
     // (a desktop's token — job or sync — only on its own path, where its device, folder and role are checked on every request)
     if (!device && claims.scope) return deny(res, 403, 'a desktop\'s token is not served here')
     if (device && overRate(claims.device)) return deny(res, 429, 'too many requests from this desktop — try again in a minute')

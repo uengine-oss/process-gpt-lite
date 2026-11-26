@@ -11,6 +11,10 @@ import Avatar from './Avatar.vue'
 import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 import SeatPill from './SeatPill.vue'
+// 「작업실」 — where to open it (variation seats P1): my variations of this folder (this PC in the desktop app, or the server workroom), a new
+// one, main for editors (SeatSheet); a variation whose working copy is on this very computer says 「이 PC 에서」 (src/desktopSeats.js)
+import SeatSheet from './SeatSheet.vue'
+import { bridge as seatBridge, pcSeatOf, refreshPcSeats } from '../../desktopSeats.js'
 // 에이전트 자산 · the computers that upload this folder (champion folders — src/desktopFolders.js, server lib/folders/kit.js · sources.js)
 import KitTab from './KitTab.vue'
 import { bridge as pcBridge, pcFolders, refreshPcFolders, pcFolderOf, stateText, stopped, whyText, reasonText } from '../../desktopFolders.js'
@@ -31,6 +35,8 @@ const showPast = ref(false)
 const picked = ref([])
 const merging = ref(null)       // {ids} or {integration}
 const sharing = ref(false)
+const choosing = ref(false)
+if (seatBridge()) refreshPcSeats()
 const toast = ref('')
 const closed = ref(new Set())
 const uploading = ref('')
@@ -255,7 +261,7 @@ const ix = computed(() => folder.value?.index_state || {})
           <Avatar v-for="m in folder.members.slice(0, 6)" :key="m.type + m.id" :who="whoOf(m)" :size="30" />
         </button>
  <button v-if="!isSkill" class="pill-btn hbtn" @click="sharing = true"><FIcon name="people" :size="16" /> 공유</button>
-        <button v-if="can('editor') && folder.kind === 'managed'" class="pill-btn hbtn" title="main 을 작업실(파일·셸)에서 열기" @click="router.push(`/workroom/folder/${folder.slug}`)"><FIcon name="terminal" :size="16" /> 작업실</button>
+        <button v-if="can('runner') && folder.kind === 'managed'" class="pill-btn hbtn" data-test="folder-workroom" title="내 작업본 · main 을 어디서 열지 고르기" @click="choosing = true"><FIcon name="terminal" :size="16" /> 작업실</button>
       </div>
 
       <div v-if="mine" class="pcbar glass" data-test="folder-pc-sync" :class="{ stop: stopped(mine.state) || mine.why }">
@@ -381,7 +387,7 @@ const ix = computed(() => folder.value?.index_state || {})
                 <span class="vmeta">
                   <Avatar :who="whoOf({ id: v.holder_id, name: holderName(v), type: v.holder_type })" :size="20" /> {{ holderName(v) }}
                   <span class="src" :class="v.kind">{{ sourceLabel[v.kind] }}</span>
-                  <SeatPill v-if="v.seat && folder.kind === 'managed'" :seat="v.seat" compact />
+                  <SeatPill v-if="v.seat && folder.kind === 'managed'" :seat="v.seat" :here="v.seat.mine && v.seat.place === 'device' ? pcSeatOf(v.id) : null" compact />
                   <span class="ab" title="main 보다 앞선 커밋 / 뒤처진 커밋">↑{{ v.ahead }} ↓{{ v.behind }}</span>
                   <span class="when">{{ ago(v.updated_at) }}</span>
                 </span>
@@ -418,6 +424,7 @@ const ix = computed(() => folder.value?.index_state || {})
 
       <MergeSheet v-if="merging" :folder="folder" :ids="merging.ids" :integration="merging.integration" @close="merging = null; load()" @done="merged" />
       <ShareSheet v-if="sharing" :folder="folder" :pick="pickShare" @close="sharing = false; pickShare = ''; load()" />
+      <SeatSheet v-if="choosing" :slug="folder.slug" :folder-name="folder.name" @close="choosing = false; load()" />
     </template>
     <Transition name="fade"><div v-if="toast" class="toast">{{ toast }}</div></Transition>
     <Transition name="fade">

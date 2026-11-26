@@ -6,8 +6,8 @@
 //   none                          보관 중 — only the branch; nobody changes it
 //   server · workroom             서버 작업실에서 — its person, in the web workroom's files and shell (<root>/.people/<who>/<variation>)
 //   server · agent                서버 에이전트가 — a server agent run's checkout (a project turn, a chat change, a step, a handover receiver)
-//   device                        ○○의 PC 에서 — one computer of its person (now: a chat's 「내 PC」 run on a project's variation; next: the
-//                                 desktop's own working copy — design P1)
+//   device                        ○○의 PC 에서 — one computer of its person: a chat's 「내 PC」 run on a project's variation (its job), or the
+//                                 desktop's own working copy (「이 PC 에서 작업」 — seatLink.js, desktop 0.2.6)
 //   moving · returning            넘기는 중 — nobody changes it until it ends (MOVE_MS; past it the seat is gone: 보관 중)
 // Moving a seat commits what the old place holds as it is (nothing reset, nothing thrown away) and takes that place off disk before the next
 // place gets it, so there is never a moment with two places that can change the variation. Every change of seat raises the variation's
@@ -863,7 +863,7 @@ const waiting = (vid) => (failures.get(String(vid))?.next || 0) > Date.now()
 export async function sweep() {
   let rows, orphans
   try {
-    rows = await q(`select s.variation_id, s.place, s.run, s.state, s.work, s.epoch, v.worktree_path from pro_variation_seats s join pro_folder_variations v on v.id=s.variation_id
+    rows = await q(`select s.variation_id, s.place, s.run, s.state, s.work, s.epoch, s.device_id, s.job_id, v.worktree_path from pro_variation_seats s join pro_folder_variations v on v.id=s.variation_id
                     where s.tenant_id=$1 and ((s.state in ('moving','returning') and s.deadline < now()) or (s.place='server' and s.state='held' and v.worktree_path is null)
                       or (s.place='server' and s.run='agent' and s.state='held' and s.work = any($2) and coalesce(s.seen_at, s.since) < now() - ($3 || ' milliseconds')::interval))`,
     [T(), SWEPT, String(DEAD_MS)])
@@ -893,6 +893,8 @@ export async function sweep() {
       return transition(v.id, (vv, seat) => decide(seat, { type: 'expire' }, { v: vv }), { note: 'deadline' })
     }, { tryOnly: true }).catch((e) => { failed(v.id, e); return null })
     if (done && !done.busy) { n++; failures.delete(String(v.id)) }
+    // (a computer that did not say ready in time: its list says the seat is gone — what it made goes the leftover way, seatLink.js)
+    if (done?.ok && !done.busy && s.place === 'device' && !s.job_id && s.device_id) await import('./seatLink.js').then((m) => m.refreshList(String(s.device_id))).catch(() => {})
   }
   for (const o of orphans) {
     if (waiting(o.id)) continue
@@ -1018,14 +1020,16 @@ export function startSeatSweep(each, _opts = {}) {
   timer = setTimeout(tick, 20_000)
 }
 
-// what the folder header's 「작업실」 sheet needs at once (design §2 — the sheet itself comes with the desktop's working copy, P1 · P2): my
-// live variations with their seats, my computers by name (on or off, their CLIs — no id of a computer is a path), and whether I may open main
+// what the folder header's 「작업실」 sheet needs at once (design §2 — the sheet: 「이 PC 에서 작업」 in the desktop app, P1; the web's 「내 PC
+// 에서 열기」, P2): my live variations with their seats, my computers (on or off, their CLIs, whether they keep working copies — caps.seats),
+// and whether I may open main
 export async function workroomChoices(folder, me, role) {
   const vs = await q(`select * from pro_folder_variations where folder_id=$1 and holder_type='user' and holder_id=$2 and status in ('open','ready','conflicted') order by updated_at desc limit 30`, [folder.id, String(me.id)])
   const views = await viewsOf(folder, vs, { me, role })
   const H = await import('../localAgents/hub.js')
   const D = await import('../localAgents/devices.js')
   const on = new Set(H.linksOf(T(), me.id).map((l) => String(l.id)))
+  // (by name only — the desktop app names its own device from its pairing when it asks for the seat, POST …/seat {to:'device', deviceId})
   const devices = (await D.list(me).catch(() => [])).filter((d) => !d.revoked).map((d) => ({ name: d.name, online: on.has(String(d.id)),
     clis: Object.entries(d.caps?.clis || {}).filter(([, c]) => c.installed).map(([k]) => k), seats: !!d.caps?.seats }))
   return { mine: vs.map((v) => ({ id: v.id, title: v.title, branch: v.branch, status: v.status, seat: views.get(String(v.id)) })), devices,

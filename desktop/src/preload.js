@@ -84,6 +84,28 @@ const folders = local ? undefined : Object.freeze({
     return () => ipcRenderer.removeListener('pgl:folders:state', h)
   },
 })
+// 작업본 (0.2.6 — main's runner/seats.js): a variation's working copy on this computer. The page never sends or receives a path — only the
+// variation's id. It asks the server for the seat itself (POST …/seat {to:'device'}); open(id) waits until this computer holds it (main
+// fetches and adds the working copy when the server says so over the link). reveal · openTerminal open the working copy in Finder ·
+// Explorer or the system's terminal; saveNow · release (돌려놓기) · setAuto (자동으로 올리기); leftovers · dropLeft (asks in a system dialog).
+const sid = (v) => String(v || '').slice(0, 36)
+const seats = local ? undefined : Object.freeze({
+  available: () => true,
+  list: () => ipcRenderer.invoke('pgl:seats:list'),
+  open: (id) => ipcRenderer.invoke('pgl:seats:open', sid(id)),
+  reveal: (id) => ipcRenderer.invoke('pgl:seats:reveal', sid(id)),
+  openTerminal: (id) => ipcRenderer.invoke('pgl:seats:terminal', sid(id)),
+  saveNow: (id) => ipcRenderer.invoke('pgl:seats:save-now', sid(id)),
+  release: (id) => ipcRenderer.invoke('pgl:seats:release', sid(id)),
+  setAuto: (id, on) => ipcRenderer.invoke('pgl:seats:auto', sid(id), on === true),
+  leftovers: () => ipcRenderer.invoke('pgl:seats:leftovers'),
+  dropLeft: (id) => ipcRenderer.invoke('pgl:seats:drop-left', sid(id)),
+  onState: (cb) => {
+    const h = (_e, list) => { try { cb(list) } catch { /* the page's own */ } }
+    ipcRenderer.on('pgl:seats:state', h)
+    return () => ipcRenderer.removeListener('pgl:seats:state', h)
+  },
+})
 // the count of Home cards waiting (the web app's src/browserNotify.js setBadge): main's Dock · taskbar · tray (src/tray.js), a whole
 // number 0…9999 — main checks it again. onOpenHome: the tray's 「알림 N개 — 열기」 asks the page for its Home.
 const badge = local ? {} : {
@@ -95,7 +117,7 @@ const badge = local ? {} : {
   },
 }
 contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform, ...badge, ...(localRunner ? { localRunner } : {}),
-  ...(folders ? { folders } : {}) }))
+  ...(folders ? { folders } : {}), ...(seats ? { seats } : {}) }))
 
 if (local) {
   contextBridge.exposeInMainWorld('pglLocal', Object.freeze({

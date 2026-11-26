@@ -1,7 +1,8 @@
 <script setup>
 // 변형 하나: main 과 비교한 바뀐 파일 목록, 파일별 차이(텍스트는 줄 단위, 문서·미디어는 양쪽 미리보기와
 // "바뀐 점"), 커밋, 그리고 작업실·인계·반영·버리기. 작업본이 어디에 있는지(자리 — server lib/folders/seats.js)를 모두에게 보여 주고,
-// 남이 가진 작업본은 읽기만 하며 「돌려 달라고 하기」를 건넨다(스펙 variation-seats).
+// 남이 가진 작업본은 읽기만 하며 「돌려 달라고 하기」를 건넨다(스펙 variation-seats). 「작업실」은 어디서 열지 먼저 묻고(SeatSheet — 데스크톱
+// 앱에서는 「이 PC 에서 작업」이 기본), 작업본이 이 PC 에 있으면 폴더 열기 · 터미널 열기 · 지금 올리기 · 돌려놓기(PcSeatBar).
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
@@ -10,6 +11,9 @@ import Avatar from './Avatar.vue'
 import HandoverSheet from './HandoverSheet.vue'
 import MergeSheet from './MergeSheet.vue'
 import SeatPill from './SeatPill.vue'
+import SeatSheet from './SeatSheet.vue'
+import PcSeatBar from './PcSeatBar.vue'
+import { bridge as seatBridge, inDesktop, pcSeatOf, refreshPcSeats } from '../../desktopSeats.js'
 import { folders as F, rawUrl, keptUrl, whoOf, holderName, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName, lineDiff, highlight, viewOf } from './fileKind.js'
 
@@ -41,7 +45,7 @@ async function load({ quiet = false } = {}) {
     stale.value = false
   } catch (e) { if (quiet && v.value) stale.value = true; else err.value = e.message }
 }
-onMounted(load)
+onMounted(() => { load(); if (seatBridge()) refreshPcSeats() })
 watch(() => props.vid, () => { sel.value = ''; load() })
 let poll = setInterval(() => { if ((v.value?.status === 'open' || review.value?.verification?.status === 'running') && !handing.value && !merging.value) load({ quiet: true }) }, 4000)
 // how long a running verification has been at it (it stops by itself after 20 minutes)
@@ -85,8 +89,26 @@ const seat = computed(() => v.value?.seat || null)
 const seatMine = computed(() => !!seat.value?.mine)
 const seatElsewhere = computed(() => !!seat.value?.place && !(seatMine.value && seat.value.place === 'server' && seat.value.run === 'workroom'))
 const seatBusy = ref(false)
+// this very computer holds it (the desktop app's working copy — src/desktopSeats.js)
+const here = computed(() => (seat.value?.place === 'device' && seatMine.value ? pcSeatOf(props.vid) : null))
+const choosing = ref(false)
+const pcBusy = ref('')
+// (this PC's working copy went — given back here, or from the web: its seat changed, the screen follows)
+watch(here, (n, o) => { if (o && !n && !pcBusy.value) load() })
+// 「작업실」: this PC's working copy → its workroom; in the desktop app, where to open it (SeatSheet — where it is now shows first: my
+// server workroom can move to this PC); in a browser my server workroom opens at once (the only place there)
 async function workroom() {
-  try { const r = await F.openSeat(props.slug, props.vid); router.push(r.workroom) } catch (e) { say(e.message); if (e.seat) v.value = { ...v.value, seat: e.seat } }
+  if (here.value) return router.push(`/workroom/variation/${props.vid}`)
+  if (seat.value?.can.release && !inDesktop()) {
+    try { const r = await F.openSeat(props.slug, props.vid); router.push(r.workroom) } catch (e) { say(e.message); if (e.seat) v.value = { ...v.value, seat: e.seat } }
+    return
+  }
+  choosing.value = true
+}
+// 「지금 올리기」 for my working copy on another computer of mine: that computer is asked (it saves by itself when it is on)
+async function saveElsewhere() {
+  seatBusy.value = true
+  try { await F.saveSeat(props.slug, props.vid); say(`${seat.value?.device?.name || 'PC'}에 지금 올려 달라고 했어요`) } catch (e) { say(e.message) } finally { seatBusy.value = false }
 }
 const readOnly = () => router.push(`/workroom/variation/${props.vid}`)
 // what git does not carry, kept when the working copy left the disk (server lib/folders/seats.js keptOf): a download each, until removed
@@ -111,7 +133,10 @@ async function seatAct(what) {
   try {
     if (what === 'release') { const r = await F.releaseSeat(props.slug, props.vid, seat.value?.epoch); say(r?.kept ? `작업본을 보관했어요 — git 이 싣지 않는 파일 ${r.kept > 0 ? `${r.kept}개` : ''}는 서버에 따로 남겨 두었어요` : '작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요') }
     else if (what === 'recall') { await F.recallSeat(props.slug, props.vid); say(`${seat.value?.who?.name || ''} 님에게 돌려 달라고 했어요`) }
-    else if (what === 'take') { await F.takeSeat(props.slug, props.vid, seat.value?.epoch); say('작업본을 가져왔어요 — 이제 보관 중이에요') }
+    else if (what === 'take') {
+      const r = await F.takeSeat(props.slug, props.vid, seat.value?.epoch)
+      say(r.waiting ? `${seat.value?.device?.name || 'PC'}에서 있는 그대로 올리고 돌려놓는 중이에요 — 끝나면 보관 중이 돼요` : '작업본을 가져왔어요 — 이제 보관 중이에요')
+    }
     await load()
   } catch (e) { say(e.message); if (e.seat) v.value = { ...v.value, seat: e.seat } } finally { seatBusy.value = false }
 }
@@ -153,13 +178,13 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
           <span class="meta">
             <code><FIcon name="branch" :size="13" /> {{ v.branch }}</code>
             <span class="who"><Avatar :who="whoOf({ id: v.holder_id, name: holderName(v), type: v.holder_type })" :size="20" /> 보유자 {{ holderName(v) }}</span>
-            <SeatPill v-if="seat && live && folder?.kind === 'managed'" :seat="seat" />
+            <SeatPill v-if="seat && live && folder?.kind === 'managed'" :seat="seat" :here="here" />
             <span class="src" :class="v.kind">{{ sourceLabel[v.kind] }}</span><span class="lbl">{{ v.source?.label }}</span>
             <span class="ab">↑{{ v.ahead }} ↓{{ v.behind }}</span>
           </span>
         </div>
         <span class="sp" />
-        <button v-if="live && rank(role) >= 2 && folder?.kind === 'managed' && !seatElsewhere && (!seat || seat.can.open || seat.can.release)" class="pill-btn hbtn" data-test="seat-open" :disabled="running" title="이 변형을 내 작업 사본으로 열어 파일·셸에서 고치기" @click="workroom"><FIcon name="terminal" :size="16" /> 작업실</button>
+        <button v-if="live && rank(role) >= 2 && folder?.kind === 'managed' && (here || (!seatElsewhere && (!seat || seat.can.open || seat.can.release)))" class="pill-btn hbtn" data-test="seat-open" :disabled="running" title="이 변형을 내 작업 사본으로 열어 파일·셸에서 고치기" @click="workroom"><FIcon name="terminal" :size="16" /> 작업실</button>
         <!-- (someone else's variation, put away: its files as saved, read only — only its own person opens it to change it) -->
         <button v-else-if="live && folder?.kind === 'managed' && !seatElsewhere" class="pill-btn hbtn" data-test="seat-readonly" title="이 변형은 보유자만 작업실에서 고쳐요" @click="readOnly"><FIcon name="terminal" :size="16" /> 읽기 전용으로 보기</button>
         <button v-if="seat?.can.release && live" class="pill-btn hbtn" @click="saveCheckout">변경 저장</button>
@@ -170,8 +195,10 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
         <button v-if="live && rank(role) >= 2" class="ib press" title="버리기" :disabled="seatElsewhere" @click="discard"><Icon name="trash" :size="16" /></button>
       </div>
 
+      <!-- the working copy is on this very computer (the desktop app's): its folder, a terminal, upload now, give it back -->
+      <PcSeatBar v-if="live && (here || pcBusy)" class="pcbar" :vid="vid" @say="say" @busy="(b) => (pcBusy = b)" @released="load" />
       <!-- the working copy is elsewhere: read only here, and who to ask (variation seats) -->
-      <div v-if="live && seatElsewhere" class="seatbar glass" data-test="seat-bar">
+      <div v-if="live && seatElsewhere && !here && !pcBusy" class="seatbar glass" data-test="seat-bar">
         <FIcon :name="seat.place === 'device' ? 'pc' : seat.run === 'agent' ? 'agent' : 'terminal'" :size="18" />
         <span class="sbt">
           <b v-if="seat.state !== 'held'">작업본을 넘기는 중이에요</b>
@@ -184,6 +211,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
         <span class="sp" />
         <button class="tb press" data-test="seat-readonly" @click="readOnly">읽기 전용으로 보기</button>
         <button v-if="seat.can.recall" class="tb press dk" data-test="seat-recall" :disabled="seatBusy" @click="seatAct('recall')">{{ seat.recall ? '다시 돌려 달라고 하기' : '돌려 달라고 하기' }}</button>
+        <button v-if="seatMine && seat.place === 'device' && seat.state === 'held' && seat.device?.online" class="tb press" data-test="seat-save-elsewhere" :disabled="seatBusy" @click="saveElsewhere">지금 올리기</button>
         <button v-if="seat.can.take" class="tb press dk" data-test="seat-take" :disabled="seatBusy" @click="seatAct('take')">{{ seatMine ? '여기로 가져오기' : '작업본 가져오기' }}</button>
       </div>
 
@@ -286,6 +314,7 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
 
       <HandoverSheet v-if="handing" :folder="folder" :variation="v" :members="folder.members" @close="handing = false" @done="handed" />
       <MergeSheet v-if="merging" :folder="folder" :ids="[v.id]" @close="merging = false; load()" @done="merged" />
+      <SeatSheet v-if="choosing" :slug="slug" :variation="{ id: v.id, title: v.title, seat }" @close="choosing = false; load()" />
     </template>
     <Transition name="fade"><div v-if="toast" class="toast">{{ toast }}</div></Transition>
   </div>
@@ -323,6 +352,7 @@ h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.02em; disp
 .vr.th { color: var(--text-tertiary); border-top: 0; padding: 0; }
 .vr i { font-style: normal; font-weight: 600; margin-right: 4px; } .vr .ok i { color: var(--color-success); } .vr .ng i { color: var(--color-error); }
 .cp { color: var(--text-secondary); }
+.pcbar { margin: 0 0 12px; }
 .seatbar { margin: 0 0 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 16px; font-size: 13.5px; }
 .seatbar > svg { flex: none; color: #8e6fe6; }
 .sbt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; } .sbt b { font-weight: 600; } .sbt small { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }

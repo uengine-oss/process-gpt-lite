@@ -81,6 +81,7 @@ import { mountPanelApps } from './mcp/panelapps.js'
 import { startFolderSteps } from './lib/folders/work.js'
 import { gitRoutes } from './lib/folders/gitHttp.js'
 import { afterPush as afterSyncPush } from './lib/folders/sources.js'
+import { afterPush as afterSeatPush } from './lib/folders/seatLink.js'
 import { startFolderGc } from './lib/folders/gc.js'
 import { retryUnreadCards, reindex as reindexFolder, cardsSoon } from './lib/folders/indexer.js'
 import * as FS from './lib/folders/service.js'
@@ -130,10 +131,11 @@ app.use('/craft', express.static(config.craftWebRoot, {
 // every /api answer is data: never sniffed, never a page that runs here (lib/apiHeaders.js)
 app.use('/api', apiHeaders)
 app.use('/api/git', gitRoutes())
-// the same for the desktop app's local agents, the one git path the public address serves: a token of one job on one linked desktop, or
-// of one folder a linked desktop uploads (champion folders — after a sync push, what it brought in is checked at once: lib/folders/sources.js)
+// the same for the desktop app's local agents, the one git path the public address serves: a token of one job on one linked desktop, of
+// one folder a linked desktop uploads (champion folders — after a sync push, what it brought in is checked at once: lib/folders/sources.js),
+// or of one variation's working copy on a linked desktop at one epoch and its one-push leftover (variation seats — lib/folders/seatLink.js)
 app.use('/api/local-git', gitRoutes({ device: true, check: (claims, o) => withTenant(claims.tenant, () => gitAccess(claims, o)),
-  after: (claims, folder, commands) => withTenant(claims.tenant, () => afterSyncPush(claims, folder, commands)) }))
+  after: (claims, folder, commands) => withTenant(claims.tenant, () => (claims.scope === 'sync' ? afterSyncPush : afterSeatPush)(claims, folder, commands)) }))
 app.use(express.json({ limit: '2mb' }))
 // English mode (lib/lang.js): a request is in the language its X-PGL-Lang header names (the page sends
 // it on every /api call); auth() below adds the signed-in person's saved language when it is absent.

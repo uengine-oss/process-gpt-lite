@@ -1,0 +1,567 @@
+'use strict'
+// 작업본은 한 곳에 — a variation's working copy on this computer (src/runner/seats.js, desktop 0.2.6; spec openspec/specs/variation-seats).
+// The link is a fake (the test plays the server: seat:prepare → ready → held, seat:token for this variation at this epoch, seat:pushed →
+// the variation's branch moves forward, seat:release → released, seat:left → a variation of its own, as server/lib/folders/seatLink.js
+// does); the folder's git server is real (git http-backend behind a Bearer token — test/helpers/gitServer.js) over a bare repository that
+// plays the folder: main and the variation's branch var/u/…/report.
+// Pinned here: the working copy is made, changed and removed only under the app's data folder (a folder of the person's untouched); one
+// place per variation id; the app commits what is there as it is (new · changed · deleted) and leaves out links, repositories inside,
+// git's control files, a secret's name and a key's shape — on disk as they were; it never resets, cleans or checks out the working copy;
+// a word from an older epoch is never acted on; a working copy whose seat is gone comes up as a variation of its own (or just goes when it
+// has nothing new; or stays as a leftover when that is refused); save points after the files go quiet and at a CLI's turn end, with the
+// switch per variation; 돌려놓기 moves what git does not carry to the app's trash. And the shared engine (upload.js).
+// Run: cd desktop && node --test test/seats.test.js
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const crypto = require('node:crypto')
+const { execFileSync } = require('node:child_process')
+const W = require('../src/runner/seats')
+const U = require('../src/runner/upload')
+const SY = require('../src/runner/sync')
+const settings = require('../src/settings')
+const { gitServer } = require('./helpers/gitServer')
+
+const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-seats-')))
+const rmQuiet = (d) => { try { fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch (e) { console.warn(`left ${d}: ${e.code}`) } }
+const DATA = path.join(ROOT, 'app', 'local-agents')
+const CLAUDE = path.join(ROOT, 'claude-config')
+const CODEX = path.join(ROOT, 'codex-home')
+const USER = crypto.randomUUID()
+const FOLDER = crypto.randomUUID()
+const DEV8 = 'd1e2f3a4'
+const TOKEN = `pgf1.${crypto.randomBytes(12).toString('base64url')}.${crypto.randomBytes(16).toString('base64url')}`
+const FAKE_GH = `${'gh'}${'p_'}${'Zx9Q'.repeat(9)}`
+const git = (cwd, ...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false', ...a], { cwd, stdio: 'pipe' }).toString()
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const waitFor = async (fn, ms = 8000, what = '') => { const t = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t > ms) throw new Error(`timed out: ${what}`); await sleep(40) } }
+const calls = []
+W.setTap((c) => calls.push(c))
+const NEVER = ['reset', 'clean', 'checkout', 'restore', 'stash', 'rebase', 'merge', 'switch', 'pull', 'am', 'cherry-pick', 'revert', 'rm', 'mv']
+
+// ---------- a folder of the person's (never touched) ----------
+const PERSON = path.join(ROOT, 'people', '내 문서')
+function treeOf(dir) {
+  const out = {}
+  const walk = (d, rel) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const abs = path.join(d, e.name)
+      const r = rel ? `${rel}/${e.name}` : e.name
+      const st = fs.lstatSync(abs)
+      if (st.isDirectory()) { out[`${r}/`] = `dir ${st.mtimeMs}`; walk(abs, r) } else out[r] = `${st.size} ${st.mtimeMs}`
+    }
+  }
+  walk(dir, '')
+  return out
+}
+
+// ---------- the server ----------
+const BARE = path.join(ROOT, 'srv', `${FOLDER}.git`)
+const bare = (...a) => git(BARE, ...a).trim()
+const rev = (ref) => { try { return bare('rev-parse', '--verify', '--quiet', `${ref}^{commit}`) } catch { return null } }
+const isAncestor = (a, b) => { try { git(BARE, 'merge-base', '--is-ancestor', a, b); return true } catch { return false } }
+const filesAt = (ref) => git(BARE, 'ls-tree', '-r', '--name-only', '-z', ref).split('\0').filter(Boolean).sort()
+const at = (ref, file) => git(BARE, 'show', `${ref}:${file}`)
+let srv
+// the variations the fake server knows: vid → {branch, epoch, state, title}
+const vars = new Map()
+const sent = []
+const logs = []
+let wc = null
+const left8 = (vid) => `pgpt-agent/left-${vid.slice(0, 8)}-${DEV8}/head`
+// how the fake server answers (a test may change one)
+const plays = {
+  ready: (m) => { const v = vars.get(m.variation); if (!v || v.epoch !== m.epoch) return { type: 'seat:refused', variation: m.variation, why: 'stale' }; v.state = 'held'; return { type: 'seat:held', variation: m.variation, epoch: m.epoch, head: m.head } },
+  token: (m) => {
+    const v = vars.get(m.variation)
+    if (m.for === 'left') return { type: 'seat:token', variation: m.variation, for: 'left', token: TOKEN, path: srv.path, url: null, push: left8(m.variation).replace(/head$/, ''), branch: left8(m.variation), person: { name: '박작업', email: 'work@example.test' } }
+    if (!v || v.epoch !== m.epoch || v.state !== 'held') return { type: 'seat:refused', variation: m.variation, for: 'push', why: 'stale' }
+    return { type: 'seat:token', variation: m.variation, for: 'push', token: TOKEN, path: srv.path, url: null, epoch: v.epoch, branch: W.seatBranch(m.variation, v.epoch),
+      push: W.seatBranch(m.variation, v.epoch).replace(/head$/, ''), head: rev(v.branch), person: { name: '박작업', email: 'work@example.test' } }
+  },
+  pushed: (m) => take(m),
+  release: (m) => {
+    if (m.head) { const r = take(m); if (r.type !== 'seat:taken') return r }
+    const v = vars.get(m.variation)
+    v.state = null
+    v.epoch++
+    return { type: 'seat:released', variation: m.variation, head: rev(v.branch) }
+  },
+  left: (m) => {
+    const tip = rev(`refs/heads/${left8(m.variation)}`)
+    if (tip !== m.head) return { type: 'seat:refused', variation: m.variation, why: 'conflict' }
+    const v = vars.get(m.variation)
+    const id = crypto.randomUUID()
+    bare('branch', `var/u/left/${id.slice(0, 8)}`, m.head)
+    bare('update-ref', '-d', `refs/heads/${left8(m.variation)}`)
+    return { type: 'seat:left-taken', variation: m.variation, newVariation: { id, title: `${v.title} — 테스트 맥에 남아 있던 변경` } }
+  },
+}
+function take(m) {
+  const v = vars.get(m.variation)
+  if (!v || v.epoch !== m.epoch) return { type: 'seat:refused', variation: m.variation, why: 'stale' }
+  const tip = rev(`refs/heads/${W.seatBranch(m.variation, m.epoch)}`)
+  if (tip !== m.head) return { type: 'seat:refused', variation: m.variation, why: 'conflict' }
+  const vh = rev(v.branch)
+  if (!isAncestor(vh, m.head)) return { type: 'seat:refused', variation: m.variation, why: 'diverged' }
+  bare('update-ref', `refs/heads/${v.branch}`, m.head, vh)
+  return { type: 'seat:taken', variation: m.variation, head: m.head }
+}
+function link(m) {
+  sent.push(JSON.parse(JSON.stringify(m)))
+  const k = { 'seat:ready': 'ready', 'seat:token': 'token', 'seat:pushed': 'pushed', 'seat:release': 'release', 'seat:left': 'left' }[m.type]
+  const r = k && plays[k] && plays[k](m)
+  if (r) setImmediate(() => wc?.handle(r))
+  return true
+}
+const sentOf = (type, vid) => sent.filter((m) => m.type === type && (!vid || m.variation === vid))
+function make(opts = {}) {
+  settings.init(path.join(ROOT, 'app'))
+  const w = new W.WorkingCopies({ dataDir: DATA, server: srv.base, userId: USER, store: settings.seatStore(srv.base, USER), send: link, device: { name: '테스트 맥' },
+    user: () => ({ id: USER, name: '박작업' }), log: (s) => logs.push(s), askMs: 5000, takeMs: 10000, quietMs: 60_000, statusMs: 30, turnMs: 60, turnWaitMs: 1500,
+    claudeHome: CLAUDE, codexHome: CODEX, ...opts })
+  w.linkUp({ id: USER, name: '박작업' })
+  wc = w
+  return w
+}
+// a variation of the folder on the server (its branch from main) and the seat:prepare the server would send for it
+function variation(title, files = {}) {
+  const vid = crypto.randomUUID()
+  const branch = `var/u/${USER.replace(/-/g, '').slice(0, 8)}/${vid.slice(0, 6)}`
+  bare('branch', branch, 'main')
+  if (Object.keys(files).length) {
+    const work = path.join(ROOT, 'seed', vid)
+    git(path.join(ROOT), 'clone', '-q', '-b', branch, BARE, work)
+    for (const [p, body] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(work, p)), { recursive: true }); fs.writeFileSync(path.join(work, p), body) }
+    git(work, 'add', '-A'); git(work, 'commit', '-qm', 'seed'); git(work, 'push', '-q', 'origin', branch)
+  }
+  vars.set(vid, { branch, epoch: 1, state: 'moving', title })
+  return vid
+}
+const prepareMsg = (vid, o = {}) => {
+  const v = vars.get(vid)
+  return { type: 'seat:prepare', variation: vid, folderId: FOLDER, folderName: '영업 제안 키트', title: v.title, branch: v.branch, head: rev(v.branch), epoch: v.epoch, autoSave: true,
+    token: TOKEN, path: srv.path, url: null, push: W.seatBranch(vid, v.epoch).replace(/head$/, ''), person: { name: '박작업', email: 'work@example.test' }, ...o }
+}
+async function prepared(w, vid, o) {
+  w.handle(prepareMsg(vid, o))
+  return waitFor(() => ['held', 'blocked'].includes(w.get(vid)?.state) && w.get(vid), 15000, 'held')
+}
+const put = (dir, rel, text) => { const f = path.join(dir, ...rel.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text) }
+
+let personBefore = null
+test.before(async () => {
+  fs.mkdirSync(PERSON, { recursive: true })
+  fs.writeFileSync(path.join(PERSON, '메모.md'), '# 내 메모\n')
+  personBefore = treeOf(PERSON)
+  fs.mkdirSync(CLAUDE, { recursive: true })
+  fs.mkdirSync(BARE, { recursive: true })
+  git(BARE, 'init', '-q', '--bare', '-b', 'main')
+  const work = path.join(ROOT, 'seed', 'main')
+  git(ROOT, 'clone', '-q', BARE, work)
+  put(work, 'README.md', '# 영업 제안 키트\n')
+  put(work, 'docs/제안서.md', '# 제안서\n고객의 말로 시작한다.\n')
+  put(work, 'docs/지울 것.md', '지워질 파일\n')
+  put(work, '.gitignore', 'dist/\n')
+  fs.symlinkSync('README.md', path.join(work, 'guide-link'))
+  git(work, 'add', '-A'); git(work, 'commit', '-qm', 'first'); git(work, 'push', '-q', 'origin', 'HEAD:main')
+  srv = await gitServer({ repo: BARE, token: TOKEN, prefix: `/api/local-git/${FOLDER}.git` })
+})
+test.after(async () => { wc?.stop(); await srv?.close(); W.setTap(null); rmQuiet(ROOT) })
+
+// ---------- the shared engine ----------
+test('upload.js: 링크로 묻고 답 받기 · 시간 초과 · 오프라인 · 하나씩 · 토큰은 기록에 없음 · .git 은 보지 않음', async () => {
+  const out = []
+  const u = new U.Uploader({ server: 'http://127.0.0.1:1/lite/', send: (m) => { out.push(m); return m.ok !== false }, prefix: 'seat:', key: 'variation', askMs: 80, log: (s) => out.push(s) })
+  assert.ok(u.handles({ type: 'seat:token' }) && !u.handles({ type: 'sync:token' }))
+  const p = u.ask({ type: 'seat:token', variation: 'v1' }, ['seat:token'])
+  assert.equal(u.answer({ type: 'seat:token', variation: 'v2' }), false, '다른 변형의 답은 아님')
+  assert.equal(u.answer({ type: 'seat:token', variation: 'v1', token: 'x' }), true)
+  assert.equal((await p).token, 'x')
+  const r = u.ask({ type: 'seat:token', variation: 'v1' }, ['seat:token'])
+  u.answer({ type: 'seat:refused', variation: 'v1', why: 'stale' })
+  assert.equal((await r).why, 'stale', '거절도 답')
+  assert.equal((await u.ask({ type: 'seat:ready', variation: 'v1' }, ['seat:held'])).why, 'timeout')
+  assert.equal((await u.ask({ type: 'seat:ready', variation: 'v1', ok: false }, ['seat:held'])).why, 'offline')
+  const w = u.ask({ type: 'seat:ready', variation: 'v1' }, ['seat:held'], 5000)
+  u.linkDown()
+  assert.equal((await w).why, 'offline', '링크가 끊기면 기다림도 끝')
+  // one thing at a time per key
+  const order = []
+  await Promise.all([u.locked('k', async () => { await sleep(30); order.push(1) }), u.locked('k', async () => order.push(2)), u.locked('j', async () => order.push(0))])
+  assert.deepEqual(order, [0, 1, 2])
+  u.secret('pgf1.secret.token')
+  u.log('push with pgf1.secret.token failed')
+  assert.ok(out.includes('push with *** failed'))
+  assert.equal(u.urlOf({ path: '/api/local-git/x.git' }), 'http://127.0.0.1:1/lite/api/local-git/x.git')
+  assert.throws(() => u.urlOf({ url: 'file:///etc' }))
+  assert.throws(() => u.urlOf({ url: 'https://u:p@example.test/x.git' }))
+  // the quiet watcher: once, after quietMs without a change; .git is not a change
+  let cb = null
+  const fake = new U.Uploader({ watchFn: (dir, f) => { cb = f; return { close() {} } } })
+  let quiet = 0
+  let seen = 0
+  fake.watch('a', '/x', { quietMs: 120, onQuiet: () => quiet++, onChange: () => seen++ })
+  cb('change', '.git'); cb('change', '.git/index')
+  assert.equal(seen, 0)
+  cb('change', 'a.md'); await sleep(70); cb('change', 'b.md'); await sleep(70)
+  assert.equal(quiet, 0, '바뀔 때마다 다시 센다')
+  await sleep(120)
+  assert.equal(quiet, 1)
+  await sleep(150)
+  assert.equal(quiet, 1, '한 번만')
+  fake.later('a'); fake.later('a'); fake.later('b')
+  assert.deepEqual(fake.drain().sort(), ['a', 'b'])
+  assert.deepEqual(fake.drain(), [])
+  fake.stop()
+})
+
+// ---------- the working copy ----------
+let V1, e1
+test('받기: 앱 데이터 아래에만 저장소와 작업 트리 — 링크는 평범한 파일, 사람의 폴더는 그대로, 같은 변형은 한 자리', async () => {
+  V1 = variation('보고서 손보기')
+  const w = make()
+  calls.length = 0
+  e1 = await prepared(w, V1)
+  const root = path.join(DATA, 'folders', SY.serverKey(srv.base), SY.personKey(USER), FOLDER.slice(0, 8))
+  assert.equal(e1.dir, path.join(root, 'wt', `${V1.slice(0, 8)}-보고서-손보기`))
+  assert.ok(fs.existsSync(path.join(root, 'repo', 'HEAD')), '받은 객체는 앱 데이터의 저장소에')
+  assert.equal(fs.readFileSync(path.join(e1.dir, 'docs', '제안서.md'), 'utf8'), '# 제안서\n고객의 말로 시작한다.\n')
+  assert.ok(!fs.lstatSync(path.join(e1.dir, 'guide-link')).isSymbolicLink(), '서버의 링크는 링크로 풀지 않는다')
+  assert.equal(git(e1.dir, 'symbolic-ref', 'HEAD').trim(), `refs/heads/${vars.get(V1).branch}`)
+  assert.equal(git(e1.dir, 'status', '--porcelain').trim(), '', '사람의 git 으로 봐도 깨끗하다(core.symlinks=false 가 저장소에)')
+  assert.equal(fs.readFileSync(path.join(root, 'repo', 'info', 'attributes'), 'utf8'), '* -text -filter -ident -working-tree-encoding\n')
+  const ready = sentOf('seat:ready', V1)
+  assert.equal(ready.length, 1)
+  assert.deepEqual([ready[0].epoch, ready[0].head], [1, rev(vars.get(V1).branch)])
+  assert.ok(!JSON.stringify(w.list()).includes(ROOT), '목록에 경로가 없다')
+  assert.equal(w.pathOf(V1), e1.dir)
+  // every git call: inside the app's data folder, and never one that rewrites a working tree
+  for (const c of calls) {
+    assert.ok(!NEVER.includes(c.sub), `git ${c.sub}`)
+    for (const d of [c.cwd, c.gitDir].filter(Boolean)) assert.ok(d.startsWith(DATA), `${c.sub} in ${d}`)
+  }
+  assert.ok(calls.some((c) => c.sub === 'worktree' && c.args.includes('add')))
+  // the same variation said again: the same place, no second working copy
+  w.handle(prepareMsg(V1))
+  await waitFor(() => sentOf('seat:ready', V1).length === 2, 5000, 'ready again')
+  assert.equal(fs.readdirSync(path.join(root, 'wt')).length, 1)
+  assert.equal(w.list().length, 1)
+  assert.deepEqual(treeOf(PERSON), personBefore, '사람의 폴더는 그대로')
+  // the person's own `git push` has nowhere to go with a token: no remote keeps one
+  assert.ok(!fs.readFileSync(path.join(root, 'repo', 'config'), 'utf8').includes(TOKEN))
+  assert.ok(!logs.join('\n').includes(TOKEN))
+})
+
+test('있는 그대로 커밋: 새 파일 · 고친 파일 · 지운 파일은 올라가고, .env · 열쇠 생김새 · 링크 · .gitmodules · 안의 저장소는 빠지고 디스크에 그대로', async () => {
+  const w = wc
+  calls.length = 0
+  const d = e1.dir
+  put(d, 'docs/새 문서.md', '# 새 문서\n')
+  put(d, 'docs/제안서.md', '# 제안서\n고객의 말로 시작한다.\n마감은 금요일.\n')
+  fs.rmSync(path.join(d, 'docs', '지울 것.md'))
+  put(d, '.env', `API_KEY=${crypto.randomBytes(18).toString('hex')}\n`)
+  put(d, 'config/app.txt', `server: example.test\ntoken: ${FAKE_GH}\n`)
+  put(d, '.gitmodules', '[submodule "x"]\n\tpath = x\n\turl = https://example.test/x.git\n')
+  fs.symlinkSync('/etc/hosts', path.join(d, 'hosts-link'))
+  put(d, 'vendor/lib/a.txt', 'lib\n')
+  git(path.join(d, 'vendor', 'lib'), 'init', '-q'); git(path.join(d, 'vendor', 'lib'), 'add', '-A'); git(path.join(d, 'vendor', 'lib'), 'commit', '-qm', 'x')
+  // a file the server had as a link, changed here (its type stays a link in git): it stays out
+  fs.writeFileSync(path.join(d, 'guide-link'), '/etc/passwd')
+  const r = await w.saveNow(V1)
+  assert.equal(r.ok, true, JSON.stringify(r))
+  const vb = vars.get(V1).branch
+  const head = rev(vb)
+  assert.equal(head, r.head, '변형 가지가 올린 데까지 앞으로')
+  assert.equal(rev(`refs/heads/${W.seatBranch(V1, 1)}`), head, '자기 회차의 가지로 올렸다')
+  const files = filesAt(vb)
+  assert.ok(files.includes('docs/새 문서.md'))
+  assert.ok(!files.includes('docs/지울 것.md'), '지운 것도 그대로')
+  assert.match(at(vb, 'docs/제안서.md'), /마감은 금요일/)
+  for (const out of ['.env', 'config/app.txt', '.gitmodules', 'hosts-link', 'vendor/lib']) assert.ok(!files.includes(out), `${out} 은 빠진다`)
+  assert.equal(git(BARE, 'cat-file', '-p', `${vb}:guide-link`).trim(), 'README.md', '서버의 링크 항목은 바뀌지 않았다')
+  assert.equal(git(BARE, 'log', '-1', '--format=%an <%ae>|%s', vb).trim(), '박작업 <work@example.test>|저장 지점')
+  for (const keep of ['.env', 'config/app.txt', '.gitmodules', 'vendor/lib/a.txt']) assert.ok(fs.existsSync(path.join(d, keep)), `${keep} 은 디스크에 그대로`)
+  assert.ok(fs.lstatSync(path.join(d, 'hosts-link')).isSymbolicLink())
+  const e = w.get(V1)
+  assert.equal(e.head, head)
+  assert.ok(e.flagged >= 5, `flagged ${e.flagged}`)
+  assert.equal(w.list()[0].why, 'flagged')
+  assert.ok(e.pushedAt)
+  const pushed = sentOf('seat:pushed', V1).at(-1)
+  assert.deepEqual([pushed.epoch, pushed.head], [1, head])
+  for (const c of calls) assert.ok(!NEVER.includes(c.sub), `git ${c.sub}`)
+  // the counts: 저장 안 한 변경 (what stayed out) · 다른 가지 아님
+  await waitFor(() => sentOf('seat:status', V1).some((m) => m.dirty >= 5), 5000, 'status')
+  const st = sentOf('seat:status', V1).at(-1)
+  assert.deepEqual([st.epoch, st.branchOk, st.ahead], [1, true, 0])
+  assert.ok(!JSON.stringify(st).includes('.env'), '이름 · 경로 없이 수만')
+  // nothing new: no push
+  const before = sentOf('seat:token', V1).length
+  assert.equal((await w.saveNow(V1)).changed, false)
+  assert.equal(sentOf('seat:token', V1).length, before)
+})
+
+test('작업본에서 reset · clean · checkout 같은 것은 부르지 않는다 — 부르려 해도 거절', async () => {
+  for (const sub of ['reset', 'clean', 'checkout', 'restore', 'stash', 'rebase', 'merge', 'switch', 'pull']) {
+    await assert.rejects(W.wcGit([sub, '-q'], { cwd: e1.dir }), /not used on a working copy/)
+  }
+  await assert.rejects(W.wcGit(['worktree', 'move', 'a', 'b'], { cwd: e1.dir }), /not used/)
+  for (const c of calls) assert.ok(!NEVER.includes(c.sub))
+})
+
+test('다른 가지로 바뀌어 있으면 올리지 않는다 — 사람이 돌아오면 다시', async () => {
+  const w = wc
+  git(e1.dir, 'symbolic-ref', 'HEAD', 'refs/heads/elsewhere')
+  const r = await w.saveNow(V1)
+  assert.deepEqual([r.ok, r.why], [false, 'branch'])
+  assert.equal(w.list()[0].branchOk, false)
+  git(e1.dir, 'symbolic-ref', 'HEAD', `refs/heads/${vars.get(V1).branch}`)
+  assert.equal((await w.saveNow(V1)).ok, true)
+})
+
+test('저장 지점: 조용해진 뒤 한 번(그 전에는 아님) · CLI 의 턴이 끝날 때 · 스위치를 끄면 저절로는 안 올림', async () => {
+  wc.stop()
+  const w = make({ quietMs: 500 })
+  await waitFor(() => w.watchers.has(V1), 2000, 'watching again after a restart')
+  const vb = vars.get(V1).branch
+  const h0 = rev(vb)
+  const t0 = Date.now()
+  put(e1.dir, 'docs/a.md', '1\n')
+  await sleep(250)
+  put(e1.dir, 'docs/a.md', '2\n')
+  await sleep(300)
+  assert.equal(rev(vb), h0, '바뀐 지 0.5초가 안 됐다')
+  await waitFor(() => rev(vb) !== h0, 8000, 'the quiet save point')
+  assert.ok(Date.now() - t0 >= 1000, '마지막 변경에서 조용한 시간이 지난 뒤')
+  assert.match(at(vb, 'docs/a.md'), /^2/)
+  const h1 = rev(vb)
+  await sleep(900)
+  assert.equal(rev(vb), h1, '한 번만')
+  // the turn of a CLI in the working copy ended (Claude Code's own record)
+  w.stop()
+  const w2 = make({ quietMs: 60_000 })
+  await waitFor(() => w2.turns.has(V1), 2000, 'turns watched')
+  put(e1.dir, 'docs/b.md', 'claude 가 쓴 것\n')
+  const key = W.claudeKey(fs.realpathSync(e1.dir))
+  const tx = path.join(CLAUDE, 'projects', key, 's1.jsonl')
+  fs.mkdirSync(path.dirname(tx), { recursive: true })
+  fs.appendFileSync(tx, `${JSON.stringify({ type: 'user', message: { role: 'user', content: '문서를 고쳐 줘' } })}\n`)
+  await waitFor(() => w2.turnBusy(V1), 3000, 'turn started')
+  assert.equal(rev(vb), h1)
+  fs.appendFileSync(tx, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '고쳤어요' }] } })}\n`)
+  fs.appendFileSync(tx, `${JSON.stringify({ type: 'system', subtype: 'stop_hook_summary' })}\n`)
+  await waitFor(() => rev(vb) !== h1, 5000, 'the turn-end save point')
+  assert.ok(filesAt(vb).includes('docs/b.md'))
+  assert.equal(w2.turnBusy(V1), false)
+  // Codex: its rollout's task_complete, in a session whose folder is this working copy
+  const h2 = rev(vb)
+  const now = new Date()
+  const cdir = path.join(CODEX, 'sessions', String(now.getFullYear()), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0'))
+  fs.mkdirSync(cdir, { recursive: true })
+  const ro = path.join(cdir, 'rollout-test-1.jsonl')
+  fs.writeFileSync(ro, `${JSON.stringify({ type: 'session_meta', payload: { id: 'c1', cwd: e1.dir } })}\n${JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: '고쳐 줘' } })}\n`)
+  await waitFor(() => w2.turnBusy(V1), 3000, 'codex turn started')
+  put(e1.dir, 'docs/c.md', 'codex 가 쓴 것\n')
+  fs.appendFileSync(ro, `${JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete' } })}\n`)
+  await waitFor(() => rev(vb) !== h2, 5000, 'the codex turn-end save point')
+  // the switch off: nothing goes up by itself
+  assert.deepEqual(w2.setAuto(V1, false), { ok: true, autoSave: false })
+  assert.deepEqual(sentOf('seat:prefs', V1).at(-1), { type: 'seat:prefs', variation: V1, autoSave: false })
+  w2.stop()
+  const w3 = make({ quietMs: 300 })
+  const h3 = rev(vb)
+  put(e1.dir, 'docs/d.md', '스위치 끔\n')
+  fs.appendFileSync(tx, `${JSON.stringify({ type: 'user', message: { role: 'user', content: '또' } })}\n${JSON.stringify({ type: 'assistant', message: { stop_reason: 'end_turn' } })}\n`)
+  await sleep(1200)
+  assert.equal(rev(vb), h3, '자동으로 올리기를 끄면 저절로 올리지 않는다')
+  // …but the server's word (the switch on the web) turns it on again, and 「지금 올리기」 always goes
+  w3.handle({ type: 'seat:prefs', variation: V1, autoSave: true })
+  assert.equal(w3.get(V1).autoSave, true)
+  w3.setAuto(V1, false)
+})
+
+test('돌려놓기: 있는 그대로 올리고 서버가 받은 뒤에만 치운다 — git 이 싣지 않는 파일은 앱 휴지통으로, 사람의 폴더는 그대로', async () => {
+  const w = wc
+  const vb = vars.get(V1).branch
+  put(e1.dir, 'dist/out.js', 'console.log(1)\n')
+  put(e1.dir, 'docs/마지막.md', '돌려놓기 직전에 쓴 것\n')
+  const dir = e1.dir
+  const r = await w.release(V1)
+  assert.equal(r.ok, true, JSON.stringify(r))
+  assert.ok(filesAt(vb).includes('docs/마지막.md'), '자동으로 올리기를 꺼도 돌려놓을 때는 올린다')
+  const rel = sentOf('seat:release', V1).at(-1)
+  assert.equal(rel.head, rev(vb))
+  assert.ok(!fs.existsSync(dir), '작업 트리는 없다')
+  assert.equal(w.get(V1), null)
+  assert.ok(r.kept >= 5, `kept ${r.kept}`)
+  const trash = fs.readdirSync(path.join(DATA, 'trash')).find((n) => n.endsWith(`-${V1.slice(0, 8)}`))
+  assert.ok(trash)
+  for (const f of ['.env', 'dist/out.js', 'config/app.txt', 'vendor/lib/a.txt']) assert.ok(fs.existsSync(path.join(DATA, 'trash', trash, ...f.split('/'))), `휴지통에 ${f}`)
+  const repo = path.join(DATA, 'folders', SY.serverKey(srv.base), SY.personKey(USER), FOLDER.slice(0, 8), 'repo')
+  assert.ok(fs.existsSync(path.join(repo, 'HEAD')), '받은 객체는 다음을 위해 남긴다')
+  assert.ok(!git(repo, 'worktree', 'list').includes(dir))
+  assert.deepEqual(treeOf(PERSON), personBefore)
+})
+
+test('지난 회차는 이 PC 에서 거절: 더 오래된 준비는 무시 · 다른 회차의 토큰으로는 올리지 않는다', async () => {
+  const w = wc
+  const v = variation('회차 시험')
+  vars.get(v).epoch = 3
+  await prepared(w, v)
+  const readies = sentOf('seat:ready', v).length
+  w.handle(prepareMsg(v, { epoch: 2 }))
+  await sleep(300)
+  assert.equal(sentOf('seat:ready', v).length, readies, '옛 회차의 준비는 듣지 않는다')
+  assert.equal(w.get(v).epoch, 3)
+  // the server's token is for epoch 4: this working copy (3) does not push
+  const real = plays.token
+  plays.token = (m) => (m.for === 'push' ? { ...real(m), epoch: 4, branch: W.seatBranch(v, 4) } : real(m))
+  put(w.get(v).dir, 'x.md', 'x\n')
+  const dir = w.get(v).dir
+  const r = await w.saveNow(v)
+  plays.token = real
+  assert.equal(r.ok, false)
+  assert.equal(rev(`refs/heads/${W.seatBranch(v, 3)}`), null, '자기 회차 가지로도 올리지 않았다')
+  assert.equal(rev(`refs/heads/${W.seatBranch(v, 4)}`), null)
+  // what it had went the leftover way: a variation of its own
+  assert.ok(sentOf('seat:left', v).length === 1)
+  assert.ok(!fs.existsSync(dir))
+})
+
+test('자리를 잃은 PC: 서버 목록에 없으면 남은 변경을 새 변형으로 · 새 것이 없으면 그냥 치움 · 올리지 못하면 「남은 변경」으로 둔다', async () => {
+  const w = wc
+  const lostEvents = []
+  w.on('left', (n) => lostEvents.push(n))
+  const a = variation('남는 변경 있음')
+  const b = variation('새 것 없음')
+  const c = variation('올리기 거절')
+  for (const v of [a, b, c]) await prepared(w, v)
+  put(w.get(a).dir, 'docs/오프라인에서 쓴 것.md', '꺼진 동안 쓴 것\n')
+  put(w.get(c).dir, 'docs/남을 것.md', '남는다\n')
+  const dirs = [a, b, c].map((v) => w.get(v).dir)
+  // the server says the seats are gone (taken from the web while this PC was off); c's leftover token is refused
+  const real = plays.token
+  plays.token = (m) => (m.variation === c && m.for === 'left' ? { type: 'seat:refused', variation: c, for: 'left', why: 'not_runner' } : real(m))
+  const tokensB = sentOf('seat:token', b).length
+  w.handle({ type: 'seat:list', seats: [] })
+  await waitFor(() => !w.get(a) && !w.get(b) && w.get(c)?.state === 'left', 10000, 'reconciled')
+  assert.equal(lostEvents.length, 1)
+  assert.match(lostEvents[0].newVariation.title, /남아 있던 변경$/)
+  const nb = git(BARE, 'for-each-ref', '--format=%(refname)', 'refs/heads/var/u/left/').trim().split('\n').filter(Boolean)
+  assert.ok(nb.some((ref) => filesAt(ref).includes('docs/오프라인에서 쓴 것.md')), '새 변형의 가지에 남은 변경')
+  assert.equal(sentOf('seat:token', b).length, tokensB, '새 것이 없으면 올리지 않고 치운다')
+  assert.ok(!fs.existsSync(dirs[0]) && !fs.existsSync(dirs[1]))
+  assert.ok(fs.existsSync(path.join(dirs[2], 'docs', '남을 것.md')), '올리지 못한 것은 그대로 둔다')
+  assert.deepEqual(w.leftovers().map((x) => [x.variationId, x.state, x.why]), [[c, 'left', 'not_runner']])
+  assert.ok(!w.list().some((x) => x.variationId === c), '작업본 목록에는 없고 남은 변경 목록에')
+  // a new seat for that variation while its leftover is here: refused here (never two working copies of one variation)
+  vars.get(c).epoch = 2
+  w.handle(prepareMsg(c, { epoch: 2 }))
+  await waitFor(() => sentOf('seat:failed', c).length, 5000, 'failed')
+  assert.equal(sentOf('seat:failed', c).at(-1).why, 'leftover')
+  plays.token = real
+  // the person lets it go (main asks in a system dialog first): to the app's trash
+  const d = await w.dropLeft(c)
+  assert.equal(d.ok, true)
+  assert.ok(!fs.existsSync(dirs[2]))
+  assert.equal(w.get(c), null)
+  // (never thrown away: the whole working copy — what reached no server too — is in the app's trash, 30 days)
+  const bin = fs.readdirSync(path.join(DATA, 'trash')).filter((n) => n.includes(c.slice(0, 8))).map((n) => path.join(DATA, 'trash', n, 'docs', '남을 것.md'))
+  assert.ok(bin.some((f) => fs.existsSync(f)), '버린 남은 변경도 휴지통에')
+  // a seat the server lists that this computer does not have (its app data was wiped): it says so
+  const ghost = crypto.randomUUID()
+  w.handle({ type: 'seat:list', seats: [{ variation: ghost, folderId: FOLDER, epoch: 5, state: 'held' }] })
+  await waitFor(() => sentOf('seat:failed', ghost).length, 3000, 'missing')
+  assert.equal(sentOf('seat:failed', ghost)[0].why, 'missing')
+})
+
+test('git 이 답하지 못하면 작업본을 치우지 않는다 — 커밋 · 상태를 못 읽은 작업본은 「남은 변경」으로 그대로', async () => {
+  const w = wc
+  const v = variation('망가진 git')
+  await prepared(w, v)
+  const dir = w.get(v).dir
+  put(dir, 'docs/살려야 할 것.md', '지우면 안 된다\n')
+  // the working copy's link to its repository broken (another tool, a disk error): git cannot read it any more
+  const dotgit = path.join(dir, '.git')
+  const was = fs.readFileSync(dotgit, 'utf8')
+  fs.writeFileSync(dotgit, 'gitdir: /nowhere/at/all\n')
+  w.handle({ type: 'seat:list', seats: [] })
+  await waitFor(() => w.get(v)?.state === 'left', 6000, 'kept as left')
+  assert.equal(w.get(v).why, 'failed')
+  assert.ok(fs.existsSync(path.join(dir, 'docs', '살려야 할 것.md')), '파일이 그대로')
+  // let go by the person later (after it is readable again)
+  fs.writeFileSync(dotgit, was)
+  assert.equal((await w.dropLeft(v)).ok, true)
+})
+
+test('이어질 때 맞추기: 서버 목록에 있으면 저장 지점 한 번 · 넘기는 중이면 준비됐다고 다시 말함 · 다른 사람이 로그인하면 아무것도 안 함', async () => {
+  const w = wc
+  const v = variation('다시 이어짐')
+  await prepared(w, v)
+  put(w.get(v).dir, 'docs/꺼진 동안.md', '링크가 끊긴 동안 쓴 것\n')
+  w.linkDown()
+  assert.deepEqual(await w.saveNow(v), { ok: false, why: 'offline' })
+  w.linkUp({ id: USER })
+  const before = rev(vars.get(v).branch)
+  w.handle({ type: 'seat:list', seats: [{ variation: v, folderId: FOLDER, epoch: 1, state: 'held', autoSave: true }] })
+  await waitFor(() => rev(vars.get(v).branch) !== before, 6000, 'saved on link up')
+  assert.ok(filesAt(vars.get(v).branch).includes('docs/꺼진 동안.md'))
+  // the server still has it moving (its seat:held did not reach here): ready again — and a refusal of it never takes the working copy away
+  const readies = sentOf('seat:ready', v).length
+  w.handle({ type: 'seat:list', seats: [{ variation: v, folderId: FOLDER, epoch: 1, state: 'moving' }] })
+  await waitFor(() => sentOf('seat:ready', v).length === readies + 1, 3000, 'ready again')
+  const real = plays.ready
+  plays.ready = (m) => ({ type: 'seat:refused', variation: m.variation, why: 'stale' })
+  w.handle({ type: 'seat:list', seats: [{ variation: v, folderId: FOLDER, epoch: 1, state: 'moving' }] })
+  await waitFor(() => sentOf('seat:ready', v).length === readies + 2, 3000, 'ready again')
+  await sleep(100)
+  plays.ready = real
+  assert.equal(w.get(v).state, 'held', '거절만으로는 치우지 않는다 — 서버 목록이 말한다')
+  assert.ok(fs.existsSync(w.get(v).dir))
+  // someone else signed in on this app: nothing of this person's goes up in their name
+  w.linkUp({ id: crypto.randomUUID() })
+  assert.deepEqual(await w.saveNow(v), { ok: false, why: 'other_user' })
+  w.linkUp({ id: USER })
+  // the server asks for it back on behalf of its own person elsewhere (seat:recall auto): the release round by itself
+  w.handle({ type: 'seat:recall', variation: v, epoch: 1, auto: true })
+  await waitFor(() => !w.get(v), 6000, 'given back')
+  // someone else asks: only a notice
+  const v2 = variation('돌려 달라는 요청')
+  await prepared(w, v2)
+  const notes = []
+  w.on('recall', (n) => notes.push(n))
+  w.handle({ type: 'seat:recall', variation: v2, epoch: 1, auto: false, by: '김동료', why: '오늘 반영해요' })
+  assert.deepEqual(notes.map((n) => [n.title, n.by, n.why]), [['돌려 달라는 요청', '김동료', '오늘 반영해요']])
+  assert.ok(w.get(v2), '저절로 돌려놓지 않는다')
+  await w.release(v2)
+})
+
+test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {
+  wc.stop()
+  const { createLocalRunner } = require('../src/runner')
+  settings.init(path.join(ROOT, 'app'))
+  const out = []
+  const r = createLocalRunner({ server: srv.base, token: 't', dataDir: DATA, prefs: () => ({ enabled: true }), ask: async () => false, seats: settings.seatStore(srv.base, USER), userId: USER,
+    seatOpts: { askMs: 5000, claudeHome: CLAUDE, codexHome: CODEX } })
+  try {
+    r.link.send = (m) => { out.push(m); const k = { 'seat:ready': 'ready' }[m.type]; const ans = k && plays[k](m); if (ans) setImmediate(() => r.link.emit('message', ans)); return true }
+    wc = r.seats
+    assert.ok(r.seats)
+    assert.equal(r.link.helloFn().caps.seats, true, '0.2.6: 이 PC 에서 작업할 수 있다')
+    r.link.emit('welcome', { user: { id: USER, name: '박작업' }, device: { id: crypto.randomUUID(), name: 'x' } })
+    assert.equal(r.seats.connected, true)
+    const v = variation('페이지에서 열기')
+    const waiting = r.seats.open(v, 15000)
+    r.link.emit('message', prepareMsg(v))
+    assert.deepEqual(await waiting, { ok: true })
+    const seen = []
+    r.ev.on('seats', (l) => seen.push(l))
+    r.link.emit('message', { type: 'seat:prefs', variation: v, autoSave: false })
+    assert.equal(seen.at(-1).find((x) => x.variationId === v).autoSave, false)
+    r.link.emit('down')
+    assert.equal(r.seats.connected, false)
+  } finally { r.stop() }
+})
