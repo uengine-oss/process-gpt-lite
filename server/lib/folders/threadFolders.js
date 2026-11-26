@@ -11,6 +11,7 @@ import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { addMessage } from '../store.js'
+import { hint as refsHint, slotsOf, underSlot } from './refs.js'
 import * as G from './git.js'
 import * as S from './service.js'
 import { reindex, changeCard } from './indexer.js'
@@ -154,9 +155,12 @@ export async function noteVariation(user, threadId, folder, v) {
 
 // ---------- chat: reading the attached folder ----------
 const listing = (files, n = 40) => files.slice(0, n).map((f) => `- ${f.path}${f.summary ? ` — ${String(f.summary).slice(0, 120)}` : ''}`).join('\n') + (files.length > n ? `\n- … (+${files.length - n})` : '')
-export async function refHint(link) {
+// (user: the person the turn reads for — the folder's reference slots are told as they see them, folders/refs.js)
+export async function refHint(link, user = null) {
   if (link?.mode !== 'ref') return ''
-  const files = (await q(`select path, card->>'abstract' as summary from pro_folder_files where folder_id=$1 order by path limit 200`, [link.folder_id]).catch(() => []))
+  // (a file of this folder under one of its reference slots is not listed: the slot wins — folders/refs.js)
+  const slots = (await slotsOf([link.folder_id]).catch(() => new Map())).get(String(link.folder_id))
+  const files = (await q(`select path, card->>'abstract' as summary from pro_folder_files where folder_id=$1 order by path limit 200`, [link.folder_id]).catch(() => [])).filter((f) => !underSlot(slots, f.path))
   return L(`\n\n(이 대화에는 공유 폴더 '${link.name}' 가 참고 자료로 붙어 있어요. 기준본(main)을 읽기만 해요: folder_files 도구(folder: '${link.slug}')로 파일 목록과 문서 요약을, folder_read 도구로 파일 내용을 볼 수 있어요. 사용자가 파일을 열어 달라고 하면 folder_open 도구로 화면에 열어 주세요.
 이 폴더의 파일:
 ${listing(files) || '(아직 파일 없음)'}
@@ -164,7 +168,7 @@ ${listing(files) || '(아직 파일 없음)'}
   `\n\n(The shared folder '${link.name}' is attached to this chat for reference. Read its main version only: the folder_files tool (folder: '${link.slug}') lists its files with document summaries, and folder_read shows a file's content. When the user asks to open a file, open it on their screen with the folder_open tool.
 Files in this folder:
 ${listing(files) || '(no files yet)'}
-Do not change files in this folder or save into it. A change is made on a variation when the user asks for one, and a person reviews and merges it.)`)
+Do not change files in this folder or save into it. A change is made on a variation when the user asks for one, and a person reviews and merges it.)`) + await refsHint(link, user).catch(() => '')
 }
 
 // ---------- project: its own variation ----------
