@@ -45,6 +45,13 @@ import MailAttRefCard from './MailAttRefCard.vue'
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords, startDrag, shareItem, same, MAX as MAX_ITEMS } from '../../fileDrag.js'
 // "@" near the caret, as in the chat composer (useTeammateMention.js)
 import { caretXY } from './useTeammateMention.js'
+// a room's settings (its name) and reactions on a teammate's bubble (2026-11-26 사용자 「대화방 설정으로 대화방 명칭 바꿀 수 있게하고 다른
+// 사람 말풍선에 좋아요 확인했음 사랑해 웃음 등을 붙힐 수 있게」 — server lib/team/messenger.js rename · lib/team/reactions.js)
+import RoomSettings from './RoomSettings.vue'
+import ReactionBar from './ReactionBar.vue'
+import ReactionChips from './ReactionChips.vue'
+import { hold } from '../holdMenu.js'
+import { canReact } from '../../roomReactions.js'
 
 const app = useApp()
 const team = useTeam()
@@ -383,7 +390,7 @@ async function loadPeople() {
 }
 function newThread() { inviting.value = false; picking.value = true; loadPeople() }
 const start = (ids) => run('start', async () => { await team.startThread(ids); picking.value = false })
-function openInvite() { picking.value = false; inviting.value = true; loadPeople() }
+function openInvite() { picking.value = false; settings.value = false; inviting.value = true; loadPeople() }
 const isGroup = computed(() => thread.value?.kind === 'group')
 const doInvite = (ids) => run('invite', async () => {
   const t = thread.value
@@ -392,7 +399,56 @@ const doInvite = (ids) => run('invite', async () => {
   else await team.startThread([...t.members.map((m) => m.id).filter((id) => id !== app.me?.user?.id), ...ids])
   inviting.value = false
 })
-watch(() => team.active, () => { inviting.value = false })
+watch(() => team.active, () => { inviting.value = false; settings.value = false; rx.value = null })
+
+// ---- the room's settings: its name (a group room; any of its people — as in Process GPT) ----
+const settings = ref(false)
+function openSettings() { inviting.value = false; settings.value = !settings.value }
+// its own name ('' when it is called by its people) and what it is called without one
+const ownName = computed(() => (thread.value && !namedByPeople(thread.value) ? thread.value.title || '' : ''))
+const autoName = computed(() => {
+  const t = thread.value
+  if (!t) return ''
+  const tags = tagsFor(t.members)
+  return othersOf(t).map((p) => labelOf(tags, p)).join(', ')
+})
+const saveName = (name) => run('rename', async () => { await team.rename(thread.value.id, name); settings.value = false })
+
+// ---- reactions: a long press (phone), the hover button or a right-click (desktop) on someone else's bubble opens the bar over it ----
+const pane = ref(null)
+const rxBar = ref(null)
+const rx = ref(null)           // {m, anchor: {top, bottom, left}, x, top, left, ready}
+const rxOf = (m) => (list.value.find((x) => x.id === m.id) || m).reactions || []
+async function openRx(m, el, at = {}) {
+  if (!canReact(m) || !el || !pane.value) return
+  const b = el.getBoundingClientRect()
+  rx.value = { m, anchor: { top: b.top, bottom: b.bottom, left: b.left }, x: Number.isFinite(at.x) ? at.x : null, top: 0, left: 0, ready: false }
+  await nextTick()
+  const box = rxBar.value?.el, pr = pane.value.getBoundingClientRect(), sc = scroller.value?.getBoundingClientRect()
+  if (!box || !rx.value) return
+  const w = box.offsetWidth, h = box.offsetHeight
+  const minTop = (sc ? sc.top : pr.top) - pr.top + 4, maxTop = (sc ? sc.bottom : pr.bottom) - pr.top - h - 4
+  // over the bubble when there is room, else under it; from where the right-click was, else the bubble's start — inside the pane
+  let top = rx.value.anchor.top - pr.top - h - 8
+  if (top < minTop) top = Math.min(rx.value.anchor.bottom - pr.top + 8, Math.max(minTop, maxTop))
+  const left = Math.max(8, Math.min((rx.value.x ?? rx.value.anchor.left) - pr.left - (rx.value.x != null ? 24 : 0), pr.width - w - 8))
+  rx.value = { ...rx.value, top, left, ready: true }
+}
+const rxMine = computed(() => (rx.value ? rxOf(rx.value.m).filter((c) => c.mine).map((c) => c.key) : []))
+const react = (m, key) => { rx.value = null; team.react(m, key).catch((e) => { err.value = e.message || '반응을 남기지 못했어요.' }) }
+async function copyRx() {
+  const text = rx.value?.m?.body ? hidePaths(team.trBody(rx.value.m) || rx.value.m.body) : ''
+  rx.value = null
+  if (!text) return
+  try { await navigator.clipboard.writeText(text); team.say('복사했어요') } catch { err.value = '복사하지 못했어요.' }
+}
+// the long press · right-click (components/holdMenu.js) on the bubbles that take a reaction only — my own keep the browser's own menu
+const vRxHold = {
+  mounted(el, b) { if (b.value) hold.mounted(el, b) },
+  updated(el, b) { if (el._holdOpen) hold.updated(el, b) },
+  unmounted(el) { hold.unmounted(el) },
+}
+const rxButton = (m, e) => openRx(m, e.currentTarget?.closest('.msg')?.querySelector('.bub'))
 
 // Esc puts the floating sheet away; a docked column stays until its ✕ (Esc there is the page's — an open document's, a dialog's)
 const onEsc = (e) => { if (e.key === 'Escape' && !docked.value && !drag.value) team.open = false }
@@ -481,14 +537,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <button v-for="t in team.threads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
             <PersonAvatar v-if="t.kind === 'group'" kind="group">{{ t.members.length }}</PersonAvatar><PersonAvatar v-else :id="otherOf(t)?.id" :name="otherOf(t)?.name || t.title" />
             <span class="nm"><b>{{ titleOf(t) }}</b>
-              <small>{{ t.last ? `${t.last.mine ? '나: ' : ''}${t.last.kind === 'share' ? `산출물 ${t.last.files}개 공유${t.last.body ? ' · ' + t.last.body : ''}` : t.last.body}` : '새 대화' }}</small></span>
+              <small>{{ t.last ? `${t.last.mine && !['invite', 'rename'].includes(t.last.kind) ? '나: ' : ''}${t.last.kind === 'share' ? `산출물 ${t.last.files}개 공유${t.last.body ? ' · ' + t.last.body : ''}` : t.last.body}` : '새 대화' }}</small></span>
             <i v-if="team.unread.byThread[t.id]" class="badge">{{ team.unread.byThread[t.id] }}</i>
           </button>
           <p v-if="!team.threads.length" class="empty">팀원과 나눈 대화가 여기에 모여요.</p>
         </div>
       </aside>
 
-      <main class="pane">
+      <main ref="pane" class="pane">
         <template v-if="thread && team.tab === 'threads'">
           <header class="thd" :class="{ grab: dockable }" data-test="msg-thread-head" @pointerdown="dragStart">
             <button class="back press" aria-label="목록" @click="team.active = null"><Icon name="back" :size="18" /></button>
@@ -499,6 +555,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <button class="aitog grp press" :class="{ on: inviting }" :data-test="isGroup ? 'room-invite' : 'room-make-group'"
               :title="isGroup ? '이 대화방에 팀원 초대' : '이 두 사람과 다른 팀원으로 새 단체방 만들기'" :aria-label="isGroup ? '초대' : '단체방 만들기'" @click="inviting ? (inviting = false) : openInvite()">
               <Icon name="plus" :size="13" /><span class="lbl">{{ isGroup ? '초대' : '단체방 만들기' }}</span></button>
+            <!-- 대화방 설정: the room's name (a group room) -->
+            <button class="aitog gear press" :class="{ on: settings }" data-test="room-settings-open" title="대화방 설정" aria-label="대화방 설정" @click="openSettings">
+              <Icon name="gear" :size="15" /></button>
             <!-- one column with the list hidden: its place and ✕ come along -->
             <template v-if="single && docked">
               <DockMenu :dock="lay.dock" @pick="team.setDock" />
@@ -511,14 +570,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               :title="isGroup ? '초대할 팀원 (여럿 고를 수 있어요)' : '단체방에 함께할 팀원 (이 대화의 두 사람에 더해요)'" :confirm="isGroup ? '초대하기' : '단체방 만들기'"
               :empty="isGroup ? '초대할 수 있는 팀원이 없어요.' : '대화할 팀원이 없어요.'" @confirm="doInvite" @cancel="inviting = false" />
           </div>
-          <div ref="scroller" class="msgs scroll">
+          <!-- 대화방 설정 over the conversation, like the invite sheet -->
+          <div v-if="settings" class="invite" data-test="room-settings-sheet">
+            <RoomSettings :group="isGroup" :name="ownName" :auto="autoName" :busy="busy === 'rename'" @save="saveName" @cancel="settings = false" />
+          </div>
+          <div ref="scroller" class="msgs scroll" @scroll.passive="rx = null">
             <template v-for="m in list" :key="m.id">
             <!-- someone was invited (server lib/team/messenger.js invite): a line of the room's own -->
             <p v-if="m.kind === 'invite'" class="sysline" data-test="msg-invite" :data-id="m.id">{{ m.body }}</p>
+            <!-- the room was named, or its name taken off (server lib/team/messenger.js rename) -->
+            <p v-else-if="m.kind === 'rename'" class="sysline" data-test="msg-rename" :data-id="m.id">{{ m.body }}</p>
             <MeetingRoomCard v-else-if="String(m.kind).startsWith('meeting')" :m="m" :title="thread.title" />
-            <div v-else :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent' }">
+            <div v-else :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent', rxable: canReact(m), rxopen: rx?.m.id === m.id }">
               <PersonAvatar v-if="!m.mine" v-bind="face(m.sender)" size="sm" />
-              <div class="bub">
+              <div v-rx-hold="canReact(m) ? (el, at) => openRx(m, el, at) : null" class="bub" data-test="msg-bubble">
                 <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ senderLabel(m) }}</p>
                 <p v-if="m.kind === 'agent'" class="kind">✦ {{ m.sender.name }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
                 <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : senderLabel(m) }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
@@ -567,13 +632,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <button v-if="(!m.mine && (m.kind === 'share' || m.kind === 'mention')) || (m.mine && branchesOf[m.id]?.some((b) => b.at))" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
                 <small class="t">{{ when(m.at) }}</small>
               </div>
+              <!-- a desktop's way in: the button by a teammate's bubble while the pointer is over it (or it has the focus) -->
+              <button v-if="canReact(m)" class="rxbtn press" data-test="rx-open" title="반응 남기기" aria-label="반응 남기기" @click="rxButton(m, $event)"><Icon name="smile" :size="16" /></button>
             </div>
-            <LinkPreviews v-if="m.body && m.kind !== 'invite' && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
+            <!-- the reactions under it: emoji · count, mine marked; who reacted on a long press · the pointer resting on one -->
+            <ReactionChips v-if="m.reactions?.length && !['invite', 'rename'].includes(m.kind) && !String(m.kind).startsWith('meeting')" :chips="m.reactions"
+              :can="canReact(m)" :mine="m.mine" :data-for="m.id" @toggle="(k) => react(m, k)" />
+            <LinkPreviews v-if="m.body && m.kind !== 'invite' && m.kind !== 'rename' && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
             <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
             </template>
             <!-- 「@AI …」 being answered (lib/team/aiHelp.js) -->
             <div v-if="aiWait" class="aiwait" data-test="ai-status" role="status"><span class="spark">✦</span><span class="shimmer-text">{{ aiWait.text }}</span></div>
           </div>
+          <!-- the reactions bar over the bubble it was opened on (its place measured once it is drawn) -->
+          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :text="rx.m.body || ''" :data-for="rx.m.id"
+            :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
           <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>{{ dropWords }}</p></div></div></Transition>
           <footer class="cmp">
             <div v-if="attach.length || ups.length || refs.length" class="chips">
@@ -730,6 +803,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .invite > .pp { min-height: 0; }
 .aitog.grp { margin-left: 6px; display: inline-flex; align-items: center; gap: 3px; }
 .aitog.grp.on { color: #2a78d6; background: rgba(42, 120, 214, .14); }
+/* 대화방 설정: the gear by 「초대」 */
+.aitog.gear { margin-left: 6px; width: 26px; padding: 0; display: grid; place-items: center; }
+.aitog.gear.on { color: #2a78d6; background: rgba(42, 120, 214, .14); }
+/* reactions: the hover button by a teammate's bubble (a pointer that hovers; a phone long-presses the bubble instead) */
+.rxbtn { flex: none; align-self: center; width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; color: var(--text-secondary);
+  background: var(--regular-solid-bg); border: 1px solid rgba(127, 127, 127, .2); opacity: 0; transition: opacity .12s; }
+.msg:hover .rxbtn, .rxbtn:focus-visible, .msg.rxopen .rxbtn { opacity: 1; }
+@media (hover: none) { .rxbtn { display: none; } }
+.msg.rxopen .bub { box-shadow: 0 0 0 2px rgba(42, 120, 214, .45); }
+/* a phone's long press opens the bar, not the text selection (「복사」 is in the bar) */
+@media (pointer: coarse) { .msg.rxable .bub { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
 /* a line of the room's own: who invited whom */
 .sysline { align-self: center; max-width: 90%; margin: 2px 0; padding: 4px 12px; border-radius: 12px; font-size: 12.5px; color: var(--text-secondary);
   background: rgba(127, 127, 127, .1); text-align: center; overflow-wrap: anywhere; }

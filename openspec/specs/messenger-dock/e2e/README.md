@@ -53,9 +53,14 @@ cd e2e && PGPT_URL=http://localhost:5197 API_URL=http://127.0.0.1:8799 RT_FAKE_L
 | 이미 있는 사람 | `roomInvite.integration.test.js` MS-I-02(또 초대 · 둘이 동시에) · MS-I-01(권한: 방 밖 404 · 다른 회사 · 팀원 아님 · 에이전트 403 · 1:1 400) |
 | 1:1 대화에서 단체방 만들기 | F-MS-04(「초대」 없음 · 두 사람은 목록에 없음 · 새 단체방 · 1:1 은 둘 그대로) |
 | 초대 · 휴대폰 390px 밝은 · 밤 | F-MS-05(머리의 「+」 · 고르는 창이 화면 안 · 시스템 줄 · 넘치지 않음) |
+| 단체방에 이름을 붙인다 | F-RX-01(⚙ → 설정 창 · 빈 칸에 사람들 이름 · 「9/50」 · 저장 → 두 사람의 머리 · 목록이 새로 고침 없이 · 시스템 줄 · 박도윤의 읽지 않은 수 · 알림 그대로 · `chat_rooms.name`) · `roomRenameReactions.integration.test.js` RX-I-02 · RX-I-03 · `room-rename-reactions.e2e.mjs` 2 |
+| 기본 이름으로 | F-RX-01(사람마다 다시 사람들 이름 · 「…님이 대화방 이름을 지웠어요」) · RX-I-02 · HTTP 3 · `roomReactions.test.js` RX-U-05(공백 · 줄바꿈 · 빈 이름 · 50자) |
+| 1:1 대화의 설정 | F-RX-02(이름 칸 없음 · 안내) · RX-I-01(서버 400) |
+| 휴대폰에서 이름을 바꾼다 | F-RX-05(390px 밝은 · 밤: ⚙ · 「+」 · 설정 창이 화면 안 · 넘치지 않음 · 머리에 「주간 보고」) |
+| 너무 긴 이름 · 방 밖의 사람 | RX-I-01(51자 400 · 방 밖 404 · 다른 회사의 방 404 · 방 사람 누구나) · HTTP 3 |
 | 같은 이름의 두 사람(스펙 `profile-picture`) | F-MS-06(대화 목록 · 방 제목 · 머리 · 새 대화 상대 · 팀 목록에서 「윤가람 · uengine.org」 · 「윤가람 · people-mail.test」, 혼자인 이름은 그대로) · `sameNames.test.js` |
 
-초대(F-MS-03~05)는 자기 스택을 띄우는 `e2e/tests/feature/room-invite.spec.js`(회사 `room-invite`)에 있다.
+초대(F-MS-03~05)는 자기 스택을 띄우는 `e2e/tests/feature/room-invite.spec.js`(회사 `room-invite`)에 있다. 단체방 이름(F-RX-01 · 02 · 05)은 말풍선 반응과 함께 `e2e/tests/feature/room-rename-reactions.spec.js`(회사 `room-react-ui`)에 있고, 명령 · 결과는 `openspec/specs/room-reactions/e2e/README.md`에 있다. 화면: `f-rx-01a-settings.png`(설정 창) · `f-rx-01b-renamed.png`(머리 · 목록 · 시스템 줄) · `f-rx-01c-teammate-live.png`(열어 둔 김서연의 화면) · `f-rx-01d-name-removed.png`(기본 이름으로) · `f-rx-02-direct-settings.png`(1:1) · `f-rx-05a1~b2`(휴대폰 밝은 · 밤).
 
 ```bash
 cd server && node --test --test-concurrency=1 test/roomInvite.integration.test.js

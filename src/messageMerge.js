@@ -7,7 +7,8 @@ export function merged(list, more) {
   for (const m of more || []) {
     if (!m?.id) continue
     const i = out.findIndex((x) => x.id === m.id)
-    if (i >= 0) { out[i] = m; continue }
+    // (a message's live copy carries no reactions — they come on their own: the ones it had stay — src/roomReactions.js)
+    if (i >= 0) { out[i] = m.reactions || !out[i]?.reactions ? m : { ...m, reactions: out[i].reactions }; continue }
     const j = m.at ? out.findIndex((x) => x.at && x.at > m.at) : -1
     if (j < 0) out.push(m)
     else out.splice(j, 0, m)

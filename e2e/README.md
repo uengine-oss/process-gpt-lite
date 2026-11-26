@@ -1385,6 +1385,36 @@ cd server && node --test test/turnPlan.test.js
 | **#10 · #11 · #12** 앞단 계획을 끄면 카드에 머리글이 표시되지 않으며, 결과물에 대한 후속 요청이면 라우터 호출을 중단하고, 로그에는 문장이 남지 않음 | 검토 11-25 | TP-R-10 · 11 · 12 | 단위 | ✅ |
 | 실제 모델(운영 Sonnet 앞단 · 운영 deepagents의 `done.content`)과 운영 시간 | — | — (가짜 모델 · 가짜 deepagents, 이 PC의 frentis 실측만) | — | ◐ |
 
+### 58. 팀 메신저 — 단체방 이름 바꾸기 · 말풍선 반응 (스펙 `messenger-dock` 「단체방의 이름을 바꾼다」 · `room-reactions`)
+
+사용자(11-26, 휴대폰의 단체 대화방 화면과 함께): 「대화방 설정으로 대화방 명칭 바꿀 수 있게하고 다른 사람 말풍선에 좋아요 확인했음 사랑해 웃음 등을 붙힐 수 있게」. 대화 상단의 ⚙ 「대화방 설정」에서 단체방 이름을 바꾼다. 방 참여자 누구나 바꿀 수 있으며, Process GPT의 `chat_rooms.name`을 사용한다. 다른 사람의 말풍선에는 길게 누르기(휴대폰), 반응 버튼 · 오른쪽 클릭(데스크톱)으로 여섯 가지 반응 중 하나를 붙인다. 반응은 새 테이블 `pro_chat_reactions`(`server/sql/062_room_reactions.sql`)에 저장한다. 시험 파일은 자체 스택(`lib/localStack.js` — 회사 `room-react-ui`, 8966 · 5366부터)을 띄우며, 모델은 호출하지 않는다. 휴대폰의 길게 누르기는 CDP 터치(`Input.dispatchTouchEvent`)로 재현한다. 증거는 `openspec/specs/room-reactions/e2e/README.md`와 `openspec/specs/messenger-dock/e2e/README.md`에 있다.
+
+```bash
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/room-rename-reactions.spec.js
+cd server && node --test test/roomReactions.test.js && node --test --test-concurrency=1 test/roomRenameReactions.integration.test.js
+cd server && API_URL=http://127.0.0.1:8966 node test/room-rename-reactions.e2e.mjs   # BFF 를 먼저 띄운다(파일 머리의 명령)
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| ⚙ 대화방 설정 → 이름 저장 → 두 사람의 대화 상단 · 목록이 새로 고침 없이 바뀜(`room`), 시스템 줄 「…님이 대화방 이름을 「…」로 바꿨어요」(받침에 맞는 조사, 보는 사람의 언어), `chat_rooms.name` · `auto_name_pending: false` | 사용자 11-26 | F-RX-01 · RX-I-02 · HTTP 2 | feature · 통합 · HTTP | ✅ |
+| 이름 변경은 조용히 처리: 읽지 않은 수 증가 · 토스트 없음, Process GPT 'chat' 알림은 같은 트랜잭션에서 읽음 처리(Home 카드 · 푸시 없음), 목록 미리보기에 「나: 」 없음 | 사용자 결정 위임(소음) | F-RX-01 · RX-I-03 · HTTP 2 | feature · 통합 · HTTP | ✅ |
+| 「기본 이름으로」 · 빈 이름 → `null`, 각 사용자에게 다시 참여자 이름으로 표시 · 같은 이름이면 변경 없음 · 공백 · 줄바꿈 정리 · 50자 제한(이모지는 한 글자로 계산) | Process GPT 한도 50자 | F-RX-01 · RX-U-05 · RX-I-02 · HTTP 3 | feature · 단위 · 통합 · HTTP | ✅ |
+| 이름 변경 권한: 방 참여자 누구나(Process GPT와 같음), 방 미참여자 404, 다른 회사의 방 404(참여자 목록에 있어도), 1:1 400, 51자 400 | Process GPT `ChatRoomPage` 「채팅방 이름 변경」 | RX-I-01 · HTTP 3 | 통합 · HTTP | ✅ |
+| 1:1 대화의 ⚙: 이름 입력란 없이 「1:1 대화는 상대의 이름으로 보여요 …」 표시 | 결정(두 사람의 이름을 가리지 않음) | F-RX-02 | feature | ✅ |
+| 휴대폰 390px 밝은 · 밤 모드: ⚙ · 「+」 · 설정 창이 화면 안에 표시되고, 저장하면 대화 상단에 이름 표시 | 사용자 11-26(휴대폰 화면) | F-RX-05 | feature | ✅ |
+| 반응 막대: 데스크톱에서는 포인터를 올리면 나타나는 반응 버튼 · 오른쪽 클릭(포인터 위치)으로 표시, 여섯 가지(👍 좋아요 · ✅ 확인했음 · ❤️ 사랑해 · 😂 웃음 · 😮 놀람 · 🙏 감사), 이미 붙인 반응은 눌린 상태로 표시, 「복사」 | 사용자 11-26 | F-RX-03 · RX-U-04 | feature · 단위 | ✅ |
+| 칩: 종류마다 하나씩 · 정해진 순서 · 반응 수 · 내 반응 표시, 칩을 누르면 반응 추가 · 취소, 마지막 사람이 취소하면 사라짐, 서버 응답 전에 화면에 반영 | 사용자 11-26 | F-RX-03 · RX-U-01 · RX-U-03 · RX-I-04 · HTTP 4 | feature · 단위 · 통합 · HTTP | ✅ |
+| 상대가 열어 둔 화면에 즉시 반영(`reactions`, 각 사용자 기준으로 「내 것」 표시), 다시 열면 메시지 목록에 반응 포함(없으면 `[]`), 수정되어 다시 수신한 메시지에도 반응 유지 | — | F-RX-03 · F-RX-04 · RX-I-04 · RX-U-06 · HTTP 4 | feature · 통합 · 단위 · HTTP | ✅ |
+| 반응한 사람 확인: 데스크톱에서는 칩에 포인터를 올리고, 휴대폰에서는 칩을 길게 누르면 표시(반응 수는 유지), 내 말풍선의 칩은 눌러도 바뀌지 않음 | 사용자 11-26 | F-RX-03 · F-RX-04 | feature | ✅ |
+| 다른 사람의 말풍선에만 허용: 내 메시지 · 시스템 줄 · 회의 카드 · 숨긴 행 · 알 수 없는 종류 400, 방 미참여자 · 다른 회사 · 없는 메시지 404, 동시에 세 번 눌러도 행 하나만 생성 | 사용자 11-26 「다른 사람 말풍선에」 | F-RX-03 · RX-U-02 · RX-I-05 · RX-I-04 · HTTP 5 | feature · 단위 · 통합 · HTTP | ✅ |
+| 반응으로 알림 행 · Home 알림 · 푸시를 생성하거나 읽지 않은 수를 늘리지 않음 | 결정(소음, Process GPT에도 없음) | F-RX-03 · RX-I-05 · HTTP 4 | feature · 통합 · HTTP | ✅ |
+| RLS: 화면 키로는 같은 회사의 해당 방 참여자만 읽을 수 있고, 누구도 쓸 수 없음 · `anon` 권한 없음 | 공개 저장소 · 다른 `pro_*`와 같음 | RX-I-06 | 통합 | ✅ |
+| 휴대폰 390px 밝은 · 밤 모드: 길게 누르면 반응 막대가 화면 안에 표시되고, 칩을 길게 누르면 반응한 사람 표시, 가로로 넘치지 않음 | 사용자 11-26(휴대폰 화면) | F-RX-04 | feature | ✅ |
+| 영어 화면: 설정 · 반응 막대(Like · Got it · Love · Haha · Wow · Thanks) · Copy · 칩을 읽어 주는 이름 · 시스템 줄 | — | F-RX-06 | feature | ✅ |
+| 실제 iOS · Android 기기에서 길게 누르기(Chromium 터치 입력으로만 시험) | — | — | — | ◐ |
+| Process GPT 화면에 반응 표시 | — | — (Process GPT에는 반응 기능이 없음) | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

@@ -2933,7 +2933,15 @@
   "규칙을 바꿨어요": "Rule changed",
   "이번 작업에만 적용했어요": "Applied to this task only",
   "예약 작업": "Scheduled task",
-  "브리프": "Briefs"
+  "브리프": "Briefs",
+  "대화방 설정": "Conversation settings",
+  "대화방 이름": "Conversation name",
+  "모두에게 같은 이름으로 보여요. 비워 두면 사람들 이름으로 보여요.": "Everyone sees the same name. Leave it empty to show its people's names.",
+  "기본 이름으로": "Use the default name",
+  "1:1 대화는 상대의 이름으로 보여요. 이름은 단체방에서 붙일 수 있어요.": "A one-to-one conversation shows the other person's name. Only a group conversation takes a name.",
+  "반응 남기기": "React",
+  "복사하지 못했어요.": "Couldn't copy.",
+  "반응을 남기지 못했어요.": "Couldn't add the reaction."
  },
  "patterns": [
   [
@@ -3021,8 +3029,20 @@
    "{0} outputs of the chat"
   ],
   [
+   "반응 확인했음 {0}개",
+   "Got it · {0}"
+  ],
+  [
    "루틴 · {0} 열기",
    "Open routine · {0}"
+  ],
+  [
+   "반응 좋아요 {0}개",
+   "Like · {0}"
+  ],
+  [
+   "반응 사랑해 {0}개",
+   "Love · {0}"
   ],
   [
    "{0}에 저장했어요",
@@ -3471,6 +3491,18 @@
   [
    "‘{0}’으로 시작",
    "Start as ‘{0}’"
+  ],
+  [
+   "반응 웃음 {0}개",
+   "Haha · {0}"
+  ],
+  [
+   "반응 놀람 {0}개",
+   "Wow · {0}"
+  ],
+  [
+   "반응 감사 {0}개",
+   "Thanks · {0}"
   ],
   [
    "유휴 {0} ({1})",
@@ -6829,6 +6861,66 @@
    ".event .field",
    "제목",
    "Title"
+  ],
+  [
+   ".rxpop",
+   "좋아요",
+   "Like"
+  ],
+  [
+   ".rxs",
+   "좋아요",
+   "Like"
+  ],
+  [
+   ".rxpop",
+   "확인했음",
+   "Got it"
+  ],
+  [
+   ".rxs",
+   "확인했음",
+   "Got it"
+  ],
+  [
+   ".rxpop",
+   "사랑해",
+   "Love"
+  ],
+  [
+   ".rxs",
+   "사랑해",
+   "Love"
+  ],
+  [
+   ".rxpop",
+   "웃음",
+   "Haha"
+  ],
+  [
+   ".rxs",
+   "웃음",
+   "Haha"
+  ],
+  [
+   ".rxpop",
+   "놀람",
+   "Wow"
+  ],
+  [
+   ".rxs",
+   "놀람",
+   "Wow"
+  ],
+  [
+   ".rxpop",
+   "감사",
+   "Thanks"
+  ],
+  [
+   ".rxs",
+   "감사",
+   "Thanks"
   ]
  ]
 }

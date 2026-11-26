@@ -14,6 +14,8 @@ import { craftMissing } from '../officeEditor.js'
 import { viewW } from '../viewport.js'
 // one copy per message id when what came live and what was asked for are put together
 import { merged } from '../messageMerge.js'
+// reactions on a room's messages: my own toggled at once, the server's answer and the room's live ones after (src/roomReactions.js)
+import { toggled } from '../roomReactions.js'
 
 const store = () => { try { return window.localStorage } catch { return null } }
 
@@ -132,7 +134,8 @@ export const useTeam = defineStore('team', {
         // an agent's reply arrives twice: inserted, then updated with its shared files — replace in place
         // (a meeting's card and 회의록 block too, as they change; the minutes come a while after the end)
         const at = list ? list.findIndex((x) => x.id === m.id) : -1
-        if (list && at >= 0) list[at] = m
+        // (a message's copy carries no reactions — they come on their own, 'reactions' below: the ones it has stay)
+        if (list && at >= 0) list[at] = m.reactions || !list[at].reactions ? m : { ...m, reactions: list[at].reactions }
         else if (list) list.push(m)
         this._live?.[data.threadId]?.set(m.id, m)
         if (this.needsTr(m, { live: true })) this.queueTr([m.id], String(m.kind).startsWith('meeting') ? 2500 : 150)
@@ -142,7 +145,8 @@ export const useTeam = defineStore('team', {
         const news = at < 0 && !seen.has(m.id)
         seen.add(m.id)
         if (seen.size > 2000) seen.delete(seen.values().next().value)
-        if (!m.mine) {
+        // a room's new name is not news: its line is in the room, the header changes — no unread, no toast (server lib/team/messenger.js rename)
+        if (!m.mine && m.kind !== 'rename') {
           if (looking) this.markRead(data.threadId)
           else if (news) {
             this.unread = { total: this.unread.total + 1, byThread: { ...this.unread.byThread, [data.threadId]: (this.unread.byThread[data.threadId] || 0) + 1 } }
@@ -171,12 +175,15 @@ export const useTeam = defineStore('team', {
         else { const { [data.threadId]: _done, ...rest } = this.aiStatus; this.aiStatus = rest }
       }
       else if (data.type === 'assist-toggle') this.assistOn[data.threadId] = data.on
-      // someone was invited into a room (server lib/team/messenger.js invite): its people and title, at once
+      // someone was invited into a room or named it (server lib/team/messenger.js invite · rename): its people and title, at once
       else if (data.type === 'room') {
         const t = this.threads.find((x) => x.id === data.threadId)
         if (t && Array.isArray(data.members)) t.members = data.members
+        if (t && typeof data.name === 'string' && data.name) t.title = data.name
         this.loadThreads()
       }
+      // a message's reactions changed (server lib/team/reactions.js): its chips as I see them — nothing else (no unread, no toast)
+      else if (data.type === 'reactions') this.setReactions(data.threadId, data.messageId, data.reactions)
     },
     say(text, go) {
       clearTimeout(this._t)
@@ -232,6 +239,34 @@ export const useTeam = defineStore('team', {
       if (t && Array.isArray(r.members)) t.members = r.members
       await this.loadThreads()
       return r
+    },
+    // a group room's name (PUT /team/rooms/:id/name — any of its people; '' → called by its people again)
+    async rename(threadId, name) {
+      const r = await api(`/team/rooms/${encodeURIComponent(threadId)}/name`, { method: 'PUT', body: { name } })
+      const t = this.threads.find((x) => x.id === threadId)
+      if (t && r.name) t.title = r.name
+      await this.loadThreads()
+      return r
+    },
+    setReactions(threadId, messageId, reactions) {
+      const list = this.msgs[threadId]
+      const i = list ? list.findIndex((x) => x.id === messageId) : -1
+      if (i >= 0) list[i] = { ...list[i], reactions: Array.isArray(reactions) ? reactions : [] }
+    },
+    // One of my reactions on someone else's message, put on or taken off (POST /team/messages/:id/reactions): the chips change at once,
+    // then become the server's — back as they were if it refused
+    async react(m, key) {
+      const list = this.msgs[m.threadId] || []
+      const was = list.find((x) => x.id === m.id)?.reactions || []
+      const on = !was.find((c) => c.key === key)?.mine
+      const meId = useApp().me?.user?.id
+      const me = { id: meId, name: this.threads.find((t) => t.id === m.threadId)?.members?.find((p) => p.id === meId)?.name || '' }
+      this.setReactions(m.threadId, m.id, toggled(was, key, me, on))
+      try {
+        const r = await api(`/team/messages/${encodeURIComponent(m.id)}/reactions`, { method: 'POST', body: { key, on } })
+        this.setReactions(m.threadId, m.id, r.reactions)
+        return r
+      } catch (e) { this.setReactions(m.threadId, m.id, was); throw e }
     },
     async startThread(members, title) {
       const t = await api('/team/threads', { method: 'POST', body: { members, title } })
