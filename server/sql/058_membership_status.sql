@@ -1,5 +1,5 @@
 -- 초대받은 사람만 들어온다(2026-11-25 사용자: 「우리가 초대를 해준 사람에 한해서만 로그인 할 수 있는 거야」, lib/membership.js).
--- 여러 번 돌려도 된다. 더하기만 한다. (번호 056 · 057 은 운영의 056_skill_packs · 057_policies 몫이다.)
+-- 여러 번 돌려도 된다. 더하기만 한다(3 의 정책은 같은 이름으로 다시 만든다 — 조건을 하나 더할 뿐이다). (번호 056 · 057 은 운영의 056_skill_packs · 057_policies 몫이다.)
 --
 -- 1) public.users.membership_status
 --    Lite 는 회사의 구성원을 public.users 의 행 중 membership_status 가 'approved' 인 것(과 회사를 만든 사람)으로 본다. 이 열은
@@ -33,3 +33,20 @@ create table if not exists pro_join_requests (
 );
 create index if not exists pro_join_requests_pending on pro_join_requests (tenant_id, created_at) where status = 'pending';
 alter table pro_join_requests enable row level security;
+
+-- 3) 공유(pro_shares)를 PostgREST 로 직접 읽는 길도 승인된 구성원만
+--    Lite 서버가 요청마다 하는 구성원 확인을 pro_shares_read 정책(sql/012)에도 둔다: 주인 · 받는 사람이 그 공유의 회사에서 승인된
+--    구성원(또는 회사를 만든 사람)일 때만 읽는다. 열이 없는 DB 에서는 행이 있으면 구성원이다(Lite 와 같은 규칙).
+--    pro_is_member 는 SECURITY DEFINER 로 users · tenants 를 읽는다(정책 안의 하위 쿼리가 users 의 RLS 를 다시 타지 않게).
+create or replace function public.pro_is_member(t text) returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (select 1 from public.users u where u.id = auth.uid() and u.tenant_id = t
+                   and coalesce(to_jsonb(u)->>'membership_status', 'approved') = 'approved')
+      or exists (select 1 from public.tenants x where x.id = t and x.owner::text = auth.uid()::text)
+$$;
+revoke all on function public.pro_is_member(text) from public, anon;
+grant execute on function public.pro_is_member(text) to authenticated;
+
+drop policy if exists pro_shares_read on pro_shares;
+create policy pro_shares_read on pro_shares for select to authenticated
+  using ((owner_id = auth.uid() or recipient_id = auth.uid()) and public.pro_is_member(tenant_id));

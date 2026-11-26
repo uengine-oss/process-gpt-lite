@@ -107,9 +107,14 @@ export async function keepRequest({ userId, email, name = null }, query = q) {
   return standing(userId, query)
 }
 
-// how many requests a company takes in an hour from people pressing the button (PRO_JOIN_REQUESTS_PER_HOUR), and how soon one person may
-// press again — the button is open to anyone who can sign in somewhere
+// The button is open to anyone who can sign in somewhere, so it has limits:
+//   - one person presses at most once a minute (per company)
+//   - one address asks at most PRO_JOIN_REQUESTS_PER_ADDRESS_PER_DAY companies a day (3) — throwaway accounts cannot ask everywhere
+//   - a company takes at most PRO_JOIN_REQUESTS_PER_HOUR new requests an hour (30), counting only those still waiting: requests an
+//     administrator declined free their place, so a burst of throwaway requests the administrator turns down does not keep real people
+//     out for the rest of the hour
 const PER_HOUR = () => Math.max(1, Number(process.env.PRO_JOIN_REQUESTS_PER_HOUR) || 30)
+const PER_ADDRESS_DAY = () => Math.max(1, Number(process.env.PRO_JOIN_REQUESTS_PER_ADDRESS_PER_DAY) || 3)
 const AGAIN_MS = 60_000
 const pressed = new Map() // tenant|user → at
 export async function requestToJoin(ticket) {
@@ -122,7 +127,9 @@ export async function requestToJoin(ticket) {
   if (pressed.size > 5000) for (const [x, t] of pressed) if (Date.now() - t > AGAIN_MS) pressed.delete(x)
   const was = await standing(c.sub)
   if (!was) {
-    const [n] = await q(`select count(*)::int as n from pro_join_requests where tenant_id=$1 and created_at > now() - interval '1 hour'`, [T()])
+    const [a] = await q(`select count(*)::int as n from pro_join_requests where email=$1 and created_at > now() - interval '1 day'`, [normEmail(c.email)])
+    if ((a?.n || 0) >= PER_ADDRESS_DAY()) throw new MemberError(429, L('오늘은 이 주소로 더 요청할 수 없어요. 내일 다시 보내 주세요.', "This address can't send more requests today. Please send it again tomorrow."))
+    const [n] = await q(`select count(*)::int as n from pro_join_requests where tenant_id=$1 and status='pending' and created_at > now() - interval '1 hour'`, [T()])
     if ((n?.n || 0) >= PER_HOUR()) throw new MemberError(429, L('지금은 가입 요청이 많아요. 잠시 뒤에 다시 보내 주세요.', 'Too many requests to join right now. Please send it again later.'))
   }
   // (the name they go by, by the rule every screen uses — the auth record's own name, a Google sign-in's: lib/people.js displayName)
@@ -190,14 +197,18 @@ export async function addRow(userId, email0, name, query = q) {
   [String(userId), name || localPart(email) || email, email, T()])
   forgetMember(userId)
 }
-// A row made a member: approved, and the requests about it closed as approved by who did it. Its role stays as it is (editor, reviewer
-// …); an empty one becomes 'user' (Process GPT's invite); an invitation as administrator makes it 'admin'. Process GPT's approval trigger
+// A row made a member: approved, and the requests about it closed as approved by who did it. Its role stays as it is (editor, reviewer,
+// admin …); an empty one — or 'viewer' on a row that was waiting or let go, which is what Process GPT's approval trigger and endRow leave
+// there, not a role anyone chose — becomes 'user' (Process GPT's invite); an invitation as administrator makes it 'admin'. Process GPT's approval trigger
 // turns a newly inserted row into 'pending' (its own invite's row too) — this is the approval that follows. Without the column: nothing
 // to approve, the row is the membership.
 export async function approveRow(userId, { admin = false, by = null } = {}, query = q) {
   if (await hasStatusColumn(query)) {
     await query(`update users set membership_status = 'approved',
-                   role = case when $3 then 'admin' when coalesce(role, '') = '' then 'user' else role end,
+                   role = case when $3 then 'admin'
+                               when coalesce(role, '') = '' then 'user'
+                               when lower(role) = 'viewer' and coalesce(to_jsonb(users)->>'membership_status', 'approved') <> 'approved' then 'user'
+                               else role end,
                    is_admin = case when $3 then true else coalesce(is_admin, false) end
                  where id = $1 and tenant_id = $2`, [String(userId), T(), !!admin])
   } else if (admin) {
@@ -338,24 +349,31 @@ export async function remove(me, userId) {
   return { id: r.id, email: r.email, status: 'rejected' }
 }
 
-// Everything a person let go could still reach this company with ends: their sessions at the auth server (a session is the account's,
-// not a company's — they sign in again anywhere else they belong), their linked desktops' tokens, their places in this company's rooms,
-// direct conversations, shared folders and open meetings, their routines (paused), and their open event streams. (A folder git token
-// names its person and is checked at each request — lib/folders/gitHttp.js.) Each step on its own: one that fails is logged, not fatal.
+// Everything a person let go could still reach this company with ends: their linked desktops' tokens here, their places in this
+// company's rooms, direct conversations, shared folders and live meetings, this company's routines (paused), and the event streams they
+// opened for this company. Their auth sessions are the account's, not a company's: they end only when the person is an approved member
+// of no other company — someone who also works elsewhere stays signed in there (and in Process GPT), and this company's door (every
+// request, the MCP gateways, folder git, desktops) is closed to them all the same. (A folder git token names its person and is checked at
+// each request — lib/folders/gitHttp.js.) Each step on its own: one that fails is logged, not fatal. → {sessions: whether they ended}
 export async function endAccess(userId) {
   const id = String(userId), t = T()
-  const step = async (what, sql, p) => { await q(sql, p).catch((e) => console.warn(`[members] end access: ${what}`, e.message)) }
-  await step('sessions', 'delete from auth.sessions where user_id = $1::uuid', [id])
-  await step('refresh tokens', 'delete from auth.refresh_tokens where user_id = $1', [id])
+  const step = async (what, sql, p) => q(sql, p).catch((e) => { console.warn(`[members] end access: ${what}`, e.message); return [] })
+  const [elsewhere] = await step('other companies', `select exists (select 1 from users u where u.id = $1::uuid and u.tenant_id <> $2 and ${APPROVED('u')}) as yes`, [id, t])
+  const sessions = !elsewhere?.yes
+  if (sessions) {
+    await step('sessions', 'delete from auth.sessions where user_id = $1::uuid', [id])
+    await step('refresh tokens', 'delete from auth.refresh_tokens where user_id = $1', [id])
+  }
   await step('desktops', 'update pro_local_devices set revoked_at = coalesce(revoked_at, now()) where tenant_id = $2 and user_id = $1::uuid', [id, t])
   await step('rooms', `update chat_rooms set participants = (select coalesce(jsonb_agg(p), '[]'::jsonb) from jsonb_array_elements(participants) p where p->>'id' is distinct from $1)
                        where tenant_id = $2 and participants @> jsonb_build_array(jsonb_build_object('id', $1::text))`, [id, t])
   await step('direct conversations', 'delete from pro_dm_members m using pro_dm_threads d where m.thread_id = d.id and d.tenant_id = $2 and m.user_id = $1::uuid', [id, t])
   await step('folders', `delete from pro_folder_members m using pro_folders f where m.folder_id = f.id and f.tenant_id = $2 and m.principal_type = 'user' and m.principal_id = $1`, [id, t])
   await step('meetings', `delete from pro_meeting_participants p using pro_meetings m where p.meeting_id = m.id and m.tenant_id = $2 and m.state = 'live' and p.user_id = $1::uuid`, [id, t])
-  await step('routines', 'update pro_schedules set paused = true where user_id = $1::uuid and (tenant_id = $2 or tenant_id is null)', [id, t])
+  await step('routines', 'update pro_schedules set paused = true where user_id = $1::uuid and tenant_id = $2', [id, t])
   const { closeStreams } = await import('./bus.js')
-  closeStreams(id)
+  closeStreams(id, t)
+  return { sessions }
 }
 
 // ---------- invitations ----------
@@ -418,11 +436,18 @@ async function inviteOne(me, email, admin) {
   const account = await authUserByEmail(email)
   const status = account ? await memberStatus(account.id, T()) : null
   if (status === 'approved') return { email, id: account.id, result: 'member' }
-  if (status) {
-    // waiting, or let go before: the invitation is the approval
+  if (status === 'pending') {
+    // they asked (a sign-up waiting here): the invitation is the approval
     await approveRow(account.id, { admin, by: me.id })
     await onTeam(account.id, me.id)
     return { email, id: account.id, result: 'approved' }
+  }
+  if (status === 'rejected') {
+    // declined or let go before: invited again the way a new address is — with a mail telling them, never by a quiet flip
+    const mailed = await tellInvited(email)
+    await approveRow(account.id, { admin, by: me.id })
+    await onTeam(account.id, me.id)
+    return { email, id: account.id, result: 'invited', mailed }
   }
   let done = await inviteThroughProcessGpt(email, admin)
   // (completion answered but left no row here — the person still needs one)
@@ -436,9 +461,22 @@ async function inviteOne(me, email, admin) {
 }
 
 // an administrator added someone without an invitation mail (「+ 팀원 추가」, POST /api/team), or the demo code let a new address in:
-// their row made if missing, and approved
+// their row made if missing, and approved. Someone declined or let go before is told by mail, as a re-invitation is.
 export async function admit(userId, email, name, by) {
-  if ((await memberStatus(userId, T())) === 'approved') return
+  const was = await memberStatus(userId, T())
+  if (was === 'approved') return
+  if (was === 'rejected' && email) await tellInvited(email)
   await addRow(userId, email, name)
   await approveRow(userId, { by })
+}
+
+// The mail an address with an account gets when invited (again): the auth server's sign-in mail, its link back to this Lite's sign-in
+// (Process GPT's own 「테넌트에 초대되었습니다」 mail goes only through its invite of a new row). → whether the auth server took it.
+async function tellInvited(email) {
+  const r = await fetch(`${config.supabaseUrl}/auth/v1/otp?redirect_to=${encodeURIComponent(`${String(config.publicUrl).replace(/\/$/, '')}/login`)}`, {
+    method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: normEmail(email), create_user: false }),
+  }).catch((e) => { console.warn('[members] invitation mail:', e.message); return null })
+  if (r && !r.ok) console.warn('[members] invitation mail:', r.status, (await r.text().catch(() => '')).slice(0, 160))
+  return !!r?.ok
 }

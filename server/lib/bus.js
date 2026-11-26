@@ -7,20 +7,30 @@ const waiters = new Map() // userId -> Set<fn>
 const KEEP = 200
 let seq = 0
 
-export function subscribe(userId, res) {
+// tenant: the company the stream was opened for (a person may belong to several) — closeStreams ends that company's only
+export function subscribe(userId, res, tenant = null) {
   if (!subs.has(userId)) subs.set(userId, new Set())
+  if (tenant) res.pglTenant = String(tenant)
   subs.get(userId).add(res)
   return () => subs.get(userId)?.delete(res)
 }
 
-// A person whose membership ended (lib/membership.js remove): their open streams end now, and their waiting long polls answer — the
-// page's next request (a reconnect) is then checked at the door. Their buffered events go with them.
-export function closeStreams(userId) {
+// A person whose membership of a company ended (lib/membership.js remove): the streams they opened for that company end now — their
+// page's reconnect is then checked at the door. Streams of their other companies, and the events buffered for them, stay. Their waiting
+// long polls answer now (they are not tagged by company): each page simply asks again, and this company's next poll meets the door.
+export function closeStreams(userId, tenant) {
   const id = String(userId)
-  for (const res of subs.get(id) || []) { try { res.end() } catch { /* already gone */ } }
-  subs.delete(id)
-  recent.delete(id)
-  for (const wake of waiters.get(id) || []) wake()
+  const set = subs.get(id)
+  let closed = 0
+  for (const res of [...(set || [])]) {
+    if (tenant && res.pglTenant !== String(tenant)) continue
+    set.delete(res)
+    closed++
+    try { res.end() } catch { /* already gone */ }
+  }
+  if (set && !set.size) subs.delete(id)
+  for (const wake of [...(waiters.get(id) || [])]) wake()
+  return closed
 }
 
 // A live-view frame (browser.frame) is the one kind of event that may be left out: a viewer whose connection still holds

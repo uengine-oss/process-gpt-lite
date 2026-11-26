@@ -14,6 +14,9 @@
 //   IO-I-05 two first people of a company nobody runs, at once: exactly one makes it; the other gets no row
 //   IO-I-06 two administrators letting each other go at once: exactly one goes, the company keeps an administrator
 //   IO-I-07 no session for someone not approved here, and nothing written for them (no row here, none in the default tenant)
+//   IO-I-08 approving a waiting or let-go row turns the 'viewer' it was left with into 'user'; editor stays editor
+//   IO-I-09 the shares' own read policy (pro_shares_read, sql/058) lets the owner and the recipient read only while they are approved
+//           members of the share's company — as the authenticated role through PostgREST would, in a transaction rolled back
 // Every row lives in a tenant of its own and inside a transaction that is rolled back (IO-I-01, IO-I-02), or is deleted at the end.
 //   cd server && node --test --test-concurrency=1 test/invite-only.integration.test.js
 import test, { after } from 'node:test'
@@ -111,7 +114,7 @@ test('IO-I-02 Process GPT 의 승인 트리거 위에서(승인 켬 · 끔): 요
       await M.addRow(asker, 'asker@example.test', null, query)
       assert.equal((await statusOf(asker)).s, 'pending')
       await M.approveRow(asker, { by: boss }, query)
-      assert.equal((await statusOf(asker)).s, 'approved')
+      assert.deepEqual(await statusOf(asker), { s: 'approved', role: 'user', is_admin: false }, "트리거가 남긴 viewer 는 user 로")
       assert.deepEqual(await signupOf(asker), { status: 'approved', reviewed_by: boss })
       assert.equal((await M.requestOf(asker, query)).status, 'approved')
       // Process GPT's invite row (completion invite_user: role user, is_admin as asked): pending, admin stripped → approved administrator
@@ -238,4 +241,41 @@ test('IO-I-07 승인되지 않은 사람에게는 세션이 없고, 아무 행�
   const { forgetMember } = await import('../lib/supa.js')
   forgetMember(data.user.id)
   assert.ok((await withTenant(T, () => sessionFor(email))).session.access_token, '승인되면 세션')
+})
+
+test('IO-I-08 기다리던 · 내보냈던 행을 승인하면 남아 있던 viewer 는 user, 편집자는 편집자', async () => {
+  const T = await freshTenant('viewer')
+  const [w, r, e] = [id(), id(), id()]
+  await q(`insert into users (id, username, email, tenant_id, role, is_admin, membership_status) values
+           ($1, 'w', 'w@example.test', $4, 'viewer', false, 'pending'),
+           ($2, 'r', 'r@example.test', $4, 'viewer', false, 'rejected'),
+           ($3, 'e', 'e@example.test', $4, 'editor', false, 'pending')`, [w, r, e, T])
+  await withTenant(T, async () => {
+    for (const u of [w, r, e]) await M.approveRow(u, {})
+  })
+  const roles = Object.fromEntries((await q('select id::text as id, role from users where tenant_id=$1', [T])).map((x) => [x.id, x.role]))
+  assert.deepEqual([roles[w], roles[r], roles[e]], ['user', 'user', 'editor'])
+})
+
+test('IO-I-09 공유 읽기 정책(pro_shares_read): 주인 · 받는 사람도 그 회사의 승인된 구성원일 때만', async () => {
+  await inTransaction(async (query) => {
+    const T = `pgl-io-rls-${RUN}`
+    await query('insert into tenants (id) values ($1)', [T])
+    const [owner, to] = [id(), id()]
+    await query(`insert into users (id, username, email, tenant_id, membership_status) values ($1,'o','o@example.test',$3,'approved'), ($2,'t','t@example.test',$3,'approved')`, [owner, to, T])
+    const [sh] = await query(`insert into pro_shares (tenant_id, owner_id, recipient_id, name, bucket, object_key) values ($1,$2,$3,'보고서.pdf','files','x/y') returning id::text`, [T, owner, to])
+    const asUser = async (who) => {
+      await query('reset role')
+      await query("select set_config('request.jwt.claims', $1, true), set_config('request.jwt.claim.sub', $2, true)", [JSON.stringify({ sub: who, role: 'authenticated' }), who])
+      await query('set local role authenticated')
+      const rows = await query('select id::text from pro_shares where id = $1', [sh.id])
+      await query('reset role')
+      return rows.length
+    }
+    assert.equal(await asUser(to), 1, '받는 사람(승인된 구성원)')
+    assert.equal(await asUser(owner), 1, '주인')
+    await query(`update users set membership_status='rejected' where id=$1 and tenant_id=$2`, [to, T])
+    assert.equal(await asUser(to), 0, '내보낸 받는 사람은 못 읽음')
+    assert.equal(await asUser(id()), 0, '상관없는 사람')
+  })
 })

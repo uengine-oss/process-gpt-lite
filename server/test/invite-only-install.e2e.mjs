@@ -166,8 +166,10 @@ test('IO-S-05 관리자가 초대한 사람은 Google 로 들어오고, 내보�
   // approve the request from IO-S-03, then let the guest go
   assert.equal((await api('POST', `/team/requests/${P.known.id}/approve`, { token: P.first.token })).status, 200)
   assert.equal((await api('POST', `/team/members/${guest.user.id}/remove`, { token: P.first.token })).json.status, 'rejected')
-  // (the session ends at the auth server — the token is no one's any more)
-  assert.equal((await api('GET', '/me', { token: guest.session.access_token })).status, 401)
+  // (the guest also belongs to the dev stack's default company — its sign-up trigger's row — so they stay signed in, and this company
+  // refuses them at once; someone of this company only loses their sessions too: invite-only.e2e.mjs IO-G-06)
+  const out = await api('GET', '/me', { token: guest.session.access_token })
+  assert.deepEqual([out.status, out.json.code], [403, 'invite_only'])
   const g2 = await googleSignIn(EMAIL.guest)
   assert.equal(g2.path, '/invite-only', '다시 로그인해도 막힘')
   const said = (await api('GET', `/auth/refusal/${g2.query.get('k')}`)).json

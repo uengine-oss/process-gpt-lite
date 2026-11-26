@@ -154,6 +154,9 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
     await new Promise((ok) => setTimeout(ok, 1500 * (i + 1)))
     r = await go()
   }
+  // a refusal under way (another request was answered invite_only, and leaving for the refusal screen ended this sign-in's session —
+  // POST /api/auth/refuse): a request still in flight then meets 401. That is the same refusal, not a sign-out to the sign-in screen.
+  if (r.status === 401 && leaving && await leaving) throw Object.assign(new Error('invite only'), { status: 403, code: 'invite_only' })
   if (r.status === 401) {
     const renewed = await refreshToken()
     if (renewed) r = await go()

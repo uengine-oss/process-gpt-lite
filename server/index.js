@@ -231,8 +231,9 @@ app.post('/api/auth/refuse', async (req, res) => {
   res.status(403).json(r.refusal)
 })
 // 「가입 요청 보내기」 on the refusal screen: the ticket of a refused sign-in (it proved the address; the session is gone by then) → the
-// request kept in this company, and the refusal as it reads now. At most once a minute per person, and a company takes
-// PRO_JOIN_REQUESTS_PER_HOUR new requests an hour (lib/membership.js requestToJoin).
+// request kept in this company, and the refusal as it reads now. At most once a minute per person, PRO_JOIN_REQUESTS_PER_ADDRESS_PER_DAY
+// a day from one address, and a company holds at most PRO_JOIN_REQUESTS_PER_HOUR of the last hour's requests waiting (lib/membership.js
+// requestToJoin).
 app.post('/api/auth/join-request', async (req, res) => {
   try {
     const c = members.readTicket(req.body?.ticket)
@@ -720,10 +721,10 @@ app.get('/api/events', auth, (req, res) => {
   res.write(': ok\n\n')
   // the client falls back to long polling when this never arrives (a proxy holding streams back)
   res.write(`event: hello\ndata: ${JSON.stringify({ seq: lastSeq() })}\n\n`)
-  const off = subscribe(req.user.id, res)
-  // (a membership that ended closes the stream: 「내보내기」 here at once — lib/bus.js closeStreams — and one ended in Process GPT at the
-  // next heartbeat; the page's reconnect then meets the door)
+  // (a membership that ended closes the stream: 「내보내기」 here at once — lib/bus.js closeStreams, this company's streams only — and one
+  // ended in Process GPT at the next heartbeat; the page's reconnect then meets the door)
   const tenant = req.tenantId || config.tenantId
+  const off = subscribe(req.user.id, res, tenant)
   const ping = setInterval(async () => {
     if (!(await isMember(req.user.id, tenant).catch(() => true))) { clearInterval(ping); off(); return res.end() }
     res.write(': ping\n\n')

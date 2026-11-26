@@ -18,9 +18,12 @@
 //           rooms, direct conversations, shared folders, live meetings, routines (paused), the open event stream, a folder git token
 //           naming them; and someone in a room who is no longer a member does not stop the others from posting (they are dropped)
 //   IO-G-07 the e-mail code behind the gateway: an address with an account that is not a member here gets {sent: true} and no code
-//   IO-G-08 「가입 요청 보내기」 limits: a forged or another company's ticket is refused, one person once a minute, a company
-//           PRO_JOIN_REQUESTS_PER_HOUR an hour
+//   IO-G-08 「가입 요청 보내기」 limits: a forged or another company's ticket is refused, one person once a minute, one address
+//           PRO_JOIN_REQUESTS_PER_ADDRESS_PER_DAY companies a day, a company PRO_JOIN_REQUESTS_PER_HOUR waiting requests an hour (declined
+//           ones free their place)
 //   IO-G-09 the agent's file downloads (/api/agent-files) and the MCP gateways (/mcp/*) take an approved member of the request's company only
+//   IO-G-10 someone who is an approved member of two companies, let go by one: still signed in, still working in the other (requests,
+//           its event stream, its routines); this company's rooms, folders, stream and routines are gone; a routine of no company stays
 //   node test/invite-only.e2e.mjs        (IO_BFF_PORT · IO_FAKE_PORT to move the ports)
 import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -37,7 +40,8 @@ const TENANT = `pgl-io-${RUN}`, OTHER = `pgl-io2-${RUN}`
 const mail = (who) => `pro-rt-io-${who}-${RUN}@uengine.org`
 const EMAIL = { boss: mail('boss'), mate: mail('mate'), waiting: mail('waiting'), gone: mail('gone'), stranger: mail('stranger'),
   owner: mail('owner'), newbie: mail('newbie'), invitee: mail('invitee'), local: mail('local'), elsewhere: mail('elsewhere'),
-  leaver: mail('leaver'), outsider: mail('outsider'), asker1: mail('asker1'), asker2: mail('asker2'), asker3: mail('asker3') }
+  leaver: mail('leaver'), outsider: mail('outsider'), asker1: mail('asker1'), asker2: mail('asker2'), asker3: mail('asker3'), asker4: mail('asker4'),
+  both: mail('both') }
 
 Object.assign(process.env, {
   PRO_PORT: String(BFF), PRO_PUBLIC_URL: `http://127.0.0.1:${BFF}`, PRO_TENANT_FROM_HEADER: '1', PRO_TENANT_ID: 'localhost', PRO_TENANT_HOSTS: '',
@@ -118,7 +122,7 @@ before(async () => {
   await cleanup()
   await q('insert into tenants (id) values ($1), ($2)', [TENANT, OTHER])
   // the company's people: accounts of the auth server and their rows (as Process GPT keeps them)
-  for (const who of ['boss', 'mate', 'waiting', 'gone', 'stranger', 'owner', 'elsewhere', 'leaver', 'outsider', 'asker1', 'asker2', 'asker3']) {
+  for (const who of ['boss', 'mate', 'waiting', 'gone', 'stranger', 'owner', 'elsewhere', 'leaver', 'outsider', 'asker1', 'asker2', 'asker3', 'asker4', 'both']) {
     const { data, error } = await supa.auth.admin.createUser({ email: EMAIL[who], email_confirm: true, user_metadata: { name: `시험 ${who}` } })
     if (error) throw error
     P[who] = { id: data.user.id }
@@ -134,6 +138,10 @@ before(async () => {
   await row('elsewhere', OTHER, 'pending')    // waiting at the other company
   await row('leaver', TENANT, 'approved')
   await row('outsider', TENANT, 'approved')
+  await row('both', TENANT, 'approved')
+  await row('both', OTHER, 'approved')
+  // (the leaver belongs to this company only: the row the dev stack's sign-up trigger adds in its default company goes)
+  await q('delete from users where id=$1 and tenant_id <> $2', [P.leaver.id, TENANT])
   await q('update tenants set owner=$1 where id=$2', [P.owner.id, TENANT])
   for (const who of Object.keys(P)) P[who].token = (await rawSession(EMAIL[who])).access_token
   await import('../index.js')
@@ -237,10 +245,17 @@ test('IO-G-04 관리자: 초대 · 가입 요청 · 승인 · 거절 · 내보�
   assert.equal((await api('POST', `/team/requests/${P.stranger.id}/reject`, { token: P.boss.token })).status, 404, '이미 끝난 요청')
   // invite: a new address (Process GPT's invite through completion), a member, someone let go, a bad address
   completion.calls.length = 0
+  // (the auth server sends one person a mail at most once a minute — GOTRUE_SMTP_MAX_FREQUENCY — and this test signed 'gone' in a moment
+  // ago: their last-sent mark is cleared so the re-invitation's mail is not held back by the test itself)
+  await q('update auth.users set recovery_sent_at = null, confirmation_sent_at = null where id=$1', [P.gone.id])
+  const sentBefore = (await q('select count(*)::int n from auth.one_time_tokens where user_id=$1', [P.gone.id]))[0].n
   const inv = await api('POST', '/team/invites', { token: P.boss.token, body: { emails: `${EMAIL.invitee}, ${EMAIL.mate}\n${EMAIL.gone} not-an-address` } })
   assert.equal(inv.status, 200)
   const by = Object.fromEntries(inv.json.map((x) => [x.email, x]))
-  assert.deepEqual([by[EMAIL.invitee].result, by[EMAIL.mate].result, by[EMAIL.gone].result, by['not-an-address'].result], ['invited', 'member', 'approved', 'invalid'])
+  // (someone let go before is invited the way a new address is — told by mail, not quietly let back in)
+  assert.deepEqual([by[EMAIL.invitee].result, by[EMAIL.mate].result, by[EMAIL.gone].result, by['not-an-address'].result], ['invited', 'member', 'invited', 'invalid'])
+  assert.equal(by[EMAIL.gone].mailed, true, '다시 초대한 사람에게도 메일')
+  assert.ok((await q('select count(*)::int n from auth.one_time_tokens where user_id=$1', [P.gone.id]))[0].n > sentBefore || (await q('select recovery_sent_at is not null as s from auth.users where id=$1', [P.gone.id]))[0].s, '인증 서버가 메일을 보냄')
   assert.deepEqual(completion.calls.map((c) => [c.email, c.is_admin, c.tenant_id, c.host]), [[EMAIL.invitee, false, TENANT, `${TENANT}.process-gpt.local`]])
   const invitee = await account(EMAIL.invitee)
   assert.equal(await statusIn(invitee), 'approved', '초대가 곧 승인')
@@ -266,8 +281,10 @@ test('IO-G-04 관리자: 초대 · 가입 요청 · 승인 · 거절 · 내보�
   assert.equal(flag(P.mate.id), true)
   assert.equal((await api('GET', '/me', { token: P.mate.token })).status, 200)
   assert.equal((await api('POST', `/team/members/${P.mate.id}/remove`, { token: P.boss.token })).json.status, 'rejected')
-  // (their sessions end at the auth server: the token is no one's any more — IO-G-06 sees the rest)
-  assert.equal((await api('GET', '/me', { token: P.mate.token })).status, 401, '곧바로 막힘')
+  // (they also belong to the dev stack's default company, so they stay signed in — and this company refuses them at once; IO-G-06 sees
+  // the sessions end for someone of this company only, IO-G-10 the rest)
+  const gone = await api('GET', '/me', { token: P.mate.token })
+  assert.deepEqual([gone.status, gone.json.code], [403, 'invite_only'], '곧바로 막힘')
   assert.equal(await statusIn(P.mate.id), 'rejected')
   assert.ok(!(await api('GET', '/team', { token: P.boss.token })).json.some((m) => m.id === P.mate.id), '팀원 목록에서 빠짐')
   assert.ok(!(await api('GET', '/people', { token: P.boss.token })).json[P.mate.id], '사람 목록에서도')
@@ -357,7 +374,7 @@ test('IO-G-07 게이트웨이 뒤 이메일 코드: 계정은 있지만 이 회�
   assert.equal(await snap(), before, '인증 서버에 코드를 청하지 않음')
 })
 
-test('IO-G-08 가입 요청 보내기의 한도: 위조 · 다른 회사의 표는 거절, 한 사람은 1분에 한 번, 회사는 시간당 정한 수까지', async () => {
+test('IO-G-08 가입 요청 보내기의 한도: 위조 · 다른 회사의 표는 거절, 한 사람은 1분에 한 번, 한 주소는 하루 3곳, 회사는 시간당 기다리는 요청 수까지(거절하면 자리가 빔)', async () => {
   assert.equal((await api('POST', '/auth/join-request', { body: { ticket: 'pgj1.e30.AAAA' } })).status, 400)
   const ticketOf = async (who, tenant = TENANT) => (await api('POST', '/auth/refuse', { token: (await rawSession(EMAIL[who])).access_token, body: {}, tenant })).json.ticket
   const t1 = await ticketOf('asker1')
@@ -365,14 +382,28 @@ test('IO-G-08 가입 요청 보내기의 한도: 위조 · 다른 회사의 표�
   assert.equal((await api('POST', '/auth/join-request', { body: { ticket: t1 } })).status, 201)
   assert.equal((await api('POST', '/auth/join-request', { body: { ticket: t1 } })).status, 429, '1분에 한 번')
   const was = process.env.PRO_JOIN_REQUESTS_PER_HOUR
-  const [n] = await q(`select count(*)::int as n from pro_join_requests where tenant_id=$1 and created_at > now() - interval '1 hour'`, [TENANT])
-  process.env.PRO_JOIN_REQUESTS_PER_HOUR = String(n.n + 1)
+  const waiting = async () => (await q(`select count(*)::int as n from pro_join_requests where tenant_id=$1 and status='pending' and created_at > now() - interval '1 hour'`, [TENANT]))[0].n
+  process.env.PRO_JOIN_REQUESTS_PER_HOUR = String((await waiting()) + 1)
   try {
     assert.equal((await api('POST', '/auth/join-request', { body: { ticket: await ticketOf('asker2') } })).status, 201)
-    const third = await api('POST', '/auth/join-request', { body: { ticket: await ticketOf('asker3') } })
+    const t3 = await ticketOf('asker3')
+    const third = await api('POST', '/auth/join-request', { body: { ticket: t3 } })
     assert.equal(third.status, 429, '회사의 시간당 한도')
     assert.match(third.json.error, /가입 요청이 많아요/)
+    // the administrator declines one: its place is free again, and a real person gets through
+    assert.equal((await api('POST', `/team/requests/${P.asker2.id}/reject`, { token: P.boss.token })).status, 200)
+    const after = await api('POST', '/auth/join-request', { body: { ticket: await ticketOf('asker4') } })
+    assert.equal(after.status, 201, '거절한 요청은 자리를 비운다')
   } finally { if (was === undefined) delete process.env.PRO_JOIN_REQUESTS_PER_HOUR; else process.env.PRO_JOIN_REQUESTS_PER_HOUR = was }
+  // one address asks at most PRO_JOIN_REQUESTS_PER_ADDRESS_PER_DAY (3) companies a day
+  for (const t of ['pgl-io-cap-a', 'pgl-io-cap-b', 'pgl-io-cap-c']) {
+    await q(`insert into pro_join_requests (tenant_id, user_id, email) values ($1, $2, $3) on conflict do nothing`, [`${t}-${RUN}`, P.asker3.id, EMAIL.asker3])
+  }
+  // (asked at the other company, so the once-a-minute limit of this one does not answer first)
+  const capped = await api('POST', '/auth/join-request', { body: { ticket: await ticketOf('asker3', OTHER) }, tenant: OTHER })
+  assert.equal(capped.status, 429, capped.text)
+  assert.match(capped.json.error, /오늘은 이 주소로/)
+  await q(`delete from pro_join_requests where email=$1 and tenant_id like 'pgl-io-cap-%'`, [EMAIL.asker3])
 })
 
 test('IO-G-09 에이전트 파일 내려받기와 MCP 게이트웨이는 요청한 회사의 승인된 구성원만', async () => {
@@ -394,4 +425,43 @@ test('IO-G-09 에이전트 파일 내려받기와 MCP 게이트웨이는 요청�
   assert.equal((await mcp(bossOther)).status, 403, '토큰이 적은 다른 회사: 그곳의 구성원이 아님')
   assert.equal((await mcp(bossOther, TENANT)).status, 200, '요청한 회사(X-Tenant-Id)가 이김 — 그곳의 구성원')
   assert.equal((await mcp((await rawSession(EMAIL.elsewhere)).access_token, OTHER)).json?.error?.code, -32003, '요청한 회사에서 기다리는 사람')
+})
+
+test('IO-G-10 두 회사의 승인된 구성원을 한 회사에서 내보내면: 로그인은 그대로, 다른 회사에서는 그대로 일하고, 이 회사의 자리만 사라진다', async () => {
+  const B = P.both
+  const s = await rawSession(EMAIL.both)
+  assert.equal((await api('GET', '/me', { token: s.access_token })).status, 200)
+  assert.equal((await api('GET', '/me', { token: s.access_token, tenant: OTHER })).status, 200)
+  const room = (await api('POST', '/team/threads', { token: P.boss.token, body: { members: [B.id] } })).json
+  const [folder] = await q(`insert into pro_folders (tenant_id, slug, name, repo_path) values ($1, $2, '두 회사 폴더', '/nonexistent') returning id::text`, [TENANT, `io-both-${RUN}`])
+  await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role) values ($1,'user',$2,'editor')`, [folder.id, B.id])
+  const sched = {}
+  for (const [k, t] of [['here', TENANT], ['there', OTHER], ['none', null]]) {
+    sched[k] = (await q(`insert into pro_schedules (user_id, name, cron, prompt, tenant_id) values ($1, $2, '0 8 * * *', 'x', $3) returning id`, [B.id, `루틴 ${k}`, t]))[0].id
+  }
+  // a stream opened for each company
+  const open = async (tenant) => {
+    const ctl = new AbortController()
+    const r = await fetch(`http://127.0.0.1:${BFF}/api/events?token=${s.access_token}`, { headers: { 'X-Tenant-Id': tenant }, signal: ctl.signal })
+    assert.equal(r.status, 200)
+    const reader = r.body.getReader()
+    await reader.read()
+    const ended = (async () => { for (;;) { const { done } = await reader.read(); if (done) return true } })()
+    return { ctl, ended }
+  }
+  const here = await open(TENANT), there = await open(OTHER)
+  assert.equal((await api('POST', `/team/members/${B.id}/remove`, { token: P.boss.token })).json.status, 'rejected')
+  assert.equal(await Promise.race([here.ended, new Promise((r) => setTimeout(() => r(false), 5000))]), true, '이 회사의 흐름은 닫힘')
+  assert.equal(await Promise.race([there.ended, new Promise((r) => setTimeout(() => r(false), 1500))]), false, '다른 회사의 흐름은 열려 있음')
+  here.ctl.abort(); there.ctl.abort()
+  assert.ok(!(await supa.auth.getUser(s.access_token)).error, '로그인은 그대로')
+  assert.ok((await q('select count(*)::int n from auth.sessions where user_id=$1', [B.id]))[0].n > 0, '세션이 남음')
+  assert.equal((await api('GET', '/me', { token: s.access_token, tenant: OTHER })).status, 200, '다른 회사에서는 그대로')
+  const out = await api('GET', '/me', { token: s.access_token })
+  assert.deepEqual([out.status, out.json.code], [403, 'invite_only'], '이 회사는 막힘')
+  const paused = Object.fromEntries(await Promise.all(Object.entries(sched).map(async ([k, sid]) => [k, (await q('select paused from pro_schedules where id=$1', [sid]))[0].paused])))
+  assert.deepEqual(paused, { here: true, there: false, none: false }, '이 회사의 루틴만 멈춤')
+  const [rm] = await q('select participants from chat_rooms where id=$1', [room.id])
+  assert.ok(!rm.participants.some((p) => p.id === B.id), '이 회사의 방에서 빠짐')
+  assert.equal((await q('select count(*)::int n from pro_folder_members where folder_id=$1 and principal_id=$2', [folder.id, B.id]))[0].n, 0, '이 회사의 폴더에서 빠짐')
 })

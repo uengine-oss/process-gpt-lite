@@ -9,8 +9,8 @@
 //   F-IO-03 이메일 코드: 아무 계정도 없는 새 주소 → 거절 화면(가입 요청 아님), 계정이 생기지 않음
 //   F-IO-04 관리자가 「초대」 → 그 사람이 이메일 코드로 들어옴(Process GPT 의 초대 — 가짜 completion 이 받음)
 //   F-IO-05 관리자의 「가입 요청」에 김서연 → 승인 → 김서연이 Google 로 다시 오면 들어옴
-//   F-IO-06 「내보내기」(나 자신에게는 없음) → 박도윤의 세션이 인증 서버에서 끝나 열어 둔 화면은 다음 요청에서 로그인 화면으로, 다시
-//           로그인하면 거절 화면(요청 단추 없음)
+//   F-IO-06 「내보내기」(나 자신에게는 없음) → 열어 둔 박도윤의 화면은 다음 요청에서 거절 화면(요청 단추 없음). 박도윤은 다른 회사(개발
+//           스택의 기본 회사)에도 속해 있어 로그인은 남는다 — 이 회사에만 속한 사람의 세션이 끝나는 것은 서버 시험 IO-G-06
 //   F-IO-07 휴대폰 390px 밝은 · 밤: 거절 화면 · 팀·역할(초대 · 가입 요청 · 내보내기 확인)이 화면 안, 옆으로 넘치지 않음 · 영어 화면
 //   F-IO-08 휴대폰 390px 밝은 · 밤: 「가입 요청 보내기」가 있는 거절 화면, 누르면 단추가 사라지고 「가입 요청을 보냈어요」
 // 자기 스택(lib/localStack.js — 회사 invite-ui, BFF 9045 · Vite 5445 부터 빈 포트, 가짜 completion 9046)을 띄우고 지운다. 모델은 부르지 않는다.
@@ -139,13 +139,13 @@ test('F-IO-01 초대받지 않은 사람이 Process GPT 의 Google 로그인으�
   expect((await supa.auth.getUser(s.access_token)).error, '인증 서버에서도 끝난 세션').toBeTruthy()
   expect(await requestOf(EMAIL.walkin), '누르기 전에는 요청이 없음').toBeNull()
   await p.locator('[data-test="refusal-ask"]').click()
-  await expect(p.locator('[data-test="refusal-detail"]')).toHaveText('가입 요청을 보냈어요 · 관리자가 승인하면 들어올 수 있어요')
+  await expect(p.locator('[data-test="refusal-detail"]')).toHaveText('가입 요청을 보냈어요 · 관리자가 승인하면 들어올 수 있어요', { timeout: 20000 })
   await expect(p.locator('[data-test="refusal-ask"]')).toHaveCount(0)
   await shot(p, 'f-io-01b-requested')
   expect(await requestOf(EMAIL.walkin)).toBe('pending')
   expect(await statusOf(EMAIL.walkin), '행은 만들지 않음').toBeNull()
   await p.reload()
-  await expect(refusal(p)).toBeVisible()
+  await expect(refusal(p)).toBeVisible({ timeout: 20000 })
   await expect(p.locator('[data-test="refusal-detail"]')).toHaveText('가입 요청을 보냈어요 · 관리자가 승인하면 들어올 수 있어요')
   expect(await stored(p)).toBeNull()
   await p.goto('/chat')
@@ -233,7 +233,7 @@ test('F-IO-05 관리자의 「가입 요청」에 그 사람이 보이고, 승�
   expect([...a.errors, ...p.errors]).toEqual([])
 })
 
-test('F-IO-06 「내보내기」 하면 세션이 끝나 열어 둔 화면은 로그인 화면으로, 다시 로그인하면 거절 화면(요청 단추 없음) — 나 자신에게는 없음', async ({ browser }) => {
+test('F-IO-06 「내보내기」 하면 열어 둔 화면은 다음 요청에서 거절 화면(요청 단추 없음) — 나 자신에게는 없음', async ({ browser }) => {
   // the guest, signed in with the page open
   const r = await S.api(null, '/auth/email/verify', { method: 'POST', body: { email: EMAIL.guest, code: '000000' } })
   await S.api(r.session.access_token, '/profile', { method: 'POST', body: { name: NAME.guest, birth: '1991-02-03', onboarded: true } })
@@ -251,17 +251,13 @@ test('F-IO-06 「내보내기」 하면 세션이 끝나 열어 둔 화면은 �
   await expect(confirm).toContainText('내보내면 이 회사에 들어올 수 없어요.')
   await shot(a, 'f-io-06a-remove-confirm')
   await confirm.getByRole('button', { name: '내보내기' }).click()
-  await expect(row).toHaveCount(0)
+  await expect(row).toHaveCount(0, { timeout: 20000 })
   expect(await statusOf(EMAIL.guest)).toBe('rejected')
-  // the guest's session ended at the auth server: the open page's next request lands on the sign-in screen
+  // the guest also belongs to another company (the dev stack's default one), so their sign-in stays: the open page's next request is
+  // refused here — the refusal screen, without the button to ask (let go), and the page keeps no session for this company
   await g.reload()
-  await expect(g).toHaveURL(/\/login$/, { timeout: 20000 })
+  await expect(refusal(g)).toBeVisible({ timeout: 20000 })
   expect(await stored(g)).toBeNull()
-  // signing in again: refused, and no button to ask (let go)
-  await g.getByPlaceholder('이메일 주소').fill(EMAIL.guest)
-  await g.getByRole('button', { name: '계속', exact: true }).click()
-  await g.locator('.code input').first().fill('000000')
-  await expect(refusal(g)).toBeVisible({ timeout: 15000 })
   await expect(g.locator('[data-test="refusal-detail"]')).toHaveText('이 회사의 관리자에게 초대를 요청해 주세요.')
   await expect(g.locator('[data-test="refusal-ask"]')).toHaveCount(0)
   await shot(g, 'f-io-06b-removed')
@@ -318,7 +314,7 @@ test('F-IO-08 휴대폰 390px 밝은 · 밤 — 「가입 요청 보내기」를
     expect(await noOverflow(p)).toBe(true)
     await shot(p, `f-io-08a-ask-390-${theme}`)
     await ask.click()
-    await expect(p.locator('[data-test="refusal-detail"]')).toHaveText('가입 요청을 보냈어요 · 관리자가 승인하면 들어올 수 있어요')
+    await expect(p.locator('[data-test="refusal-detail"]')).toHaveText('가입 요청을 보냈어요 · 관리자가 승인하면 들어올 수 있어요', { timeout: 20000 })
     await expect(ask).toHaveCount(0)
     expect(await noOverflow(p)).toBe(true)
     await shot(p, `f-io-08b-asked-390-${theme}`)
