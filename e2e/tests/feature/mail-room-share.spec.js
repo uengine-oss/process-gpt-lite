@@ -272,4 +272,36 @@ test.describe('메일을 대화방에 — 고르기 · 보내기 · 들어올 �
       await cleanup(db, u)
     }
   })
+
+  test('F-MR-05 본문을 펼쳐 둔 동료: 주인이 「본문 끄기」를 누르면 펼친 본문이 곧바로 접히고, 같은 메일의 앞선 멘션도 요약으로 — 새로 고치지 않아도', async ({ pageAs, as, db }) => {
+    const { u, a, rooms } = await setup(pageAs, as, db, 'mr-bodyoff')
+    const mate = await pageAs('mr-bodyoff-m1', { viewport: { width: 1440, height: 900 } })
+    let dm = null
+    try {
+      const first = await u.post(`/actions/${a.id}/rooms`, { person: mate.user.id, body: true, note: '본문까지 봐 주세요' })
+      expect(first.status).toBe(200)
+      dm = first.body.room.id
+      expect((await u.post(`/actions/${a.id}/rooms`, { room: dm, body: true, note: '한 번 더 올려요' })).status).toBe(200)
+      await mate.goto('/chat')
+      await mate.locator('.msg-btn').click()
+      const ms = mate.locator('.ms')
+      await ms.locator('.tabs button').filter({ hasText: '대화' }).first().click()
+      await ms.locator('.th').filter({ hasText: u.name || '회귀-mr-bodyoff' }).first().click()
+      const cards = ms.locator('[data-test="mail-ref"]')
+      await expect(cards).toHaveCount(2)
+      for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'shared')
+      await cards.last().getByText('본문 보기').click()
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toContainText('베어링 하우징')
+      // the owner turns it off on the mail sheet (the same request the sheet sends)
+      expect((await u.post(`/actions/${a.id}/rooms/${dm}/stop`, { what: 'body' })).status).toBe(200)
+      for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'summary')
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toHaveCount(0)
+      await shot(mate, 'f-mr-05-body-off-live')
+      expect(mate.errors).toEqual([])
+    } finally {
+      if (dm) await dropRoom(db, dm)
+      for (const r of rooms) await dropRoom(db, r)
+      await cleanup(db, u)
+    }
+  })
 })

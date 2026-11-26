@@ -1637,6 +1637,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/folde
 | 팀원에게 바로(1:1 대화를 만듦) · 본문은 켠 방에서만 | 사용자 11-27 | F-MR-04 · `mailRooms.integration` | feature · 단위 | ✅ |
 | 「앞으로 오는 메일도 이 방에」(스레드 · 보낸 사람 · 회사) → 약속에 맞는 새 메일만 저절로(「메일 자동 공유」, 요약만), 다른 회사는 아님, Home 카드가 없는 메일도 | 사용자 11-27 | F-MR-03 · `mailRooms.integration` | feature · 단위 | ✅ |
 | 저절로 온 메일에서 「그만 올리기」 → 다음 메일은 안 감 · 「본문 끄기」 → 동료 카드가 요약 · 나간 방의 약속은 치움 | 사용자 11-27 | F-MR-03 · F-MR-04 · `mailRooms.integration` | feature · 단위 | ✅ |
+| 본문을 펼쳐 둔 동료: 「본문 끄기」에 펼친 본문이 곧바로 접히고 같은 메일의 다른 멘션도 요약으로(새로 고침 없이) | 기능 영상 녹화 11-27 | F-MR-05 | feature | ✅ |
 | 실제 Gmail 스레드로 「이 메일 스레드의 다음 메일」 약속이 도는지 · 실제 판정 모델이 방을 고르는 정확도 | — | — (데모 메일함 · 가짜 판정) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

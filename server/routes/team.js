@@ -263,6 +263,10 @@ export function teamRoutes(auth) {
     // (an attachment of a mail — lib/mailAttachments.js — is shared the same way, that file only)
     const updated = await (ref?.type === 'mailatt' ? MA.share : MM.share)(req.user, row, index, req.body.on !== false).catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('바꾸지 못했어요.', "I couldn't change it.")) })
     await M.deliver(updated.uuid)
+    // the room's other mentions of the same mail (or the same attachment) follow at once: what each one shows is the owner's card's word
+    // for this room (2026-11-27 recording: an older mention kept 「본문 보기」 until a reload)
+    const same = ref?.type === 'mailatt' ? [{ type: 'mailatt', actionId: ref.actionId, i: ref.i }] : [{ type: 'mail', actionId: ref?.actionId }]
+    for (const o of await q(`select uuid from chats where id=$1 and tenant_id=$2 and uuid <> $3 and messages->'pgpt'->'refs' @> $4::jsonb`, [row.id, config.tenantId, row.uuid, JSON.stringify(same)]).catch(() => [])) await M.deliver(o.uuid)
     return member ? M.message(req.user, updated.uuid) : { id: updated.uuid, refs: [], left: true }
   }))
   assistRoutes(r, auth, h)
