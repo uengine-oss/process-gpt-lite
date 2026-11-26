@@ -24,7 +24,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { config } from '../../config.js'
-import { q, admin } from '../supa.js'
+import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { addMessage, updateMessage } from '../store.js'
 import { L, langOf, withLang, langInstruction } from '../lang.js'
@@ -356,10 +356,15 @@ async function bringIn(job, branch) {
   await q(`update pro_folder_variations set head_commit=$2, status=case when status='open' then 'ready' else status end, updated_at=now() where id=$1`, [v.id, now])
   await S.touch(folder)
   const after = await S.variationById(v.id)
-  import('../folders/indexer.js').then((x) => x.changeCard(folder, after)).catch(() => {})
+  const brought = await isAncestor(G, folder.repo_path, head, now)
+  // a project's workspace made from a template (folders/templates.js): no 「반영하면 …」 card (it is never merged — as finishProjectWork),
+  // and the run's branch goes once its work is in the workspace (it holds the workspace's commits: nothing of it stays under another name)
+  if (after?.source?.template) {
+    if (brought) await G.git(folder.repo_path, ['update-ref', '-d', `refs/heads/${branch}`, head], { check: false })
+  } else import('../folders/indexer.js').then((x) => x.changeCard(folder, after)).catch(() => {})
   emit(String(job.user_id), 'folders', { slug: folder.slug, variation: v.id })
   import('../folders/threadFolders.js').then((x) => x.announce(String(job.user_id), job.thread_id)).catch(() => {})
-  return { folder, head: now, conflicted: !(await isAncestor(G, folder.repo_path, head, now)) }
+  return { folder, head: now, conflicted: !brought }
 }
 
 // a copy of one file as it is at `commit`, in storage (content-addressed — the folder screen's 열기 does the same: service.publishFile)
@@ -369,14 +374,10 @@ async function publishAt(folder, rel, commit) {
   const p = S.safeRel(rel)
   const sha = (await G.git(folder.repo_path, ['rev-parse', `${commit}:${p}`], { check: false })).trim()
   if (!/^[0-9a-f]{40}$/.test(sha)) return null
-  const ext = (p.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin'
-  const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
-  const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
-  if (!there?.length) {
-    const { error } = await admin.storage.from('files').upload(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), { contentType: S.MIME[ext] || 'application/octet-stream', upsert: true })
-    if (error) throw error
-  }
-  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: p.split('/').pop(), sha }
+  // (the same copy the folder screen makes — at the shared public address only for a version everyone of the folder may read; a project's
+  // workspace, or a run's branch no one else sees, is published privately: folders/service.js)
+  const pub = await S.publishBlob(folder, p, sha, { private: !(await S.sharedCommit(folder, commit)) })
+  return { url: pub.url, name: p.split('/').pop(), sha }
 }
 // the files a turn made or changed that become cards: the folder's own files (not the app's or the CLI's hidden ones), a few at most
 export const cardable = (files) => [...new Set((Array.isArray(files) ? files : []).map((f) => String(f || '').replace(/\\/g, '/')))]

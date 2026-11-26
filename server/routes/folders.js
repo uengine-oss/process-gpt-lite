@@ -128,13 +128,9 @@ export function folderRoutes(auth) {
   }))
   r.patch('/folders/:slug', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'owner')
-    const settings = { ...folder.settings, ...(typeof req.body.fulltext === 'boolean' ? { fulltext: req.body.fulltext } : {}) }
-    // 템플릿으로 쓰기 (lib/folders/templates.js) — projects already started keep their workspace
-    if (typeof req.body.template === 'boolean') {
-      if (req.body.template && (folder.kind !== 'managed' || folder.settings?.work)) throw Object.assign(new Error(L('관리형 공유 폴더만 템플릿으로 쓸 수 있어요.', 'Only a managed shared folder can be a template.')), { status: 400 })
-      if (req.body.template) settings.template = folder.settings?.template || { by: String(req.user.id), at: new Date().toISOString() }
-      else delete settings.template
-    }
+    let settings = { ...folder.settings, ...(typeof req.body.fulltext === 'boolean' ? { fulltext: req.body.fulltext } : {}) }
+    // 템플릿으로 쓰기 — the same rule as TPL.setTemplate (lib/folders/templates.js); projects already started keep their workspace
+    if (typeof req.body.template === 'boolean') settings = TPL.templateSettings({ ...folder, settings }, req.user, req.body.template)
     await q('update pro_folders set name=coalesce($2,name), description=coalesce($3,description), settings=$4, updated_at=now() where id=$1', [folder.id, req.body.name || null, req.body.description ?? null, settings])
     if (settings.fulltext !== folder.settings?.fulltext) { await q('update pro_folder_files set card_sha=null where folder_id=$1', [folder.id]); reindex(await S.folderById(folder.id)).catch(() => {}) }
     return { ok: true }

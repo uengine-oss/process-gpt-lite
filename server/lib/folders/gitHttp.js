@@ -280,6 +280,78 @@ export async function workspaceHidden(folder, claims) {
   if (v && v.folder_id === folder.id && v.source?.template && S.visibleTo(v, { id: String(job.user_id) }) && S.isWorkspaceBranch(v.branch)) out.push(`!refs/heads/${v.branch}`)
   return out
 }
+// The desktops' run branches (refs/heads/pgpt-agent/local-<job 8>-…, lib/localAgents): each is one job's — it may hold what that job's
+// person may read and no one else may (a project's workspace, folders/templates.js). Every one is hidden from every token but its own job's
+// (git hides whole ref names: each branch is named).
+export const RUN_PART = `${PUSH_PREFIX}local-`
+export async function runHidden(folder, claims) {
+  const own = claims?.scope === 'device' && String(claims.push || '').startsWith(RUN_PART) ? `refs/heads/${claims.push}` : null
+  const out = []
+  for (const r of (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', `refs/heads/${PUSH_PREFIX}`], { check: false })).split('\n').map((x) => x.trim())) {
+    if (r.startsWith(`refs/heads/${RUN_PART}`) && !(own && r.startsWith(own))) out.push(r)
+  }
+  return out
+}
+// git's hidden-ref rule (transfer.hideRefs, read in order — a later !ref shows what an earlier entry hid; trailing slashes do not count;
+// an entry hides that ref and everything under it)
+export function hiddenBy(ref, hide) {
+  let hidden = false
+  for (const e of hide || []) {
+    const neg = e.startsWith('!')
+    const pat = (neg ? e.slice(1) : e).replace(/\/+$/, '')
+    if (pat && (ref === pat || ref.startsWith(`${pat}/`))) hidden = !neg
+  }
+  return hidden
+}
+// the refs this token sees (all of the folder's, minus what its hidden-ref entries hide)
+export async function visibleRefs(folder, hide) {
+  return (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)'], { check: false })).split('\n').map((x) => x.trim()).filter((r) => r && !hiddenBy(r, hide))
+}
+// A push that would point a branch at something already here that this token cannot see (a commit only a hidden ref holds — another
+// job's run branch, a project's workspace): refused before git sees it, whatever pack comes with it. → [{ref, why}] | null
+export async function unseenTips(folder, commands, hide) {
+  const out = []
+  for (const c of commands) {
+    if (ZERO.test(c.new)) continue
+    const type = (await G.git(folder.repo_path, ['cat-file', '-t', c.new], { check: false })).trim()
+    if (!type) continue // new: it comes with the pack (what it stands on is checked after the push — hiddenHistory)
+    const holders = (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', '--contains', c.new], { check: false })).split('\n').map((x) => x.trim()).filter(Boolean)
+    if (type !== 'commit' || !holders.some((r) => !hiddenBy(r, hide))) out.push({ ref: c.ref, why: 'that commit is not one this token may read' })
+  }
+  return out.length ? out : null
+}
+// After a push (in the folder's lock, before the client is let go): a pushed branch whose history takes in commits only hidden refs hold
+// (a new commit made on top of one) is put back as it was. → the refs put back
+export async function hiddenHistory(folder, commands, hide) {
+  const pushed = commands.filter((c) => !ZERO.test(c.new)).map((c) => c.ref)
+  if (!pushed.length) return []
+  const all = (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)'], { check: false })).split('\n').map((x) => x.trim()).filter(Boolean)
+  const hidden = all.filter((r) => hiddenBy(r, hide) && !pushed.includes(r))
+  if (!hidden.length) return []
+  const seen = [...all.filter((r) => !hiddenBy(r, hide) && !pushed.includes(r)), ...commands.filter((c) => !ZERO.test(c.old)).map((c) => c.old)]
+  const not = seen.length ? ['--not', ...seen] : []
+  const secret = new Set((await G.git(folder.repo_path, ['rev-list', ...hidden, ...not])).split('\n').filter(Boolean))
+  if (!secret.size) return []
+  const back = []
+  for (const c of commands) {
+    if (ZERO.test(c.new)) continue
+    const took = (await G.git(folder.repo_path, ['rev-list', c.new, ...not])).split('\n').filter(Boolean)
+    if (!took.some((x) => secret.has(x))) continue
+    await putBack(folder, c)
+    back.push(c.ref)
+  }
+  return back
+}
+const putBack = (folder, c) => (ZERO.test(c.old) ? G.git(folder.repo_path, ['update-ref', '-d', c.ref, c.new], { check: false }) : G.git(folder.repo_path, ['update-ref', c.ref, c.old, c.new], { check: false }))
+// (when the history could not be looked at, every pushed branch is put back: nothing stands that was not checked)
+export async function checkedPush(folder, commands, hide) {
+  try { return await hiddenHistory(folder, commands, hide) } catch (e) {
+    console.warn('[folders git] history check failed — the push is put back', e.message)
+    const back = []
+    for (const c of commands) if (!ZERO.test(c.new)) { await putBack(folder, c); back.push(c.ref) }
+    return back
+  }
+}
 // a push that names another desktop's sync branch (any token but that desktop's own sync token): refused like any other foreign ref
 export const syncRefusals = (commands, claims) => {
   const own = ownPart(claims)
@@ -321,14 +393,14 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
         const [folder] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [folderId, claims.tenant])
         if (!folder) return deny(res, 404, 'no such folder')
         if (folder.kind === 'linked') return deny(res, 403, 'a linked folder is not served over git')
-        const hide = [...await syncHidden(folder, claims), ...await workspaceHidden(folder, claims)]
+        const hide = [...await syncHidden(folder, claims), ...await runHidden(folder, claims), ...await workspaceHidden(folder, claims)]
         if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo, null, { hide })
         // a push: what it would change is decided here, before git sees it
         const body = await readBody(req, maxPush)
         if (!body) return deny(res, 413, `a push may carry at most ${Math.round(maxPush / 1024 / 1024)} MB`)
         let parsed
         try { parsed = parseCommands(body) } catch (e) { return deny(res, 400, e.message) }
-        const refused = refusals(parsed.commands, claims.push) || syncRefusals(parsed.commands, claims)
+        const refused = refusals(parsed.commands, claims.push) || syncRefusals(parsed.commands, claims) || await unseenTips(folder, parsed.commands, hide)
         if (refused) {
           console.warn(`[folders git] ${folder.slug} push refused: ${refused.map((r) => `${r.ref} (${r.why})`).join(', ')}`)
           // (a client that asked for no status report gets a plain 403)
@@ -336,11 +408,12 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
           return res.status(200).set({ 'Content-Type': 'application/x-git-receive-pack-result', 'Cache-Control': 'no-cache' }).end(rejectionReport(parsed.commands, refused, parsed.caps))
         }
         await S.serial(folder.id, async () => {
-          await backend(req, res, folder, pathInfo, body, { hold: !!after, hide })
-          if (after) {
-            await after(claims, folder, parsed.commands).catch((e) => console.warn('[folders git] after push', e.message))
-            if (!res.writableEnded) res.end()
-          }
+          await backend(req, res, folder, pathInfo, body, { hold: true, hide })
+          // (a branch that took in history only hidden refs hold is put back before the client is let go)
+          const back = await checkedPush(folder, parsed.commands, hide)
+          if (back.length) console.warn(`[folders git] ${folder.slug}: ${back.join(', ')} took in hidden history — put back`)
+          if (after && !back.length) await after(claims, folder, parsed.commands).catch((e) => console.warn('[folders git] after push', e.message))
+          if (!res.writableEnded) res.end()
         })
         console.log(`[folders git] ${folder.slug} pushed ${parsed.commands.map((c) => c.ref.replace('refs/heads/', '')).join(', ')}`)
       } catch (e) {

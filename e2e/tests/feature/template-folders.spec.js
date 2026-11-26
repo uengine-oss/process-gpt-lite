@@ -39,12 +39,12 @@ const OLD = '예시시 가람구 옛길로 5'
 const NEW = '예시시 나래구 새길로 7, 3층'
 const MD = {
   intro: '# 회사 개요\n\n- 우리 회사는 설비 보전 시스템을 만들어요. 제조 고객사 42곳이 써요.\n',
-  record: '# 2026 납품 실적\n\n- 한빛기계 — 설비 보전 시스템, 설비 120대 연결\n',
+  record: '# 2026 납품 실적\n\n- 마바기계 — 설비 보전 시스템, 설비 120대 연결\n',
   form: `# 제안서 양식\n\n- 제안사: 우리 회사\n- 주소: ${OLD}\n\n## 1. 회사 소개\n## 2. 비슷한 납품 실적\n## 3. 제안 범위와 일정\n`,
   skill: '---\nname: proposal-writer\ndescription: 제안서 양식과 참조 자료로 제안서 초안을 써요\n---\n1. 참조에서 사실만 가져와요.\n',
   template: '---\ndescription: 제안서를 쓸 때 시작하는 템플릿이에요\noutputs: 산출물/\n---\n# 제안서 템플릿\n',
 }
-const DRAFT = '산출물/에이스정밀 3분기 제안서 초안.md'
+const DRAFT = '산출물/가나정밀 3분기 제안서 초안.md'
 
 // ---- the fake model: the front plan, the router (DELEGATE), odds (the last option), a title ----
 function answerLlm(b) {
@@ -58,7 +58,7 @@ function answerLlm(b) {
   let content = b.response_format ? '{}' : 'OK'
   if (sys.includes('what you understood and how the work will go')) content = JSON.stringify({ understood: '템플릿의 자료를 읽고 작업 공간에 쓸게요.', steps: ['자료 읽기', '작업 공간에 쓰기'], tier: 'light', certainty: 'sure' })
   else if (b.tools) content = 'DELEGATE'
-  else if (/제목을|A title for/.test(sys)) content = '한결테크 4분기 제안'
+  else if (/제목을|A title for/.test(sys)) content = '다라테크 4분기 제안'
   return { choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] }
 }
 
@@ -103,7 +103,7 @@ async function runAgent(body, res) {
     }
     const form = fs.readFileSync(path.join(local, '제안서 양식.md'), 'utf8')
     fs.mkdirSync(path.join(local, '산출물'), { recursive: true })
-    fs.writeFileSync(path.join(local, DRAFT), `# 에이스정밀 3분기 제안서 (초안)\n\n${form.split('\n').filter((l) => l.startsWith('- ')).join('\n')}\n\n${facts.join('\n')}\n`)
+    fs.writeFileSync(path.join(local, DRAFT), `# 가나정밀 3분기 제안서 (초안)\n\n${form.split('\n').filter((l) => l.startsWith('- ')).join('\n')}\n\n${facts.join('\n')}\n`)
     answer = `제안서 초안을 「${DRAFT}」에 썼어요. 참조 자리 ${facts.length}개 파일을 읽었어요.`
   } else if (local && /주소/.test(msg.split('\n')[0])) {
     for (const rel of ['제안서 양식.md', DRAFT]) { const p = path.join(local, rel); if (fs.existsSync(p)) fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace(OLD, NEW)) }
@@ -157,7 +157,7 @@ test.beforeAll(async () => {
     PRO_DEEPAGENTS_URL: `http://127.0.0.1:${FAKE_PORT}`, PRO_CONTEXT_ROUTER_URL: NOWHERE, PRO_COMPLETION_URL: NOWHERE, PRO_JUDGE_URL: NOWHERE, PRO_EMBED_URL: '' } })
   if (S.apiPort !== API_PORT || S.webPort !== WEB_PORT) throw new Error(`the stack is not on ${API_PORT} · ${WEB_PORT}`)
   A = await S.person(`pro-rt-${TENANT}-a@uengine.org`, '정하윤')   // owns the template and its two sources
-  B = await S.person(`pro-rt-${TENANT}-b@uengine.org`, '김서연')   // starts 「에이스정밀 3분기 제안」
+  B = await S.person(`pro-rt-${TENANT}-b@uengine.org`, '김서연')   // starts 「가나정밀 3분기 제안」
   C = await S.person(`pro-rt-${TENANT}-c@uengine.org`, '박도윤')   // the next project
   for (const p of [A, B, C]) await S.join(p)
   const mk = async (name, description) => S.api(A.token, '/folders', { method: 'POST', body: { name, description } })
@@ -235,7 +235,7 @@ test('F-TF-02 「템플릿으로 시작」 — 프로젝트의 작업 공간 막
   await toFolder(p, TPL)
   await expect(p.locator('[data-test="folder-template-off"]')).toHaveCount(0, { timeout: 5000 })
   await p.locator('[data-test="folder-template-start"]').click()
-  await p.locator('[data-test="folder-template-name"] input').fill('에이스정밀 3분기 제안')
+  await p.locator('[data-test="folder-template-name"] input').fill('가나정밀 3분기 제안')
   await p.locator('[data-test="folder-template-go"]').click()
   await expect(p).toHaveURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 20000 })
   PROJ_B = p.url().split('/').pop()
@@ -250,10 +250,10 @@ test('F-TF-02 「템플릿으로 시작」 — 프로젝트의 작업 공간 막
   expect(WS_B.branch).toMatch(/^var\/t\//)
   // nowhere else: not the template's 변형 list (for anyone, its person included), not a folder of the list
   for (const who of [A, B, C]) expect((await call(who, 'GET', `/folders/${TPL.slug}`)).body.variations.map((v) => v.id)).not.toContain(WS_B.id)
-  expect((await call(B, 'GET', '/folders')).body.map((x) => x.name)).not.toContain('에이스정밀 3분기 제안')
+  expect((await call(B, 'GET', '/folders')).body.map((x) => x.name)).not.toContain('가나정밀 3분기 제안')
   expect((await call(A, 'GET', `/folders/${TPL.slug}/variations/${WS_B.id}`)).status).toBe(404)
   await toFolder(p, TPL)
-  await expect(p.locator('.vars')).not.toContainText('에이스정밀')
+  await expect(p.locator('.vars')).not.toContainText('가나정밀')
   expect(p.errors).toEqual([])
   await p.context().close()
 })
@@ -263,7 +263,7 @@ test('F-TF-03 프로젝트 턴 — 참조 자리를 읽고 결과물은 산출�
   const p = await open(browser, B, DESK)
   await p.goto(`/projects/${PROJ_B}`)
   await box(p).waitFor({ timeout: 20000 })
-  await box(p).fill('템플릿의 참조 자료를 읽고 에이스정밀 3분기 제안서 초안을 써 줘')
+  await box(p).fill('템플릿의 참조 자료를 읽고 가나정밀 3분기 제안서 초안을 써 줘')
   await box(p).press('Enter')
   await expect(p.locator('.row.r-agent').filter({ hasText: '이 프로젝트 작업 공간에 담았어요' }).first()).toBeVisible({ timeout: 90000 })
   await box(p).fill('양식의 회사 주소가 옛 주소예요. 새 주소로 고쳐 줘')
@@ -338,7 +338,7 @@ test('F-TF-05 「새 프로젝트」에서 같은 템플릿 — 고친 main 에�
   await row.click()
   await expect(p.locator('[data-testid="project-folder-chip"]')).toContainText('템플릿으로 시작')
   await shot(p, 'f-tf-05-new-project')
-  await box(p).fill('한결테크 4분기 제안 준비')
+  await box(p).fill('다라테크 4분기 제안 준비')
   await box(p).press('Enter')
   await expect(p).toHaveURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 30000 })
   await expect(p.locator('[data-test="project-workspace-bar"]')).toBeVisible({ timeout: 30000 })
@@ -396,6 +396,8 @@ test('F-TF-07 HTTP 로 돌아가는 길이 없음 — 새 변형의 기준 · �
   expect(Object.keys(req.source.request).sort()).toEqual(['note', 'paths'])
   expect(JSON.stringify(req)).not.toContain(WS_B.id)
   expect(JSON.stringify(req)).not.toContain(PROJ_B)
+  // importing branches: a linked folder's agent branches only — never a managed folder's (a workspace's, a desktop run's)
+  expect((await call(A, 'POST', `/folders/${TPL.slug}/import`, { branches: [ws.branch, 'pgpt-agent/x'] })).status).toBe(400)
   // PATCH template: the owner only; never a work folder
   expect((await call(B, 'PATCH', `/folders/${TPL.slug}`, { template: false })).status).toBe(403)
   await S.q(`update pro_folders set settings = settings || '{"work": {"instId": "tf"}}'::jsonb where id=$1`, [INTRO.id])

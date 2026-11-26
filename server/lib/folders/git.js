@@ -93,8 +93,17 @@ export async function head(cwd, ref = 'HEAD') {
 export async function isRepo(dir) {
   return (await git(dir, ['rev-parse', '--is-inside-work-tree'], { check: false })).trim() === 'true'
 }
+// exactly that branch (show-ref --verify on the whole ref name): never a revision (`x^0`, `x~1`, `:/text`) that happens to name a commit,
+// never a name git would not take as a branch
 export async function branchExists(cwd, branch) {
-  return !!(await head(cwd, `refs/heads/${branch}`))
+  const b = String(branch || '')
+  if (!b || !(await isBranchName(cwd, b))) return false
+  return /^[0-9a-f]{40}$/.test((await git(cwd, ['show-ref', '--verify', '-s', `refs/heads/${b}`], { check: false })).trim())
+}
+// a name git takes as a branch (check-ref-format --branch, without @{-n} shorthands)
+export async function isBranchName(cwd, b) {
+  if (!b || /[\s~^:?*[\\]|@\{|\.\.|^-|^\/|\/$|\.lock$|\/\./.test(b)) return false
+  return (await git(cwd, ['check-ref-format', '--branch', b], { check: false })).trim() === b
 }
 
 // every file of a ref: [{path, size, sha}]

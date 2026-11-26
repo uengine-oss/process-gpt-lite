@@ -182,7 +182,9 @@ Do not change files in this folder or save into it. A change is made on a variat
 // project): the variation takes the new name, and its label — only while it still has the first words
 export async function retitleProject(thread, draft) {
   if (!thread?.title || !draft || thread.title === draft) return 0
-  const rows = await q(`update pro_folder_variations set title=$2, source = jsonb_set(source, '{label}', to_jsonb(replace(source->>'label', $4, $5)), true), updated_at=now()
+  // (a source without a label keeps every other key — jsonb_set of a null would empty it, the template's mark with it)
+  const rows = await q(`update pro_folder_variations set title=$2, source = case when coalesce(source, '{}'::jsonb) ? 'label' and jsonb_typeof(source->'label') = 'string'
+                          then jsonb_set(source, '{label}', to_jsonb(replace(source->>'label', $4, $5)), true) else source end, updated_at=now()
                         where source->>'thread_id'=$1 and coalesce(source->>'project','') = 'true' and title=$3 returning id`,
   [String(thread.id), thread.title, draft, `「${draft}」`, `「${thread.title}」`])
   return rows.length

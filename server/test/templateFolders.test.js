@@ -3,7 +3,7 @@
 // sends only the template files it fixed, as an ordinary variation of the template on its current main, which the owner merges; the next
 // project starts from the improved main and sees nothing of the first.
 //   TF-U-01 ~ 02  pure: TEMPLATE.md, the outputs folder, who sees a workspace
-//   TF-U-03 ~ 10  with the local database and real git (made-up people 정하윤 · 김서연 · 박도윤, company 에이스정밀)
+//   TF-U-03 ~ 10  with the local database and real git (made-up people 정하윤 · 김서연 · 박도윤, company 가나정밀)
 // Run: node --test test/templateFolders.test.js  (folders in a temporary directory, rows in the tenant "template-folders-test", all removed
 // afterwards — the workspace's room in storage too)
 import test, { after } from 'node:test'
@@ -89,7 +89,7 @@ test('TF-U-03 준비: 원본 두 폴더 · 템플릿(양식 · 스킬 · TEMPLAT
   record = await S.createFolder(ha, { name: '납품 실적' })
   tpl = await S.createFolder(ha, { name: '제안서 템플릿' })
   await put(intro, ha, '회사 개요.md', '# 회사 개요\n\n- 제조 고객사 42곳이 써요.\n')
-  await put(record, ha, '2026 납품 실적.md', '# 2026 납품 실적\n\n- 한빛기계 — 설비 120대 연결\n')
+  await put(record, ha, '2026 납품 실적.md', '# 2026 납품 실적\n\n- 마바기계 — 설비 120대 연결\n')
   await put(tpl, ha, '제안서 양식.md', FORM)
   await put(tpl, ha, '.claude/skills/proposal-writer/SKILL.md', '---\nname: proposal-writer\ndescription: 제안서 초안을 써요\n---\n1. 참조에서 사실만\n')
   await put(tpl, ha, 'TEMPLATE.md', '---\ndescription: 제안서를 쓸 때 시작하는 템플릿\noutputs: 산출물/\n---\n')
@@ -116,7 +116,7 @@ test('TF-U-04 템플릿 지정: 소유자의 설정 · TEMPLATE.md 의 설명과
 
 test('TF-U-05 템플릿으로 시작: 프로젝트 + 전용 작업 공간(지금 main 에서) — 폴더 목록 · 변형 목록 · 다른 사람에게 없음', { skip: !db }, async () => {
   const main = await G.head(tpl.repo_path, 'main')
-  threadK = await TPL.startProject(ks, tpl, { title: '에이스정밀 3분기 제안' })
+  threadK = await TPL.startProject(ks, tpl, { title: '가나정밀 3분기 제안' })
   const pay = await TF.folderPayload(threadK.id)
   assert.equal(pay.mode, 'project')
   assert.equal(pay.template.name, '제안서 템플릿')
@@ -130,12 +130,12 @@ test('TF-U-05 템플릿으로 시작: 프로젝트 + 전용 작업 공간(지금
   assert.ok(!(await S.variations(tpl)).some((v) => v.id === wsK.id))
   const card = (await S.listFolders(ha)).find((f) => f.id === tpl.id)
   assert.equal(card.live, 0)
-  assert.ok(!(card.activity?.text || '').includes('에이스정밀'))
+  assert.ok(!(card.activity?.text || '').includes('가나정밀'))
   assert.equal((await S.variationFor(tpl, wsK.id, ks)).id, wsK.id)
   await assert.rejects(S.variationFor(tpl, wsK.id, ha), (e) => e.status === 404, '템플릿 주인에게도 없음')
   await assert.rejects(S.assertRefVisible(tpl, wsK.id, pd), (e) => e.status === 404)
   // the folders list has no folder for the project
-  assert.ok(!(await S.listFolders(ks)).some((f) => f.name.includes('에이스정밀')))
+  assert.ok(!(await S.listFolders(ks)).some((f) => f.name.includes('가나정밀')))
   // the workroom of its checkout: its person only
   const { folderRoomAccess } = await import('../lib/folders/rooms.js')
   const room = { folder: tpl.id, need: 'runner', workspaceOf: { holder_type: 'user', holder_id: ks.id, source: { template: true } } }
@@ -153,11 +153,11 @@ test('TF-U-06 프로젝트 턴: 에이전트에게 작업 공간 · 결과물 �
   assert.match(workK.note, /참조 자리/, '참조 자리를 알림(폴더 도구로 읽음)')
   assert.ok(workK.note.includes('회사 소개 자료/') && workK.note.includes('납품 실적/'))
   await fs.mkdir(path.join(workK.dir, '산출물'), { recursive: true })
-  await fs.writeFile(path.join(workK.dir, '산출물', '에이스정밀 3분기 제안서 초안.md'), `# 에이스정밀 3분기 제안서 (초안)\n${OLD}\n- 제조 고객사 42곳\n`)
+  await fs.writeFile(path.join(workK.dir, '산출물', '가나정밀 3분기 제안서 초안.md'), `# 가나정밀 3분기 제안서 (초안)\n${OLD}\n- 제조 고객사 42곳\n`)
   await fs.writeFile(path.join(workK.dir, '제안서 양식.md'), FORM.replace(OLD, NEW))
   const before = await G.head(tpl.repo_path, 'main')
   const r = await TF.finishProjectWork(workK, { stopped: true })
-  assert.deepEqual(r.changed.map((c) => c.path).sort(), ['산출물/에이스정밀 3분기 제안서 초안.md', '제안서 양식.md'])
+  assert.deepEqual(r.changed.map((c) => c.path).sort(), ['산출물/가나정밀 3분기 제안서 초안.md', '제안서 양식.md'])
   assert.equal(await G.head(tpl.repo_path, 'main'), before, '템플릿 main 은 그대로')
   const chip = (await q(`select content from pro_messages where thread_id=$1 and kind='chip'`, [threadK.id]))[0]
   assert.match(chip.content.text, /이 프로젝트 작업 공간에 담았어요/)
@@ -178,8 +178,8 @@ test('TF-U-08 원본에 반영 요청: 템플릿에서 온 파일만 고를 수 
   const ws = await S.variationById(wsK.id)
   const c = await TPL.candidates(tpl, ws)
   assert.deepEqual(c.files.map((f) => `${f.change} ${f.path}`), ['M 제안서 양식.md'])
-  assert.deepEqual(c.outputs.map((f) => f.path), ['산출물/에이스정밀 3분기 제안서 초안.md'])
-  await assert.rejects(TPL.propose(tpl, ws, ks, { paths: ['산출물/에이스정밀 3분기 제안서 초안.md'] }), (e) => e.code === 'tpl_not_template_file')
+  assert.deepEqual(c.outputs.map((f) => f.path), ['산출물/가나정밀 3분기 제안서 초안.md'])
+  await assert.rejects(TPL.propose(tpl, ws, ks, { paths: ['산출물/가나정밀 3분기 제안서 초안.md'] }), (e) => e.code === 'tpl_not_template_file')
   await assert.rejects(TPL.propose(tpl, ws, pd, { paths: ['제안서 양식.md'] }), (e) => e.status === 404, '다른 사람은 보낼 수 없음')
   // meanwhile the owner changed another part of the same form in main: the request merges both (line changes three ways)
   await put(tpl, ha, '제안서 양식.md', FORM.replace('## 3. 제안 범위와 일정', '## 3. 제안 범위 · 일정 · 금액'))
@@ -229,7 +229,7 @@ test('TF-U-10 템플릿 주인이 반영 → main 이 바뀜 · 다음 프로젝
   assert.ok(form.includes(NEW))
   assert.ok(!(await G.lsTree(tpl.repo_path, 'main')).some((f) => f.path.startsWith('산출물/')), '템플릿에 결과물 없음')
   // 새 프로젝트 with the template chosen (POST /threads): the workspace is made at once
-  const [t3] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project','한결테크 4분기 제안') returning *`, [pd.id])
+  const [t3] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project','다라테크 4분기 제안') returning *`, [pd.id])
   const pay = await TF.linkProject(pd, t3, tpl)
   assert.ok(pay.template && pay.variation, '작업 공간이 바로 생김')
   const wsP = await S.variationById(pay.variation.id)
@@ -249,14 +249,14 @@ test('TF-U-11 모델이 프로젝트 이름을 지으면 작업 공간도 그 �
   await TF.linkProject(pd, t, tpl)
   const v0 = await S.variationById((await TF.folderPayload(t.id)).variation.id)
   assert.equal(v0.title, draft)
-  const [named] = await q(`update pro_threads set title='한결테크 4분기 제안' where id=$1 returning *`, [t.id])
+  const [named] = await q(`update pro_threads set title='다라테크 4분기 제안' where id=$1 returning *`, [t.id])
   assert.equal(await TF.retitleProject(named, draft), 1)
   const v1 = await S.variationById(v0.id)
-  assert.equal(v1.title, '한결테크 4분기 제안')
-  assert.match(v1.source.label, /「한결테크 4분기 제안」/)
+  assert.equal(v1.title, '다라테크 4분기 제안')
+  assert.match(v1.source.label, /「다라테크 4분기 제안」/)
   assert.equal(v1.source.template.commit, v0.source.template.commit, '다른 기록은 그대로')
   await q('update pro_folder_variations set title=$2 where id=$1', [v0.id, '내가 지은 이름'])
-  assert.equal(await TF.retitleProject({ ...named, title: '또 다른 이름' }, '한결테크 4분기 제안'), 0)
+  assert.equal(await TF.retitleProject({ ...named, title: '또 다른 이름' }, '다라테크 4분기 제안'), 0)
   // the workspace's turn leaves no change card (its 「반영하면 …」 would mislead)
   const w = await TF.prepareProjectWork({ user: pd, thread: t })
   rooms.push(w.conv)
@@ -306,7 +306,7 @@ test('TF-U-13 판(커밋)으로 읽기: 작업 공간에만 있는 판은 그 �
 
 test('TF-U-14 파일 멘션: 남의 작업 공간 · 그 판 · 그 블롭은 이름으로 받지 않고, 멘션 카드도 「없음」', { skip: !db }, async () => {
   const FR = await import('../lib/fileRefs.js')
-  const draft = '산출물/에이스정밀 3분기 제안서 초안.md'
+  const draft = '산출물/가나정밀 3분기 제안서 초안.md'
   const h = await wsHead()
   const main = await G.head(tpl.repo_path, 'main')
   const draftBlob = await S.blobAt(tpl, h, draft)
@@ -322,10 +322,15 @@ test('TF-U-14 파일 멘션: 남의 작업 공간 · 그 판 · 그 블롭은 �
   assert.equal(r2.variation.id, wsK.id)
   assert.equal(r2.blob, draftBlob)
   // a mention that names the workspace (one she sent): for 박도윤 the file is not there, and nothing of the workspace is said
-  const ref = { folderId: tpl.id, slug: tpl.slug, folder: tpl.name, path: draft, name: 'x.md', commit: h, blob: draftBlob, variation: { id: wsK.id, title: '에이스정밀 3분기 제안', status: 'ready' } }
+  const ref = { folderId: tpl.id, slug: tpl.slug, folder: tpl.name, path: draft, name: 'x.md', commit: h, blob: draftBlob, variation: { id: wsK.id, title: '가나정밀 3분기 제안', status: 'ready' } }
   const seen = await FR.decorate(pd, { refs: [ref] })
   assert.equal(seen.refs[0].state.card, 'gone')
-  assert.equal(seen.refs[0].state.variation, undefined)
+  // (its name and path only — no folder id, slug, commit, blob or variation at the top either)
+  assert.deepEqual(Object.keys(seen.refs[0]).sort(), ['name', 'path', 'state'])
+  assert.deepEqual(Object.keys(seen.refs[0].state).sort(), ['card', 'gone'])
+  // a mention by a commit only the workspace holds (no variation named): the same
+  const byCommit = await FR.decorate(pd, { refs: [{ ...ref, variation: null }] })
+  assert.deepEqual(Object.keys(byCommit.refs[0]).sort(), ['name', 'path', 'state'])
   const hers = await FR.decorate(ks, { refs: [ref] })
   assert.equal(hers.refs[0].state.card, 'open')
 })
@@ -456,4 +461,222 @@ test('TF-U-19 템플릿 지정은 관리형 폴더만 — 작업 폴더 · 연�
   const r = await REFS.add(tpl, 'owner', ha, { source: record.slug, slot: '산출물', label: '산출물' })
   assert.equal(r.slot, '산출물')
   await REFS.remove(tpl, 'owner', ha, r.id)
+})
+
+
+// ---------- review 2 of #103 ----------
+const runBranch = (tag) => `pgpt-agent/local-${crypto.randomBytes(4).toString('hex')}-${tag}`
+
+test('TF-U-20 내 PC 실행 가지(pgpt-agent/local-…)에만 있는 판은 행이 없으니 아무도 못 읽는다 — REST · 기준 · 멘션 블롭 (허용 목록)', { skip: !db }, async () => {
+  const FR = await import('../lib/fileRefs.js')
+  const h = await wsHead()
+  // what a desktop's run for the workspace leaves: a branch holding the workspace's commits, and a new commit on top
+  const run = runBranch('a')
+  await G.git(tpl.repo_path, ['branch', run, h])
+  const tree = (await G.git(tpl.repo_path, ['rev-parse', `${h}^{tree}`])).trim()
+  const onTop = (await G.git(tpl.repo_path, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', tree, '-p', h, '-m', 'run'])).trim()
+  await G.git(tpl.repo_path, ['update-ref', `refs/heads/${run}`, onTop])
+  try {
+    for (const who of [pd, ha]) {
+      assert.ok(!(await S.commitVisible(tpl, onTop, who)), '실행 가지에만 있는 판')
+      assert.ok(!(await S.commitVisible(tpl, h, who)), '작업 공간 판(실행 가지에도 있음)')
+      await assert.rejects(S.assertRefVisible(tpl, onTop, who), status(404))
+      await assert.rejects(S.baseFor(tpl, onTop, who), status(404))
+    }
+    assert.ok(!(await S.sharedCommit(tpl, onTop)) && !(await S.sharedCommit(tpl, h)))
+    assert.ok(await S.commitVisible(tpl, h, ks), '그 사람에게는 작업 공간의 판')
+    assert.ok(!(await S.commitVisible(tpl, onTop, ks)), '행이 없는 가지의 판은 그 사람에게도 아님(가져온 뒤에만 작업 공간에)')
+    const draftBlob = await S.blobAt(tpl, h, '산출물/가나정밀 3분기 제안서 초안.md')
+    await assert.rejects(FR.folderRef(pd, { slug: tpl.slug, path: '산출물/가나정밀 3분기 제안서 초안.md', blob: draftBlob }), status(404))
+    // a base in another spelling of a workspace branch: not an exact branch name — refused
+    const ws = await S.variationById(wsK.id)
+    for (const b of [`heads/${ws.branch}`, `${ws.branch}^0`, `${run}`, `refs/heads/${run}`]) await assert.rejects(S.baseFor(tpl, b, ks), status(400), b)
+    await assert.rejects(S.createVariation(tpl, { title: 'x', base: `heads/${ws.branch}`, holder: { type: 'user', id: ks.id, name: ks.name } }), status(400))
+    await assert.rejects(S.createVariation(tpl, { title: 'x', base: `${ws.branch}^0`, holder: { type: 'user', id: ks.id, name: ks.name } }), status(400))
+    assert.ok(S.isWorkspaceBranch(`heads/${ws.branch}`) && S.isWorkspaceBranch(`refs/heads/${ws.branch}`))
+    assert.ok(!(await G.branchExists(tpl.repo_path, `${ws.branch}^0`)) && !(await G.branchExists(tpl.repo_path, `heads/${ws.branch}`)) && await G.branchExists(tpl.repo_path, ws.branch))
+  } finally { await G.git(tpl.repo_path, ['branch', '-D', run], { check: false }) }
+})
+
+test('TF-U-21 작업 공간 · 공유되지 않은 판의 사본은 비공개 저장소의 서명 주소로만(공개 주소 아님)', { skip: !db }, async () => {
+  const PS = await import('../lib/privateStore.js')
+  const draft = '산출물/가나정밀 3분기 제안서 초안.md'
+  assert.equal(await S.privateRef(tpl, 'main'), false)
+  assert.equal(await S.privateRef(tpl, wsK.id), true)
+  assert.equal(await S.privateRef(tpl, await wsHead()), true)
+  assert.equal(await S.privateRef(tpl, await G.head(tpl.repo_path, 'main')), false)
+  const pub = await S.publishFile(tpl, draft, wsK.id)
+  assert.ok(pub.private && PS.isSignedUrl(pub.url) && !PS.isPublicUrl(pub.url), pub.url.replace(/token=.*/, 'token=…'))
+  assert.ok(!pub.url.includes(`/object/public/files/pgpt-pro/folders/${tpl.id}/`))
+  const open = await S.publishFile(tpl, '제안서 양식.md', 'main')
+  assert.ok(PS.isPublicUrl(open.url), 'main 의 파일은 예전처럼')
+})
+
+test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으로도 받지 못함 · 남의 판을 가리키는 밀어 넣기는 거절 · 숨은 판 위에 쌓은 밀어 넣기는 되돌림', { skip: !db }, async () => {
+  const H = await import('../lib/folders/gitHttp.js')
+  const express = (await import('express')).default
+  const zlib = await import('node:zlib')
+  const { execFile } = await import('node:child_process')
+  const app = express()
+  app.use('/api/git', H.gitRoutes())
+  const server = await new Promise((r) => { const sv = app.listen(0, '127.0.0.1', () => r(sv)) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const url = `${base}/api/git/${tpl.id}.git`
+  const token = H.mintToken({ tenant: TENANT, folderId: tpl.id })
+  const gitc = (args, cwd) => new Promise((resolve) => execFile('git', ['-c', 'credential.helper=', '-c', `http.extraHeader=Authorization: Bearer ${token}`, ...args],
+    { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (e, out, errOut) => resolve({ code: e ? 1 : 0, out: String(out), err: String(errOut) })))
+  const h = await wsHead()
+  const run = runBranch('b')
+  await G.git(tpl.repo_path, ['branch', run, h])
+  const pkt = (str) => { const b = Buffer.from(str); return Buffer.concat([Buffer.from((b.length + 4).toString(16).padStart(4, '0')), b]) }
+  const pack = (objects) => {
+    const head = Buffer.alloc(12); head.write('PACK'); head.writeUInt32BE(2, 4); head.writeUInt32BE(objects.length, 8)
+    const parts = [head]
+    for (const { type, body } of objects) {
+      let size = body.length
+      const bytes = [((type & 7) << 4) | (size & 15)]; size >>= 4
+      while (size) { bytes[bytes.length - 1] |= 0x80; bytes.push(size & 0x7f); size >>= 7 }
+      parts.push(Buffer.from(bytes), zlib.deflateSync(body))
+    }
+    const all = Buffer.concat(parts)
+    return Buffer.concat([all, crypto.createHash('sha1').update(all).digest()])
+  }
+  const push = (ref, sha, objects = []) => fetch(`${url}/git-receive-pack`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-git-receive-pack-request' },
+    body: Buffer.concat([pkt(`${'0'.repeat(40)} ${sha} ${ref}\0report-status\n`), Buffer.from('0000'), pack(objects)]) }).then(async (r) => ({ status: r.status, text: await r.text() }))
+  try {
+    const ls = await gitc(['ls-remote', url])
+    assert.equal(ls.code, 0, ls.err)
+    assert.doesNotMatch(ls.out, /pgpt-agent\/local-|refs\/heads\/var\/t\//, '실행 가지 · 작업 공간 가지는 광고하지 않음')
+    // a fetch by the commit's id: not one this token is served (protocol v0 serves the advertised tips only)
+    const dir = await fs.mkdtemp(path.join(ROOT, 'clone-'))
+    await gitc(['init', '-q'], dir)
+    const f = await gitc(['fetch', '-q', url, h], dir)
+    assert.notEqual(f.code, 0, '판으로 받기')
+    // a push that points a branch of its own at that commit, with no pack: refused before git sees it
+    const r1 = await push('refs/heads/pgpt-agent/steal-1', h)
+    assert.match(r1.text, /ng refs\/heads\/pgpt-agent\/steal-1 .*not one this token may read/)
+    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/steal-1')))
+    // a new commit made on top of it (its parent only hidden refs hold): taken, then put back before the client is let go
+    const tree = (await G.git(tpl.repo_path, ['rev-parse', 'main^{tree}'])).trim()
+    const body = Buffer.from(`tree ${tree}\nparent ${h}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\nsteal\n`)
+    const sha = crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`commit ${body.length}\0`), body])).digest('hex')
+    const r2 = await push('refs/heads/pgpt-agent/steal-2', sha, [{ type: 1, body }])
+    assert.equal(r2.status, 200, r2.text)
+    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/steal-2')), '되돌림')
+    // an ordinary push of its own (a new commit on main) still stands
+    const body3 = Buffer.from(`tree ${tree}\nparent ${await G.head(tpl.repo_path, 'main')}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\nfine\n`)
+    const sha3 = crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`commit ${body3.length}\0`), body3])).digest('hex')
+    const r3 = await push('refs/heads/pgpt-agent/fine-1', sha3, [{ type: 1, body: body3 }])
+    assert.match(r3.text, /ok refs\/heads\/pgpt-agent\/fine-1/)
+    assert.ok(await G.branchExists(tpl.repo_path, 'pgpt-agent/fine-1'))
+  } finally {
+    await new Promise((r) => server.close(r))
+    for (const b of [run, 'pgpt-agent/steal-1', 'pgpt-agent/steal-2', 'pgpt-agent/fine-1']) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false })
+  }
+  // the hidden-ref rule as git reads it, and a desktop job's own run branches
+  assert.ok(H.hiddenBy('refs/heads/var/t/abc', ['refs/heads/var/t/']))
+  assert.ok(!H.hiddenBy('refs/heads/var/t/abc', ['refs/heads/var/t/', '!refs/heads/var/t/abc']))
+  assert.ok(!H.hiddenBy('refs/heads/var/tx', ['refs/heads/var/t/']))
+  const r0 = runBranch('c'), r1b = `${r0.slice(0, r0.lastIndexOf('-'))}-d`
+  await G.git(tpl.repo_path, ['branch', r0, 'main']); await G.git(tpl.repo_path, ['branch', r1b, 'main'])
+  const other = runBranch('e'); await G.git(tpl.repo_path, ['branch', other, 'main'])
+  try {
+    const own = r0.slice(0, r0.lastIndexOf('-') + 1)
+    const hid = await H.runHidden(tpl, { scope: 'device', job: 'x', push: own })
+    assert.ok(hid.includes(`refs/heads/${other}`) && !hid.includes(`refs/heads/${r0}`) && !hid.includes(`refs/heads/${r1b}`))
+    assert.ok((await H.runHidden(tpl, null)).includes(`refs/heads/${r0}`), '클러스터 토큰에는 모두 숨김')
+  } finally { for (const b of [r0, r1b, other]) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false }) }
+})
+
+test('TF-U-23 내 PC 에이전트의 일이 작업 공간에 들어오면 그 실행 가지는 지우고, 「반영하면」 카드 없이 파일 카드는 비공개 주소로', { skip: !db }, async () => {
+  const CH = await import('../lib/localAgents/chat.js')
+  const PS = await import('../lib/privateStore.js')
+  const ws = await S.variationById(wsK.id)
+  const [job] = await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, kind, thread_id, agent, folder_id, chat) values ($1,$2,$3,'chat',$4,'claude',$5,$6) returning *`,
+    [TENANT, ks.id, `tf-${crypto.randomUUID()}`, threadK.id, tpl.id, { mode: 'project', variation: ws.id, folderId: tpl.id, line: ws.branch, title: '내 PC 시험' }])
+  const run = `pgpt-agent/local-${String(job.id).slice(0, 8)}-1`
+  try {
+    // what the desktop pushed: one new file on top of the workspace
+    const dir = await fs.mkdtemp(path.join(ROOT, 'run-'))
+    await G.git(tpl.repo_path, ['worktree', 'add', '-q', '--detach', dir, ws.branch])
+    await fs.writeFile(path.join(dir, '산출물', '내PC 메모.md'), '# 내 PC 에서\n')
+    await G.git(dir, ['add', '-A']); await G.git(dir, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'run'])
+    const head = await G.head(dir)
+    await G.git(tpl.repo_path, ['worktree', 'remove', '--force', dir])
+    await G.git(tpl.repo_path, ['branch', run, head])
+    await q('update pro_folder_variations set change_card=null where id=$1', [ws.id])
+    await CH.reply(job, { turn: 1, text: '메모를 남겼어요', branch: run, pushed: true, files: ['산출물/내PC 메모.md'] })
+    assert.ok(!(await G.branchExists(tpl.repo_path, run)), '실행 가지는 지움')
+    assert.equal(await G.head(tpl.repo_path, `refs/heads/${ws.branch}`), head, '작업 공간에 들어옴')
+    await new Promise((ok) => setTimeout(ok, 300))
+    assert.equal((await S.variationById(ws.id)).change_card, null, '「반영하면」 카드 없음')
+    const [card] = await q(`select content from pro_messages where thread_id=$1 and kind='file' and content->'localRun'->>'jobId'=$2`, [threadK.id, job.id])
+    assert.ok(card && PS.isSignedUrl(card.content.url) && !PS.isPublicUrl(card.content.url), '파일 카드는 비공개 서명 주소')
+  } finally {
+    await G.git(tpl.repo_path, ['branch', '-D', run], { check: false })
+    await q('delete from pro_local_jobs where id=$1', [job.id]).catch(() => {})
+  }
+})
+
+test('TF-U-24 가져오기는 연결형 폴더의 pgpt-agent/ 가지만, 정확한 이름으로 · 라벨 없는 작업 공간의 이름 바꾸기는 출처를 지우지 않음 · 작업실의 관리자 예외 없음', { skip: !db }, async () => {
+  await assert.rejects(S.importBranches(tpl, ha, ['pgpt-agent/x']), status(400), '관리형 폴더는 가져오지 않음')
+  const dir = path.join(ROOT, 'linked-repo')
+  await fs.mkdir(dir, { recursive: true })
+  const g = (...a) => G.git(dir, ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a])
+  await g('init', '-q', '-b', 'main'); await fs.writeFile(path.join(dir, 'a.md'), 'a\n'); await g('add', '-A'); await g('commit', '-qm', 'a')
+  for (const b of ['pgpt-agent/ok', 'var/t/abcdef', 'other']) await g('branch', b)
+  const linked = await S.registerLinked(ha, dir, { name: '연결형 시험' })
+  try {
+    const out = await S.importBranches(linked, ha, ['pgpt-agent/ok', 'pgpt-agent/ok^0', 'var/t/abcdef', 'other', 'pgpt-agent/../var/t/abcdef', ':/a', 'pgpt-agent/none'])
+    assert.deepEqual(out.map((v) => v.branch), ['pgpt-agent/ok'])
+  } finally { await q('delete from pro_folders where id=$1', [linked.id]).catch(() => {}) }
+  // retitle: a source with no label keeps its template mark
+  const [t] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project','라벨 시험') returning *`, [pd.id])
+  await TF.linkProject(pd, t, tpl)
+  const v = await S.variationById((await TF.folderPayload(t.id)).variation.id)
+  await q(`update pro_folder_variations set source = source - 'label' where id=$1`, [v.id])
+  const [named] = await q(`update pro_threads set title='새 이름' where id=$1 returning *`, [t.id])
+  await TF.retitleProject(named, '라벨 시험')
+  const after = await S.variationById(v.id)
+  assert.equal(after.title, '새 이름')
+  assert.ok(after.source?.template?.commit, '출처(템플릿 표시)는 그대로')
+  // the workroom: a conversation room with a template's checkout in it is no administrator's to open
+  const { holdsWorkspace } = await import('../lib/workroom.js')
+  const room = path.join(ROOT, 'room-1')
+  await fs.mkdir(path.join(room, 'folders', tpl.slug), { recursive: true })
+  assert.equal(await holdsWorkspace({ kind: 'chat', root: room }), true)
+  const room2 = path.join(ROOT, 'room-2')
+  await fs.mkdir(path.join(room2, 'folders', intro.slug), { recursive: true })
+  assert.equal(await holdsWorkspace({ kind: 'chat', root: room2 }), false)
+  assert.equal(await holdsWorkspace({ kind: 'chat', root: path.join(ROOT, 'room-none') }), false)
+  assert.equal(await holdsWorkspace({ kind: 'todo', root: room }), false)
+})
+
+test('TF-U-25 보내는 파일: 이름에 pathspec 기호가 있어도 그 파일 · 작업 공간이 바꾼 실행 권한은 합친 결과에도 · PATCH 와 같은 지정 규칙', { skip: !db }, async () => {
+  const odd = ':(icase)별표*.md'
+  await S.upload(tpl, ha, odd, enc('# 별표\n첫 줄\n\n\n\n둘째\n'))
+  await S.upload(tpl, ha, 'run.sh', enc('echo 1\n\n\n\n\necho 2\n'))
+  const [t] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project','기호 시험') returning *`, [ks.id])
+  await TF.linkProject(ks, t, tpl)
+  const ws = await S.variationById((await TF.folderPayload(t.id)).variation.id)
+  const d = path.join(ROOT, 'ws-sym')
+  await S.checkout(tpl, ws, d)
+  await fs.writeFile(path.join(d, odd), '# 별표\n고침\n\n\n\n둘째\n')
+  await fs.writeFile(path.join(d, 'run.sh'), 'echo 0\n\n\n\n\necho 2\n')
+  await fs.chmod(path.join(d, 'run.sh'), 0o755)
+  await S.commitVariation(tpl, await S.variationById(ws.id), ks, '기호 · 실행 권한')
+  await S.release(tpl, await S.variationById(ws.id))
+  // meanwhile main changed run.sh's last line: the merge keeps both, and the workspace's +x
+  await S.upload(tpl, ha, 'run.sh', enc('echo 1\n\n\n\n\necho 3\n'))
+  const out = await TPL.propose(tpl, await S.variationById(ws.id), ks, { paths: [odd, 'run.sh'] })
+  assert.deepEqual(out.files.sort(), [odd, 'run.sh'].sort())
+  assert.equal(String(await G.show(tpl.repo_path, out.variation.branch, odd)), '# 별표\n고침\n\n\n\n둘째\n')
+  assert.equal(String(await G.show(tpl.repo_path, out.variation.branch, 'run.sh')), 'echo 0\n\n\n\n\necho 3\n')
+  assert.match(await G.git(tpl.repo_path, ['ls-tree', out.variation.branch, '--', 'run.sh']), /^100755 /)
+  // the PATCH route's rule is TPL.templateSettings: kept mark, refusals
+  const kept = TPL.templateSettings(tpl, pd, true)
+  assert.equal(kept.template.by, tpl.settings.template.by, '이미 지정된 표시는 그대로')
+  assert.equal(TPL.templateSettings(tpl, pd, false).template, undefined)
+  assert.throws(() => TPL.templateSettings({ ...tpl, settings: { work: {} } }, ha, true), status(400))
+  assert.throws(() => TPL.templateSettings({ ...tpl, kind: 'linked' }, ha, true), status(400))
 })

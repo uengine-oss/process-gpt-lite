@@ -72,13 +72,18 @@ export async function infoOf(folder, rev = null) {
   const parsed = md ? parseTemplateFile(md) : { description: '', outputs: DEFAULT_OUTPUTS }
   return { ...parsed, file: !!md, since: folder.settings.template.at || null }
 }
-// owner: mark or unmark (projects already started keep their workspace)
-export async function setTemplate(folder, user, on) {
+// owner: mark or unmark (projects already started keep their workspace). templateSettings: the folder's settings with the mark as asked —
+// refused for a folder that may not be a template (the PATCH route and setTemplate both go through it)
+export function templateSettings(folder, user, on) {
   // (a work folder of an instance started from a mail — lib/mailWork.js — is that instance's, never a starting point)
   if (on && (folder.kind !== 'managed' || folder.settings?.work)) throw err(400, L('관리형 공유 폴더만 템플릿으로 쓸 수 있어요.', 'Only a managed shared folder can be a template.'))
   const settings = { ...(folder.settings || {}) }
-  if (on) settings.template = { by: String(user.id), at: new Date().toISOString() }
+  if (on) settings.template = folder.settings?.template || { by: String(user.id), at: new Date().toISOString() }
   else delete settings.template
+  return settings
+}
+export async function setTemplate(folder, user, on) {
+  const settings = templateSettings(folder, user, on)
   await q('update pro_folders set settings=$2, updated_at=now() where id=$1', [folder.id, settings])
   emit(user.id, 'folders', { slug: folder.slug })
   return { template: !!on }
@@ -142,7 +147,8 @@ export async function candidates(folder, v) {
 const blobOf = async (repo, rev, rel) => (await G.git(repo, ['rev-parse', '--verify', '-q', `${rev}:${rel}`], { check: false })).trim() || null
 // the path's mode and object at a rev (ls-tree -z: a name with a line break stays one entry) → {mode, type} | null
 async function entryOf(repo, rev, rel) {
-  const out = (await G.git(repo, ['ls-tree', '-z', rev, '--', rel], { check: false })).split('\0').find((e) => e && e.slice(e.indexOf('\t') + 1) === rel)
+  // (--literal-pathspecs: the name as it is — `:(…)` or `*` in it are not pathspec magic)
+  const out = (await G.git(repo, ['--literal-pathspecs', 'ls-tree', '-z', rev, '--', rel], { check: false })).split('\0').find((e) => e && e.slice(e.indexOf('\t') + 1) === rel)
   if (!out) return null
   const [mode, type] = out.slice(0, out.indexOf('\t')).split(' ')
   return { mode, type }
@@ -166,9 +172,10 @@ export function mergeFile(cwd, files) {
 // of the line changes when main moved on meanwhile, or a conflict → {path, blob|null (deleted), mode} | {path, conflict: true}
 async function resolveFile(repo, { start, main, head }, rel, tmp) {
   const [b, m, h] = await Promise.all([blobOf(repo, start, rel), blobOf(repo, main, rel), blobOf(repo, head, rel)])
-  const he = h ? await entryOf(repo, head, rel) : null
-  const me = m ? await entryOf(repo, main, rel) : null
-  if ((he && (!PLAIN.has(he.mode) || he.type !== 'blob')) || (me && (!PLAIN.has(me.mode) || me.type !== 'blob'))) return { path: rel, odd: true }
+  const [he, me, be] = await Promise.all([h ? entryOf(repo, head, rel) : null, m ? entryOf(repo, main, rel) : null, b ? entryOf(repo, start, rel) : null])
+  // (a version there whose entry cannot be read as a plain file — a link, a sub-repository, a name git reads otherwise — is not sent)
+  const plain = (e) => !!e && PLAIN.has(e.mode) && e.type === 'blob'
+  if ((h && !plain(he)) || (m && !plain(me))) return { path: rel, odd: true }
   if (m === b) return { path: rel, blob: h, mode: he?.mode || null }
   if (m === h) return { path: rel, same: true }
   if (!b || !m || !h) return { path: rel, conflict: true }
@@ -177,11 +184,12 @@ async function resolveFile(repo, { start, main, head }, rel, tmp) {
   if (isBinary(bb) || isBinary(mb) || isBinary(hb)) return { path: rel, conflict: true }
   const id = crypto.randomBytes(4).toString('hex')
   const f = (x) => path.join(tmp, `${id}-${x}`)
-  await Promise.all([fs.writeFile(f('main'), mb), fs.writeFile(f('base'), bb), fs.writeFile(f('head'), hb)])
+  await Promise.all([fs.writeFile(f('main'), mb, { mode: 0o600 }), fs.writeFile(f('base'), bb, { mode: 0o600 }), fs.writeFile(f('head'), hb, { mode: 0o600 })])
   const merged = await mergeFile(tmp, [f('main'), f('base'), f('head')])
   if (merged.status !== 'clean') return { path: rel, conflict: true }
   const blob = (await G.git(repo, ['hash-object', '-w', '--stdin'], { input: merged.out })).trim()
-  return { path: rel, blob, mode: me.mode }
+  // (the workspace changed the file's mode too — executable or not: that goes with it; otherwise main's)
+  return { path: rel, blob, mode: be && he.mode !== be.mode ? he.mode : me.mode }
 }
 
 // POST …/variations/:vid/propose {paths, title?, note?} — the project's person. → {variation, files}
@@ -197,7 +205,9 @@ export async function propose(folder, v, user, { paths, title, note } = {}) {
   const repo = folder.repo_path
   const main = await G.head(repo, folder.default_branch)
   const head = await G.head(repo, `refs/heads/${v.branch}`)
+  // (a folder only this server's user may read: the merge's three versions are written there)
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pgl-tpl-'))
+  await fs.chmod(tmp, 0o700)
   try {
     const done = []
     for (const p of want) done.push(await resolveFile(repo, { start: c.start, main, head }, p, tmp))

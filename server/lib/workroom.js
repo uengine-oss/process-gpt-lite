@@ -67,12 +67,24 @@ export async function canAccess(user, room) {
   if (!user || !room) return false
   if (room.folder) return folderRoomAccess(user, room)
   const [me] = await q('select is_admin from users where id=$1', [user.id]).catch(() => [])
-  if (me?.is_admin) return true
+  // (an administrator opens any room — but not a conversation that holds a project's workspace made from a template: that is its person's
+  // only, folders/templates.js)
+  if (me?.is_admin && !(await holdsWorkspace(room))) return true
   if (room.kind === 'todo') {
     const [t] = await q(`select t.user_id, i.participants from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id where t.id::text=$1`, [room.id])
     return !!t && takesPart(user, t)
   }
   return ownsConversation(user.id, room.id)
+}
+// A conversation's folder with a checkout of a template's workspace in it (<room>/folders/<slug> of a template folder, while a turn runs) —
+// when it cannot be told, it counts as one (no administrator's way in by doubt)
+export async function holdsWorkspace(room) {
+  if (room?.kind !== 'chat' || !room.root) return false
+  const slugs = await fs.readdir(path.join(room.root, 'folders')).catch((e) => (e.code === 'ENOENT' ? [] : null))
+  if (slugs === null) return true
+  if (!slugs.length) return false
+  const rows = await q(`select 1 from pro_folders where tenant_id=$1 and slug = any($2::text[]) and settings ? 'template' limit 1`, [T(), slugs]).catch(() => null)
+  return rows === null ? true : rows.length > 0
 }
 // a step's assignee (a comma list of ids or emails) or a participant of its process instance
 const takesPart = (user, t) => {
