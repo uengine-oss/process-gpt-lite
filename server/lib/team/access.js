@@ -18,6 +18,19 @@ export async function isMember(userId) {
   return admitTenantPerson(userId)
 }
 
+// The ids among these that are not on the team, in one query for the usual case (everyone is) — each one missing is then asked as
+// isMember asks (the gateway's first-sight admission). A room's post and an invite check all their people this way (a room has no size
+// limit since 2026-11-27: one query, not one per person).
+export async function notOnTeam(ids) {
+  const list = [...new Set((ids || []).map(String))]
+  const bad = list.filter((id) => !/^[0-9a-f-]{36}$/i.test(id))
+  const ok = list.filter((id) => !bad.includes(id))
+  const have = ok.length ? new Set((await q('select user_id::text as id from pro_team_members where tenant_id=$1 and user_id = any($2::uuid[])', [T(), ok])).map((r) => r.id)) : new Set()
+  const out = [...bad]
+  for (const id of ok.filter((x) => !have.has(x))) if (!(await isMember(id))) out.push(id)
+  return out
+}
+
 // Behind the ProcessGPT gateway the team is the tenant's people (public.users): a ProcessGPT room holds
 // colleagues who never opened Lite, and someone joined the team only on their first Lite visit
 // (team.ensureMember) — so posting into such a room was refused ("…님은 더 이상 팀원이 아니에요"), and a

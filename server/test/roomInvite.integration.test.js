@@ -154,7 +154,7 @@ test('MS-I-04 시스템 줄 · 지난 메시지 · 방의 새 구성원을 바�
   assert.deepEqual(n, { title: '정하윤님이 대화방에 초대했어요 · 견적 회의', url: `/pro/team/${g.id}/${(await q(`select uuid from chats where id=$1 and messages->'pgpt'->>'kind'='invite'`, [g.id]))[0].uuid}`, from_user_id: A.email })
 })
 
-test('MS-I-05 단체방 인원 한도 없음 — 열한 명으로 만들고 열두 명을 더 초대(전엔 8명에서 막힘), 한 번의 요청만 PER_REQUEST 명까지', { skip: !db }, async () => {
+test('MS-I-05 단체방 인원 한도 없음 — 열한 명으로 만들고 열두 명을 더 초대(전엔 8명에서 막힘), 모두에게 메시지, 시스템 줄은 열 명 · 외 N명, 한 번의 요청만 PER_REQUEST(100) 명까지', { skip: !db }, async () => {
   await setup()
   const crowd = []
   for (let i = 0; i < 22; i++) crowd.push(await person(`ms-crowd-${i}-${stamp}`, `참석자${i + 1}`))
@@ -164,11 +164,20 @@ test('MS-I-05 단체방 인원 한도 없음 — 열한 명으로 만들고 열�
   const r = await M.invite(me(A), g.id, crowd.slice(10).map((p) => p.id))
   assert.equal(r.added.length, 12)
   assert.equal((await M.membersOf(g.id)).length, 23)
-  // a message reaches all of them
+  // the system line names ten and counts the rest (it titles Process GPT's notice too)
+  const [line] = await q(`select messages->>'content' as c from chats where id=$1 and messages->'pgpt'->>'kind'='invite'`, [g.id])
+  assert.equal(line.c, `정하윤님이 ${crowd.slice(10, 20).map((p) => `${p.name}님`).join(', ')} 외 2명을 초대했어요`)
+  // a message reaches all of them, live (each one's own event)
+  const before = bus.lastSeq()
   const m = await M.post(me(A), g.id, { body: '모두 들어왔나요?' })
   assert.equal(m.body, '모두 들어왔나요?')
+  for (const p of crowd) {
+    const got = (await bus.poll(p.id, before, 0)).filter((e) => e.type === 'team' && e.data?.type === 'message' && e.data.threadId === g.id)
+    assert.equal(got.length, 1, p.name)
+  }
   // one request is bounded (each id is checked one by one), the room is not
   const many = Array.from({ length: M.PER_REQUEST + 1 }, () => crypto.randomUUID())
-  await assert.rejects(M.invite(me(A), g.id, many), /한 번에 500명까지/)
-  await assert.rejects(M.groupThread(me(A), many, '너무 많은 한 번'), /한 번에 500명까지/)
+  await assert.rejects(M.invite(me(A), g.id, many), /한 번에 100명까지/)
+  await assert.rejects(M.groupThread(me(A), many, '너무 많은 한 번'), /한 번에 100명까지/)
+  assert.equal(M.inviteLine('정하윤', ['김서연', '박도윤']), '정하윤님이 김서연님, 박도윤님을 초대했어요')
 })

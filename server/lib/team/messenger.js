@@ -14,7 +14,7 @@ import { config } from '../../config.js'
 import { q, pool } from '../supa.js'
 import { watchedTenants, withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
-import { TeamError, isMember, people } from './access.js'
+import { TeamError, isMember, notOnTeam, people } from './access.js'
 import { viewArtifacts } from './shares.js'
 import { L, langOf, withLang } from '../lang.js'
 // file mentions on a message: each person sees them with their own access (lib/fileRefs.js decorate)
@@ -35,7 +35,14 @@ const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
 // A group has no size limit (2026-11-27 사용자 「그룹대화 인원 한도 없어」 — it was 8). Only one request is bounded: making a room or inviting takes
 // at most PER_REQUEST people at a time (each is checked as a teammate, one by one) — a guard on the request, not on the room.
-export const PER_REQUEST = 500
+export const PER_REQUEST = 100
+// 「정하윤님이 김서연님, 박도윤님을 초대했어요」 — ten names at most, then 「외 N명」 (a room has no size limit: the line, and Process GPT's
+// notice titled by it, stay short)
+export function inviteLine(by, names, max = 10) {
+  const shown = names.slice(0, max), more = names.length - shown.length
+  return L(`${by}님이 ${shown.map((n) => `${n}님`).join(', ')}${more > 0 ? ` 외 ${more}명` : ''}을 초대했어요`,
+    `${by} invited ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}`)
+}
 const iso = (d = new Date()) => new Date(d).toISOString()
 const nameOf = (p) => p?.name || p?.username || p?.email?.split('@')[0] || L('팀원', 'Teammate')
 
@@ -101,7 +108,7 @@ export async function invite(me, roomId, userIds) {
   const inRoom = new Set(split(t.participants).humans.map((p) => String(p.id)))
   const fresh = want.filter((id) => !inRoom.has(id))
   if (!fresh.length) return { threadId: t.id, added: [], members: (await membersOf(t.id)).map(({ id, name, email }) => ({ id, name, email })) }
-  for (const id of fresh) if (!(await isMember(id))) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
+  if ((await notOnTeam(fresh)).length) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
   const rows = (await q(`select id::text as id, email, username as name, profile from users where tenant_id=$1 and id = any($2::uuid[]) and not coalesce(is_agent,false)
                          order by array_position($2::uuid[], id)`, [T(), fresh]))
   if (rows.length !== fresh.length) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
@@ -121,15 +128,16 @@ export async function invite(me, roomId, userIds) {
   const shown = (id) => members.find((m) => m.id === id)?.name || added.find((u) => u.id === id)?.name || ''
   const invited = added.map((u) => ({ id: u.id, name: shown(u.id) }))
   const uuid = crypto.randomUUID()
-  const names = invited.map((p) => p.name)
-  const content = L(`${me.name}님이 ${names.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${me.name} invited ${names.join(', ')}`)
+  const content = inviteLine(me.name, invited.map((p) => p.name))
   const msg = { uuid, clientUuid: uuid, role: 'system', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
     pgpt: { kind: 'invite', by: me.id, byName: me.name, invited } }
   const [row] = await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages', [uuid, t.id, msg, T()])
   await q('update chat_rooms set message=$2 where id=$1', [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   await pushRow(row, members)
-  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: members.map(({ id, name, email }) => ({ id, name, email })) })
+  // (the member list made once — not once per member: a room has no size limit)
+  const list = members.map(({ id, name, email }) => ({ id, name, email }))
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: list })
   await notifyInvited(me, t, row, added.map((u) => members.find((m) => m.id === u.id) || { id: u.id, email: u.email, name: u.name }))
   return { threadId: t.id, added: invited, members: members.map(({ id, name, email }) => ({ id, name, email })) }
 }
@@ -196,7 +204,8 @@ export async function rename(me, roomId, value) {
   } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
   const members = await membersOf(t.id)
   await pushRow(row, members)
-  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, name, members: members.map(({ id, name: n, email }) => ({ id, name: n, email })) })
+  const list = members.map(({ id, name: n, email }) => ({ id, name: n, email }))
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, name, members: list })
   return { threadId: t.id, name, changed: true }
 }
 
@@ -248,9 +257,10 @@ export function view(viewerId, row, byEmail = {}) {
   if (g.kind === 'invite' && Array.isArray(g.invited)) {
     const by = memberOf(byEmail, g.by)?.name || g.byName || L('팀원', 'Teammate')
     const who = g.invited.map((p) => memberOf(byEmail, p.id)?.name || p.name).filter(Boolean)
+    const line = inviteLine(by, who)
     return { id: row.uuid, threadId: row.id, kind: 'invite', at: m.timeStamp ? iso(m.timeStamp) : null, mine: g.by === viewerId,
       sender: { id: g.by || null, name: by, agent: false }, invited: g.invited.map((p) => ({ id: p.id, name: memberOf(byEmail, p.id)?.name || p.name })),
-      body: L(`${by}님이 ${who.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${by} invited ${who.join(', ')}`), artifacts: [], context: null }
+      body: line, artifacts: [], context: null }
   }
   // the room was named or its name taken off (rename above): said in the viewer's language, by the name every screen uses
   if (g.kind === 'rename') {
@@ -348,7 +358,8 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const members = await membersOf(t.id)
-  for (const m of members) if (!(await isMember(m.id))) throw new TeamError(403, L(`${m.name}님은 더 이상 팀원이 아니에요.`, `${m.name} is no longer a teammate.`))
+  const off = await notOnTeam(members.map((m) => m.id))
+  if (off.length) { const m = members.find((x) => x.id === off[0]) || { name: '' }; throw new TeamError(403, L(`${m.name}님은 더 이상 팀원이 아니에요.`, `${m.name} is no longer a teammate.`)) }
   const uuid = crypto.randomUUID()
   const artifacts = attach ? await attach(members.filter((m) => m.id !== me.id), uuid, t.id) : []
   const files = artifacts.map((a) => a.name)
