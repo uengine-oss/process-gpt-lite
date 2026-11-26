@@ -3181,7 +3181,49 @@
   "입력창에 넣기": "Put in the box",
   "서버에 연결하지 못했어요": "Couldn't reach the server",
   "서버 대신 다른 페이지가 응답했어요": "Another page answered instead of the server",
-  "로그인이 끝났어요": "Your sign-in ended"
+  "로그인이 끝났어요": "Your sign-in ended",
+  "보관 중": "Put away",
+  "서버 에이전트가 작업 중": "A server agent is working",
+  "서버 작업실에서": "In the server workroom",
+  "PC 꺼짐": "PC off",
+  "방금 올림": "Pushed just now",
+  "돌려 달라는 요청": "Asked back",
+  "이 변형을 마지막으로 올린 데서부터 여기로 가져올까요? PC 에 남은 변경은 새 변형으로 올라와요.": "Bring this variation here from its last push? Changes left on the PC come up as a new variation.",
+  "작업본을 가져올까요? 저장 안 한 변경은 그대로 저장되고, PC 에 남은 변경은 새 변형으로 올라와요.": "Take the working copy? Unsaved changes are saved as they are, and changes left on a PC come up as a new variation.",
+  "작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요": "The working copy is put away — what you changed is saved in this variation",
+  "작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요.": "The working copy is put away — what you changed is saved in this variation.",
+  "작업본을 가져왔어요 — 이제 보관 중이에요": "You took the working copy — it is put away now",
+  "이 변형은 보유자만 작업실에서 고쳐요": "Only its holder changes this variation in the workroom",
+  "읽기 전용으로 보기": "View read only",
+  "저장 안 한 변경까지 그대로 저장하고 작업본을 보관해요": "Saves everything, unsaved changes too, and puts the working copy away",
+  "돌려놓기": "Give back",
+  "작업본이 다른 곳에 있어요 — 먼저 돌려받아 주세요": "The working copy is elsewhere — get it back first",
+  "작업본을 넘기는 중이에요": "The working copy is moving",
+  "작업본을 넘기는 중이에요.": "The working copy is moving.",
+  "서버 에이전트가 이 변형에서 일하는 중이에요": "A server agent is working on this variation",
+  "내 PC 에서 작업 중이에요": "Being worked on on your PC",
+  "그 PC 에서 끝내거나, 마지막으로 올린 데서부터 여기로 가져올 수 있어요.": "Finish on that PC, or bring it here from its last push.",
+  "여기서는 마지막으로 저장된 내용을 읽기만 해요. 반영 · 인계 · 버리기는 작업본이 돌아온 뒤에 할 수 있어요.": "Here you only read what was last saved. Merging, handing over and discarding wait until the working copy comes back.",
+  "다시 돌려 달라고 하기": "Ask again",
+  "돌려 달라고 하기": "Ask for it back",
+  "여기로 가져오기": "Bring it here",
+  "작업본 가져오기": "Take the working copy",
+  "작업본이 돌아온 뒤에 고를 수 있어요": "You can pick it once the working copy is back",
+  "저장하지 않은 편집이 있어요. 버리고 돌려놓을까요?": "There are unsaved edits. Discard them and give it back?",
+  "읽기 전용": "Read only",
+  "이 변형은 보관 중이에요 — 마지막으로 저장된 내용을 보여 줘요.": "This variation is put away — showing what was last saved.",
+  "서버 에이전트가 이 변형에서 일하는 중이에요 — 마지막으로 저장된 내용을 보여 줘요.": "A server agent is working on this variation — showing what was last saved.",
+  "이 변형은 내 PC 에서 작업 중이에요 — 마지막으로 올린 내용을 보여 줘요.": "This variation is being worked on on your PC — showing what was last pushed.",
+  "내 작업실에서 열기": "Open in my workroom",
+  "파일은 오른쪽 「파일」에서 읽을 수 있어요.": "You can read the files under \"Files\" on the right.",
+  "읽기 전용이에요 — 이 변형이 마지막으로 저장된 내용이에요.": "Read only — what this variation last saved.",
+  "이 변형의 작업본이 다른 곳에 있어요": "This variation's working copy is elsewhere",
+  "작업본을 보관했어요 — git 이 싣지 않는 파일 는 서버에 따로 남겨 두었어요": "The working copy is put away — files git does not carry were kept aside on the server",
+  "작업본을 보관했어요 — git 이 싣지 않는 파일 는 서버에 따로 남겨 두었어요.": "The working copy is put away — files git does not carry were kept aside on the server.",
+  "따로 남긴 파일": "Kept files",
+  "작업본을 치울 때 git 이 싣지 않는 파일(.gitignore 대상 · 안쪽 저장소 · 저장하지 못한 것)을 서버에 따로 남겨 두었어요. 보관 기간이 지나면 지워져요.": "When the working copy left the disk, files git does not carry (.gitignore targets, repositories inside, what could not be saved) were kept on the server. They are removed after the retention period.",
+  "그 작업본을 가졌던 사람과 폴더 소유자만 내려받아요": "Only whoever had that working copy and the folder owner can download them",
+  "저장 못 함": "not saved"
  },
  "patterns": [
   [
@@ -7267,6 +7309,54 @@
   [
    "「{0}」",
    "“{0}”"
+  ],
+  [
+   "{0}의 PC 에서",
+   "On {0}'s PC"
+  ],
+  [
+   "저장 안 한 변경 {0}",
+   "{0} unsaved"
+  ],
+  [
+   "마지막 올림 {0}",
+   "Last pushed {0}"
+  ],
+  [
+   "돌려 달라는 요청 · {0}",
+   "Asked back · {0}"
+  ],
+  [
+   "돌려 달라는 요청 · {0} · {1}",
+   "Asked back · {0} · {1}"
+  ],
+  [
+   "{0} 님에게 돌려 달라고 했어요",
+   "Asked {0} for it back"
+  ],
+  [
+   "{0} 님에게 돌려 달라고 했어요.",
+   "Asked {0} for it back."
+  ],
+  [
+   "{0} 님이 이 변형을 고치는 중이에요",
+   "{0} is changing this variation"
+  ],
+  [
+   "{0} 님이 고치는 중이에요 — 마지막으로 저장된 내용을 보여 줘요.",
+   "{0} is changing it — showing what was last saved."
+  ],
+  [
+   "작업본을 보관했어요 — git 이 싣지 않는 파일 {0}개는 서버에 따로 남겨 두었어요",
+   "The working copy is put away — {0} files git does not carry were kept aside on the server"
+  ],
+  [
+   "작업본을 보관했어요 — git 이 싣지 않는 파일 {0}개는 서버에 따로 남겨 두었어요.",
+   "The working copy is put away — {0} files git does not carry were kept aside on the server."
+  ],
+  [
+   "{0}일 남음",
+   "{0} days left"
   ]
  ],
  "context": [
