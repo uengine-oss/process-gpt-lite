@@ -50,6 +50,16 @@ const WHY = {
   structure: '링크 · 안의 저장소 · git 제어 파일은 올리지 않아요 — 그 파일을 빼 주세요.',
   too_big: '한 번에 올리기에 너무 커요 — 큰 파일을 빼 주세요.',
   other_user: '이 앱에는 다른 사람이 로그인해 있어요.',
+  remove: '돌려놓았지만 이 PC 의 작업본을 옮기지 못했어요 — 터미널 · 편집기를 닫은 뒤 「남은 변경」에서 다시 해 주세요.',
+  busy: '서버가 이 변형을 옮기거나 저장하는 중이에요 — 잠시 뒤에 다시 해 주세요.',
   cancelled: '취소했어요.',
+}
+// what a file of a variation runs by itself on a computer (server lib/folders/seatTrust.js reasons)
+export const TRUST = {
+  hooks: 'Claude Code 훅 — 명령을 실행해요',
+  mcp: 'MCP 서버 — 프로그램을 실행해요',
+  envrc: 'direnv — 폴더에 들어가면 실행돼요',
+  tasks: 'VS Code 작업 — 명령을 실행해요',
+  shell: 'Windows 바로 가기 · 폴더 설정',
 }
 export const seatWhy = (w) => WHY[w] || '지금은 할 수 없어요 — 잠시 뒤에 다시 해 주세요.'

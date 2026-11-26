@@ -100,6 +100,8 @@ const seats = local ? undefined : Object.freeze({
   setAuto: (id, on) => ipcRenderer.invoke('pgl:seats:auto', sid(id), on === true),
   leftovers: () => ipcRenderer.invoke('pgl:seats:leftovers'),
   dropLeft: (id) => ipcRenderer.invoke('pgl:seats:drop-left', sid(id)),
+  // (the app's trash for working copies, in Finder · Explorer — no path to the page)
+  openTrash: () => ipcRenderer.invoke('pgl:seats:open-trash'),
   onState: (cb) => {
     const h = (_e, list) => { try { cb(list) } catch { /* the page's own */ } }
     ipcRenderer.on('pgl:seats:state', h)

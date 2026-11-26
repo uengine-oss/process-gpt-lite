@@ -11,7 +11,7 @@ import Icon from '../Icon.vue'
 import FIcon from './FIcon.vue'
 import SeatPill from './SeatPill.vue'
 import { folders as F } from '../../foldersApi.js'
-import { bridge, inDesktop, oldDesktop, refreshPcSeats, pcSeatOf, thisDevice, seatWhy } from '../../desktopSeats.js'
+import { bridge, inDesktop, oldDesktop, refreshPcSeats, pcSeatOf, thisDevice, seatWhy, TRUST } from '../../desktopSeats.js'
 import { chatAgents, refreshAgents } from '../../chatAgent.js'
 
 const props = defineProps({ slug: String, variation: { type: Object, default: null }, folderName: { type: String, default: '' } })
@@ -23,6 +23,9 @@ const busy = ref(null)         // {vid, what}
 const err = ref('')
 const title = ref('')
 const first = ref(null)
+// files of the variation that run things by themselves once on this PC (hooks · MCP · .envrc · VS Code tasks · Windows shell files), last
+// changed by someone else: said before it comes here — 「그래도 열기」 goes on, nothing is blocked (spec variation-seats)
+const trust = ref(null) // {v, files}
 
 const desktop = inDesktop()
 const old = oldDesktop()
@@ -55,11 +58,16 @@ function elsewhere(v) {
   return `${s.who?.name || ''} 님이 고치는 중이에요.`
 }
 
-async function onPc(v) {
+async function onPc(v, { anyway = false } = {}) {
   err.value = ''
   if (here(v) && ['held', 'blocked'].includes(here(v).state)) { emit('close'); return router.push(`/workroom/variation/${v.id}`) }
   busy.value = { vid: v.id, what: 'pc' }
   try {
+    if (!anyway) {
+      const t = await F.seatTrust(props.slug, v.id).catch(() => null)
+      if (t?.warn && t.files?.length) { trust.value = { v, files: t.files }; return }
+    }
+    trust.value = null
     dev.value = await thisDevice()
     if (!dev.value?.deviceId) throw new Error(seatWhy('not_linked'))
     await F.openOnPc(props.slug, v.id, dev.value.deviceId)
@@ -111,6 +119,19 @@ const working = (v, what) => busy.value?.vid === v.id && busy.value.what === wha
       <div class="body scroll">
         <p class="lead">한 변형의 작업본은 한 번에 한 곳에만 있어요. 고르는 곳으로 옮겨 가고, 다른 곳에서는 올라온 데까지 읽기만 해요.</p>
 
+        <!-- before it comes to this PC: what would run by itself there, and who put it (plain text only) -->
+        <div v-if="trust" class="trust" data-test="seat-trust" role="alert">
+          <b>이 작업본에는 저절로 실행될 수 있는 설정이 있어요</b>
+          <small>이 PC 의 터미널에서 Claude Code · Codex · 편집기를 열면 아래 파일이 명령을 실행할 수 있어요. 누가 넣었는지 확인한 뒤에 여세요.</small>
+          <ul>
+            <li v-for="f in trust.files" :key="f.path"><code>{{ f.path }}</code><span>{{ TRUST[f.reason] || f.reason }}</span><span class="by">{{ f.mine ? '내가 바꿈' : `${f.by?.name || '알 수 없음'} 님이 바꿈` }}</span></li>
+          </ul>
+          <div class="tacts">
+            <button class="pill-btn" data-test="seat-trust-cancel" @click="trust = null">취소</button>
+            <button class="dark-btn" data-test="seat-trust-open" :disabled="!!busy" @click="onPc(trust.v, { anyway: true })">그래도 열기</button>
+          </div>
+        </div>
+
         <section v-for="(v, i) in rows" :key="v.id" class="var" :data-variation="v.id">
           <div class="vh"><b class="vt">{{ v.title }}</b><SeatPill v-if="seatOf(v)?.place" :seat="seatOf(v)" :here="here(v)" compact /></div>
           <p v-if="elsewhere(v)" class="why">{{ elsewhere(v) }}</p>
@@ -147,6 +168,7 @@ const working = (v, what) => busy.value?.vid === v.id && busy.value.what === wha
           <a v-if="chatAgents.download" :href="chatAgents.download" target="_blank" rel="noopener">PC 앱 내려받기</a>
         </p>
         <p v-else-if="old" class="note" data-test="seat-sheet-old"><FIcon name="pc" :size="15" /><span>{{ pcWhy }}</span></p>
+        <button v-if="desktop && bridge()?.openTrash" class="lnk" data-test="seat-sheet-trash" @click="bridge().openTrash()">이 PC 의 앱 휴지통 열기</button>
         <p v-if="err" class="bad" role="alert">{{ err }}</p>
       </div>
     </div>
@@ -189,6 +211,18 @@ const working = (v, what) => busy.value?.vid === v.id && busy.value.what === wha
 .note a { color: var(--color-info); font-weight: 500; }
 .fine { font-size: 13px; color: var(--text-secondary); margin: 0; }
 .bad { margin: 0; font-size: 13px; color: var(--color-error); }
+.trust { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 14px; background: rgba(224 138 44 / .12); border: 1px solid rgba(224 138 44 / .45); font-size: 13px; }
+.trust b { font-weight: 600; color: #b8691c; }
+.trust small { color: var(--text-secondary); line-height: 1.55; font-size: 12.5px; }
+.trust ul { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.trust li { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-size: 12.5px; min-width: 0; }
+.trust code { font: 12px "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+.trust .by { color: var(--text-secondary); }
+.tacts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.tacts > button { height: 36px; padding: 0 16px; border-radius: 18px; }
+.tacts .dark-btn { background: var(--ink); color: var(--ink-inverse); }
+:root[data-theme="dark"] .trust b { color: #ffc98a; }
+.lnk { align-self: flex-start; font-size: 12.5px; color: var(--color-info); padding: 0; background: none; }
 /* a phone: a sheet from the bottom, one option per line */
 @media (max-width: 600px) {
   .veil { place-items: end stretch; padding: 0; }

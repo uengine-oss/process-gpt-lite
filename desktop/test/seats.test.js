@@ -70,7 +70,7 @@ const vars = new Map()
 const sent = []
 const logs = []
 let wc = null
-const left8 = (vid) => `pgpt-agent/left-${vid.slice(0, 8)}-${DEV8}/head`
+const left8 = (vid) => `pgpt-agent/left-${vid}-${DEV8}/head`
 // how the fake server answers (a test may change one)
 const plays = {
   ready: (m) => { const v = vars.get(m.variation); if (!v || v.epoch !== m.epoch) return { type: 'seat:refused', variation: m.variation, why: 'stale' }; v.state = 'held'; return { type: 'seat:held', variation: m.variation, epoch: m.epoch, head: m.head } },
@@ -113,6 +113,8 @@ function link(m) {
   sent.push(JSON.parse(JSON.stringify(m)))
   const k = { 'seat:ready': 'ready', 'seat:token': 'token', 'seat:pushed': 'pushed', 'seat:release': 'release', 'seat:left': 'left' }[m.type]
   const r = k && plays[k] && plays[k](m)
+  // (the server names the message it answers — seat:refused {re})
+  if (r && r.type === 'seat:refused' && !r.re) r.re = m.type
   if (r) setImmediate(() => wc?.handle(r))
   return true
 }
@@ -127,9 +129,8 @@ function make(opts = {}) {
   return w
 }
 // a variation of the folder on the server (its branch from main) and the seat:prepare the server would send for it
-function variation(title, files = {}) {
-  const vid = crypto.randomUUID()
-  const branch = `var/u/${USER.replace(/-/g, '').slice(0, 8)}/${vid.slice(0, 6)}`
+function variation(title, files = {}, vid = crypto.randomUUID()) {
+  const branch = `var/u/${USER.replace(/-/g, '').slice(0, 8)}/${vid}`
   bare('branch', branch, 'main')
   if (Object.keys(files).length) {
     const work = path.join(ROOT, 'seed', vid)
@@ -343,7 +344,7 @@ test('저장 지점: 조용해진 뒤 한 번(그 전에는 아님) · CLI 의 �
   // the turn of a CLI in the working copy ended (Claude Code's own record)
   w.stop()
   const w2 = make({ quietMs: 60_000 })
-  await waitFor(() => w2.turns.has(V1), 2000, 'turns watched')
+  await waitFor(() => !!w2.turnHub.get(V1), 2000, 'turns watched')
   put(e1.dir, 'docs/b.md', 'claude 가 쓴 것\n')
   const key = W.claudeKey(fs.realpathSync(e1.dir))
   const tx = path.join(CLAUDE, 'projects', key, 's1.jsonl')
@@ -537,6 +538,238 @@ test('이어질 때 맞추기: 서버 목록에 있으면 저장 지점 한 번 
   assert.deepEqual(notes.map((n) => [n.title, n.by, n.why]), [['돌려 달라는 요청', '김동료', '오늘 반영해요']])
   assert.ok(w.get(v2), '저절로 돌려놓지 않는다')
   await w.release(v2)
+})
+
+// ---------- review of P1 (11-26): each of these failed before its fix ----------
+const wtRoot = () => path.join(DATA, 'folders', SY.serverKey(srv.base), SY.personKey(USER), FOLDER.slice(0, 8), 'wt')
+const trashBins = (needle, file) => { try { return fs.readdirSync(path.join(DATA, 'trash')).filter((n) => n.includes(needle)).map((n) => path.join(DATA, 'trash', n)).filter((d) => !file || fs.existsSync(path.join(d, ...file.split('/')))) } catch { return [] } }
+// the seats the server lists for this computer: everything the engine holds now (a test's seat:list never drops another test's copies)
+const heldNow = (w, but = null) => w.store.all().filter((x) => x.variationId !== but && x.state !== 'left').map((x) => ({ variation: x.variationId, folderId: FOLDER, epoch: Number(x.epoch), state: 'held' }))
+const claudeLines = (...es) => es.map((e) => JSON.stringify(e)).join('\n') + '\n'
+const PROMPT = { type: 'user', message: { role: 'user', content: '보고서를 고쳐 줘' } }
+const ENDED = { type: 'assistant', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '고쳤어요' }] } }
+
+test('검토 1 — .git 이 없어진 작업본: git 이 바깥 저장소로 올라가 커밋하지 않고, 작업본은 지우지 않는다', async () => {
+  // the app's data folder inside a repository of the person's (a dotfiles repository at ~), with an edit of theirs not committed
+  const HOME = path.join(ROOT, 'home')
+  fs.mkdirSync(HOME, { recursive: true })
+  git(HOME, 'init', '-q', '-b', 'main')
+  fs.writeFileSync(path.join(HOME, '.zshrc'), 'x\n')
+  git(HOME, 'add', '-A'); git(HOME, 'commit', '-qm', 'home')
+  fs.writeFileSync(path.join(HOME, '.zshrc'), 'x\n사람이 고친 줄\n')
+  const head0 = git(HOME, 'rev-parse', 'HEAD').trim()
+  const prev = wc
+  const w = make({ dataDir: path.join(HOME, 'Library', 'App', 'local-agents'), store: settings.seatStore('http://home.test', USER) })
+  try {
+    const v = variation('바깥 저장소')
+    const e = await prepared(w, v)
+    put(e.dir, 'work.txt', '한 시간 동안 한 일\n')
+    put(e.dir, 'README.md', '# 고친 제목\n')
+    // the working copy's .git file gone (a tool, a half-done removal on Windows)
+    fs.rmSync(path.join(e.dir, '.git'))
+    w.handle({ type: 'seat:list', seats: [] })
+    await waitFor(() => w.get(v)?.state === 'left', 8000, 'kept as a leftover')
+    assert.equal(git(HOME, 'rev-parse', 'HEAD').trim(), head0, '바깥 저장소에 커밋하지 않는다')
+    assert.equal(git(HOME, 'diff', '--cached', '--name-only').trim(), '', '바깥 저장소의 인덱스에도 아무것도 올리지 않는다')
+    assert.match(git(HOME, 'status', '--porcelain'), /\.zshrc/, '사람이 고친 줄은 그대로 커밋되지 않은 채')
+    assert.ok(fs.existsSync(e.dir), '작업본은 그 자리에')
+    assert.equal(fs.readFileSync(path.join(e.dir, 'work.txt'), 'utf8'), '한 시간 동안 한 일\n')
+    assert.equal(sentOf('seat:token', v).filter((m) => m.for === 'left').length, 0, '무엇인지 모르는 것을 올리지 않는다')
+  } finally { w.stop(); wc = prev }
+})
+
+test('검토 2 — 치울 때는 작업본 전체를 앱 휴지통으로 옮기고, 자리를 잃은 작업본은 도는 CLI 의 턴이 끝나기를 기다린다', async () => {
+  const w = wc
+  const v = variation('통째로 휴지통')
+  const e = await prepared(w, v)
+  put(e.dir, 'docs/새 글.md', '새 글\n')
+  const r = await w.release(v)
+  assert.equal(r.ok, true, JSON.stringify(r))
+  assert.ok(!fs.existsSync(e.dir))
+  assert.ok(trashBins(v.slice(0, 8), 'README.md').length, '추적되는 파일까지 통째로 휴지통에')
+  // a CLI working in a copy whose seat went: the leftover waits for its turn to end
+  const v2 = variation('턴 기다리기')
+  const e2 = await prepared(w, v2)
+  const proj = path.join(CLAUDE, 'projects', W.claudeKey(fs.realpathSync(e2.dir)))
+  fs.mkdirSync(proj, { recursive: true })
+  fs.writeFileSync(path.join(proj, 'turn.jsonl'), claudeLines(PROMPT))
+  await sleep(200)
+  put(e2.dir, 'docs/CLI 가 쓰는 중.md', '반쯤\n')
+  const tokens = sentOf('seat:token', v2).length
+  w.handle({ type: 'seat:list', seats: heldNow(w, v2) })
+  await sleep(500)
+  assert.equal(sentOf('seat:token', v2).length, tokens, '턴이 도는 동안에는 올리지 않는다')
+  fs.appendFileSync(path.join(proj, 'turn.jsonl'), claudeLines(ENDED))
+  await waitFor(() => !w.get(v2), 8000, 'leftover after the turn')
+  assert.ok(sentOf('seat:left', v2).length, '턴이 끝난 뒤에 남은 변경으로 올린다')
+})
+
+test('검토 3 · 4 — 작업본 자리는 변형 id 전체로: 남겨진 폴더는 휴지통으로 · 앞 8자리가 같은 두 변형은 따로 · 받는 동안 서버에 알린다', async () => {
+  const w = wc
+  const v = variation('남겨진 폴더')
+  const stale = path.join(wtRoot(), `${v.slice(0, 8)}-남겨진-폴더`)
+  put(stale, '옛 파일.md', '옛 것\n') // a folder the app left behind, with no record of it
+  const e = await prepared(w, v)
+  assert.ok(fs.existsSync(path.join(e.dir, 'README.md')))
+  assert.ok(!fs.existsSync(path.join(e.dir, '옛 파일.md')), '남겨진 것은 새 작업본에 섞이지 않는다')
+  assert.ok(trashBins(v.slice(0, 8), '옛 파일.md').length, '남겨진 것은 버리지 않고 휴지통에')
+  assert.ok(sentOf('seat:preparing', v).length >= 1, '받는 동안 서버에 알린다(넘기기 기한을 늘림)')
+  // another variation whose id starts with the same 8 characters
+  const twin = variation('쌍둥이', {}, v.slice(0, 8) + crypto.randomUUID().slice(8))
+  const t = await prepared(w, twin)
+  assert.notEqual(t.dir, w.get(v).dir)
+  put(t.dir, '쌍둥이.md', 'x\n')
+  assert.ok(!fs.existsSync(path.join(w.get(v).dir, '쌍둥이.md')), '두 변형이 한 작업본을 나눠 쓰지 않는다')
+  assert.equal(w.get(v).state, 'held')
+  await w.release(twin)
+  await w.release(v)
+})
+
+test('검토 5 — 서버 목록은 잠금 안에서 다시 본다: 그사이 다시 온 목록에 있으면 치우지 않는다', async () => {
+  const w = wc
+  const v = variation('목록 다시 보기')
+  const e = await prepared(w, v)
+  let open
+  const hold = w.locked(v, () => new Promise((r) => { open = r }))
+  w.handle({ type: 'seat:list', seats: heldNow(w, v) })
+  w.handle({ type: 'seat:list', seats: heldNow(w) })
+  await sleep(50)
+  open()
+  await hold
+  await sleep(500)
+  assert.equal(w.get(v)?.state, 'held', '마지막 목록에 있는 자리')
+  assert.ok(fs.existsSync(e.dir))
+  assert.equal(sentOf('seat:left', v).length, 0)
+  await w.release(v)
+})
+
+test('검토 6 — 받다가 멈춘 작업본(준비 중)은 그대로 준비됐다고 하지 않고 다시 받는다', async () => {
+  const w = wc
+  const v = variation('받다가 멈춤')
+  const dir = path.join(wtRoot(), `${v.slice(0, 8)}-받다가-멈춤`)
+  put(dir, 'README.md', '반쯤 쓴 파일') // a worktree add that died half way: no .git, half the files
+  w.store.put({ variationId: v, folderId: FOLDER, folderName: '영업 제안 키트', title: '받다가 멈춤', branch: vars.get(v).branch, dir, epoch: 1, state: 'preparing', head: null, autoSave: true })
+  const e = await prepared(w, v)
+  assert.ok(fs.existsSync(path.join(e.dir, '.git')), '작업 트리를 새로 더했다')
+  assert.equal(fs.readFileSync(path.join(e.dir, 'README.md'), 'utf8'), '# 영업 제안 키트\n')
+  await w.release(v)
+  // after a restart the server still has it moving, and the copy never finished: failed, never ready
+  const v2 = variation('목록에서 넘기는 중')
+  const dir2 = path.join(wtRoot(), `${v2.slice(0, 8)}-목록에서-넘기는-중`)
+  put(dir2, 'README.md', '반쯤')
+  w.store.put({ variationId: v2, folderId: FOLDER, title: '목록에서 넘기는 중', branch: vars.get(v2).branch, dir: dir2, epoch: 1, state: 'preparing', head: null, autoSave: true })
+  w.handle({ type: 'seat:list', seats: [...heldNow(w, v2), { variation: v2, folderId: FOLDER, epoch: 1, state: 'moving' }] })
+  await waitFor(() => sentOf('seat:failed', v2).length, 5000, 'failed')
+  assert.equal(sentOf('seat:ready', v2).length, 0, '다 받지 못한 작업본은 준비됐다고 하지 않는다')
+})
+
+test('검토 7 — 서버가 돌려받은 뒤 작업본을 치우지 못하면 「남은 변경」으로 둔다(다시 쥔 것으로 돌아가지 않음)', async () => {
+  const w = wc
+  const v = variation('치우지 못함')
+  const e = await prepared(w, v)
+  put(e.dir, 'dist/out.js', 'x\n')
+  const trash = path.join(DATA, 'trash')
+  fs.mkdirSync(trash, { recursive: true })
+  fs.renameSync(trash, `${trash}.bak`)
+  fs.writeFileSync(trash, 'a file where the trash folder goes')
+  try {
+    const r = await w.release(v)
+    assert.equal(r.ok, false)
+    assert.equal(w.get(v)?.state, 'left', '서버에서는 이미 보관 중 — 이 PC 에서는 남은 변경')
+    assert.ok(fs.existsSync(path.join(e.dir, 'dist', 'out.js')), '아무것도 잃지 않는다')
+  } finally { fs.rmSync(trash); fs.renameSync(`${trash}.bak`, trash) }
+  assert.equal((await w.dropLeft(v)).ok, true)
+})
+
+test('검토 8 — 거절은 그 말에 대한 답일 때만 기다림을 끝낸다(re)', async () => {
+  const u = new U.Uploader({ send: () => true, prefix: 'seat:', key: 'variation', askMs: 2000 })
+  const p = u.ask({ type: 'seat:release', variation: 'v1' }, ['seat:released'])
+  assert.equal(u.answer({ type: 'seat:refused', variation: 'v1', re: 'seat:status', why: 'rate_limited' }), false, '다른 말에 대한 거절')
+  assert.equal(u.answer({ type: 'seat:refused', variation: 'v1', re: 'seat:release', why: 'stale' }), true)
+  assert.equal((await p).why, 'stale')
+  u.stop()
+})
+
+test('검토 9 — CLI 기록 읽기: 이미 있던 턴은 다시 세지 않고, 세션 정보가 없는 Codex 기록은 한 번만 보고, 지켜보는 것은 하나', async () => {
+  const dir = path.join(ROOT, 'turns', 'a')
+  fs.mkdirSync(dir, { recursive: true })
+  const proj = path.join(CLAUDE, 'projects', W.claudeKey(fs.realpathSync(dir)))
+  fs.mkdirSync(proj, { recursive: true })
+  // a session written to just now, with a turn that already ended
+  fs.writeFileSync(path.join(proj, 'old.jsonl'), claudeLines(PROMPT, ENDED))
+  const hub = new W.TurnHub({ claudeHome: CLAUDE, codexHome: CODEX, every: 40 })
+  let ends = 0
+  hub.add('a', dir, { onEnd: () => ends++ })
+  await sleep(200)
+  assert.equal(ends, 0, '이미 있던 턴은 저장 지점이 아니다')
+  fs.appendFileSync(path.join(proj, 'old.jsonl'), claudeLines(PROMPT, ENDED))
+  await waitFor(() => ends === 1, 3000, 'new turn')
+  // a Codex rollout with no session_meta at its head: looked at once, remembered
+  const d = new Date()
+  const cdir = path.join(CODEX, 'sessions', String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'))
+  fs.mkdirSync(cdir, { recursive: true })
+  const roll = path.join(cdir, 'rollout-nometa.jsonl')
+  fs.writeFileSync(roll, `${JSON.stringify({ type: 'event_msg', payload: { type: 'agent_message', message: 'x'.repeat(1000) } })}\n`.repeat(80))
+  await sleep(200)
+  assert.equal(hub.codexFiles.get(roll)?.kind, 'other', '읽지 못한 것은 기억한다')
+  // one scanner for every working copy
+  const dir2 = path.join(ROOT, 'turns', 'b')
+  fs.mkdirSync(dir2, { recursive: true })
+  hub.add('b', dir2, { onEnd: () => {} })
+  assert.equal(hub.timers(), 1)
+  hub.stop()
+  assert.equal(hub.timers(), 0)
+})
+
+test('검토 10 — 앱 휴지통: 옮긴 것을 알리고, 열 곳을 주고, 오래되거나 너무 크면 오래된 것부터 비운다', async () => {
+  const w = wc
+  const notes = []
+  w.on('trashed', (n) => notes.push(n))
+  const v = variation('조용히 옮기지 않기')
+  const e = await prepared(w, v)
+  put(e.dir, '.env', 'A=1\n') // never committed (a secret's name): nothing new for the server, but it is this PC's
+  w.handle({ type: 'seat:list', seats: heldNow(w, v) })
+  await waitFor(() => !w.get(v), 8000, 'removed')
+  assert.ok(notes.some((n) => n.variationId === v && n.kept >= 1), '휴지통으로 옮긴 것을 알린다')
+  assert.equal(w.trashDir(), path.join(DATA, 'trash'))
+  assert.ok(w.trashTimer, '때마다 비운다')
+  // the size cap: the oldest goes first, the newest stays
+  const day = (n) => { const t = new Date(Date.now() - n * 86400_000); return `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}` }
+  const older = path.join(w.trashDir(), `${day(2)}-cap00001`)
+  const newer = path.join(w.trashDir(), `${day(0)}-cap00002`)
+  for (const d of [older, newer]) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'big.bin'), Buffer.alloc(4096)) }
+  w.cleanTrash(Date.now(), { maxBytes: 6000 + trashBytes(w.trashDir(), [older, newer]) })
+  assert.ok(!fs.existsSync(older), '크기 한도를 넘으면 오래된 것부터')
+  assert.ok(fs.existsSync(newer))
+})
+function trashBytes(dir, but) {
+  let n = 0
+  const walk = (d) => { for (const x of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, x.name); if (but.includes(p)) continue; if (x.isDirectory()) walk(p); else n += fs.statSync(p).size } }
+  walk(dir)
+  return n
+}
+
+test('검토 12 — git 은 바깥 설정을 따르지 않는다(전역 설정 · 리다이렉트 · 태그 · 객체 검사 · 위로 찾기), 가지 이름에는 변형 id 전체', async () => {
+  const full = 'abcdef12-0000-4000-8000-000000000001'
+  assert.equal(W.seatBranch(full, 3), `pgpt-agent/seat-${full}-3/head`)
+  const w = wc
+  const v = variation('바깥 설정 막기')
+  const e = await prepared(w, v)
+  calls.length = 0
+  put(e.dir, 'a.md', 'a\n')
+  assert.equal((await w.saveNow(v)).ok, true)
+  const push = calls.find((c) => c.sub === 'push')
+  assert.ok(push?.args.includes('--no-follow-tags'), '태그를 따라 올리지 않는다')
+  assert.ok(calls.length > 3)
+  for (const c of calls) {
+    assert.equal(c.env?.GIT_CONFIG_GLOBAL, process.platform === 'win32' ? 'NUL' : '/dev/null', `${c.sub}: 사람의 전역 설정 없이`)
+    assert.equal(c.env?.GIT_CONFIG_NOSYSTEM, '1')
+    assert.equal(c.config?.['http.followRedirects'], 'false')
+    assert.equal(c.config?.['fetch.fsckObjects'], 'true')
+    assert.equal(c.config?.['push.followTags'], 'false')
+    if (c.cwd && !c.gitDir) assert.ok(c.env?.GIT_CEILING_DIRECTORIES, `${c.sub}: 위로 찾아 올라가지 않는다`)
+  }
+  await w.release(v)
 })
 
 test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {

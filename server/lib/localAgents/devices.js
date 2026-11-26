@@ -113,16 +113,29 @@ export async function seatAccess(claims, { push = false } = {}) {
 // names a random `once` that a push which went through uses up (usedOnce). Checked on every request — the device is linked, the variation
 // is of the token's folder and company, the device's person is its holder or that device held its seat before (the seat log), the
 // folder is a managed one and the person holds at least runner in it. → null when it may, else why not.
+// The use is kept in the seat log too (action 'left-push', note 'once:<value>'): a server that restarted, or another process of it, refuses
+// the same token as well (review 11-26 #11); the memory only answers first.
 const usedOnce = new Map() // once → when it was used (kept past the token's hour)
-export function useOnce(once, now = Date.now()) {
+const ONCE_NOTE = (once) => `once:${String(once)}`
+export async function useOnce(claims, now = Date.now()) {
+  const once = claims?.once
   if (!once) return
   usedOnce.set(String(once), now)
   if (usedOnce.size > 5000) for (const [k, t] of usedOnce) if (now - t > 2 * 3600_000) usedOnce.delete(k)
+  await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, device_id, epoch, note)
+           select $1, $2::uuid, $3::uuid, (select user_id::text from pro_local_devices where id=$4::uuid), 'left-push', $4::uuid, $5, $6`,
+  [claims.tenant, claims.seat, claims.folder, claims.device, Number(claims.epoch) || 0, ONCE_NOTE(once)]).catch((e) => console.warn('[seats] once', e.message))
 }
-export const onceUsed = (once) => usedOnce.has(String(once || ''))
+export async function onceUsed(claims) {
+  const once = String(claims?.once || '')
+  if (usedOnce.has(once)) return true
+  const [row] = await q(`select 1 from pro_variation_seat_log where variation_id=$1 and tenant_id=$2 and action='left-push' and note=$3 limit 1`, [claims.seat, claims.tenant, ONCE_NOTE(once)])
+    .catch((e) => { if (e.code === '42P01') return []; throw e })
+  return !!row
+}
 export async function leftAccess(claims, { push = false } = {}) {
   if (claims?.scope !== 'left' || !/^[0-9a-f-]{36}$/i.test(String(claims?.device || '')) || !/^[0-9a-f-]{36}$/i.test(String(claims?.seat || '')) || !claims.once) return 'not a desktop leftover token'
-  if (onceUsed(claims.once)) return 'this leftover token was used already'
+  if (await onceUsed(claims)) return 'this leftover token was used already'
   const [d] = await q('select user_id, revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
   if (!d || d.revoked_at) return 'this desktop is not linked any more'
   const [f] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [claims.folder, claims.tenant])

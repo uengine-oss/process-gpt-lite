@@ -32,10 +32,13 @@ const D = await import('../lib/localAgents/devices.js')
 test('WL-P-01 이름 · 토큰: 회차 가지와 남은 변경 가지, 한 번짜리 토큰, 앱의 능력 seats', () => {
   const vid = 'abcdef12-0000-4000-8000-000000000001'
   const dev = '99887766-0000-4000-8000-000000000002'
-  assert.equal(SL.seatPrefix(vid, 4), 'pgpt-agent/seat-abcdef12-4/')
-  assert.equal(SL.seatBranch(vid, 4), 'pgpt-agent/seat-abcdef12-4/head')
-  assert.equal(SL.leftPrefix(vid, dev), 'pgpt-agent/left-abcdef12-99887766/')
-  assert.equal(H.seatPart(vid, 4), 'refs/heads/pgpt-agent/seat-abcdef12-4')
+  // (the whole variation id: two variations whose ids start alike never share a branch — review 11-26 #12)
+  assert.equal(SL.seatPrefix(vid, 4), `pgpt-agent/seat-${vid}-4/`)
+  assert.equal(SL.seatBranch(vid, 4), `pgpt-agent/seat-${vid}-4/head`)
+  assert.equal(SL.leftPrefix(vid, dev), `pgpt-agent/left-${vid}-99887766/`)
+  assert.equal(H.seatPart(vid, 4), `refs/heads/pgpt-agent/seat-${vid}-4`)
+  // git http-backend never takes the protocol from the server's own environment (v2 would hand out hidden objects by id)
+  assert.equal('GIT_PROTOCOL' in H.backendEnv({ GIT_PROTOCOL: 'version=2', PATH: '/bin' }), false)
   process.env.SERVICE_ROLE_KEY ||= 'test-key'
   const c = H.verifyToken(H.mintToken({ tenant: TENANT, folderId: 'f1', push: SL.leftPrefix(vid, dev), scope: 'left', device: dev, seat: vid, epoch: 3, once: 'a1b2', hours: 1 }))
   assert.deepEqual([c.scope, c.seat, c.epoch, c.once, c.push], ['left', vid, 3, 'a1b2', SL.leftPrefix(vid, dev)])
@@ -376,6 +379,9 @@ test('WL-P-07 남은 변경: 자리를 잃은 PC 의 것은 새 변형으로 —
   const again = await git(pc.dir, ['push', remote(f), `HEAD:refs/heads/${lt.push}again`], lt.token)
   assert.notEqual(again.code, 0)
   assert.match(again.err, /403/)
+  // …also for a server that restarted or another process (nothing in its memory): the use is kept in the database (review 11-26 #11)
+  const fresh = await import(`../lib/localAgents/devices.js?fresh=${Date.now()}`)
+  assert.match(String(await fresh.leftAccess(lc, { push: true })), /used/)
   const got = await say(pc.L, { type: 'seat:left', variation: v.id, head: later }, ['seat:left-taken', 'seat:refused'])
   assert.equal(got.type, 'seat:left-taken', JSON.stringify(got))
   assert.equal(got.newVariation.title, '보고서 다듬기 — 맥북에 남아 있던 변경')
@@ -392,6 +398,58 @@ test('WL-P-07 남은 변경: 자리를 잃은 PC 의 것은 새 변형으로 —
   const same = (await git(pc2.dir, ['rev-parse', 'HEAD'])).out
   assert.equal((await git(pc2.dir, ['push', '-q', remote(f), `HEAD:refs/heads/${lt2.branch}`], lt2.token)).code, 0)
   assert.equal((await say(pc2.L, { type: 'seat:left', variation: v2.id, head: same }, ['seat:left-taken'])).newVariation, null)
+})
+
+test('WL-P-09 거절은 무엇에 대한 답인지 말한다(re) · 받는 동안 PC 가 알리면 넘기기 기한이 늘어난다', { skip: !db && 'no database' }, async () => {
+  const f = await folderWith('기한')
+  const v = await personVar(f, owner, '큰 폴더')
+  const d = await device(owner, '느린 PC')
+  const L = linkOf(d)
+  const out = await SE.claimDevice(f, v, { user: owner, device: d.id, ready: false })
+  assert.ok(out.ok)
+  // (a ready for another epoch: the refusal names the message it answers)
+  const no = await say(L, { type: 'seat:ready', variation: v.id, epoch: out.epoch + 5, head: null }, 'seat:refused')
+  assert.deepEqual([no.why, no.re], ['stale', 'seat:ready'])
+  // the computer still fetching a large folder says so: the move's deadline goes on
+  await q(`update pro_variation_seats set deadline = now() + interval '2 seconds' where variation_id=$1`, [v.id])
+  await SL.receive(L, { type: 'seat:preparing', variation: v.id, epoch: out.epoch })
+  const [row] = await q(`select extract(epoch from deadline - now()) as left from pro_variation_seats where variation_id=$1`, [v.id])
+  assert.ok(Number(row.left) > 60, `기한이 늘었다 (${row.left}s)`)
+  // …not for another epoch, nor from another computer
+  await q(`update pro_variation_seats set deadline = now() + interval '2 seconds' where variation_id=$1`, [v.id])
+  await SL.receive(L, { type: 'seat:preparing', variation: v.id, epoch: out.epoch - 1 })
+  await SL.receive(linkOf(await device(owner, '다른 PC')), { type: 'seat:preparing', variation: v.id, epoch: out.epoch })
+  const [row2] = await q(`select extract(epoch from deadline - now()) as left from pro_variation_seats where variation_id=$1`, [v.id])
+  assert.ok(Number(row2.left) < 10)
+})
+
+test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude 설정 · MCP · .envrc · VS Code 작업 · Windows 바로 가기)과 마지막으로 바꾼 사람', { skip: !db && 'no database' }, async () => {
+  const f = await folderWith('실행되는 설정')
+  const T = await import('../lib/folders/seatTrust.js')
+  await S.upload(f, mate, '.mcp.json', Buffer.from('{"mcpServers":{"x":{"command":"node","args":["x.js"]}}}\n'))
+  await S.upload(f, mate, '.claude/settings.json', Buffer.from('{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"curl example.test"}]}]}}\n'))
+  await S.upload(f, owner, '.claude/settings.local.json', Buffer.from('{"permissions":{"allow":[]}}\n'))
+  await S.upload(f, mate, '.envrc', Buffer.from('export X=1\n'))
+  await S.upload(f, mate, '.vscode/tasks.json', Buffer.from('{"tasks":[]}\n'))
+  await S.upload(f, mate, '문서/바로 가기.url', Buffer.from('[InternetShortcut]\nURL=https://example.test\n'))
+  await S.upload(f, mate, 'desktop.ini', Buffer.from('[.ShellClassInfo]\n'))
+  const v = await personVar(f, owner, '설정 보기')
+  const t = await T.trustOf(await S.folderById(f.id), await S.variationById(v.id), owner)
+  const got = t.files.map((x) => [x.path, x.reason, x.by?.name, x.mine])
+  assert.deepEqual(got.sort(), [
+    ['.claude/settings.json', 'hooks', '김동료', false],
+    ['.envrc', 'envrc', '김동료', false],
+    ['.mcp.json', 'mcp', '김동료', false],
+    ['.vscode/tasks.json', 'tasks', '김동료', false],
+    ['desktop.ini', 'shell', '김동료', false],
+    ['문서/바로 가기.url', 'shell', '김동료', false],
+  ].sort(), '훅이 없는 settings.local.json 은 아니다')
+  assert.equal(t.warn, true, '다른 사람이 바꾼 것이 있으면 알린다')
+  const quiet = await folderWith('내 설정만')
+  await S.upload(quiet, owner, '.mcp.json', Buffer.from('{}\n'))
+  const qv = await personVar(quiet, owner, '내 것')
+  const t2 = await T.trustOf(await S.folderById(quiet.id), await S.variationById(qv.id), owner)
+  assert.deepEqual([t2.files.length, t2.warn], [1, false], '내가 둔 것만이면 알리지 않는다(목록은 준다)')
 })
 
 test('WL-P-08 설정에서 기기 연결을 끊으면 그 기기의 작업본 자리는 보관 중 — 채팅 실행의 자리 · 다른 기기의 자리는 그대로', { skip: !db && 'no database' }, async () => {

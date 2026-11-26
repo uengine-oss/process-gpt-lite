@@ -163,6 +163,10 @@ function readBody(req, limit) {
   })
 }
 
+// the server's own environment for git http-backend, without GIT_PROTOCOL: a v2 upload-pack would hand out any object it holds by id
+// (hidden desktop branches, refused pushes); only v0 is served
+export const backendEnv = (env) => { const { GIT_PROTOCOL, ...rest } = env || {}; void GIT_PROTOCOL; return rest }
+
 // git http-backend as a CGI program: its header block (Status:, Content-Type: …) becomes the response's,
 // the rest streams through. `body`: a Buffer already read, else the request streams into it. hold: the response is not ended here
 // (the caller ends it — after() has looked at the push first, so the client's push is over only then)
@@ -180,7 +184,7 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
       ...hide.map((r) => ['transfer.hideRefs', r]),
     ]
     const env = {
-      ...G.gitEnv(),
+      ...backendEnv(G.gitEnv()),
       GIT_PROJECT_ROOT: folder.repo_path,
       GIT_HTTP_EXPORT_ALL: '1',
       PATH_INFO: pathInfo,
@@ -252,13 +256,13 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
 // (devices.js syncAccess), and after() looks at what such a push brought in, still inside the folder's lock (a file that must not be
 // there puts the branch back at once).
 // And a desktop's working-copy token (scope 'seat' — a variation whose seat is that computer, lib/folders/seatLink.js): one variation at one
-// epoch, pushing only to pgpt-agent/seat-<variation 8>-<epoch>/; check() looks again at the device, the seat (still that device, still
+// epoch, pushing only to pgpt-agent/seat-<variation id>-<epoch>/; check() looks again at the device, the seat (still that device, still
 // that epoch) and the role on every request (devices.js seatAccess) — and its one-push sibling (scope 'left', devices.js leftAccess) for
 // what a computer that lost the seat still had.
 // The desktops' own branches of a folder, as git's hidden-ref entries: git hides whole ref path parts, so each part is named —
 //   refs/heads/pgpt-agent/sync-<device 8>/…           a computer's champion folder upload (lib/folders/sources.js)
-//   refs/heads/pgpt-agent/seat-<variation 8>-<epoch>/… a computer's working copy of a variation at one epoch (lib/folders/seatLink.js)
-//   refs/heads/pgpt-agent/left-<variation 8>-<device 8>/… what a computer that lost a variation's seat still had (seatLink.js)
+//   refs/heads/pgpt-agent/seat-<variation id>-<epoch>/… a computer's working copy of a variation at one epoch (lib/folders/seatLink.js)
+//   refs/heads/pgpt-agent/left-<variation id>-<device 8>/… what a computer that lost a variation's seat still had (seatLink.js)
 // those there now, and those about to be (every computer bound to the folder; every computer's seat on it): a branch is never there
 // unhidden. A desktop token's own part is left out (a sync token sees its device's, a seat token its variation and epoch's, a left token its
 // variation and device's). → ['refs/heads/pgpt-agent/sync-…', …]
@@ -271,7 +275,7 @@ const ownPart = (claims) => {
   const part = OWN[claims?.scope]
   return part && String(claims.push || '').startsWith(part) ? `refs/heads/${String(claims.push).replace(/\/+$/, '')}` : null
 }
-export const seatPart = (variationId, epoch) => `refs/heads/${SEAT_PART}${String(variationId).slice(0, 8)}-${Number(epoch) || 0}`
+export const seatPart = (variationId, epoch) => `refs/heads/${SEAT_PART}${String(variationId)}-${Number(epoch) || 0}`
 export async function syncHidden(folder, claims) {
   const parts = new Set()
   for (const r of (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', `refs/heads/${PUSH_PREFIX}`])).split('\n')) {

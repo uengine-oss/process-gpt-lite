@@ -46,6 +46,8 @@ export const folders = {
   keptCheck: (slug, vid, id) => call(`/folders/${enc(slug)}/variations/${vid}/kept/${enc(id)}?check=1`),
   // 「이 PC 에서 작업」 (desktop 0.2.6): the seat to one of my linked computers — it makes the working copy and says ready (src/desktopSeats.js)
   openOnPc: (slug, vid, deviceId) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'POST', body: { to: 'device', deviceId } }),
+  // before 「이 PC 에서 작업」: the files of the variation that run things by themselves on a computer, and who changed each last
+  seatTrust: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/trust`),
   seatPrefs: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'PATCH', body }),
   // what the 작업실 sheet needs at once: my variations of the folder with their seats, my computers, whether I may open main
   workroom: (slug) => call(`/folders/${enc(slug)}/workroom`),

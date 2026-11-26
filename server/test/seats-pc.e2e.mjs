@@ -173,7 +173,7 @@ await step('SP-E-02 「이 PC 에서 작업」: POST …/seat {to:device} → se
   prep = await pc.next('seat:prepare', at)
   assert.deepEqual([prep.variation, prep.folderId, prep.folderName, prep.title, prep.branch, prep.path], [v.id, folder.id, '고객 세미나', '마감일 추가', v.branch, `/api/local-git/${folder.id}.git`])
   const c = claimsOf(prep.token)
-  assert.deepEqual([c.scope, c.device, c.seat, c.epoch, c.push], ['seat', dev.device.id, v.id, prep.epoch, `pgpt-agent/seat-${v.id.slice(0, 8)}-${prep.epoch}/`])
+  assert.deepEqual([c.scope, c.device, c.seat, c.epoch, c.push], ['seat', dev.device.id, v.id, prep.epoch, `pgpt-agent/seat-${v.id}-${prep.epoch}/`])
   assert.ok(Math.abs(c.exp - Date.now() / 1000 - 3600) < 60, '1시간')
   // the PC: its clone (a plain one here — the app's is a bare repository and a worktree) fetched with that token
   work = path.join(ROOT, 'pc', 'wt')
@@ -209,7 +209,7 @@ let one
 await step('SP-E-03 저장 지점: 커밋 → seat:token → 그 회차의 가지로 push → 수(seat:status)가 웹에 → seat:pushed → 변형이 앞으로 · 「지금 올리기」 · 스위치가 PC 로', async () => {
   const t = await pc.ask({ type: 'seat:token', variation: v.id, epoch: epoch1, for: 'push' }, ['seat:token', 'seat:refused'])
   assert.equal(t.type, 'seat:token', JSON.stringify(t))
-  assert.equal(t.branch, `pgpt-agent/seat-${v.id.slice(0, 8)}-${epoch1}/head`)
+  assert.equal(t.branch, `pgpt-agent/seat-${v.id}-${epoch1}/head`)
   assert.equal(t.person.name, '한소유')
   await write(work, { '안내문.md': `${NOTICE}마감: 11월 30일\n`, '체크리스트.md': '- 장소 예약\n- 다과\n' })
   pc.send({ type: 'seat:status', variation: v.id, epoch: epoch1, dirty: 2, ahead: 0, branchOk: true })
@@ -307,7 +307,7 @@ await step('SP-E-05 자리를 잃은 PC: 꺼진 사이 웹에서 가져옴 → �
   // what it still has comes back as a variation of its own
   const lt = await pc.ask({ type: 'seat:token', variation: v.id, epoch: p2.epoch, for: 'left' }, ['seat:token', 'seat:refused'])
   assert.equal(lt.type, 'seat:token', JSON.stringify(lt))
-  assert.equal(lt.branch, `pgpt-agent/left-${v.id.slice(0, 8)}-${dev.device.id.slice(0, 8)}/head`)
+  assert.equal(lt.branch, `pgpt-agent/left-${v.id}-${dev.device.id.slice(0, 8)}/head`)
   const up = await git(work, ['push', '-q', urlOf(lt), `HEAD:refs/heads/${lt.branch}`], lt.token)
   assert.equal(up.code, 0, up.err)
   assert.match((await git(work, ['push', urlOf(lt), `HEAD:refs/heads/${lt.push}again`], lt.token)).err, /403/, '한 번만')

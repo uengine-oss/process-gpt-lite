@@ -4,11 +4,11 @@
 // The seat moves to a computer (seats.claimDevice, state moving) and the computer is told over its link (localAgents/hub.js) to make the
 // working copy — a clone of the folder and a git worktree of the variation's branch under the app's data folder. Once it says ready the seat
 // is held there; what it commits comes back through the public git path (/api/local-git, gitHttp.js) on a branch of its own epoch
-// (pgpt-agent/seat-<variation 8>-<epoch>/head) and the server moves the variation's branch forward to it — only forward: nothing else moves
+// (pgpt-agent/seat-<variation id>-<epoch>/head) and the server moves the variation's branch forward to it — only forward: nothing else moves
 // that branch while the seat is there, so a head that is not ahead means the rules were broken somewhere and it is refused. Giving the seat
 // back (「돌려놓기」) pushes what is there as it is first. A computer that lost the seat (taken while it was off, put away meanwhile) never
 // pushes into the variation again: its old token is refused, and what it still had comes in as a variation of its own (seats.leftover —
-// 「<title> — <PC>에 남아 있던 변경」) through a one-push token on pgpt-agent/left-<variation 8>-<device 8>/head.
+// 「<title> — <PC>에 남아 있던 변경」) through a one-push token on pgpt-agent/left-<variation id>-<device 8>/head.
 // Every message is looked up in the link's company and for the link's person only; nothing here takes a path from a computer or sends one.
 //   PC → server   seat:ready · seat:failed · seat:token {for: push | left} · seat:pushed · seat:release · seat:status · seat:prefs · seat:left
 //   server → PC   seat:list · seat:prepare · seat:held · seat:token · seat:taken · seat:released · seat:left-taken · seat:refused ·
@@ -27,6 +27,7 @@ import * as SE from './seats.js'
 import * as D from '../localAgents/devices.js'
 import { mintToken } from './gitHttp.js'
 import { inspect } from './sources.js'
+import { stillHeld } from './diskLease.js'
 
 const T = () => config.tenantId
 export const TOKEN_HOURS = 1
@@ -36,9 +37,10 @@ const ZERO = /^0{40}$/
 const legacyNone = (e) => { if (e?.code === '42P01' || e?.code === '42703') return []; throw e }
 
 // ---------- names ----------
-export const seatPrefix = (vid, epoch) => `pgpt-agent/seat-${String(vid).slice(0, 8)}-${Number(epoch) || 0}/`
+// (the whole variation id: two variations whose ids start alike never share a branch)
+export const seatPrefix = (vid, epoch) => `pgpt-agent/seat-${String(vid)}-${Number(epoch) || 0}/`
 export const seatBranch = (vid, epoch) => `${seatPrefix(vid, epoch)}head`
-export const leftPrefix = (vid, deviceId) => `pgpt-agent/left-${String(vid).slice(0, 8)}-${String(deviceId).slice(0, 8)}/`
+export const leftPrefix = (vid, deviceId) => `pgpt-agent/left-${String(vid)}-${String(deviceId).slice(0, 8)}/`
 export const leftBranch = (vid, deviceId) => `${leftPrefix(vid, deviceId)}head`
 export const handles = (msg) => typeof msg?.type === 'string' && msg.type.startsWith('seat:')
 const isAncestor = async (repo, a, b) => !!a && !!b && (await G.mergeBase(repo, a, b)) === a
@@ -90,7 +92,7 @@ export async function afterPush(claims, folder, commands) {
     remember(v.id, c.new, no)
     console.warn(`[seats] ${folder.slug}: a push from ${String(claims.device).slice(0, 8)} for ${v.id.slice(0, 8)} was refused (${no.why}${no.paths ? `, ${no.paths.length} file(s)` : ''}) — its branch is put back`)
   }
-  if (claims.scope === 'left' && through) D.useOnce(claims.once)
+  if (claims.scope === 'left' && through) await D.useOnce({ ...claims, folder: folder.id })
 }
 
 // ---------- who may ----------
@@ -161,11 +163,13 @@ export async function prepare(link, folder, v, { epoch, autoSave = true }) {
 // ---------- the link's messages ----------
 export async function receive(link, msg) {
   const vid = String(msg?.variation || '')
-  const refuse = (why, extra = {}) => link.send({ type: 'seat:refused', variation: vid, why, ...extra })
+  // (re: the message this answers — the computer's waits end only on the answer to their own message)
+  const refuse = (why, extra = {}) => link.send({ type: 'seat:refused', variation: vid, re: msg.type, why, ...extra })
   if (tooOften(link)) return refuse('rate_limited', msg.type === 'seat:token' ? { for: msg.for === 'left' ? 'left' : 'push' } : {})
   try {
     if (msg.type === 'seat:ready') return await ready(link, vid, msg, refuse)
     if (msg.type === 'seat:failed') return await failed(link, vid, msg)
+    if (msg.type === 'seat:preparing') return await preparing(link, vid, msg)
     if (msg.type === 'seat:token') return await token(link, vid, msg, refuse)
     if (msg.type === 'seat:pushed') return await pushedIn(link, vid, msg, refuse)
     if (msg.type === 'seat:release') return await release(link, vid, msg, refuse)
@@ -200,6 +204,14 @@ async function ready(link, vid, msg, refuse) {
   if (!out.ok) return refuse(out.why)
   link.send({ type: 'seat:held', variation: vid, epoch: Number(out.seat.epoch), head: vhead })
   await told(at.folder, vid, link.userId)
+}
+
+// the computer is still fetching the folder and adding the working copy (a large folder's first fetch takes longer than a move may): this
+// computer's seat at that epoch, still moving, gets its deadline again. No reply.
+async function preparing(link, vid, msg) {
+  if (!UUID.test(vid) || msg.epoch == null) return
+  await q(`update pro_variation_seats set deadline = now() + ($6 || ' milliseconds')::interval where variation_id=$1 and device_id=$2 and epoch=$3 and tenant_id=$4
+             and user_id=$5 and place='device' and state='moving' and job_id is null`, [vid, link.id, Number(msg.epoch) || 0, link.tenant, String(link.userId), String(SE.MOVE_MS)]).catch(legacyNone)
 }
 
 // the computer could not make the working copy (or no longer has it): the seat goes (보관 중 — the branch has everything it last took)
@@ -262,6 +274,8 @@ async function absorb(link, at, epoch, head) {
     const vhead = await G.head(folder.repo_path, `refs/heads/${cur.branch}`)
     if (vhead === head) return { taken: true, head, again: true }
     if (vhead && !(await isAncestor(folder.repo_path, vhead, head))) return { why: 'diverged' }
+    // (the variation's lease still ours — a lease lost meanwhile stops here, before the branch moves)
+    await stillHeld('absorb')
     await G.git(folder.repo_path, ['update-ref', `refs/heads/${cur.branch}`, head, ...(vhead ? [vhead] : [])])
     await q('update pro_folder_variations set head_commit=$2, updated_at=now() where id=$1', [v.id, head])
     await SE.pushed(v.id, head)
@@ -357,6 +371,7 @@ async function left(link, vid, msg, refuse) {
     const tip = await G.head(at.folder.repo_path, `refs/heads/${branch}`)
     if (tip !== head) return refusalFor(vid, head) || { why: 'conflict' }
     const [d] = await q('select name from pro_local_devices where id=$1', [link.id])
+    await stillHeld('left')
     const nv = await SE.leftover(at.folder, await S.variationById(vid), head, { user: link.userId, where: d?.name || 'PC' })
     await G.git(at.folder.repo_path, ['update-ref', '-d', `refs/heads/${branch}`, head], { check: false })
     return { nv }

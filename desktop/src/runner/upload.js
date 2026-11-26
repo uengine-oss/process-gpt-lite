@@ -76,10 +76,11 @@ class Uploader extends EventEmitter {
     tail.then(() => { if (this.locks.get(key) === tail) this.locks.delete(key) })
     return run
   }
-  // a message to the server and its answer (one of `types`, or <prefix>refused) for the same key
+  // a message to the server and its answer (one of `types`, or <prefix>refused) for the same key. A refusal that names the message it
+  // answers (re — the server's seat:refused does) ends only the wait for that message: a refused status report never ends a release's wait
   ask(msg, types, ms = this.askMs) {
     return new Promise((resolve) => {
-      const w = { key: this.keyOf(msg), types: new Set([...types, `${this.prefix}refused`]) }
+      const w = { key: this.keyOf(msg), asked: String(msg?.type || ''), types: new Set([...types, `${this.prefix}refused`]) }
       w.done = (m) => { clearTimeout(w.timer); this.waiters.delete(w); resolve(m) }
       w.timer = setTimeout(() => w.done({ why: 'timeout' }), ms)
       this.waiters.add(w)
@@ -89,7 +90,13 @@ class Uploader extends EventEmitter {
   // a message from the server that someone waits for → true (it was taken), else false (the caller handles it as the server's own word)
   answer(msg) {
     const k = this.keyOf(msg)
-    for (const w of this.waiters) if (w.key === k && w.types.has(msg.type)) { w.done(msg); return true }
+    const refusal = msg?.type === `${this.prefix}refused`
+    for (const w of this.waiters) {
+      if (w.key !== k || !w.types.has(msg.type)) continue
+      if (refusal && msg.re && w.asked && msg.re !== w.asked) continue
+      w.done(msg)
+      return true
+    }
     return false
   }
   // the folder's git address from a token answer: a path on this server, or a full address

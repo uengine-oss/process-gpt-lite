@@ -15,6 +15,7 @@ const props = defineProps({ vid: String, dark: Boolean })
 // 「돌려놓기」) before the answer comes back here
 const emit = defineEmits(['released', 'say', 'busy'])
 const pc = computed(() => pcSeatOf(props.vid))
+const hasTrash = typeof bridge()?.openTrash === 'function'
 const busy = ref('')
 const note = ref([])
 // (each sentence its own line: the English dictionary translates each whole)
@@ -50,6 +51,7 @@ async function act(what) {
   try {
     if (what === 'reveal') { const r = await b.reveal(props.vid); if (!r?.ok) say(seatWhy(r?.why)) }
     else if (what === 'terminal') { const r = await b.openTerminal(props.vid); if (!r?.ok) say(r?.why === 'no_terminal' ? '이 PC 에서 터미널을 찾지 못했어요.' : seatWhy(r?.why)) }
+    else if (what === 'trash') { const r = await b.openTrash(); if (!r?.ok) say(seatWhy(r?.why)) }
     else if (what === 'save') {
       const r = await b.saveNow(props.vid)
       say(r?.ok ? (r.changed === false ? '올릴 새 변경이 없어요 — 이미 다 올라가 있어요.' : '지금 상태를 이 변형에 올렸어요.') : seatWhy(r?.why))
@@ -85,6 +87,7 @@ async function setAuto(on) {
     <span class="acts">
       <button class="tb press" data-test="pc-reveal" :disabled="!!busy" @click="act('reveal')"><FIcon name="folder" :size="14" /> 폴더 열기</button>
       <button class="tb press" data-test="pc-terminal" :disabled="!!busy" @click="act('terminal')"><FIcon name="terminal" :size="14" /> 터미널 열기</button>
+      <button v-if="hasTrash" class="tb press" data-test="pc-trash" title="이 PC 에만 있던 파일 · 돌려놓은 작업본이 30일 동안 남는 곳" @click="act('trash')"><FIcon name="archive" :size="14" /> 휴지통</button>
       <button class="tb press" data-test="pc-save" :disabled="!!busy || pc.busy" @click="act('save')">{{ busy === 'save' ? '올리는 중…' : '지금 올리기' }}</button>
       <button class="tb press dk" data-test="pc-release" :disabled="!!busy || pc.busy" @click="act('release')"><FIcon name="archive" :size="14" /> {{ busy === 'release' ? '돌려놓는 중…' : '돌려놓기' }}</button>
     </span>

@@ -634,6 +634,10 @@ function seatNotice(n) {
   } else if (n.kind === 'left') {
     title = ko ? `「${t}」 — 이 PC 에 남아 있던 변경이 새 변형으로 올라왔어요` : `"${t}" — the changes left on this PC came up as a new variation`
     body = n.newVariation?.title || ''
+  } else if (n.kind === 'trashed' && n.kept) {
+    // (moved without anything else to say — what only this PC had of a copy whose seat went, a folder left behind: never silently)
+    title = ko ? `「${t || '작업본'}」 — 이 PC 에만 있던 파일 ${n.kept}개를 앱 휴지통으로 옮겼어요` : `"${t || 'Working copy'}" — ${n.kept} files only this PC had were moved to the app's trash`
+    body = ko ? '30일 동안 남아 있어요. 작업실의 「휴지통 열기」로 볼 수 있어요.' : 'They stay for 30 days. Open them with "Open trash" in the workroom.'
   } else if (n.kind === 'released' && n.kept) {
     title = ko ? `「${t}」을 돌려놓았어요 — 이 PC 에만 있던 파일 ${n.kept}개는 앱의 휴지통에 30일 동안 둬요` : `"${t}" was given back — ${n.kept} files only this PC had are kept in the app's trash for 30 days`
   } else return
@@ -704,6 +708,17 @@ ipcMain.handle('pgl:seats:auto', (e, id, on) => {
   if (!fromServerPage(e)) return { ok: false, why: 'denied' }
   const s = seatEngine()
   return s ? s.setAuto(vidOf(id), on === true) : { ok: false, why: 'not_linked' }
+})
+// 「휴지통 열기」: the app's trash for working copies (what git did not carry, copies given back or let go — 30 days) in Finder · Explorer
+ipcMain.handle('pgl:seats:open-trash', async (e) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const s = seatEngine()
+  if (!s) return { ok: false, why: 'not_linked' }
+  const dir = s.trashDir()
+  try { require('node:fs').mkdirSync(dir, { recursive: true }) } catch { /* opened as it is */ }
+  if (process.env.PGL_DESKTOP_EXTERNAL === 'log') { (global.__pglRevealed ||= []).push(dir); return { ok: true } }
+  const err = await shell.openPath(dir).catch((x) => x.message)
+  return err ? { ok: false, why: 'folder_missing' } : { ok: true }
 })
 // 「남은 변경 버리기」: only after the person's yes in a system dialog (the files still go to the app's trash for 30 days)
 ipcMain.handle('pgl:seats:drop-left', async (e, id) => {

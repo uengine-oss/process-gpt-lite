@@ -13,6 +13,7 @@
 //   F-WL-12 「돌려놓기」 → 보관 중, 작업 트리 없음, .env 는 앱 휴지통 → 서버 작업실에서 같은 내용
 //   F-WL-13 꺼진 PC 의 자리를 웹에서 가져오면, PC 가 돌아와 「남아 있던 변경」 변형으로 올린다
 //   F-WL-14 웹(앱 아님)의 「작업실」은 서버 작업실과 데스크톱 앱 안내만
+//   F-WL-15 남이 넣은 실행 설정(.mcp.json)이 든 변형: 시트가 먼저 파일과 바꾼 사람을 알리고, 「그래도 열기」로 이 PC 에 받는다
 // It starts its own stack — a BFF (PRO_BACKGROUND=0, tenant seats-pc-ui) on 8972 and Vite on 5372 in front of it (the next free port when
 // taken) — and removes what it made.
 //   cd e2e && npx playwright test --project=desktop tests/desktop/seats.spec.js
@@ -202,6 +203,10 @@ test('F-WL-10 앱에서 「작업실」 → 「이 PC 에서 작업」(기본) �
   await waitFor(async () => (await app.evaluate(() => global.__pglTerminals || [])).length, 10000, 'terminal')
   expect(await app.evaluate(() => global.__pglRevealed || [])).toEqual([wt])
   expect(await app.evaluate(() => global.__pglTerminals || [])).toEqual([wt])
+  // 「휴지통」: the app's trash for working copies, opened by main (the page never learns where it is)
+  await bar.locator('[data-test=pc-trash]').click()
+  await waitFor(async () => (await app.evaluate(() => global.__pglRevealed || [])).length === 2, 10000, 'trash opened')
+  expect((await app.evaluate(() => global.__pglRevealed))[1]).toBe(path.join(APPDATA, 'local-agents', 'trash'))
   await shot(page, 'f-wl-10-workroom-this-pc-light')
   await look({ theme: 'dark' })
   await expect(page.locator('[data-test=pc-bar]')).toBeVisible({ timeout: 20000 })
@@ -347,5 +352,39 @@ test('F-WL-14 웹(앱 아님)의 「작업실」은 서버 작업실과 데스�
     expect(w.errors).toEqual([])
     await w.context().close()
   }
+  expect(errors, errors.join(' | ')).toEqual([])
+})
+
+test('F-WL-15 남이 넣은 실행 설정이 든 변형: 시트가 파일과 바꾼 사람을 먼저 알리고, 「그래도 열기」로 이 PC 에 받는다', async () => {
+  // 박동료 puts an MCP server setting into main; 김작업's new variation carries it
+  await call(other, `/folders/${encodeURIComponent(slug)}/files?path=${encodeURIComponent('.mcp.json')}`, { method: 'POST', raw: '{"mcpServers":{"tool":{"command":"node","args":["tool.js"]}}}\n' })
+  const v2 = (await call(me, `/folders/${encodeURIComponent(slug)}/variations`, { method: 'POST', body: { title: '자동화 설정' } })).id
+  await page.goto(`${WEB()}/folders/${encodeURIComponent(slug)}/v/${v2}`)
+  await page.locator('[data-test=seat-open]').click()
+  const sheet = page.locator('[data-test=seat-sheet]')
+  await expect(sheet.locator('[data-test=seat-sheet-pc]')).toBeEnabled({ timeout: 20000 })
+  await sheet.locator('[data-test=seat-sheet-pc]').click()
+  const warn = sheet.locator('[data-test=seat-trust]')
+  await expect(warn).toBeVisible({ timeout: 20000 })
+  await expect(warn).toContainText('.mcp.json')
+  await expect(warn).toContainText('MCP 서버')
+  await expect(warn).toContainText('박동료 님이 바꿈')
+  // nothing came to this PC yet
+  expect(workingCopies()).toEqual([])
+  await shot(page, 'f-wl-15-trust-light')
+  await look({ width: 390, height: 844, theme: 'dark' })
+  await page.locator('[data-test=seat-open]').click()
+  await page.locator('[data-test=seat-sheet-pc]').click()
+  await expect(page.locator('[data-test=seat-trust]')).toBeVisible({ timeout: 20000 })
+  await noSideways(page)
+  await shot(page, 'f-wl-15-trust-390-dark')
+  await page.locator('[data-test=seat-trust-open]').click()
+  await page.waitForURL(new RegExp(`/workroom/variation/${v2}`), { timeout: 60000 })
+  await expect(page.locator('[data-test=pc-bar]')).toBeVisible({ timeout: 20000 })
+  const [copy] = workingCopies()
+  expect(fs.existsSync(path.join(copy, '.mcp.json'))).toBe(true)
+  await look({ theme: 'light' })
+  await page.locator('[data-test=pc-release]').click()
+  await page.waitForURL(new RegExp(`/folders/[^/]+/v/${v2}`), { timeout: 60000 })
   expect(errors, errors.join(' | ')).toEqual([])
 })

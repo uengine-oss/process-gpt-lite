@@ -297,6 +297,14 @@ export function folderRoutes(auth) {
     emit(req.user.id, 'folders', { slug: folder.slug, variation: v.id })
     return { ok: true, seat: await SE.viewOf(seat, now, { me: req.user, role }) }
   }
+  // before 「이 PC 에서 작업」: what of the variation would run things on a computer by itself (hooks · MCP · .envrc · VS Code tasks · Windows
+  // shell files) and who changed each last — the sheet warns and the person goes on with 「그래도 열기」 (lib/folders/seatTrust.js)
+  r.get('/folders/:slug/variations/:vid/trust', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'runner')
+    const v = await S.variation(folder, req.params.vid)
+    const { trustOf } = await import('../lib/folders/seatTrust.js')
+    return trustOf(folder, v, req.user)
+  }))
   // 「돌려놓기」: my server workroom's working copy is saved as it is and put away (보관 중); the variation is ready to review
   r.post('/folders/:slug/variations/:vid/seat/release', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
