@@ -138,7 +138,8 @@ export function inside(room, rel) {
   if (p !== room.root && !p.startsWith(room.root + path.sep)) throw Object.assign(new Error('outside'), { status: 400 })
   if (gitPart(path.relative(room.root, p))) throw Object.assign(new Error('not a document path'), { status: 400 })
   // where it really lands (a file not made yet: its nearest existing folder): inside the room, not in .git
-  const rootReal = realpathSync(room.root)
+  let rootReal
+  try { rootReal = realpathSync(room.root) } catch { return p } // the room's folder is made by the first write
   let probe = p, rest = ''
   for (;;) {
     try { const real = realpathSync(probe); probe = rest ? path.join(real, rest) : real; break } catch { /* not there yet */ }
