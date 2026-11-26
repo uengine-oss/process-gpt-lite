@@ -9,6 +9,8 @@ import { useApp } from './stores/app.js'
 import { useTeam } from './stores/team.js'
 import { newVersion, watchVersion } from './appVersion.js'
 import { runner, startDesktopRunner } from './localRunner.js'
+// what another app shared to Process GPT (Android's share sheet → public/sw.js): into the place open on this device, or 「어디에 넣을까요?」
+import ShareArrival from './components/ShareArrival.vue'
 
 // On every page, loaded when first shown (not with the sign-in page):
 // - the open document and a mail's sheet: opened from the team messenger, a meeting or a Home card, they showed only on the
@@ -65,6 +67,7 @@ const later = () => { newVersion.value = false }
     <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
     <Teleport to="body"><Transition name="fade"><Messenger v-if="team.open && teamHere" /></Transition></Teleport>
     <MediaViewer v-if="app.media" />
+    <ShareArrival />
     <!-- a newer build was deployed while this page stayed open: reload to get it (appVersion.js) -->
     <div v-if="newVersion" class="newver" role="status" data-test="new-version">
       <span>새 버전이 나왔어요. 새로 고침하면 바로 적용돼요.</span>

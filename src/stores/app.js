@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { runner as localRunner, startDesktopRunner, disconnectThis } from '../localRunner.js'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
 import { BASE } from '../base.js'
+import { forgetPlaces } from '../shareTarget.js'
 import { syncLang, isEnglish } from '../i18n/lang.js'
 import { officeEditorFor, CRAFT_APPS } from '../officeEditor.js'
 import { announce } from '../browserNotify.js'
@@ -36,6 +37,9 @@ export function officeDocOf(msgId, c) {
   // one, and an editor's save never puts an address on it
   return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}), ...(c?.private ? { private: true } : {}) }
 }
+
+// an attachment's upload, to stop it (not in the store's state: an AbortController is no data to watch)
+const abortOf = new Map()
 
 export const useApp = defineStore('app', {
   state: () => ({
@@ -352,16 +356,26 @@ export const useApp = defineStore('app', {
     },
 
     // composer attachments: upload starts at once, so sending only waits for what is still going
-    addAttachments(list) {
+    // extra: marks on each (share: the id of a share from another app — components/ShareArrival.vue takes those back for 「다른 곳에」)
+    addAttachments(list, extra = {}) {
       for (const file of [...list].slice(0, 10)) {
-        const a = { id: crypto.randomUUID(), name: file.name, size: file.size, state: 'uploading', result: null, error: '' }
+        const a = { id: crypto.randomUUID(), name: file.name, size: file.size, state: 'uploading', result: null, error: '', ...extra }
         this.attachments.push(a)
-        a.job = uploadAttachment(file)
+        // (taken away before it is up — its ×, or a share put somewhere else: the upload stops)
+        const ctl = typeof AbortController === 'function' ? new AbortController() : null
+        abortOf.set(a.id, ctl)
+        a.job = uploadAttachment(file, { signal: ctl?.signal })
           .then((r) => { const x = this.attachments.find((y) => y.id === a.id); if (x) { x.state = 'ready'; x.result = r } })
           .catch((e) => { const x = this.attachments.find((y) => y.id === a.id); if (x) { x.state = 'error'; x.error = e.message } })
+          .finally(() => abortOf.delete(a.id))
       }
     },
-    removeAttachment(id) { this.attachments = this.attachments.filter((a) => a.id !== id) },
+    removeAttachment(id) { this.dropAttachments((a) => a.id === id) },
+    // the chips that match go, and their uploads still going stop
+    dropAttachments(match) {
+      for (const a of this.attachments.filter(match)) { if (a.state === 'uploading') abortOf.get(a.id)?.abort(); abortOf.delete(a.id) }
+      this.attachments = this.attachments.filter((a) => !match(a))
+    },
     // dropped files of the app → chips at once, then what each one is (or why it cannot be used) from the server
     addFileRefs(items) {
       const job = this._addFileRefs(items)
@@ -626,6 +640,8 @@ export const useApp = defineStore('app', {
     // (in the desktop app this computer's local runner is let go first: it no longer runs this person's steps)
     async logout() {
       if (localRunner.desktop) await disconnectThis({ optOut: false }).catch(() => {})
+      // (this device forgets the places kept for sharing, a share still waiting and the messenger's unsent words — src/shareTarget.js)
+      try { forgetPlaces(window.localStorage, window.sessionStorage) } catch { /* nothing kept */ }
       auth.clear(); location.href = BASE + '/login'
     },
   },

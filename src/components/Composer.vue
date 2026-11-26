@@ -17,6 +17,8 @@ import { BASE } from '../base.js'
 // a file of the app dragged onto the composer (src/fileDrag.js): a chip, and the turn reads that file (server lib/fileRefs.js turnRefs)
 import { dragKind, itemsOf, zoneWords, dragging as draggedItems } from '../fileDrag.js'
 import { kindOf, kindLabel } from '../artifacts.js'
+// words another app shared, put here and then taken to another place (「다른 곳에」 — components/ShareArrival.vue)
+import { inbox } from '../shareInbox.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
 const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
@@ -91,6 +93,7 @@ watch(() => app.prefill, async (v) => {
   await nextTick()
   ta.value?.focus()
 }, { immediate: true })
+watch(() => inbox.takeBack, (t) => { if (t?.text && text.value.includes(t.text)) text.value = text.value.replace(t.text, '').trim() })
 // an open document's own AI 도우미 button lands here (OfficeSheet): the chat composer, not the overlay's
 watch(() => app.focusTick, () => { if (!props.overlay) ta.value?.focus() })
 watch(text, async () => {
@@ -218,7 +221,7 @@ defineExpose({ focus: () => ta.value?.focus() })
       </span>
     </div>
     <div v-if="app.attachments.length" class="atts">
-      <span v-for="a in app.attachments" :key="a.id" class="att glass-thin" :class="a.state">
+      <span v-for="a in app.attachments" :key="a.id" class="att glass-thin" :class="a.state" data-test="chat-attachment" :data-file="a.name" :data-state="a.state">
         <Icon name="doc" :size="14" /> <b>{{ a.name }}</b>
         <small>{{ a.state === 'uploading' ? '올리는 중…' : a.state === 'error' ? a.error : kb(a.size) }}</small>
         <button class="x" aria-label="빼기" @click="app.removeAttachment(a.id)">×</button>

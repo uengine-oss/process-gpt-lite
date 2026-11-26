@@ -3074,6 +3074,27 @@
   "이 PC 연결하기": "Connect this PC",
   "머리말": "Front matter",
   "연결하는 중…": "Connecting…",
+  "보내기를 눌러야 보내져요.": "It's not sent until you tap Send.",
+  "다른 곳에": "Elsewhere",
+  "어디에 넣을까요?": "Where should this go?",
+  "내 채팅": "My chat",
+  "Process GPT 채팅": "Process GPT chat",
+  "AI에게 이 파일로 질문하기": "Ask the AI about this file",
+  "AI에게 이 글로 질문하기": "Ask the AI about this text",
+  "1:1 대화": "Direct message",
+  "최근에 연 폴더": "Opened recently",
+  "넣기만 하고 보내지는 않아요. 보내기는 직접 눌러 주세요.": "Nothing is sent — it's only added. Tap Send yourself.",
+  "함께 온 글은 폴더에 넣지 않아요.": "Text shared with it isn't added to the folder.",
+  "공유한 내용을 받지 못했어요. 다시 공유해 주세요.": "The shared item didn't arrive. Please share it again.",
+  "공유한 내용을 찾지 못했어요. 다시 공유해 주세요.": "Couldn't find what was shared. Please share it again.",
+  "공유한 내용이 비어 있어요.": "What was shared is empty.",
+  "이 폴더에 넣을 권한이 없어요. 넣을 곳을 골라 주세요.": "You can't add files to this folder. Choose another place.",
+  "글 · 링크": "Text · Link",
+  "휴대폰 홈 화면에 추가하면 다른 앱의 「공유」에 Process GPT 가 나타나요.": "Add it to your phone's home screen and Process GPT appears in other apps' Share menu.",
+  "보이지 않으면 홈 화면의 아이콘을 지우고 다시 추가해 주세요.": "If it doesn't show, remove the home-screen icon and add it again.",
+  "지금 열어 둔 곳": "Open right now",
+  "마지막으로 연 곳": "Last opened",
+  "공유한 파일이 너무 커요. 한 번에 200MB까지 받을 수 있어요.": "The shared files are too large. Up to 200MB can be taken at once.",
   "안 열어 봄": "Not opened",
   "열어 봄": "Opened",
   "에이전트가 고침": "Changed by the agent",
@@ -3123,6 +3144,16 @@
    "Downloaded the last saved version — your latest edits aren't in it · {0}"
   ],
   [
+   "파일 {0}개는 한 번에 받을 수 있는 200MB를 넘어서 넣지 못했어요.",
+   "{0} files went over the 200MB limit for one share and were not added."
+  ],
+  [
+   "파일은 한 번에 {0}개까지 받아요. {1}개는 넣지 못했어요.",
+   "Up to {0} files at a time. {1} were not added."
+  ],
+  [
+   "공유한 파일 {0}개와 글을 ‘{1}’ 입력창에 넣었어요.",
+   "Added {0} shared file(s) and text to the ‘{1}’ message box.",
    "기기 {0}대에 보냈어요. 이 브라우저는 푸시를 받지 못해 직접 띄웠어요.",
    "Sent to {0} devices. This browser can't receive push, so it was shown here."
   ],
@@ -3133,6 +3164,26 @@
   [
    "새 창에서 열었어요 — 거기서 저장하세요 · {0}",
    "Opened in a new tab — save it from there · {0}"
+  ],
+  [
+   "‘{0}’({1})는 50MB가 넘어서 넣지 못했어요.",
+   "‘{0}’ ({1}) is over 50MB and was not added."
+  ],
+  [
+   "파일 {0}개는 50MB가 넘어서 넣지 못했어요.",
+   "{0} files are over 50MB and were not added."
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’ 입력창에 넣었어요.",
+   "Added {0} shared file(s) to the ‘{1}’ message box."
+  ],
+  [
+   "‘{0}’ 파일이 비어 있어서 넣지 못했어요.",
+   "‘{0}’ is empty and was not added."
+  ],
+  [
+   "공유한 글을 ‘{0}’ 입력창에 넣었어요.",
+   "Added the shared text to the ‘{0}’ message box."
   ],
   [
    "방금 저장한 판을 내려받았어요 · {0}",
@@ -3193,6 +3244,10 @@
   [
    "「{0}」와 맞는 산출물이 없어요.",
    "No output matches “{0}”."
+  ],
+  [
+   "빈 파일 {0}개는 넣지 못했어요.",
+   "{0} empty files were not added."
   ],
   [
    "「{0}」와 맞는 대화가 없어요.",
@@ -3747,6 +3802,10 @@
    "MCP servers {0}"
   ],
   [
+   "단체방 · {0}명",
+   "Group · {0} people"
+  ],
+  [
    "유휴 {0} ({1})",
    "Idle {0} ({1})"
   ],
@@ -3983,6 +4042,8 @@
    "{0} files"
   ],
   [
+   "{0} 외 {1}개",
+   "{0} and {1} more",
    "{0}개 고침",
    "{0} edited"
   ],
@@ -7013,6 +7074,22 @@
   [
    "자세히 · {0}단계",
    "Details · {0} steps"
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’에 넣을까요?",
+   "Add {0} shared file(s) to ‘{1}’?"
+  ],
+  [
+   "공유한 파일 {0}개와 글을 ‘{1}’에 넣을까요?",
+   "Add {0} shared file(s) and text to ‘{1}’?"
+  ],
+  [
+   "공유한 글을 ‘{0}’에 넣을까요?",
+   "Add the shared text to ‘{0}’?"
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’ 폴더에 넣을까요?",
+   "Add {0} shared file(s) to the ‘{1}’ folder?"
   ]
  ],
  "context": [
@@ -7220,6 +7297,11 @@
    ".dlb",
    "받는 중…",
    "Downloading…"
+  ],
+  [
+   "[data-test=\"share-put\"]",
+   "넣기",
+   "Add"
   ]
  ],
  "따로 관리되는 폴더 · 링크 · git 제어 파일": "Folders managed on their own · links · git control files",
