@@ -166,7 +166,7 @@ const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1
 // the server, the words vanished). Each one of this room is a line here: 「다시 보내는 중 · N번째」 (그만두기), 「앞의 메시지를 보낸 뒤 보내요」
 // (그만두기), or kept — 「보내지 못했어요 — 까닭」 with 다시 보내기 · 입력창에 넣기 · 지우기. A kept one of this very conversation comes back into
 // an empty box by itself (said once); a box with words in it is never written over — its line keeps the message until the person picks.
-const lines = computed(() => (props.overlay ? [] : app.unsent.filter((u) => u.threadId === app.activeId)))
+const lines = computed(() => (props.overlay ? [] : app.unsent.filter((u) => u.threadId === app.activeId && u.state !== 'sending')))
 const backNote = ref('')
 function intoBox(id) {
   const back = app.takeBackUnsent(id)

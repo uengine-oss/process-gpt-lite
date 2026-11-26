@@ -85,6 +85,10 @@ test.describe('보낸 말이 사라지지 않는다 — 서버가 받지 못한 
     const n = sent.length
     await page.waitForTimeout(6000)
     expect(sent.length).toBe(n)
+    // sent again unchanged, the words keep their name (the server may have the first one already)
+    await page.keyboard.press('Enter')
+    await expect.poll(() => sent.length).toBe(n + 1)
+    expect(sent.at(-1).clientId).toBe(sent[0].clientId)
     expect(page.errors).toEqual([])
   })
 
@@ -94,13 +98,15 @@ test.describe('보낸 말이 사라지지 않는다 — 서버가 받지 못한 
     let refuse = true
     const sent = await routeSends(page, () => (refuse ? { status: 409, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: '잠시 뒤에 다시 보내 주세요.' }) } : ok))
     // (the answer is held until the box has new words: the refusal lands on a box being written in)
-    let release
-    const held = new Promise((r) => { release = r })
+    let release = () => {}
+    let held = Promise.resolve()
+    const hold = () => { held = new Promise((r) => { release = r }) }
     await page.route('**/api/threads/*/messages', async (route) => {
       if (route.request().method() !== 'POST') return route.continue()
       await held
       return route.fallback()
     })
+    hold()
     await page.goto('/chat')
     await send(page, '첫 번째 부탁')
     await box(page).fill('쓰는 중인 다음 말')
@@ -117,8 +123,10 @@ test.describe('보낸 말이 사라지지 않는다 — 서버가 받지 못한 
     // 다시 보내기: the same name again
     await box(page).fill('')
     refuse = true
+    hold()
     await send(page, '두 번째 부탁')
     await box(page).fill('또 쓰는 말')
+    release()
     await expect(line(page)).toHaveAttribute('data-state', 'failed')
     refuse = false
     await line(page).locator('[data-test="send-issue-retry"]').click()
@@ -178,6 +186,31 @@ test.describe('보낸 말이 사라지지 않는다 — 서버가 받지 못한 
     // never out of order: no try of the second before the first stopped
     const firstLast = sent.map((x) => x.text).lastIndexOf('첫 말')
     expect(sent.slice(0, firstLast).some((x) => x.text === '둘째 말')).toBe(false)
+    expect(page.errors).toEqual([])
+  })
+
+  test('F-SR-09 첫 시도가 걸려 있는 동안 새로 고쳐도 남는다 — 다음 시작에 같은 이름으로 보낸다', async ({ pageAs, db }) => {
+    const page = await pageAs('sr-firsttry')
+    await db.clearMain(page.user.id)
+    let hold = true
+    const sent = []
+    await page.route('**/api/threads/*/messages', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      sent.push(route.request().postDataJSON())
+      // the first try hangs (a gateway that has not given up yet): no answer at all
+      if (hold) return
+      await route.fulfill(ok)
+    })
+    await page.goto('/chat')
+    await send(page, '걸린 채 새로 고친 말')
+    await expect.poll(() => sent.length).toBe(1)
+    await expect(line(page)).toHaveCount(0)
+    hold = false
+    await page.reload()
+    await expect.poll(() => sent.length, { timeout: 30_000 }).toBe(2)
+    await expect(line(page)).toHaveCount(0, { timeout: 30_000 })
+    expect(sent[1].clientId).toBe(sent[0].clientId)
+    expect(sent[1].text).toBe('걸린 채 새로 고친 말')
     expect(page.errors).toEqual([])
   })
 

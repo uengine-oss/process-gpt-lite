@@ -22,6 +22,9 @@ let draftJob = Promise.resolve(null)
 const inFlight = new Map()
 const working = new Set()
 const tookChips = new Map()
+// words taken back from a line (그만두기 · 입력창에 넣기): sent again unchanged, they keep their name — the server may have the first one
+// already (it was on its way when it was taken back) and takes a name once (room + words → id)
+const takenBack = new Map()
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms))
 
 // turns this page saw end (turnId → when): a snapshot or a late event does not bring their cards back (src/turnState.js)
@@ -187,7 +190,7 @@ export const useApp = defineStore('app', {
       this.me = await api('/me')
       syncLang(this.me)
       // messages a reload or a sign-in left before the server took them: kept, and asked again where they were being
-      this.unsent = loadUnsent(this.me?.user?.id)
+      this.unsent = loadUnsent(this.me?.user?.id).map((u) => (u.state === 'sending' ? { ...u, state: 'retrying', tries: Math.max(1, u.tries || 0) } : u))
       for (const t of new Set(this.unsent.filter((u) => u.state !== 'failed').map((u) => u.threadId))) this.runUnsent(t)
       // in the desktop app: this computer's CLI agents run this person's local steps (src/localRunner.js)
       startDesktopRunner(this.me).catch(() => {})
@@ -477,17 +480,24 @@ export const useApp = defineStore('app', {
       const agent = opts.agent || (picked && picked.key === key ? picked.agent : 'default')
       // Each message is named (src/sendQueue.js newId — the server takes a name once, lib/sendOnce.js) and kept until the server takes it:
       // a server away for a moment (a deploy's restart — 2026-11-27 recording) is asked again, anything else is kept for the person.
-      const entry = { id: newId(), threadId, key, conv: conversation || null, text, context, files, refs, openDoc, agent, fresh: !!opts.fresh, at: Date.now(), tries: 0 }
+      const again = takenBack.get(`${threadId}\n${text}`)
+      takenBack.delete(`${threadId}\n${text}`)
+      const entry = { id: again || newId(), threadId, key, conv: conversation || null, text, context, files, refs, openDoc, agent, fresh: !!opts.fresh, at: Date.now(), tries: 0 }
       tookChips.set(entry.id, pending)
       // behind a message of this room not taken yet: it waits its turn (the server answers them in the order they reach it)
       if (this.unsent.some((u) => u.threadId === threadId && u.state !== 'failed')) { this.keepUnsent({ ...entry, state: 'waiting' }); this.runUnsent(threadId); return }
+      // kept from the first try on (state 'sending' — no line for it): a reload while the first try hangs (a gateway may take 15 – 100 s to
+      // give up) does not lose it; at the next start it is sent again under its name
+      this.keepUnsent({ ...entry, state: 'sending' })
       const r = await this.trySend(entry, (ev, data) => {
         // a document whose card is in no conversation: the one its first message went to is the document's from now on
         const went = ev === 'done' && data?.content?.context?.conversationId
         if (went && openDoc && !docConv && !chosen && this.officeDoc === d && threadId === this.mainThread?.id) this.officeDoc = { ...d, conv: went }
       })
       if (r.accepted) { tookChips.delete(entry.id); return r.finished }
-      if (retryable(r.error)) { this.keepUnsent({ ...entry, state: 'retrying', tries: 1, error: why(r.error) }); this.runUnsent(threadId); return }
+      // (taken back meanwhile: nothing more)
+      if (!this.unsent.some((x) => x.id === entry.id)) return
+      if (retryable(r.error)) { this.patchUnsent(entry.id, { state: 'retrying', tries: 1, error: why(r.error) }); this.runUnsent(threadId); return }
       this.failUnsent(entry, r.error)
     },
     // One attempt: resolves the moment the server took the message ({accepted: true, finished — the whole answer}) or did not ({error});
@@ -536,6 +546,8 @@ export const useApp = defineStore('app', {
         for (;;) {
           const u = this.unsent.find((x) => x.threadId === threadId && x.state !== 'failed')
           if (!u) break
+          // (the room's first message still on its first try — send() has it: the ones behind it wait)
+          if (u.state === 'sending' && inFlight.has(u.id)) { await sleep(300); continue }
           if (Date.now() - (u.at || 0) > retryWindow()) { this.failUnsent(u, null, u.error); continue }
           if (u.tries) { u.state = 'retrying'; this.saveUnsent(); await sleep(backoff(u.tries)) }
           // (taken back or put aside meanwhile)
@@ -551,13 +563,15 @@ export const useApp = defineStore('app', {
       } finally { working.delete(threadId) }
     },
     keepUnsent(u) { this.unsent = [...this.unsent.filter((x) => x.id !== u.id), u]; this.saveUnsent() },
+    // a kept message changed in its place (the room's order stays)
+    patchUnsent(id, patch) { this.unsent = this.unsent.map((x) => (x.id === id ? { ...x, ...patch } : x)); this.saveUnsent() },
     dropUnsent(id) { if (this.unsent.some((x) => x.id === id)) { this.unsent = this.unsent.filter((x) => x.id !== id); this.saveUnsent() } },
     saveUnsent() { saveUnsent(this.me?.user?.id, this.unsent) },
     // not taken, and not asked again (a refusal, the server away past the window, a sign-in gone): kept for the person — its line offers
     // 다시 보내기 · 입력창에 넣기 · 지우기, and an empty composer of its own conversation takes it back at once (Composer.vue)
     failUnsent(u, error, said) {
       const row = { ...u, state: 'failed', error: said || why(error) }
-      this.unsent = [...this.unsent.filter((x) => x.id !== u.id), row]
+      this.unsent = this.unsent.some((x) => x.id === u.id) ? this.unsent.map((x) => (x.id === u.id ? row : x)) : [...this.unsent, row]
       this.dropLocalCopy(row)
       this.saveUnsent()
     },
@@ -576,6 +590,7 @@ export const useApp = defineStore('app', {
       this.unsent = this.unsent.filter((x) => x.id !== id)
       this.saveUnsent()
       this.dropLocalCopy(u)
+      takenBack.set(`${u.threadId}\n${u.text}`, u.id)
       const chips = tookChips.get(id) || (u.files || []).map((f) => ({ id: newId(), name: f.name || '파일', size: f.size || 0, state: 'ready', result: f, error: '', job: Promise.resolve(f) }))
       tookChips.delete(id)
       if (chips.length) this.attachments = [...this.attachments, ...chips.filter((a) => !this.attachments.some((b) => b.id === a.id))]
@@ -586,8 +601,7 @@ export const useApp = defineStore('app', {
     retryUnsent(id) {
       const u = this.unsent.find((x) => x.id === id)
       if (!u) return
-      this.unsent = [...this.unsent.filter((x) => x.id !== id), { ...u, state: 'retrying', tries: 0, at: Date.now(), error: '' }]
-      this.saveUnsent()
+      this.patchUnsent(id, { state: 'retrying', tries: 0, at: Date.now(), error: '' })
       this.runUnsent(u.threadId)
     },
     // 지우기: the message is let go (its words are not kept anywhere any more)
@@ -761,6 +775,8 @@ export const useApp = defineStore('app', {
       if (localRunner.desktop) await disconnectThis({ optOut: false }).catch(() => {})
       // (this device forgets the places kept for sharing, a share still waiting and the messenger's unsent words — src/shareTarget.js)
       try { forgetPlaces(window.localStorage, window.sessionStorage) } catch { /* nothing kept */ }
+      // (and the messages kept before the server took them — src/sendQueue.js: their words, context, files)
+      saveUnsent(this.me?.user?.id, [])
       auth.clear(); location.href = BASE + '/login'
     },
   },
