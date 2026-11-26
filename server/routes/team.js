@@ -57,7 +57,9 @@ export function teamRoutes(auth) {
       if (out !== undefined && !res.headersSent) res.json(out)
     } catch (e) {
       if (!(e instanceof TeamError)) console.warn('[team]', req.method, req.path, e.message)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError ? e.message : L('처리하지 못했어요.', "I couldn't do that."), ...(e.conflicts ? { conflicts: e.conflicts } : {}) })
+      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError ? e.message : L('처리하지 못했어요.', "I couldn't do that."), ...(e.conflicts ? { conflicts: e.conflicts } : {}),
+        // (a code says which refusal it is: reactions_off — the screen offers no reactions; a 503 from anything in between does not)
+        ...(e instanceof TeamError && e.code ? { code: e.code } : {}) })
     }
   }
   const text = (v, n = 4000) => String(v ?? '').trim().slice(0, n)

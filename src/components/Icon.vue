@@ -47,6 +47,14 @@ const P = {
   dockl: 'M3.5 5h17v14h-17zM9.5 5v14',
   dockp: 'M3.5 5h17v14h-17zM9 5v14M15 5v14M11.5 9h1.5M11.5 12h1.5',
   // a camera (the profile picture's change badge, Settings)
+  // a room's reactions (components/team/ReactionBar · ReactionChips): drawn like the rest, not the device's colour emoji (2026-11-26
+  // 「아이콘들 디자인이 너무 전체 톤이 어울리지 않은듯」)
+  'rx-like': 'M7.5 10.5v9.2M7.5 10.5H5a1 1 0 0 0-1 1v7.2a1 1 0 0 0 1 1h2.5M7.5 10.5l3.4-6.1a1.7 1.7 0 0 1 3.1 1.3L13.2 9.6h4.9a2 2 0 0 1 2 2.4l-1.2 6.1a2 2 0 0 1-2 1.6H7.5',
+  'rx-check': 'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM8.2 12.3l2.6 2.6 5-5.3',
+  'rx-love': 'M12 19.6s-7.6-4.5-7.6-10.1A4.1 4.1 0 0 1 12 7.2a4.1 4.1 0 0 1 7.6 2.3c0 5.6-7.6 10.1-7.6 10.1z',
+  'rx-laugh': 'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM8 13.1h8a4 4 0 0 1-8 0zM7.8 10l1.5-1.3 1.5 1.3M13.2 10l1.5-1.3 1.5 1.3',
+  'rx-wow': 'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM12 17.3a1.7 2.1 0 1 0 0-4.2 1.7 2.1 0 0 0 0 4.2zM9.1 9.7h.01M14.9 9.7h.01',
+  'rx-thanks': 'M12 3.9c-1.6 1.2-2.9 3.4-3.2 6l-.7 5.1-2.5 2.6 3.2 3.1 3.2-3.4V3.9zM12 3.9c1.6 1.2 2.9 3.4 3.2 6l.7 5.1 2.5 2.6-3.2 3.1-3.2-3.4',
   // a face with a smile (a message's 「반응」 — components/team/Messenger.vue)
   smile: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8.5 14.2a4.5 4.5 0 0 0 7 0M9.2 9.6h.01M14.8 9.6h.01',
   // a cog (a room's 「설정」)

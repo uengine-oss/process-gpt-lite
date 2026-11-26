@@ -468,7 +468,8 @@ const rxBar = ref(null)
 const rx = ref(null)           // {m, anchor: {top, bottom, left}, x, top, left, ready}
 const rxOf = (m) => (list.value.find((x) => x.id === m.id) || m).reactions || []
 async function openRx(m, el, at = {}) {
-  if (!canReact(m) || !el || !pane.value) return
+  // (no reactions in this database yet — sql/062: the long press still offers 「복사」, a message with no words has nothing then)
+  if (!canReact(m) || !el || !pane.value || (team.rxOff && !m.body)) return
   const b = el.getBoundingClientRect()
   rx.value = { m, anchor: { top: b.top, bottom: b.bottom, left: b.left }, x: Number.isFinite(at.x) ? at.x : null, top: 0, left: 0, ready: false }
   await nextTick()
@@ -682,11 +683,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <small class="t">{{ when(m.at) }}</small>
               </div>
               <!-- a desktop's way in: the button by a teammate's bubble while the pointer is over it (or it has the focus) -->
-              <button v-if="canReact(m)" class="rxbtn press" data-test="rx-open" title="반응 남기기" aria-label="반응 남기기" @click="rxButton(m, $event)"><Icon name="smile" :size="16" /></button>
+              <button v-if="canReact(m) && !team.rxOff" class="rxbtn press" data-test="rx-open" title="반응 남기기" aria-label="반응 남기기" @click="rxButton(m, $event)"><Icon name="smile" :size="16" /></button>
             </div>
             <!-- the reactions under it: emoji · count, mine marked; who reacted on a long press · the pointer resting on one -->
             <ReactionChips v-if="m.reactions?.length && !['invite', 'rename'].includes(m.kind) && !String(m.kind).startsWith('meeting')" :chips="m.reactions"
-              :can="canReact(m)" :mine="m.mine" :data-for="m.id" @toggle="(k) => react(m, k)" />
+              :can="canReact(m) && !team.rxOff" :mine="m.mine" :data-for="m.id" @toggle="(k) => react(m, k)" />
             <LinkPreviews v-if="m.body && m.kind !== 'invite' && m.kind !== 'rename' && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
             <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
             </template>
@@ -694,7 +695,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div v-if="aiWait" class="aiwait" data-test="ai-status" role="status"><span class="spark">✦</span><span class="shimmer-text">{{ aiWait.text }}</span></div>
           </div>
           <!-- the reactions bar over the bubble it was opened on (its place measured once it is drawn) -->
-          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :text="rx.m.body || ''" :data-for="rx.m.id"
+          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="rx.m.body || ''" :data-for="rx.m.id"
             :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
           <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>{{ dropWords }}</p></div></div></Transition>
           <footer class="cmp">
