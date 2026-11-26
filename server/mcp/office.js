@@ -16,7 +16,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { config } from '../config.js'
 import { liveFor } from '../lib/craftLive.js'
-import { userFromJwt } from '../lib/supa.js'
+import { userFromJwt, mcpRefusal } from '../lib/supa.js'
 import { editOutcome, notAppliedResult, recordEdit, forAgent } from '../lib/officeEdits.js'
 
 // The registered name (mcp-hub server `pgpt-<name>`, tenant MCP key) is long on purpose: deepagents
@@ -83,6 +83,8 @@ export function mountOffice(app) {
     if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
     const user = jwt ? await userFromJwt(jwt) : null
     if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+    // (an approved member of the request's company only — lib/membership.js)
+    { const no = await mcpRefusal(user); if (no) return res.status(403).json(no) }
     const server = buildServer(user, jwt)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })

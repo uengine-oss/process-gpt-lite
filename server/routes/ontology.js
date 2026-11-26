@@ -11,7 +11,7 @@ import * as TM from '../lib/ontology/timers.js'
 import * as DOC from '../lib/ontology/documents.js'
 import { cypher, cypherTimer } from '../lib/ontology/store.js'
 import { diag } from '../lib/ontology/diag.js'
-import { q } from '../lib/supa.js'
+import { q, APPROVED } from '../lib/supa.js'
 import { updateMessage } from '../lib/store.js'
 import { config } from '../config.js'
 import { longJson } from '../lib/longJson.js'
@@ -146,7 +146,7 @@ export function ontologyRoutes(auth) {
   }))
   r.get('/ontology/people', auth, h(() => q(`select u.id::text as id, coalesce(nullif(u.username,''), u.email) as name, u.email,
       exists (select 1 from pro_team_members m where m.tenant_id=u.tenant_id and m.user_id=u.id) as team
-    from users u where u.tenant_id=$1 and not coalesce(u.is_agent,false) order by 4 desc, 2 limit 200`, [config.tenantId])))
+    from users u where u.tenant_id=$1 and not coalesce(u.is_agent,false) and ${APPROVED('u')} order by 4 desc, 2 limit 200`, [config.tenantId])))
   r.put('/ontology/cases/:id/bindings', auth, h(async (req) => (await ME()).setBinding(req.user, req.params.id, { role: String(req.body?.role || ''), userId: String(req.body?.userId || '') })))
   r.put('/ontology/cases/:id/map-pin', auth, h(async (req) => { await admin(req); return (await ME()).setPin(req.user, req.params.id, req.body?.pin === true) }))
   // 채팅에 올린 파일도 사건이다(events.js onFile): 채팅 메시지와 함께 오면 서버가 보고(lib/agent.js), 여기로는 이미 올린 첨부(POST /api/attachments 의

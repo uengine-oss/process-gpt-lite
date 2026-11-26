@@ -2,7 +2,7 @@
 // 장은 pro_team_leads(조직도 JSON 에는 장 칸이 없다), 관리자는 Lite 의 관리자(users.is_admin 또는 테넌트 owner)와
 // Process GPT 역할 사다리(users.role 이 admin 이상).
 // 조직도가 바뀌면 30초 안에 다시 읽는다(스펙: 1분 안의 다음 요청부터).
-import { q } from '../supa.js'
+import { q, APPROVED } from '../supa.js'
 import { config } from '../../config.js'
 
 const LEVEL = { superadmin: 120, admin: 100, owner: 80, editor: 60, reviewer: 40, viewer: 20 }
@@ -37,7 +37,8 @@ export async function orgOf(tenant = config.tenantId) {
   const row = (await q(`select value from configuration where key = 'organization' and tenant_id = $1`, [tenant]))[0]
   const { nodes, people } = parseChart(row?.value?.chart)
   const leads = new Map((await q(`select node_id, user_id from pro_team_leads where tenant_id = $1`, [tenant])).map((r) => [r.node_id, String(r.user_id)]))
-  const users = await q(`select id, username, email, role, is_admin from users where tenant_id = $1 and coalesce(is_agent, false) = false`, [tenant])
+  // (approved members only: someone waiting for an administrator or let go is no one's colleague here — lib/membership.js)
+  const users = await q(`select id, username, email, role, is_admin from users u where tenant_id = $1 and coalesce(is_agent, false) = false and ${APPROVED('u')}`, [tenant])
   const owner = (await q(`select owner from tenants where id = $1`, [tenant]).catch(() => []))[0]?.owner
   const admins = new Set(users.filter((u) => u.is_admin || String(u.id) === String(owner) || (LEVEL[String(u.role || '').toLowerCase()] || 0) >= 100).map((u) => String(u.id)))
   for (const u of users) { const p = people.get(String(u.id)); if (p) { p.name = p.name || u.username; p.email = p.email || u.email } }

@@ -3057,7 +3057,27 @@
   "이미 파일이 있는 폴더예요 — 다른 PC 에서 이어 올리기는 다음 단계에서 돼요": "This folder already has files — uploading to it from another PC comes in the next stage",
   "링크 · 안에 든 다른 저장소 · .gitmodules · .lfsconfig 는 올릴 수 없어요": "Links, repositories inside, .gitmodules and .lfsconfig can't be uploaded",
   "서버가 올린 것을 확인하지 못해 받지 않았어요 — 잠시 뒤 다시 올려 주세요": "The server couldn't check the upload, so it didn't take it — please upload again in a moment",
-  "너무 자주 올렸어요 — 잠시 뒤 다시 해 주세요": "Too many uploads at once — please try again in a moment"
+  "너무 자주 올렸어요 — 잠시 뒤 다시 해 주세요": "Too many uploads at once — please try again in a moment",
+  "로그인한 주소": "Address used",
+  "다른 계정으로 로그인": "Sign in with another account",
+  "내보내기": "Remove",
+  "내보내면 이 회사에 들어올 수 없어요. 다시 초대하면 돌아올 수 있어요.": "Once removed, they can't come into this company. Inviting them again brings them back.",
+  "초대한 사람만 이 회사에 들어올 수 있어요. 초대 메일이 가고, 그 주소로 로그인하면 바로 들어와요.": "Only people you invite can come into this company. They get an invitation e-mail and come straight in when they sign in with that address.",
+  "이메일 주소 (여러 명은 쉼표로 구분)": "E-mail addresses (separate several with commas)",
+  "초대할 이메일 주소": "E-mail addresses to invite",
+  "초대할 역할": "Role to invite as",
+  "구성원으로": "As a member",
+  "관리자로": "As an administrator",
+  "초대 보내기": "Send invitations",
+  "초대했어요": "Invited",
+  "이미 구성원이에요": "Already a member",
+  "주소를 확인해 주세요": "Check the address",
+  "초대하지 못했어요": "Couldn't invite",
+  "메일은 보내지 못했어요 — 주소로 로그인하라고 알려 주세요": "the e-mail couldn't be sent — tell them to sign in with that address",
+  "가입 요청": "Requests to join",
+  "기다리는 요청이 없어요.": "No one is waiting.",
+  "초대·내보내기와 역할 담당 지정은 관리자만 할 수 있어요. 바꿀 일이 있으면 관리자에게 알려 주세요.": "Only administrators can invite, remove and assign roles. Tell an administrator if something needs changing.",
+  "가입 요청 보내기": "Send a request to join"
  },
  "patterns": [
   [

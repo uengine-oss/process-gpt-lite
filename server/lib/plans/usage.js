@@ -3,7 +3,7 @@
 // (pooled plans), the company's extra usage — read from LiteLLM's counters in the
 // same Postgres (they trail the calls by LiteLLM's ~10-second write interval). And, for administrators,
 // everyone's, with the month's bill estimated from the seats and the usage beyond them.
-import { q } from '../supa.js'
+import { q, APPROVED } from '../supa.js'
 import { config } from '../../config.js'
 import { named } from '../people.js'
 import * as K from '../llmKeys.js'
@@ -53,7 +53,7 @@ export async function windowsOf(tenant, userId, sub = null) {
 
 export async function companyOf(tenant) {
   const sub = await subscriptionOf(tenant)
-  const team0 = await q(`select u.id, u.email, u.username as name from pro_team_members t join users u on u.id=t.user_id and u.tenant_id=t.tenant_id
+  const team0 = await q(`select u.id, u.email, u.username as name from pro_team_members t join users u on u.id=t.user_id and u.tenant_id=t.tenant_id and ${APPROVED('u')}
     where t.tenant_id=$1 order by t.created_at`, [tenant])
   // (the name every screen shows — lib/people.js reads the request's own tenant)
   const team = tenant === config.tenantId ? await named(team0) : team0

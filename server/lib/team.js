@@ -1,26 +1,33 @@
 // Teammates and who plays which process role. A process step goes to the person bound to its
 // role; process-gpt's todolist trigger then notifies exactly that person.
 import { config } from '../config.js'
-import { q, ensureUser } from './supa.js'
+import { q, ensureUser, APPROVED, ADMINISH } from './supa.js'
 // the name every screen shows (lib/people.js), not users.username alone
 import { named, forget } from './people.js'
+// an approved membership (lib/membership.js): someone waiting for an administrator or let go is nobody's teammate here
+import { admit, claimCompany } from './membership.js'
 
 const T = () => config.tenantId
 
 // the team with the names every screen shows; withUsername: Process GPT's username too (resolveMember matches what people type
 // against either)
+// admin: an administrator of the company (users.is_admin · its admin role · the tenant's owner) — the screens keep the last one
 async function teamRows({ withUsername = false } = {}) {
-  const rows = await q(`select u.id, u.email, u.username as name from pro_team_members m
+  const rows = await q(`select u.id, u.email, u.username as name,
+              ${ADMINISH('u')}
+                or exists (select 1 from tenants t where t.id = u.tenant_id and t.owner::text = u.id::text) as admin
+            from pro_team_members m
             join users u on u.id = m.user_id and u.tenant_id = m.tenant_id
-            where m.tenant_id=$1 order by m.created_at`, [T()])
+            where m.tenant_id=$1 and ${APPROVED('u')} order by m.created_at`, [T()])
   return (await named(rows)).map((p, i) => (withUsername ? { ...p, username: rows[i].name } : p))
 }
 export const listTeam = () => teamRows()
 
 // Who may change the team and the tenant-wide role holders: process-gpt's tenant administrators —
 // users.is_admin, or the tenant's owner (tenants.owner, process-gpt checkTenantOwner).
+// (an approved one: Process GPT's own check, membership_admin(), asks for the approved row too)
 export async function isAdmin(me) {
-  const [r] = await q(`select (select coalesce(bool_or(u.is_admin), false) from users u where u.id::text=$1 and u.tenant_id=$2)
+  const [r] = await q(`select (select coalesce(bool_or(${ADMINISH('u')}), false) from users u where u.id::text=$1 and u.tenant_id=$2 and ${APPROVED('u')})
                          or exists (select 1 from tenants t where t.id=$2 and t.owner::text=$1) as admin`, [String(me.id), T()]).catch(() => [])
   return !!r?.admin
 }
@@ -40,20 +47,20 @@ export async function canAssign(me, defId) {
 
 // A fresh install has its administrator from install.sh (ADMIN_EMAIL, users.is_admin + tenants.owner).
 // Anywhere else nothing would make one: then the first person to sign in becomes the administrator.
+// The first one makes the company (lib/membership.js claimCompany): its owner — only if nobody is yet — and an approved administrator.
+// → whether they did (false: the company had someone already, or another first person won).
 export async function claimFirstAdmin(userId) {
-  const [r] = await q(`select exists (select 1 from users where tenant_id=$1 and is_admin and not coalesce(is_agent,false))
-                         or exists (select 1 from tenants where id=$1 and owner is not null) as has`, [T()]).catch(() => [{ has: true }])
-  if (r?.has) return false
-  await q(`update users set is_admin=true, role='admin' where id=$1 and tenant_id=$2`, [userId, T()])
-  await q(`update tenants set owner=$1 where id=$2 and owner is null`, [userId, T()]).catch(() => {})
-  console.log(`[team] ${String(userId).slice(0, 8)} is the first administrator of ${T()}`)
-  return true
+  const [u] = await q('select email, username from users where id=$1 and tenant_id=$2', [userId, T()]).catch(() => [])
+  const email = u?.email || (await q('select email from auth.users where id=$1', [userId]).catch(() => []))[0]?.email || ''
+  return claimCompany(userId, email, u?.username || null)
 }
 
 // Adding someone who never signed in creates their account, so work can be routed to them
 // before their first visit.
+// An administrator adding someone is their invitation (approved — lib/membership.js admit), without the invitation mail (「초대」 sends it).
 export async function addMember(me, email, name) {
   const u = await ensureUser(String(email).trim().toLowerCase(), name)
+  await admit(u.id, u.email, name, me.id)
   if (name) await q('update users set username=$1 where id=$2 and tenant_id=$3', [name, u.id, T()])
   if (name) forget(u.id)
   await q('delete from pro_team_removed where tenant_id=$1 and user_id=$2', [T(), u.id])
@@ -122,7 +129,7 @@ export async function resolveMember(text) {
     team.find((m) => part(m.name) || part(m.username))
   if (hit) { const { username, ...p } = hit; return { ...p, via: 'name' } }
   const [a] = await q(`select a.role, u.id, u.email, u.username as name from pro_role_assignments a
-                       join users u on u.id=a.user_id and u.tenant_id=a.tenant_id
+                       join users u on u.id=a.user_id and u.tenant_id=a.tenant_id and ${APPROVED('u')}
                        where a.tenant_id=$1 and a.proc_def_id='*' and (lower(a.role)=lower($2) or lower($2) like '%'||lower(a.role)||'%') limit 1`, [T(), s])
   return a ? { ...(await named([{ id: a.id, email: a.email, name: a.name }]))[0], via: 'role', role: a.role } : null
 }

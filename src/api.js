@@ -26,6 +26,40 @@ export function adoptHostSession() {
   return true
 }
 
+// Invite-only (2026-11-25, server lib/membership.js): someone who is not an approved member of this company is answered 403 with code
+// invite_only. The page keeps no session then: it tells the server (POST /api/auth/refuse — a session made for this sign-in is ended at
+// the auth server; one taken from Process GPT's cookies is Process GPT's and stays, but is not taken again here), forgets its own copy,
+// and shows the refusal screen (/invite-only) with what the server said. Nothing is asked for the person: the screen's 「가입 요청
+// 보내기」 does that, with the ticket the server gave (canRequest). → false when the server says the person is a member after all.
+export const REFUSED = 'pgl-refused'
+export function rememberRefusal(r) {
+  const keep = r && typeof r === 'object' ? { title: r.title, detail: r.detail, pending: !!r.pending, company: r.company, email: r.email,
+    canRequest: !!(r.canRequest && r.ticket), ticket: r.canRequest && r.ticket ? r.ticket : null } : {}
+  try { sessionStorage.setItem(REFUSED, JSON.stringify(keep)) } catch { /* private mode */ }
+}
+let leaving = null
+export function leaveRefused(said = null) {
+  if (leaving) return leaving
+  const s = auth.get()
+  leaving = (async () => {
+    let body = said
+    const r = await fetch(BASE + '/api/auth/refuse', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s?.session?.access_token || ''}` },
+      body: JSON.stringify({ host: !!s?.host }),
+    }).catch(() => null)
+    const j = r ? await r.json().catch(() => null) : null
+    if (r?.ok && j?.ok) { leaving = null; return false }
+    if (j?.code === 'invite_only') body = j
+    if (s?.host) try { sessionStorage.setItem(HOST_FAILED, s.session.refresh_token) } catch { /* ignore */ }
+    auth.clear()
+    rememberRefusal(body)
+    location.replace(BASE + '/invite-only')
+    return true
+  })()
+  return leaving
+}
+const inviteOnly = async (r) => (r.status === 403 ? r.clone().json().then((j) => (j?.code === 'invite_only' ? j : null), () => null) : null)
+
 export async function refreshToken() {
   // a token taken from ProcessGPT is kept fresh by ProcessGPT: take its newer pair rather than
   // spending the shared refresh token here (rotation would sign the other tab out)
@@ -120,6 +154,9 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
     await new Promise((ok) => setTimeout(ok, 1500 * (i + 1)))
     r = await go()
   }
+  // a refusal under way (another request was answered invite_only, and leaving for the refusal screen ended this sign-in's session —
+  // POST /api/auth/refuse): a request still in flight then meets 401. That is the same refusal, not a sign-out to the sign-in screen.
+  if (r.status === 401 && leaving && await leaving) throw Object.assign(new Error('invite only'), { status: 403, code: 'invite_only' })
   if (r.status === 401) {
     const renewed = await refreshToken()
     if (renewed) r = await go()
@@ -129,6 +166,9 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
     if (auth.get()?.host) try { sessionStorage.setItem(HOST_FAILED, auth.get().session.refresh_token) } catch { /* ignore */ }
     auth.clear(); location.href = BASE + '/login'; throw new Error('unauthorized')
   }
+  // not an approved member of this company: out, to the refusal screen
+  const refused = await inviteOnly(r)
+  if (refused && await leaveRefused(refused)) throw Object.assign(new Error(refused.error || 'invite only'), { status: 403, code: 'invite_only' })
   if (raw) return r
   // a long answer (server lib/longJson.js: 200 committed early so a proxy does not cut it, X-Long-Json) carries its error in
   // the body: {"error", "status" ≥ 400} is the failure it would have been

@@ -84,16 +84,20 @@ export async function asTenantOf(userId, fn) {
   return withTenant(await tenantOf(userId), fn)
 }
 
-// behind the gateway: the one tenant a person belongs to (public.users is keyed by id and tenant_id),
-// or null when they belong to none or several — the work cannot tell which, and says so
+// behind the gateway: the one tenant a person belongs to (public.users is keyed by id and tenant_id), counting the approved
+// memberships (lib/membership.js) — a request waiting in another company is not a second tenant; with none approved, their only row
+// (where the work is then refused: lib/supa.js sessionFor) — or null when they belong to none or several: the work cannot tell which,
+// and says so
 const sole = new Map() // userId -> {t, at}
 export async function soleTenantOf(userId) {
   const id = String(userId || '')
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null
   const hit = sole.get(id)
   if (hit && Date.now() - hit.at < TTL_MS) return hit.t
-  const { q } = await import('./supa.js')
-  const rows = await q('select distinct tenant_id from users where id::text=$1', [id]).catch(() => [])
+  const { q, APPROVED } = await import('./supa.js')
+  const all = await q(`select tenant_id, bool_or(${APPROVED('u')}) as approved from users u where id::text=$1 group by tenant_id`, [id]).catch(() => [])
+  const approved = all.filter((r) => r.approved)
+  const rows = approved.length ? approved : all
   const t = rows.length === 1 ? rows[0].tenant_id : null
   if (rows.length > 1) console.warn(`[tenant] ${id.slice(0, 8)} belongs to ${rows.length} tenants: background work without a tenant runs in ${DEFAULT_TENANT}`)
   sole.set(id, { t, at: Date.now() })
@@ -155,15 +159,25 @@ export function jwtSubject(jwt) {
 
 // Express: the request's tenant (req.tenantId; auth() enters it again — a body parser in a route's own
 // chain runs outside the request's async context)
-//   gateway: the X-Tenant-Id it sets from the address; the agents' MCP calls come straight from
-//            deepagents, so there the tenant in the caller's JWT (the token is verified where it is used)
+//   gateway: the X-Tenant-Id it sets from the address — an MCP call (/mcp) too when it carries one; an agent's MCP call that comes
+//            straight from deepagents without it: the tenant in the caller's JWT, else the one company the person is an approved
+//            member of. Whichever it is, the MCP gateways then check the person is an approved member there (lib/supa.js mcpRefusal),
+//            so a header or a claim naming another company reaches nothing of it (the token is verified where it is used)
 //   hosts:   the token's person when there is a token, else the host's
 const bearer = (req) => (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || (typeof req.query?.token === 'string' ? req.query.token : '')
 const jwtTenant = (jwt) => { try { return JSON.parse(Buffer.from(String(jwt).split('.')[1], 'base64url')).app_metadata?.tenant_id || '' } catch { return '' } }
 export function tenantMiddleware() {
   return (req, res, next) => {
     if (gateway()) {
-      const t = (req.path.startsWith('/mcp') ? '' : String(req.headers['x-tenant-id'] || '').trim()) || jwtTenant(bearer(req))
+      const t = String(req.headers['x-tenant-id'] || '').trim() || jwtTenant(bearer(req))
+      // an agent's MCP call whose token names no tenant: the one company the person is an approved member of (soleTenantOf) — the
+      // gateways then check that membership (lib/supa.js mcpRefusal) rather than meeting a default tenant nobody belongs to
+      if (!t && req.path.startsWith('/mcp')) {
+        const jwt = bearer(req)
+        const sub = /^\{\{/.test(jwt) ? null : jwtSubject(jwt)
+        if (!sub) return next()
+        return soleTenantOf(sub).then((s) => { if (!s) return next(); req.tenantId = s; withTenant(s, next) }, () => next())
+      }
       if (!t) return next()
       req.tenantId = t
       return withTenant(t, next)

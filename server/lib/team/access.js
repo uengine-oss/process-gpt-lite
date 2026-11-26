@@ -2,7 +2,7 @@
 // role resolved through its tenant-wide holder, and a small per-user send budget.
 import { config } from '../../config.js'
 import { L } from '../lang.js'
-import { q } from '../supa.js'
+import { q, APPROVED } from '../supa.js'
 import { named } from '../people.js'
 
 const T = () => config.tenantId
@@ -11,10 +11,13 @@ export class TeamError extends Error {
   constructor(status, message) { super(message); this.status = status }
 }
 
+// (a teammate is an approved member of the company too — lib/membership.js: someone waiting for an administrator, or let go, is not one
+// even while their pro_team_members row is still there)
+const onTeam = async (userId) => !!(await q(`select 1 from pro_team_members m join users u on u.id = m.user_id and u.tenant_id = m.tenant_id
+                                             where m.tenant_id=$1 and m.user_id=$2 and ${APPROVED('u')}`, [T(), userId]))[0]
 export async function isMember(userId) {
   if (!/^[0-9a-f-]{36}$/i.test(String(userId || ''))) return false
-  const [r] = await q('select 1 from pro_team_members where tenant_id=$1 and user_id=$2', [T(), userId])
-  if (r) return true
+  if (await onTeam(userId)) return true
   return admitTenantPerson(userId)
 }
 
@@ -27,12 +30,11 @@ async function admitTenantPerson(userId) {
   if (!config.tenantFromHeader) return false
   const [a] = await q(`insert into pro_team_members(tenant_id,user_id,added_by)
                        select $1, u.id, u.id from users u
-                       where u.id::text=$2 and u.tenant_id=$1 and not coalesce(u.is_agent,false)
+                       where u.id::text=$2 and u.tenant_id=$1 and not coalesce(u.is_agent,false) and ${APPROVED('u')}
                          and not exists (select 1 from pro_team_removed x where x.tenant_id=$1 and x.user_id=u.id)
                        on conflict do nothing returning user_id`, [T(), String(userId)])
   if (a) return true
-  const [r] = await q('select 1 from pro_team_members where tenant_id=$1 and user_id=$2', [T(), userId])
-  return !!r
+  return onTeam(userId)
 }
 
 export async function requireMember(user) {

@@ -11,7 +11,7 @@
 // name. The picture: the rule of profile pictures (routes/profilePicture.js) — users.profile, else the Google account's picture.
 // Read only: nothing here writes Process GPT's users table.
 import { config } from '../config.js'
-import { q } from './supa.js'
+import { q, APPROVED } from './supa.js'
 import { googlePictureOf, parseAvatarHosts, resolvePicture } from './profilePicture.js'
 
 // what the picture checks need (this install's storage, the avatar hosts) — the routes' too
@@ -92,12 +92,13 @@ export function makeResolver({ query = q, ttl = 30_000, now = () => Date.now(), 
     }
     return out
   }
-  // everyone of the tenant who is a person (not its agents), for the screens' own lookup (GET /api/people, asked once a minute
-  // at most by each page): always read — what Process GPT changed shows at once — and it refreshes the cache above
+  // everyone of the tenant who is a person (not its agents) and an approved member (someone waiting for an administrator or let go is
+  // nobody to pick — lib/membership.js), for the screens' own lookup (GET /api/people, asked once a minute at most by each page): always
+  // read — what Process GPT changed shows at once — and it refreshes the cache above
   async function everyone() {
     const t = tenant()
     const o = opts()
-    const list = (await rows('u.tenant_id = $1 and not coalesce(u.is_agent, false) limit 2000', [t])).map((r) => personFrom(r, o))
+    const list = (await rows(`u.tenant_id = $1 and not coalesce(u.is_agent, false) and ${APPROVED('u')} limit 2000`, [t])).map((r) => personFrom(r, o))
     for (const p of list) cache.set(`${t}|${p.id}`, { at: now(), person: p })
     return list
   }

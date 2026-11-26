@@ -4,7 +4,7 @@
 // serves every user. Only connectors the user has connected show up in tools/list.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { userFromJwt } from '../lib/supa.js'
+import { userFromJwt, mcpRefusal } from '../lib/supa.js'
 import { google } from './connectors/google.js'
 import { youtube } from './connectors/youtube.js'
 import { slackConnector, githubConnector, notionConnector } from './connectors/saas.js'
@@ -89,6 +89,8 @@ export function mountConnectors(app) {
     const user = jwt ? await userFromJwt(jwt) : null
     // a token that is present but invalid is an error; no token at all gets the anonymous catalog
     if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+    // (an approved member of the request's company only — lib/membership.js)
+    { const no = await mcpRefusal(user); if (no) return res.status(403).json(no) }
     const server = await buildServer(user, only)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })

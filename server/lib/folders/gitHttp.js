@@ -14,7 +14,7 @@ import crypto from 'node:crypto'
 import zlib from 'node:zlib'
 import { spawn } from 'node:child_process'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, isMember } from '../supa.js'
 import { withTenant, servesTenant } from '../tenant.js'
 import * as G from './git.js'
 import * as S from './service.js'
@@ -36,9 +36,11 @@ const key = () => {
 }
 const sign = (body) => crypto.createHmac('sha256', key()).update(`pgf1.${body}`).digest('base64url')
 
-export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now(), scope = null, device = null, job = null } = {}) {
+// user: the person the token works for (a step's assignee) — each request checks they are still an approved member of the tenant
+export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now(), scope = null, device = null, job = null, user = null } = {}) {
   if (!folderId) throw new Error('a folder git token names its folder')
-  const extra = scope ? { scope: String(scope), device: String(device || ''), job: String(job || '') } : {}
+  const extra = { ...(scope ? { scope: String(scope), device: String(device || ''), job: String(job || '') } : {}),
+    ...(/^[0-9a-f-]{36}$/i.test(String(user || '')) ? { user: String(user) } : {}) }
   const body = Buffer.from(JSON.stringify({ tenant, folder: String(folderId), push, exp: Math.floor(now / 1000 + hours * 3600), ...extra })).toString('base64url')
   return `pgf1.${body}.${sign(body)}`
 }
@@ -294,6 +296,8 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
     if (!claims) return deny(res, 401, 'a folder token is needed', { 'WWW-Authenticate': `Basic realm="${REALM}"` })
     if (claims.folder !== folderId) return deny(res, 403, 'this token is for another folder')
     if (!servesTenant(claims.tenant)) return deny(res, 403, 'this server does not serve the token\'s tenant')
+    // the person it works for, still an approved member — a membership that ended (「내보내기」) ends the token too (lib/membership.js)
+    if (claims.user && !(await isMember(claims.user, claims.tenant))) return deny(res, 403, 'the token\'s person is not a member of this company any more')
     if (device && !(claims.device && ((claims.scope === 'device' && claims.job) || claims.scope === 'sync'))) return deny(res, 403, 'only a linked desktop\'s job or sync token is served here')
     // (a desktop's token — job or sync — only on its own path, where its device, folder and role are checked on every request)
     if (!device && claims.scope) return deny(res, 403, 'a desktop\'s token is not served here')
@@ -339,8 +343,8 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
 
 // the repository a cli-agent step is given (work.js stepOne): with PRO_GIT_URL, the folder over HTTP and a
 // token for it; without, the repository's path (local development: cli-agent shares this disk)
-export function projectRepoFor(folder, { now = Date.now() } = {}) {
+export function projectRepoFor(folder, { now = Date.now(), user = null } = {}) {
   const base = String(config.gitUrl || '').trim().replace(/\/+$/, '')
   if (!base || folder.kind === 'linked') return { project_repo: folder.repo_path }
-  return { project_repo: `${base}/api/git/${folder.id}.git`, project_repo_token: mintToken({ tenant: config.tenantId, folderId: folder.id, now }) }
+  return { project_repo: `${base}/api/git/${folder.id}.git`, project_repo_token: mintToken({ tenant: config.tenantId, folderId: folder.id, now, user }) }
 }

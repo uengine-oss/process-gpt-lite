@@ -4,7 +4,7 @@
 // Revoked from the settings (DELETE …/devices/:id): its link is closed at once and the token is refused from then on.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, memberStatus } from '../supa.js'
 
 const T = () => config.tenantId
 export const PREFIX = 'pld1_'
@@ -26,11 +26,17 @@ export async function issue(user, { name = '', platform = '', appVersion = '' } 
   return { device: view(d), token }
 }
 
+// a person whose row in the company says they are waiting for an administrator or were let go
+const membershipEnded = async (userId, tenant) => ['pending', 'rejected'].includes(await memberStatus(String(userId), tenant).catch(() => null))
+
 // the device a token stands for (any tenant: the link comes outside a request's tenant), or null (unknown, revoked, malformed)
 export async function byToken(token) {
   if (!looksLike(token)) return null
   const [d] = await q(`select * from pro_local_devices where token_hash=$1`, [hashOf(token)])
   if (!d || d.revoked_at) return null
+  // (a desktop of someone whose membership ended or waits links nothing — lib/membership.js revokes it on 「내보내기」, this covers a
+  // change made in Process GPT)
+  if (await membershipEnded(d.user_id, d.tenant_id)) return null
   return d
 }
 
@@ -50,8 +56,10 @@ export async function revoke(user, id) {
 export async function gitAccess(claims, { push = false } = {}) {
   if (claims?.scope === 'sync') return syncAccess(claims, { push })
   if (!/^[0-9a-f-]{36}$/i.test(String(claims?.device || '')) || !/^[0-9a-f-]{36}$/i.test(String(claims?.job || ''))) return 'not a desktop job token'
-  const [d] = await q('select revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
+  const [d] = await q('select revoked_at, user_id from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
   if (!d || d.revoked_at) return 'this desktop is not linked any more'
+  // (its person's membership not ended or waiting — lib/membership.js; letting someone go revokes their desktops too)
+  if (await membershipEnded(d.user_id, claims.tenant)) return 'this desktop\'s person is not a member of this company any more'
   const [j] = await q('select state, device_id, folder_id, sent_skills from pro_local_jobs where id=$1 and tenant_id=$2', [claims.job, claims.tenant])
   if (!j || String(j.device_id || '') !== claims.device) return 'this job is not this desktop\'s'
   // (the job's work folder, or a skill folder it was given — read only)
@@ -70,6 +78,8 @@ export async function syncAccess(claims, { push = false } = {}) {
   if (claims?.scope !== 'sync' || !/^[0-9a-f-]{36}$/i.test(String(claims?.device || ''))) return 'not a desktop sync token'
   const [d] = await q('select user_id, revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
   if (!d || d.revoked_at) return 'this desktop is not linked any more'
+  // (a membership ended in Process GPT too — not only through Lite's 「내보내기」, which also unlinks the desktop)
+  if (await membershipEnded(d.user_id, claims.tenant)) return 'this desktop\'s person is not a member of this company any more'
   const [s] = await q('select state, user_id from pro_folder_sources where folder_id=$1 and device_id=$2 and tenant_id=$3', [claims.folder, claims.device, claims.tenant])
   if (!s || s.state === 'removed') return 'this folder is not synced from this desktop any more'
   if (s.state === 'paused') return 'syncing this folder from this desktop is paused'
