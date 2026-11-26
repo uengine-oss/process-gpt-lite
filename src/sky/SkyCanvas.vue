@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useSky } from '../stores/sky.js'
 import { VERT, FRAG } from './shader.js'
 import { sunPosition } from './solar.js'
@@ -21,8 +21,10 @@ function target() {
     const sun = sunPosition(d, pl.lat, pl.lon)
     return { ...computePalette({ altitude: sun.altitude, cloudCover: 30, weatherCode: 2 }), sun }
   }
-  return { ...sky.palette, sun: sky.sun }
+  return { ...sky.palette, sun: sky.shownSun }
 }
+// which sky is drawn (the store's: the real one, or the one that suits a theme the person chose) — for tests and the recorder
+const drawn = computed(() => (props.hour != null ? null : sky.palette.isDay ? 'day' : 'night'))
 
 function sunScreen(sun) {
   const x = 0.5 + Math.max(-0.7, Math.min(0.7, (sun.azimuth - 180) / 150))
@@ -101,7 +103,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <canvas ref="canvas" class="sky" />
+  <canvas ref="canvas" class="sky" :data-test="hour == null ? 'sky' : null" :data-sky="drawn" />
 </template>
 
 <style scoped>

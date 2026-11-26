@@ -2,7 +2,8 @@
 // 보여 주며: 「퀵하게 대화방에서 온 내용 혹은 ai의 후먼인더루프 등을 모바일에서 보게할 수 있나?」, 스펙 openspec/specs/mobile-push).
 // 지어낸 사람: 정하윤(알림을 받는 사람) · 김서연(팀원).
 //   F-PH-01 휴대폰 390px 밝은 · 밤: Home 의 「브라우저 알림 켜기」 카드 — 글, 옆으로 넘치지 않음 → 「알림 켜기」 → 「알림이 켜져 있어요」 ·
-//           「시험 알림 보내기」 → 가짜 푸시 서비스에 시험 알림이 오고 카드가 결과를 말함
+//           「시험 알림 보내기」 → 가짜 푸시 서비스에 시험 알림이 오고 카드가 결과를 말함 · 켜진 카드의 설명은 AI 질문을 알림에서
+//           바로 답한다고 말하지 않음(11-27, 채팅 에이전트의 질문은 「열기」만)
 //   F-PH-02 AI 의 질문: 채팅 에이전트(가짜 deepagents)가 묻고 멈춤(JSON 에 quick 이 있어도) → 알림 피드 → 가짜 푸시 서비스 → 서비스
 //           워커가 보여 준 알림(제목 · 질문 · 「열기」만) · Home 카드 → 서버 키로 만든 토큰을 실은 단추도 답하지 않고 그 대화를 연다 → 채팅에서
 //           답하면 Home 카드가 사라진다
@@ -144,6 +145,9 @@ test('F-PH-01 Home 의 알림 카드: 켜기 → 켜져 있어요 → 시험 알
     await card.locator('[data-test="notify-on"]').click()
     await expect(card).toHaveAttribute('data-state', 'on')
     await expect(card).toContainText('알림이 켜져 있어요')
+    // (11-27) the words say only what a notification can do: a chat agent's question is 「열기」 only (F-PH-02)
+    await expect(card).toContainText('AI 질문은 알림을 눌러 열어 답해요')
+    await expect(card).not.toContainText('알림에서 바로 답할 수 있어요')
     const before = (await P.payloads('hy', 0, 0)).length
     await card.locator('[data-test="notify-test"]').click()
     // the server pushed one to 정하윤's phone (the fake); this test browser has no push service, so it showed one itself as well

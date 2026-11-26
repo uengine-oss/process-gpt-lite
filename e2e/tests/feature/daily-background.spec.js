@@ -1,7 +1,7 @@
 // 오늘의 배경 사진(2026-11-24 사용자 요청: 「그 계절과 그 날짜에 해당하는 풍경 사진 … 그날에 추천이 좀 되면서 홈 패널 쪽에 있던 날짜 달력
 // 그쪽에서 … 자기의 무드에 따라서 선택」) — Home 의 날짜 · 날씨 패널에 그날의 사진 후보(하늘이 첫 칸), 고르면 배경이 바뀌고 출처가 붙음,
 // 새로 고쳐도 · 다른 기기에서도 그대로, 「오늘만」은 다음 날 하늘(가짜 시계), 하늘로 돌아가기, 회사 관리자 스위치, 휴대폰 390px,
-// 낮 · 밤 테마의 읽기 쉬움, 사진을 못 불러오면 하늘, 무드, 데스크톱 앱의 끌기 띠.
+// 낮 · 밤 테마의 읽기 쉬움, 사진을 못 불러오면 하늘, 무드, 데스크톱 앱의 끌기 띠, 고른 테마에 맞춘 하늘(F-BG-11).
 // 사진 사이트는 이 시험이 띄우는 가짜 Wikimedia Commons(127.0.0.1:59971, RT_BG_SITE_PORT)이고, 서버는 그 주소로 묻게
 // PRO_BG_COMMONS_API=http://127.0.0.1:59971/w/api.php 로 띄운다(시험에서만 — 게이트웨이 뒤에서는 무시된다). 공용 인터넷에는 나가지 않는다.
 // 서버의 주제 · 라이선스 · 캐시 · 스위치 · 저장은 server/test/background.test.js · background.integration.test.js.
@@ -427,6 +427,58 @@ test.describe('오늘의 배경 사진 — Home 의 날짜 · 날씨 패널에�
     expect(r.creditRegion).toBe('no-drag')
     expect(pg.errors).toEqual([])
   })
+  // 11-27, found recording the feature videos at 2 a.m.: with a light theme chosen at night the page's titles (「계정」, a folder's name)
+  // were dark ink on the night sky. A theme the person chose now brings its own sky; 「자동」 stays the real one.
+  test('F-BG-11 고른 테마와 시각이 어긋나면 하늘도 그 테마에 맞춘다: 밤의 낮 테마는 낮 하늘, 낮의 밤 테마는 밤하늘 · 자동은 실제 하늘', async ({ pageAs, db, cleanup }) => {
+    // the hour in Seoul's time, at a place pinned to Seoul — the sun is the same on any machine's clock, without asking ipapi.co
+    const kstDay = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10)
+    const at = (h) => new Date(`${kstDay}T${String(h).padStart(2, '0')}:00:00+09:00`)
+    const SEOUL = JSON.stringify({ lat: 37.5665, lon: 126.978, place: 'Seoul, KR', approx: true })
+    // the brightness (0..1) of a piece of the screen: decoded in a blank page of the same browser (no app CSP there)
+    const brightness = async (pg, clip) => {
+      const png = await pg.screenshot({ clip })
+      const probe = await pg.context().newPage()
+      try {
+        return await probe.evaluate(async (b64) => {
+          const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode()
+          const c = document.createElement('canvas'); c.width = img.width; c.height = img.height
+          const x = c.getContext('2d'); x.drawImage(img, 0, 0)
+          const d = x.getImageData(0, 0, c.width, c.height).data
+          let sum = 0
+          for (let k = 0; k < d.length; k += 4) sum += 0.2126 * d[k] + 0.7152 * d[k + 1] + 0.0722 * d[k + 2]
+          return sum / (d.length / 4) / 255
+        }, png.toString('base64'))
+      } finally { await probe.close() }
+    }
+    for (const [t, hour, sky, html, file] of [
+      ['light', 2, 'day', 'light', 'f-bg-11a-light-at-2am.png'],
+      ['dark', 13, 'night', 'dark', 'f-bg-11b-dark-at-1pm.png'],
+      ['auto', 2, 'night', 'dark', null],
+      ['auto', 13, 'day', 'light', null],
+    ]) {
+      const pg = await pageAs('bg-theme-sky')
+      await clean(db, pg.user.id)
+      cleanup(() => clean(db, pg.user.id))
+      await theme(pg, t)
+      await pg.context().addInitScript((v) => { try { localStorage.setItem('pgpt-pro-place', v) } catch { /* opaque */ } }, SEOUL)
+      await pg.clock.install({ time: at(hour) })
+      await pg.goto('/settings/accounts')
+      const title = pg.getByRole('heading', { level: 1, name: '계정' })
+      await expect(title).toBeVisible({ timeout: 20_000 })
+      await expect(pg.locator('[data-test="sky"]'), `${t} at ${hour}:00`).toHaveAttribute('data-sky', sky, { timeout: 20_000 })
+      await expect(pg.locator('html')).toHaveAttribute('data-theme', html)
+      // what the eye gets: the title's ink against the sky drawn just above it (the sky eases in, so give it a moment)
+      await calm(pg)
+      await pg.waitForTimeout(1500)
+      const ink = await title.evaluate((el) => { const [r, g, b] = getComputedStyle(el).color.match(/\d+(\.\d+)?/g).map(Number); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 })
+      const box = await title.boundingBox()
+      const back = await brightness(pg, { x: Math.round(box.x), y: Math.max(0, Math.round(box.y) - 30), width: Math.max(20, Math.round(box.width)), height: 22 })
+      expect(Math.abs(back - ink), `${t} at ${hour}:00 — sky ${back.toFixed(2)} vs title ink ${ink.toFixed(2)}`).toBeGreaterThan(0.35)
+      if (file) await shot(pg, file)
+      expect(pg.errors).toEqual([])
+    }
+  })
+
 })
 
 test('F-BG-10 서버: 로그인해야 묻고(401), 이상한 날짜는 한국 날짜로, 다른 호스트의 사진 · 모르는 「얼마나」는 400', async ({ as }) => {
