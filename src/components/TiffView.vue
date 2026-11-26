@@ -12,6 +12,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import Icon from './Icon.vue'
 import { openTiff, draw } from '../tiff.js'
 import { TIFF_REASON } from '../tiffCore.js'
+import { saveFile } from '../download.js'
 
 const props = defineProps({
   src: { type: String, default: '' },
@@ -36,6 +37,7 @@ let ticket = 0
 const fitW = computed(() => (size.value ? Math.max(40, Math.min(stageW.value || READ_W, READ_W, size.value.width)) : 0))
 const pageStyle = computed(() => (props.mode === 'thumb' || !fitW.value ? {} : { width: `${Math.round(fitW.value * scale.value)}px` }))
 
+const openRaw = () => window.open(props.src, '_blank', 'noopener')
 async function load() {
   const t = ++ticket
   state.value = 'loading'; why.value = ''; doc.value = null; size.value = null; cur.value = 0; scale.value = 1
@@ -120,7 +122,8 @@ watch(() => props.src, load)
         <p v-if="state === 'loading' && !size" class="msg shimmer-text" data-test="tiff-loading">불러오는 중…</p>
         <p v-else-if="state === 'error'" class="msg calm" role="status" data-test="tiff-error">
           <span>이 TIFF 는 열 수 없어요<template v-if="why"> · {{ why }}</template></span>
-          <a :href="src" download target="_blank" rel="noopener" data-test="tiff-download"><Icon name="down" :size="13" /> 내려받기</a>
+          <!-- under its name (src/download.js — storage on another origin ignores the download attribute); the link itself if that fails -->
+          <a :href="src" download target="_blank" rel="noopener" data-test="tiff-download" @click.prevent="saveFile({ url: src, name, type: 'image/tiff' }).catch(() => openRaw())"><Icon name="down" :size="13" /> 내려받기</a>
         </p>
         <canvas v-show="state !== 'error' && size" ref="cv" class="tpage" :class="{ dim: busy }" :style="pageStyle" data-test="tiff-page" role="img"
           :aria-label="`${name} ${cur + 1}쪽`" @click="press" />

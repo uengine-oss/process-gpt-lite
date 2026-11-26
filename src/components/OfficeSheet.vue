@@ -10,8 +10,10 @@ import OfficeEditorFrame from './OfficeEditorFrame.vue'
 import CraftEditorFrame from './CraftEditorFrame.vue'
 import CraftLiveOverlay from './CraftLiveOverlay.vue'
 import { CRAFT_APPS, officeEditorFor, craftMissing } from '../officeEditor.js'
-import { api, uploadAttachment } from '../api.js'
+import { api, uploadAttachment, freshToken } from '../api.js'
 import { useApp, onOfficeLeave } from '../stores/app.js'
+import { openMailAttachment } from '../mailAttach.js'
+import { rawUrl } from '../foldersApi.js'
 import { useTeam } from '../stores/team.js'
 import { isEnglish } from '../i18n/lang.js'
 
@@ -284,6 +286,28 @@ async function leave() {
   return true
 }
 async function closeDoc() { if (await leave()) app.officeDoc = null }
+// 「내려받기」 of a private card (a mail's attachment, its edit — spec file-download): never the address the sheet opened with (a signed
+// address of the copy as it arrived, ten minutes long) and never the editor's own saved address — the newest version, asked for at the
+// press: a folder's copy from the folder (the version the card stands on — a save moves it), else a fresh signed address of the card
+// (its edited copy, once a save made one) or of the mail's attachment itself
+async function privateDownload() {
+  await savedChain
+  const d = app.officeDoc
+  if (!d?.private) return null
+  if (d.folder?.slug && d.folder.path) {
+    await freshToken()
+    return { url: rawUrl(d.folder.slug, d.folder.path, d.folder.sha || 'main', true), name: d.name || d.folder.path.split('/').pop() }
+  }
+  if (d.msgId) {
+    const c = await api(`/messages/${encodeURIComponent(d.msgId)}/open-file`, { method: 'POST' })
+    return { url: c.url, name: d.name || c.name }
+  }
+  if (d.mailAtt) {
+    const r = await openMailAttachment(app, d.mailAtt, { download: true })
+    return { url: r.url, name: d.name || r.name }
+  }
+  return { url: d.url, name: d.name }
+}
 onOfficeLeave(leave)
 onBeforeUnmount(() => onOfficeLeave(null))
 </script>
@@ -294,12 +318,13 @@ onBeforeUnmount(() => onOfficeLeave(null))
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" :auto-save="autoSave" :quiet-save="quietSave" v-model:maximized="maximized" @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" @selection="selection" />
+        :assistant="office" :auto-save="autoSave" :quiet-save="quietSave" :download="app.officeDoc.private ? privateDownload : true" v-model:maximized="maximized"
+        @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" @selection="selection" />
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">
         <div v-if="pic" class="pic">
           <div class="pic-tag">{{ docWord(pic.editor) }} 문서 · 그림 {{ pic.n }}</div>
-          <CraftEditorFrame ref="picFrame" :file-url="pic.url" :name="pic.name" :return-label="`${docWord(pic.editor)} 문서에 넣기`"
+          <CraftEditorFrame ref="picFrame" :file-url="pic.url" :name="pic.name" :return-label="`${docWord(pic.editor)} 문서에 넣기`" :download="false"
             @return="putBack" @saved="putBack" @close="pic = null" @live="(v) => (picLive = v)" />
         </div>
       </Transition>

@@ -16,9 +16,14 @@
 // pause in editing, when the page goes to the background, and on flush() (the sheet closing waits for it),
 // so an edit never stays only in the open tab (src/officeAutosave.js). A read-only preview says so the
 // moment someone types in it, also on a phone.
+// 「내려받기」 (DownloadButton, spec file-download) before 공유: an editable document with edits not saved yet — typed, or written by the
+// agent — is saved first (the editor's own 저장: a chat file's 저장 puts its edited copy beside the original) and that copy is what is
+// saved; when saving does not work the person is offered the last saved version. `download`: false hides it (a host whose own header has
+// one — FileView), a function gives where the newest version is ({last}) → {url, name} (a private card's signed address — OfficeSheet).
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
+import DownloadButton from './DownloadButton.vue'
 import { isOfficeEditorMessage, officeEditorUrl } from '../officeEditor.js'
 import { freshToken } from '../api.js'
 import { BASE } from '../base.js'
@@ -37,6 +42,8 @@ const props = defineProps({
   autoSave: { type: Boolean, default: false },
   // a save said by the page that opened it instead (a mail's attachment: where its edited copy went — OfficeSheet), not 「편집본이 원본 옆에」
   quietSave: { type: Boolean, default: false },
+  // 「내려받기」 in the bar: true, false (the host has its own), or ({last}) → {url, name} — where the newest version is
+  download: { type: [Boolean, Function], default: true },
 })
 const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited', 'selection'])
 
@@ -245,10 +252,11 @@ function onEdit() {
     if (!hinted) { hinted = true; show('info', '보기 전용으로 열었어요 — 여기서 고친 내용은 저장되지 않아요.', 6000) }
     return
   }
-  if (!props.autoSave) return
+  // (every editable document knows it has unsaved edits — 「내려받기」 saves them first; only autoSave saves by itself)
   editSeq++
   if (!edited.value) emit('edited', true)
   edited.value = true
+  if (!props.autoSave) return
   clearTimeout(idleTimer)
   idleTimer = setTimeout(idleSave, IDLE_MS)
 }
@@ -259,17 +267,20 @@ function idleSave() {
   saveNow()
 }
 // press 저장 and wait for the editor's answer: {saved, url?} | {saved:false, error|timeout}
-function saveNow(timeoutMs = 25000) {
-  if (!props.autoSave || props.readOnly || !frame.value) return Promise.resolve({ saved: false })
-  if (inFlight) return inFlight.then(() => (edited.value ? saveNow(timeoutMs) : { saved: true }))
+// (any: a document that does not save by itself — 「내려받기」 asks for its edits to be saved first)
+function saveNow(timeoutMs = 25000, { any = false } = {}) {
+  if ((!props.autoSave && !any) || props.readOnly || !frame.value) return Promise.resolve({ saved: false })
+  if (inFlight) return inFlight.then(() => (edited.value || agentEdits.value ? saveNow(timeoutMs, { any }) : { saved: true }))
   clearTimeout(idleTimer)
   const seq = editSeq
+  const aseq = agentSeq
   saving.value = true
   inFlight = new Promise((resolve) => {
     const t = setTimeout(() => done({ saved: false, timeout: true }), timeoutMs)
     function done(r) {
       clearTimeout(t); settle = null; inFlight = null; saving.value = false
       if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
+      if (r.saved && agentSeq === aseq) agentEdits.value = false
       resolve(r)
     }
     settle = done
@@ -283,11 +294,28 @@ async function flush(timeoutMs) {
   if (!edited.value && !inFlight) return { saved: false, clean: true }
   return saveNow(timeoutMs)
 }
+// ---- 「내려받기」 ----
+// the agent's edits (office_live_* — no key pressed in the page) are unsaved edits too, until a save
+const agentEdits = ref(false)
+let agentSeq = 0
+// the copy the editor saved last in this opening (a chat file's edited copy; the parent may not have swapped fileUrl to it yet)
+let lastSaved = ''
+async function prepareDownload() {
+  if (props.readOnly || (!edited.value && !agentEdits.value && !inFlight)) return { ok: true, version: 'current' }
+  const r = await saveNow(25000, { any: true })
+  if (r.saved) return { ok: true, version: 'saved' }
+  return { ok: false, why: r.timeout ? '편집기가 답하지 않았어요' : r.error || '' }
+}
+async function downloadSource({ last = false } = {}) {
+  const own = typeof props.download === 'function' ? await props.download({ last }) : null
+  if (own?.url) return { name: props.name, ...own }
+  return { url: lastSaved || props.fileUrl, name: props.name }
+}
 const onHide = () => { if (document.visibilityState === 'hidden' && edited.value && !inFlight) saveNow() }
-const onLeave = (e) => { if (edited.value || inFlight) { e.preventDefault(); e.returnValue = '' } }
+const onLeave = (e) => { if (props.autoSave && (edited.value || inFlight)) { e.preventDefault(); e.returnValue = '' } }
 function startWatching() {
   unwatch?.()
-  unwatch = props.autoSave || props.readOnly ? watchEdits(frame.value, onEdit) : null
+  unwatch = watchEdits(frame.value, onEdit)
   // the editor's own 자동 저장 switch (off on the web host) would contradict the bar's 자동 저장
   const doc = frame.value?.contentDocument
   if (props.autoSave && doc?.head && !doc.getElementById('pgpt-autosave')) {
@@ -311,7 +339,7 @@ defineExpose({
 
 async function load() {
   stopLive()
-  unwatch?.(); unwatch = null; clearTimeout(idleTimer); edited.value = false; hinted = false
+  unwatch?.(); unwatch = null; clearTimeout(idleTimer); edited.value = false; hinted = false; agentEdits.value = false; lastSaved = ''
   ready = false
   pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
@@ -368,7 +396,8 @@ function onMessage(event) {
     m.ok ? w.resolve(m.result) : w.reject(new Error(m.error || '편집기가 거절했어요'))
   }
   else if (m.type === 'saved') {
-    if (m.url) savedUrls.add(m.url)
+    if (m.url) { savedUrls.add(m.url); lastSaved = m.url }
+    if (!settle) agentEdits.value = false
     if (m.name) link?.rename(m.name)
     if (!props.autoSave && !props.quietSave) show('success', m.url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.')
     // saved by the editor's own 저장 too: everything up to now is in
@@ -379,6 +408,7 @@ function onMessage(event) {
     const label = { write: '내용을 쓰는 중', replace: '내용을 바꾸는 중', ops: '서식·구조를 고치는 중', save: '저장했어요' }[m.action]
     show('agent', `에이전트가 ${label || '작업하는 중'}${m.text ? ` · ${m.text}` : ''}`)
     busy.value = m.action !== 'save'
+    if (busy.value && !props.readOnly) { agentSeq++; agentEdits.value = true }
     clearTimeout(busyTimer)
     busyTimer = setTimeout(() => (busy.value = false), 4000)
     emit('agent', m)
@@ -421,6 +451,7 @@ onBeforeUnmount(() => {
       <span class="sp" />
       <!-- the editor is IeumOffice (Apache-2.0); its lockup marks whose editor this is -->
       <img class="ieum" :src="`${BASE}/brand/ieumoffice-logo.svg`" alt="IeumOffice" title="이음오피스 편집기" width="66" height="15" />
+      <DownloadButton v-if="download !== false" class="tb" data-testid="oef-download" :source="downloadSource" :prepare="readOnly ? null : prepareDownload" />
       <ShareButton v-if="!readOnly" :for-name="name" plain class="tb" />
       <button v-if="canMention" class="tb press" :class="{ on: mentionMode }" title="켜고 문서의 표·그림·문단(엑셀은 셀 범위)을 누르면 대화 입력창에 @멘션으로 들어가요 (⌥ 누른 채 클릭도 돼요)" @click="mentionMode = !mentionMode">
         @<span class="lb"> {{ mentionMode ? '가리키는 중' : '가리키기' }}</span>

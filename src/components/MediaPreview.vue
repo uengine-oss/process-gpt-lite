@@ -9,6 +9,7 @@
 // one it cannot draw says 「이 TIFF 는 열 수 없어요 · 내려받기」 (2026-11-25 「tif 파일을 웹에서 못 열어보나?」).
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { isTiff } from '../mediaKind.js'
+import { saveFile } from '../download.js'
 const TiffView = defineAsyncComponent(() => import('./TiffView.vue'))
 
 const props = defineProps({
@@ -25,6 +26,7 @@ const tiffBad = ref(false)
 // a new address (a fresh sign-in token, the file published) tries again
 watch(() => props.src, () => { failed.value = false; tiffBad.value = false })
 function onError() { failed.value = true; emit('failed') }
+const openRaw = () => window.open(props.src, '_blank', 'noopener')
 // a TIFF whose address did not answer is as any picture's (the messenger asks for a new address); one that is not a TIFF it can draw says so
 function onTiffFail(e) { if (e?.fetch) onError(); else tiffBad.value = true }
 </script>
@@ -32,7 +34,8 @@ function onTiffFail(e) { if (e?.fetch) onError(); else tiffBad.value = true }
 <template>
   <div v-if="src" class="mp" :class="[kind, { compact }]" data-test="media-preview" :data-kind="kind" :data-file="name">
     <p v-if="failed" class="calm" data-test="media-fallback">미리 볼 수 없어요 · <a :href="src" target="_blank" rel="noopener">새 창에서 열기</a></p>
-    <p v-else-if="tiff && tiffBad" class="calm" data-test="tiff-error">이 TIFF 는 열 수 없어요 · <a :href="src" download target="_blank" rel="noopener">내려받기</a></p>
+    <p v-else-if="tiff && tiffBad" class="calm" data-test="tiff-error">이 TIFF 는 열 수 없어요 · <a :href="src" download target="_blank" rel="noopener"
+      @click.prevent="saveFile({ url: src, name, type: type || 'image/tiff' }).catch(() => openRaw())">내려받기</a></p>
     <button v-else-if="tiff" type="button" class="thumb press" :title="name" :aria-label="`${name} 크게 보기`" data-test="media-thumb" @click="emit('open')">
       <TiffView mode="thumb" :src="src" :name="name" @loaded="emit('loaded')" @failed="onTiffFail" />
     </button>

@@ -14,6 +14,8 @@
 //   F-MA-09 팩스(TIFF — 운영 11-25 「[KT 스마트메시지 Plus] 팩스 메시지 도착알림」의 arrive_….tif 가 FILE · 「앱 안에서 열지 않는 형식이에요」뿐이던 것):
 //           칩은 IMG → 앱의 보기 화면 ‹ 1 / 2 › → 2쪽(그려진 그림), 손상된 TIFF 는 차분한 안내, 「이 첨부로 묻기」 → 가짜 에이전트가 쪽마다 PNG 를 읽음
 //   F-MA-10 팩스 · 390px 휴대폰(밝은 · 밤): 칩 · 보기 화면 · 쪽 넘기기가 화면 안, 한 쪽이 통째로 보임
+//   F-FD-07 첨부를 연 곳의 「내려받기」(스펙 file-download): 이음오피스 머리 → 첨부 이름 · 메일의 바이트(누를 때 받은 서명 경로, 편집기가 연 10분 주소가
+//           아님) · 워드 첨부를 고친 뒤 → 먼저 저장(내 채팅의 비공개 카드) → 그 편집본 · 보기 화면의 그림도 이름 그대로 · 공개 주소 없음
 // TIFF 시험 파일은 e2e/fixtures/tiff (만든 방법은 server/fixtures/tiff/make.py).
 // 자기 스택(lib/localStack.js — 테넌트 mailatt-ui, BFF 8930~ · Vite 5330~), 실제 이음오피스 편집기(lib/officeHost.js, 5395~), 이 파일이 띄우는
 // 가짜 Google(Gmail 원문 · 첨부, 8937~), 가짜 deepagents(8938~ — 받은 첨부를 실제로 읽어 합계를 셈), 가짜 모델(8936~ — 채팅 라우터는 늘
@@ -27,6 +29,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { execFileSync } from 'node:child_process'
 import { startStack, freePort, waitFor, REPO, SERVER } from '../../lib/localStack.js'
 import { startOfficeHost, officeHostDir } from '../../lib/officeHost.js'
 import { XLSX, PNG } from '../../lib/seed.js'
@@ -252,7 +255,7 @@ test.beforeAll(async () => {
   gmail.mails[FAX_ID] = await new MailComposer({ from: 'KT 스마트메시지 Plus <noreply@fax.kt.example>', to: '한지우 <jiwoo@lite.example>', subject: FAX_SUBJECT,
     text: '고객님께 팩스 메시지가 도착했습니다. 첨부 파일을 확인해 주세요.',
     attachments: [{ filename: FAX_NAMES[0], content: tif('fax-2p-g4.tif'), contentType: 'image/tiff' }, { filename: FAX_NAMES[1], content: tif('broken.tif'), contentType: 'image/tiff' }] }).compile().build()
-  host = await startOfficeHost({ from: 5395 })
+  host = await startOfficeHost({ from: Number(process.env.RT_OFFICE_FROM) || 5395 })
   const F = Number(process.env.RT_FAKE_FROM) || 0
   const gp = F ? freePort(F, 6) : freePort(8937, 1) || freePort(59991, 5)
   google = await startGoogle(gp)
@@ -641,10 +644,13 @@ test('F-MA-09 팩스(TIFF) 첨부: 칩은 IMG → 보기 화면 ‹ 1 / 2 › �
   expect(c1.share).toBeGreaterThan(0.03)
   await expect(chipOf(p, 0).locator('[data-test="mail-attachment-download"]')).toHaveCount(0)
   await expect(p.getByText('앱 안에서 열지 않는 형식이에요')).toHaveCount(0)
-  // read through this server's signed route (no sign-in token in it)
-  const dl = await p.locator('[data-test="media-download"]').getAttribute('href')
+  // read through this server's signed route (no sign-in token in it) — the header's 「내려받기」 too, under the fax's own name (spec file-download)
+  const [fd] = await Promise.all([p.waitForEvent('download'), p.locator('[data-test="media-viewer"] header [data-test="download"]').click()])
+  expect(fd.suggestedFilename()).toBe(FAX_NAMES[0])
+  const dl = p.urls.filter((u) => new RegExp(`/api/mail/attachments/${a.id}/0/raw\\?`).test(u)).pop()
   expect(dl).toMatch(new RegExp(`/api/mail/attachments/${a.id}/0/raw\\?u=${OW.id}&exp=\\d+&inline=1&sig=`))
   expect(dl).not.toMatch(/token=|eyJ/)
+  await expect(p.locator('[data-test="media-download"]')).toHaveCount(0)
   await shot(p, 'ma09-2-fax-viewer-page1')
   await v.locator('[data-test="tiff-next"]').click()
   await expect(v.locator('[data-test="tiff-pos"]')).toHaveText('2 / 2')
@@ -711,3 +717,77 @@ for (const theme of ['light', 'dark']) {
     await p.context().close()
   })
 }
+
+// ---------- 「내려받기」 where an attachment opened (spec file-download) ----------
+// a mail with a Word contract and a picture (the docs editor: typing in it is what a person does)
+const DOC_ID = 'g-ma-docx-1'
+const DOC_SUBJECT = '하늘테크 용역 계약서 수정본 보내 드립니다'
+const DOC_NAMES = ['하늘테크 용역 계약서 (수정본).docx', '현장 사진.png']
+function DOCX(lines) {
+  const out = path.join(os.tmpdir(), `rt-ma-dl-${process.pid}-${Date.now()}.docx`)
+  const body = lines.map((l) => `<w:p><w:r><w:t>${l}</w:t></w:r></w:p>`).join('')
+  const py = ['import sys, zipfile', 'z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED)',
+    `z.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')`,
+    `z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')`,
+    `z.writestr("word/document.xml", '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + sys.argv[2] + '</w:body></w:document>')`, 'z.close()'].join('\n')
+  execFileSync('python3', ['-c', py, out, body], { stdio: 'pipe' })
+  const b = fs.readFileSync(out); fs.rmSync(out, { force: true }); return b
+}
+const docxText = (file) => execFileSync('python3', ['-c', 'import sys, zipfile, re; x = zipfile.ZipFile(sys.argv[1]).read("word/document.xml").decode("utf-8"); print(re.sub(r"<[^>]+>", "", re.sub(r"</w:p>", "\\n", x)))', file], { encoding: 'utf8' })
+
+test('F-FD-07 첨부를 연 곳의 「내려받기」: 이음오피스 → 첨부 이름 · 메일의 바이트 · 고친 뒤에는 먼저 저장한 편집본 · 보기 화면의 그림 — 공개 주소 없음', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const DOC = DOCX(['하늘테크 용역 계약서', '제1조 계약 기간: 2026년 12월 1일부터'])
+  const MailComposer = req('nodemailer/lib/mail-composer')
+  gmail.mails[DOC_ID] = await new MailComposer({ from: SENDER, to: '한지우 <jiwoo@lite.example>', subject: DOC_SUBJECT, text: '수정한 계약서와 현장 사진을 보내 드립니다.',
+    attachments: [{ filename: DOC_NAMES[0], content: DOC, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, { filename: DOC_NAMES[1], content: PIC, contentType: 'image/png' }] }).compile().build()
+  const a = await freshCard(OW, { mailId: DOC_ID, subject: DOC_SUBJECT, text: '하늘테크 용역 계약서 수정본 확인' })
+  const p = await page(browser, OW)
+  const sheet = async () => {
+    await p.goto('/chat')
+    await p.locator(`[data-test="action-card"][data-action-id="${a.id}"]`).click()
+    await expect(sheetOf(p).locator('[data-test="mail-original"]')).toContainText('tax@ogaram-tax.example', { timeout: 30_000 })
+    await expect(sheetOf(p).locator('[data-test="mail-attachment-open"]')).toHaveCount(2)
+  }
+  await sheet()
+  await chipOf(p, 0).locator('[data-test="mail-attachment-open"]').click()
+  await expect(p.locator('.oef iframe.frm')).toHaveAttribute('src', /\/office\/docs\/\?src=/, { timeout: 30_000 })
+  const ed = p.frameLocator('.oef iframe.frm')
+  await expect(ed.locator('.ProseMirror')).toBeVisible({ timeout: 90_000 })
+  await p.waitForTimeout(2500)
+  const btn = p.locator('.oef [data-testid="oef-download"]')
+  await expect(btn).toBeVisible()
+  // as it arrived: under the attachment's name, the mail's bytes — fetched from the signed route asked for at the press (not the storage
+  // address the editor opened with, which lasts ten minutes and never names the file)
+  const [d1] = await Promise.all([p.waitForEvent('download'), btn.click()])
+  expect(d1.suggestedFilename()).toBe(DOC_NAMES[0])
+  expect(fs.readFileSync(await d1.path()).equals(DOC)).toBe(true)
+  expect(p.urls.some((u) => new RegExp(`/api/mail/attachments/${a.id}/0/raw\\?u=${OW.id}&exp=\\d+&sig=`).test(u))).toBe(true)
+  await expect(p.locator('[data-test="download-note"]')).toHaveText(`내려받았어요 · ${DOC_NAMES[0]}`)
+  await shot(p, 'fd07-1-office-download')
+  // an edit not saved yet: 「내려받기」 saves first (my own private file card, no address on it) and downloads that edited copy
+  await ed.locator('.ProseMirror p').last().click()
+  await p.keyboard.press('End')
+  await p.keyboard.type(' 첨부수정후받기', { delay: 25 })
+  const [d2] = await Promise.all([p.waitForEvent('download', { timeout: 60_000 }), btn.click()])
+  expect(d2.suggestedFilename()).toBe(DOC_NAMES[0])
+  expect(docxText(await d2.path())).toContain('첨부수정후받기')
+  await expect(p.locator('[data-test="download-note"]')).toHaveText(`방금 저장한 판을 내려받았어요 · ${DOC_NAMES[0]}`)
+  const [card] = await waitFor(async () => { const r = await S.q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='file' and m.content ? 'mailAtt'`, [OW.id]); return r.length ? r : null }, 20_000, 'private card')
+  expect(card.content.url).toBeUndefined()
+  await shot(p, 'fd07-2-saved-then-downloaded')
+  await p.locator('.oef .tb.ic[title="닫기"]').click()
+  await expect(p.locator('.oef')).toHaveCount(0)
+  // the picture, in the viewer: its header's 「내려받기」
+  await sheet()
+  await chipOf(p, 1).locator('[data-test="mail-attachment-open"]').click()
+  const v = p.locator('[data-test="media-viewer"]')
+  await expect(v).toBeVisible()
+  const [d3] = await Promise.all([p.waitForEvent('download'), v.locator('header [data-test="download"]').click()])
+  expect(d3.suggestedFilename()).toBe(DOC_NAMES[1])
+  expect(fs.readFileSync(await d3.path()).equals(PIC)).toBe(true)
+  await shot(p, 'fd07-3-viewer-download')
+  noPublic(p)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})

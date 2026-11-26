@@ -6,6 +6,8 @@
 // editors, which load from storage (a published copy). editorUrl() may answer {url, editable}: an
 // editable office document opens for editing and saves itself (OfficeEditorFrame autoSave) —
 // 'office-saved' hands the host each saved copy, flush() saves what is left before closing.
+// 「내려받기」 is the host's (its header: FilePreview · the workroom · a meeting's stage — spec file-download): the editors inside keep
+// theirs out of the way, so a screen has one.
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { marked } from 'marked'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
@@ -68,9 +70,9 @@ defineExpose({ draft, dirty, flush, writable })
     <template v-if="view === 'office' || view === 'craft'">
       <p v-if="frameErr" class="none">{{ frameErr }}</p>
       <p v-else-if="!frameUrl" class="none">여는 중…</p>
-      <OfficeEditorFrame v-else-if="view === 'office'" ref="oef" class="frame" :file-url="frameUrl" :name="baseName(path)" :read-only="!writable" :auto-save="writable"
+      <OfficeEditorFrame v-else-if="view === 'office'" ref="oef" class="frame" :file-url="frameUrl" :name="baseName(path)" :read-only="!writable" :auto-save="writable" :download="false"
         @saved="(e) => emit('office-saved', e)" @edited="(v) => emit('office-edited', v)" />
-      <CraftEditorFrame v-else class="frame" :file-url="frameUrl" :name="baseName(path)" />
+      <CraftEditorFrame v-else class="frame" :file-url="frameUrl" :name="baseName(path)" :download="false" />
     </template>
     <div v-else-if="editing" class="ed">
       <pre class="gut">{{ Array.from({ length: lines }, (_, i) => i + 1).join('\n') }}</pre>

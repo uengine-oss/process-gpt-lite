@@ -6,10 +6,12 @@
 // It closes with ✕, Esc or a press outside the file, back to where it was opened (a floating messenger stays open under it).
 // A picture pressed switches between fitting the screen and its own size (then it scrolls); a phone pinches it as any page.
 // A TIFF (a fax: several pages, black and white) is drawn by the app (TiffView.vue — loaded only when one opens): ‹ 1 / 3 ›, fitted to the
-// width, a press zooms in; one it cannot draw says 「이 TIFF 는 열 수 없어요 · 내려받기」. A browser would only download a TIFF opened in a
-// new window, so its footer offers 「내려받기」 instead (2026-11-25 「tif 파일을 웹에서 못 열어보나?」).
+// width, a press zooms in; one it cannot draw says 「이 TIFF 는 열 수 없어요 · 내려받기」 (2026-11-25 「tif 파일을 웹에서 못 열어보나?」).
+// 「내려받기」 is in the header for every kind, before ✕ (DownloadButton — the one every place a file opens has, spec file-download):
+// the file under its name, also a signed mail or messenger address; a TIFF's footer no longer needs its own.
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import Icon from './Icon.vue'
+import DownloadButton from './DownloadButton.vue'
 import { useApp } from '../stores/app.js'
 import { CRAFT_NAMES } from '../editorKinds.js'
 import { isTiff } from '../mediaKind.js'
@@ -46,6 +48,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey, true); if (
     <div v-if="v" class="mv" role="dialog" aria-modal="true" :aria-label="v.name" data-test="media-viewer" :data-kind="v.kind" @click.self="close">
       <header class="mvh">
         <b class="nm" :title="v.name">{{ v.name }}</b>
+        <DownloadButton class="dl" :size="17" :source="{ url: v.url, name: v.name, type: v.type }" />
         <button ref="closeBtn" type="button" class="x press" aria-label="닫기" data-test="media-close" @click="close"><Icon name="close" :size="18" /></button>
       </header>
       <TiffView v-if="tiff" :key="v.url" mode="viewer" :src="v.url" :name="v.name" @dismiss="close" />
@@ -56,8 +59,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey, true); if (
       </div>
       <footer class="mvf" @click.self="close">
         <p v-if="note" class="note" role="status" data-test="media-note">{{ note }}</p>
-        <a v-if="tiff" class="act press" :href="v.url" download target="_blank" rel="noopener" data-test="media-download"><Icon name="down" :size="15" />&nbsp;내려받기</a>
-        <a v-else class="act press" :href="v.url" target="_blank" rel="noopener" data-test="media-open">새 창에서 열기</a>
+        <a v-if="!tiff" class="act press" :href="v.url" target="_blank" rel="noopener" data-test="media-open">새 창에서 열기</a>
         <button v-if="v.editWith && v.edit" type="button" class="act main press" :disabled="busy" data-test="media-edit" :data-editor="v.editWith" @click="edit">{{ CRAFT_NAMES[v.editWith] || v.editWith }} 로 편집</button>
       </footer>
     </div>
@@ -72,6 +74,9 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey, true); if (
 .mvh { flex: none; display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 8px 18px; }
 .nm { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .x { flex: none; width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; background: rgba(255, 255, 255, .14); color: #fff; }
+/* 「내려받기」 beside ✕, as round as it; the arrow alone on a phone */
+.dl { flex: none; height: 40px; padding: 0 16px 0 13px; border-radius: 20px; background: rgba(255, 255, 255, .14); color: #fff; font-size: 14px; font-weight: 500; white-space: nowrap; }
+@media (max-width: 520px) { .dl { width: 40px; padding: 0; justify-content: center; } }
 .stage { flex: 1 1 auto; min-height: 0; display: flex; padding: 4px 16px; overflow: auto; overscroll-behavior: contain; }
 /* centred while it fits, scrollable from its edge when it does not (margin: auto) */
 .full { margin: auto; display: block; max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; cursor: zoom-in; }

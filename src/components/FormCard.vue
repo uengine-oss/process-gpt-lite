@@ -5,6 +5,9 @@ import Icon from './Icon.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
 import { inApp, openOutput } from '../artifacts.js'
+import { saveFile } from '../download.js'
+// a file no viewer here takes, when it could not be fetched to save: the link itself
+const openLink = (u) => window.open(u, '_blank', 'noopener')
 
 // Renders a process-gpt form (form_def.fields_json) as a glass card.
 // fields: [{key, text, type, items?: [{value: label}], readonly?}]
@@ -67,7 +70,8 @@ async function upload(f, e) {
       <div v-else-if="kind(f.type) === 'file'" class="file">
         <!-- looked at inside the app (artifacts.js openOutput), not downloaded into another app -->
         <button v-if="model[f.key]?.url && inApp(model[f.key])" type="button" class="chip press" @click="openOutput(app, model[f.key])"><Icon name="doc" :size="16" /> {{ model[f.key].name }}</button>
-        <a v-else-if="model[f.key]?.url" :href="model[f.key].url" :download="model[f.key].name || ''" class="chip"><Icon name="doc" :size="16" /> {{ model[f.key].name }}</a>
+        <a v-else-if="model[f.key]?.url" :href="model[f.key].url" :download="model[f.key].name || ''" class="chip"
+          @click.prevent="saveFile({ url: model[f.key].url, name: model[f.key].name }).catch(() => openLink(model[f.key].url))"><Icon name="doc" :size="16" /> {{ model[f.key].name }}</a>
         <label v-if="!ro(f)" class="pick press"><input type="file" hidden @change="upload(f, $event)" />{{ uploading[f.key] ? '올리는 중…' : model[f.key]?.url ? '바꾸기' : '파일 선택' }}</label>
       </div>
       <input v-else v-model="model[f.key]" class="in" :readonly="ro(f)"
