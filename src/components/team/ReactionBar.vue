@@ -5,8 +5,10 @@
 //   mine: keys already mine on this message · text: what 「복사」 copies ('' → no 「복사」)
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { REACTIONS } from '../../roomReactions.js'
+import Icon from '../Icon.vue'
 
-const props = defineProps({ mine: { type: Array, default: () => [] }, text: { type: String, default: '' } })
+// off: this database has no reactions yet (sql/062) — only 「복사」
+const props = defineProps({ mine: { type: Array, default: () => [] }, text: { type: String, default: '' }, off: Boolean })
 const emit = defineEmits(['pick', 'copy', 'close'])
 const el = ref(null)
 // a press anywhere else, Esc, or the conversation scrolling puts it away
@@ -24,10 +26,10 @@ defineExpose({ el })
 
 <template>
   <div ref="el" class="rxpop" role="dialog" aria-label="반응 남기기" data-test="rx-bar">
-    <div class="bar glass" role="group">
+    <div v-if="!off" class="bar glass" role="group">
       <button v-for="r in REACTIONS" :key="r.key" class="rx press" :class="{ on: props.mine.includes(r.key) }" :data-key="r.key" data-test="rx-pick"
         :aria-pressed="props.mine.includes(r.key)" @click="emit('pick', r.key)">
-        <span class="em" aria-hidden="true">{{ r.emoji }}</span><small>{{ r.label }}</small>
+        <span class="em" aria-hidden="true"><Icon :name="r.icon" :size="23" /></span><small>{{ r.label }}</small>
       </button>
     </div>
     <button v-if="text" class="copy glass press" data-test="rx-copy" @click="emit('copy')">복사</button>
@@ -41,8 +43,8 @@ defineExpose({ el })
   /* (opaque: the bubble under it does not show through) */
   background: linear-gradient(var(--regular-solid-bg), var(--regular-solid-bg)), var(--surface-secondary); }
 .rx { flex: 0 1 48px; min-width: 38px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 0 4px; border-radius: 14px; color: var(--text-secondary); }
-/* (an emoji takes its text colour's alpha: drawn with an opaque one, never washed out) */
-.rx .em { font-size: 23px; line-height: 28px; color: var(--text-primary); transition: transform .15s var(--spring); }
+/* the app's own line icon, in the words' colour (the device's colour emoji did not sit with the rest — 2026-11-26) */
+.rx .em { display: grid; place-items: center; height: 28px; color: var(--text-primary); transition: transform .15s var(--spring); }
 .rx small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; line-height: 13px; white-space: nowrap; }
 .rx:hover .em, .rx:focus-visible .em { transform: scale(1.18); }
 .rx.on { background: rgba(42, 120, 214, .16); color: #1a56c4; }

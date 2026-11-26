@@ -2,23 +2,22 @@
 // The mail sheet's row of follow-up actions, beside the reply (2026-11-24 사용자: 「메일에 대해서 무조건 답장만 하지는 않는다. 그 회사에 대해서
 // 추가적으로 알아볼 수 도 있고.. 기타 액션을 할 수 있어야 하는데... 채팅에 멘션해서 뭔가 후속 작업을 할 수 있어야하는디」 — spec mail-card-actions).
 // The server says the row (lib/mailFollow.js): 「이 회사 알아보기」 · 「채팅에서 이어서」, then a few the judge picked for this mail (회의 잡기 ·
-// 제안서 초안 · ‘…’ 시작 · 폴더에 정리 · 동료에게 공유 …). A pill only picks an action: what it will do is said under the row, and nothing runs,
+// 제안서 초안 · ‘…’ 시작 · 폴더에 정리 …). 「대화방에 공유」 is on every row: its pill opens the room picker under the row (MailRoomShare.vue —
+// nothing is posted before its 보내기). Any other pill only picks an action: what it will do is said under the row, and nothing runs,
 // opens or is sent before that line's button. An agent action's run stays on the card — 「회사 알아본 결과 · 열기」 — while the sheet is
 // closed too (the Home card says it).
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
-import { useTeam } from '../stores/team.js'
 import { mailItem } from '../fileDrag.js'
 import { narrow } from '../viewport.js'
 import { runLine, openRun } from '../mailFollow.js'
 
 // atts: the mail's attachments as the sheet has them ({name, size, type}) — 「이 첨부로 묻기」 puts them in the chat (src/mailAttach.js)
 const props = defineProps({ action: Object, atts: { type: Array, default: () => [] } })
-const emit = defineEmits(['close', 'flow', 'files', 'ask'])
+const emit = defineEmits(['close', 'flow', 'files', 'ask', 'share'])
 const app = useApp()
-const team = useTeam()
 const router = useRouter()
 const route = useRoute()
 const row = ref(null)
@@ -35,7 +34,12 @@ const runOf = (x) => props.action?.source?.follow?.runs?.[x.key] || x.run || nul
 const cur = computed(() => (row.value || []).find((x) => x.key === picked.value) || null)
 const curRun = computed(() => (cur.value ? runOf(cur.value) : null))
 const lines = computed(() => (row.value || []).filter((x) => x.do === 'agent').map((x) => runOf(x)).filter(Boolean))
-function pick(x) { err.value = ''; picked.value = picked.value === x.key ? '' : x.key }
+function pick(x) {
+  err.value = ''
+  // (the room picker says what it will do itself)
+  if (x.do === 'share') { picked.value = ''; emit('share'); return }
+  picked.value = picked.value === x.key ? '' : x.key
+}
 
 async function go(x, { again = false } = {}) {
   err.value = ''
@@ -50,14 +54,6 @@ async function go(x, { again = false } = {}) {
     if (narrow.value) app.dockOpen = false
     if (route.path !== '/chat') await router.push('/chat')
     await app.mailToChat(item)
-  } else if (x.do === 'share') {
-    // the messenger, the mail waiting as a mention for the conversation picked there (Messenger.vue takes team.pendingMention)
-    // (the list first: a conversation left open is not taken as the one picked — PR #49 review)
-    emit('close')
-    team.active = null
-    team.pendingMention = [item]
-    team.tab = 'threads'
-    team.open = true
   } else if (x.do === 'askatt') {
     // the AI chat with the mail and its attachments as chips (the sheet carries it out: it knows the files and their numbers); the names the
     // card kept stand in when the mail itself could not be read this time

@@ -24,9 +24,20 @@ export const useSky = defineStore('sky', {
       const p = this.place || { lat: 37.57, lon: 126.98 }
       return sunPosition(this.clock, p.lat, p.lon)
     },
+    // the sun the sky is drawn with: the real one, unless the person chose a theme the hour disagrees with. A light theme while the sun
+    // is low (night, dawn, dusk — the top of the sky already dark) draws a morning sky, a dark theme by day a night sky — the page's
+    // titles sit on the sky with the chosen theme's ink, so the sky has to match it (11-27: 「계정」 · 「영업 자료」 dark on the night
+    // sky). Its direction is set too (morning sun to the east-southeast, evening to the west-southwest, about where the real one is when
+    // the swap ends): the real one would put a glow at the screen's edge, sweep it across at solar midnight, or the moon behind titles.
+    shownSun() {
+      const s = this.sun
+      if (this.themePref === 'light' && s.altitude < 10) return { ...s, altitude: 20, azimuth: 120 }
+      if (this.themePref === 'dark' && s.altitude > -6) return { ...s, altitude: -14, azimuth: 250 }
+      return s
+    },
     palette() {
       return computePalette({
-        altitude: this.sun.altitude,
+        altitude: this.shownSun.altitude,
         cloudCover: this.wx?.cloud ?? 25,
         weatherCode: this.wx?.code ?? 1,
         moon: moonPhase(this.clock),
@@ -43,6 +54,8 @@ export const useSky = defineStore('sky', {
       const qs = new URLSearchParams(location.search)
       if (qs.has('hour')) this.simHour = Number(qs.get('hour'))
       try { this.themePref = localStorage.getItem('pgpt-pro-theme') || 'auto' } catch { /* ignore */ }
+      // the chosen theme's ink at once, with its sky (the place only moves the sun; looking it up may take a while)
+      this.applyTheme()
       this.place = await locate()
       this.refresh()
       setInterval(() => { this.now = new Date(); this.applyTheme() }, 30000)

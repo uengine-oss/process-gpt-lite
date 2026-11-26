@@ -321,7 +321,13 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
 
   // work that repeats (「앞으로 매주 월요일 오전에 …」): asked as a schedule — a timer event on the company map (lib/ontology/timers.js)
   for (const m of asked) if (!m.fixture) import('./ontology/timers.js').then((o) => o.recurFromMail(userId, m)).catch((e) => console.warn('[mail] recur', e.message))
-  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(asked.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name), ...(answered.has(id) ? { answered: true } : {}) }))))
+  // 「앞으로 … 메일도 이 방에 올리기」 (lib/mailRooms.js): the rules post the mails they take to their rooms — after the triage made its cards,
+  // or without them when the triage could not be read (the mails are marked read already: they would never be posted otherwise)
+  const toRooms = (cards) => import('./mailRooms.js').then((R) => R.autoShare(userId, asked.filter((m) => !m.fixture), cards, deps)).catch((e) => console.warn('[mail] rooms', e.message))
+  let r
+  try {
+    r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(asked.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name), ...(answered.has(id) ? { answered: true } : {}) }))))
+  } catch (e) { await toRooms([]); throw e }
   const actions = (r.actions || []).filter((a) => !(answered.has(a.mail_id) && S.repliesTo(a)))
   const cards = []
   for (const a of actions) {
@@ -338,6 +344,8 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
   // a mail of a thread that is already a running instance's goes to that instance, without a model (lib/mailFlow.js)
   const MF = await import('./mailFlow.js')
   const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })
+  // (the rules' posts: the summary for the room, the body when the rule says so; a mail with no card gets one already done)
+  await toRooms(cards)
   // the brief and the mailbox's own lines go into the person's 브리프 conversation (lib/ownConversations.js), never into the conversation
   // the person happens to be in
   if (r.brief) {

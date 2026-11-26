@@ -12,6 +12,7 @@ import * as P from '../processes.js'
 import * as PA from '../panelApps/service.js'
 import * as F from '../folders/service.js'
 import * as IX from '../folders/indexer.js'
+import { slotsOf, underSlot } from '../folders/refs.js'
 import * as S from '../team/shares.js'
 import { view as messageView } from '../team/messenger.js'
 import { isEn, L } from '../lang.js'
@@ -138,7 +139,9 @@ async function folderFileCandidates(speaker) {
                         from pro_folder_files f join pro_folders p on p.id=f.folder_id
                         where f.folder_id = any($1) and p.kind is distinct from 'skill'
                         order by f.mtime desc nulls last limit 600`, [ids]).catch(() => [])
-  return rows.map(folderFile)
+  // (a file under its folder's reference slot is not one of its files while the slot is there — folders/refs.js)
+  const slots = await slotsOf([...new Set(rows.map((r) => r.folder_id))]).catch(() => new Map())
+  return rows.filter((r) => !underSlot(slots.get(String(r.folder_id)), r.path)).map(folderFile)
 }
 const folderFile = (r) => ({ kind: 'folder', id: `${r.folder_id}:${r.path}`, title: baseOf(r.path), folderFile: true,
   where: r.folder_name, keywords: Array.isArray(r.keywords) ? r.keywords.slice(0, 12) : [], ref: { folderId: r.folder_id, slug: r.slug, path: r.path } })
@@ -243,6 +246,7 @@ export async function resolve(key, ctx) {
     const f = await F.folderById(folderId).catch(() => null)
     if (!f || f.kind === 'skill') return null
     try { await F.access(f.slug, ctx.speaker) } catch { return null }
+    if (underSlot((await slotsOf([f.id]).catch(() => new Map())).get(String(f.id)), path)) return null
     const [row] = await q('select path from pro_folder_files where folder_id=$1 and path=$2', [f.id, path])
     return row ? folderFile({ folder_id: f.id, slug: f.slug, folder_name: f.name, path: row.path }) : null
   }
@@ -325,7 +329,9 @@ export async function view(user, mat) {
 }
 
 // open a file material: the owner's own card, or my copy through my grant (the same as opening a share)
-export async function openFile(user, mat) {
+// record: the person opens it (their open is on the sharer's card — shares.js recordOpen); false when it is only handed to their
+// agent (a meeting suggestion's work order: order.js)
+export async function openFile(user, mat, { record = true } = {}) {
   const r = mat.ref || {}
   if (r.ownerId === user.id) {
     const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id::text=$1 and t.user_id=$2`, [r.sourceId, user.id])
@@ -333,7 +339,7 @@ export async function openFile(user, mat) {
   }
   const [s] = await q(`select id from pro_shares where tenant_id=$1 and recipient_id=$2 and source_message_id::text=$3 and revoked_at is null order by created_at desc limit 1`, [T(), user.id, r.sourceId])
   if (!s) return null
-  return S.openCopy(user, s.id)
+  return S.openCopy(user, s.id, { record })
 }
 
 // presenting the owner's file to the room: a grant for each room member who has none yet (a share)

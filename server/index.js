@@ -89,6 +89,9 @@ import { ensureResultLine, fireSchedule, runMission, listMissionRuns, createMiss
 import { getSkill, deleteSkill } from './lib/skills.js'
 import { startSystemRegistry, syncSystemRegistry } from './lib/systems.js'
 import * as notify from './lib/notify.js'
+// the AI waiting on the person, as a notice and a push whose buttons answer it (lib/askPerson.js)
+import * as ASK from './lib/askPerson.js'
+import { running as turnsRunning } from './lib/turns.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { roomSeat } from './lib/folders/rooms.js'
@@ -510,11 +513,32 @@ app.post('/api/mail/connect', auth, async (req, res) => {
   }).catch((e) => console.warn('[ontology] onboarding', e.message))
 })
 // Web Push: the server's public key, and this browser's subscription (lib/webpush.js, public/sw.js)
-app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: webpush.vapidKeys().publicKey, stats: webpush.stats }))
+// (the key alone — what push services answered stays in this server's log: review 11-26, PR #89)
+app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: webpush.vapidKeys().publicKey }))
 app.post('/api/push/subscriptions', auth, async (req, res) => {
   try { res.json(await webpush.subscribe(req.user, req.body?.subscription, req.headers['user-agent'])) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 app.delete('/api/push/subscriptions', auth, async (req, res) => res.json(await webpush.unsubscribe(req.user, req.body?.endpoint)))
+// 「시험 알림 보내기」 (Home · Settings): one push to each of my devices now — the person sees it working in seconds. devices: how many
+// subscriptions it went to (0: this browser never subscribed — the page then shows one itself)
+// (three a minute for one person)
+app.post('/api/push/test', auth, async (req, res) => {
+  if (!webpush.testSlot(req.user.id)) return res.status(429).json({ error: L('시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.', 'Up to three test notifications a minute. Try again in a moment.') })
+  const devices = await webpush.pushTo(req.user.id, { id: `test-${Date.now()}`, type: 'test', tag: 'pgl-test', renotify: true,
+    title: L('시험 알림이에요', 'This is a test notification'), body: L('이 알림이 보이면 휴대폰 알림이 켜진 거예요', 'If you can see this, notifications are on.') })
+  res.json({ devices })
+})
+// A button on a phone's notification of the AI waiting on the person (public/sw.js → lib/askPerson.js act). No sign-in: the push carried
+// a token for this one notice, signed by this server, bound to the person, the card and the answers it may give, used once, 24 hours.
+// The card must still wait (a browser task's pick-one card: lib/browser.js answerCard). A chat question is never answered here: its options
+// are the model's own text (re-review 11-26 — lib/askPerson.js act refuses it; the answerer is wired for when its marks come on a channel
+// the model cannot write: the option as the person's message, in their own session found by their account id — lib/supa.js sessionOfUser).
+const answerChat = ASK.chatAnswerer({ runTurn, busy: turnsRunning })
+app.post('/api/push/act', async (req, res) => {
+  const r = await ASK.act({ token: req.body?.token, answer: req.body?.answer }, { answerTask: browser.answerCard, answerChat })
+    .catch((e) => { console.warn('[push act]', e.message); return { status: 500, error: 'failed' } })
+  res.status(r.status).json(r.status === 200 ? { ok: true, answered: r.answered, said: r.said, place: r.place } : { error: r.error })
+})
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
 // a demo mailbox only: a fictional message arrives (demos, tests) — never real mail
 // PRO_BACKGROUND=0: a second server for development (another port) that must not run the pollers,
@@ -959,8 +983,8 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
 }, auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   try {
-    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: only pictures, sound, video, PDF and
-    // plain text go without the sandbox (a PDF in it would not show)
+    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: it gets the sandbox here. Plain text gets
+    // the same script-free policy from the /api rule (apiHeaders); a PDF, picture, song or video goes without one (it would not show or play)
     const passive = /\.(png|jpe?g|gif|webp|avif|bmp|ico|tiff?|mp4|m4v|mov|webm|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|pdf|txt|md|csv|json)$/i.test(String(req.query.path))
     const headers = { 'X-Content-Type-Options': 'nosniff', ...(passive ? {} : { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" }) }
     const f = await workroom.rawFile(r, req.query.path)
@@ -1287,6 +1311,8 @@ const server = app.listen(config.port, async () => {
   if (background || process.env.PRO_BILLING_METER === '1') startMeter()
   // is there a transcription model behind PRO_TRANSCRIBE_*? (/api/config transcribe) — a development server checks once
   startSelfTest({ repeat: background })
+  // (a development or test server with PRO_NOTIFY_FEED=1 sends its own tenant's notices to its subscriptions — e2e push-hitl's fake push service)
+  if (!background && process.env.PRO_NOTIFY_FEED === '1') notify.startNotificationFeed()
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb
@@ -1296,6 +1322,9 @@ const server = app.listen(config.port, async () => {
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"The server restarted, so the task was stopped."}'::jsonb
            where kind='task' and content->>'state' in ('running','needs_input','queued')`).catch(() => {})
   await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where kind='vault' and content->>'state'='pending'`)
+  // …and nothing waits on the person for them any more: their notices go (lib/askPerson.js — the Home lists only live ones anyway)
+  // (by the task cards' own state: a wait another server still holds keeps its notice)
+  await ASK.resetTaskAsks().catch((e) => console.warn('[ask] reset', e.message))
   await q(`update pro_threads set status=null where status is not null`)
   // turns wait their turn in memory (lib/turns.js): a message still marked 대기 will not be answered now
   await q(`update pro_messages set content = (content - 'queued') || '{"dropped":true}'::jsonb where role='user' and content ? 'queued'`)

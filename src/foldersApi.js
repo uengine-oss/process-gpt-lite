@@ -61,6 +61,13 @@ export const folders = {
   discard: (slug) => call(`/folders/${enc(slug)}`, { method: 'DELETE' }),
   // files dragged on the folder (src/fileDrag.js items — server lib/fileRefs.js dropInto): each becomes a file of it, in my name
   drop: (slug, items, dir = '') => call(`/folders/${enc(slug)}/drop`, { method: 'POST', body: { items, dir } }),
+  // reference slots (server lib/folders/refs.js): the slots as this person sees them, adding · renaming · removing one, and a locked
+  // slot's 「접근 요청」 to the original's owners
+  refs: (slug) => call(`/folders/${enc(slug)}/refs`),
+  addRef: (slug, body) => call(`/folders/${enc(slug)}/refs`, { method: 'POST', body }),
+  renameRef: (slug, id, body) => call(`/folders/${enc(slug)}/refs/${enc(id)}`, { method: 'PATCH', body }),
+  removeRef: (slug, id) => call(`/folders/${enc(slug)}/refs/${enc(id)}`, { method: 'DELETE' }),
+  requestRefAccess: (slug, id) => call(`/folders/${enc(slug)}/refs/${enc(id)}/request-access`, { method: 'POST' }),
   // skills as folders
   skills: () => call('/folders/skills'),
   openSkill: async (name) => (await call(`/folders/skills/${enc(name)}/open`, { method: 'POST' })).slug,

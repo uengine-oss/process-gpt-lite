@@ -1,5 +1,6 @@
 // Thin client for the pgpt-pro server (proxied at /api by Vite).
 import { BASE } from './base.js'
+import { forgetPlaces } from './shareTarget.js'
 
 const KEY = 'pgpt-pro-session'
 
@@ -8,12 +9,16 @@ export const auth = {
   set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)) } catch { /* ignore */ } },
   clear() { try { localStorage.removeItem(KEY) } catch { /* ignore */ } },
 }
+// who is signed in here: the session token's subject (the person's id) — what a kept place, a waiting share and a messenger draft
+// belong to (src/shareTarget.js), read without asking the server
+export const sessionUser = () => sub(auth.get()?.session?.access_token || '') || null
 
 // Behind the ProcessGPT gateway (<tenant>.process-gpt.io/lite) the person is already signed in to
 // ProcessGPT, which keeps its Supabase tokens in access_token/refresh_token cookies on .process-gpt.io
 // (the same handoff the /wms app uses). Take them when there is no session here or it belongs to
 // someone else; a pair that was already refused is not taken again (no sign-in loop).
 const HOST_FAILED = 'pgpt-pro-host-session-failed'
+const storeOf = (k) => { try { return window[k] } catch { return null } }
 const cookie = (k) => decodeURIComponent((document.cookie.match(new RegExp(`(?:^|; )${k}=([^;]*)`)) || [])[1] || '')
 const sub = (jwt) => { try { return JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub } catch { return null } }
 export function adoptHostSession() {
@@ -22,6 +27,8 @@ export function adoptHostSession() {
   try { if (sessionStorage.getItem(HOST_FAILED) === refresh_token) return false } catch { /* ignore */ }
   const mine = auth.get()?.session?.access_token
   if (mine && sub(mine) === sub(access_token)) return false
+  // (another person's session from here on: this device forgets the last one's places, waiting share and unsent words)
+  if (mine) forgetPlaces(storeOf('localStorage'), storeOf('sessionStorage'))
   auth.set({ session: { access_token, refresh_token }, host: true })
   return true
 }
@@ -63,9 +70,10 @@ export async function freshToken() {
 
 // A file attached in chat, sent as-is (no JSON, no base64) — the server keeps it where the agent
 // can read it and returns {name, size, type, path, url}.
-export async function uploadAttachment(file) {
+// signal: an AbortSignal — the chip taken away (a share put somewhere else) stops the upload
+export async function uploadAttachment(file, { signal } = {}) {
   const go = () => fetch(BASE + '/api/attachments', {
-    method: 'POST', body: file,
+    method: 'POST', body: file, signal,
     headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` },
   })
   let r = await go()
@@ -135,7 +143,7 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   if (r.ok && r.headers.get('X-Long-Json')) {
     const j = await r.json()
     if (j && typeof j === 'object' && !Array.isArray(j) && j.error && Number(j.status) >= 400) {
-      throw Object.assign(new Error(String(j.error).slice(0, 300)), { status: Number(j.status), ...(j.conflicts ? { conflicts: j.conflicts } : {}) })
+      throw Object.assign(new Error(String(j.error).slice(0, 300)), { status: Number(j.status), ...(j.conflicts ? { conflicts: j.conflicts } : {}), ...(j.code ? { code: j.code } : {}) })
     }
     return j
   }

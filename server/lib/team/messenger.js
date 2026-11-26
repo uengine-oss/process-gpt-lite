@@ -275,6 +275,8 @@ export function view(viewerId, row, byEmail = {}) {
     ...(Array.isArray(g.refs) && g.refs.length ? { refs: g.refs.map((r) => (r?.type === 'mail' ? publicMailRef(r) : r?.type === 'mailatt' ? publicAttRef(r) : { ...publicRef(r), folderId: r.folderId })) } : {}),
     // a message addressed to the AI (「@AI …」) and the AI's own answer to it
     ...(g.ai && !agent ? { toAi: true } : {}),
+    // a mail its owner's rule posted as it arrived (lib/mailRooms.js): the rule's words
+    ...(g.auto && !agent ? { auto: { by: String(g.auto.by || ''), label: String(g.auto.label || '') } } : {}),
   }
 }
 // each viewer's copy of a row: their view, with the state of its file mentions
@@ -330,15 +332,17 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
   // screen keeps the ones it has), this one says what they are now
   const rx = await RX.forMessages(me.id, t.id, list.map((m) => m.id))
   for (const m of list) m.reactions = rx.get(m.id) || []
-  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
+  // (reactions: false — this database has no reactions yet, sql/062: the screen offers none — lib/team/reactions.js available)
+  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, reactions: await RX.available().catch(() => false), members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
     messages: list }
 }
 
 // Write a message into a room I am in, as process-gpt's frontend would. Every other person must still be
 // on the team. attach(recipients, chatUuid) makes the share grants once the row's id is known.
 // refs: file mentions already checked as the sender (lib/fileRefs.js forSend); ai: addressed to the AI (「@AI …」, answered by
-// lib/team/aiHelp.js — the room's general AI 제안 leaves it alone); mentions: the people named with @ (process-gpt's mentionedUsers)
-export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [] } = {}) {
+// lib/team/aiHelp.js — the room's general AI 제안 leaves it alone); mentions: the people named with @ (process-gpt's mentionedUsers);
+// auto: a mail its owner's rule posted as it arrived ({by, label} — lib/mailRooms.js autoShare; what it says only, the owner's card decides)
+export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [], auto = null } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const members = await membersOf(t.id)
@@ -350,7 +354,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   // (a mail mention says its subject — the summary everyone in the room sees anyway, never its body)
   const content = String(body || '').slice(0, 8000) || (files.length || linked.length ? `${kind === 'mailref' ? '✉️' : '📎'} ${[...files, ...linked].join(', ')}` : '')
   const pgptPart = kind === 'text' && !artifacts.length && !context && !refs?.length && !ai ? undefined
-    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(agent || {}) }
+    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(auto ? { auto: { by: String(auto.by || ''), label: String(auto.label || '').slice(0, 200) } } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
   const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
     // (Process GPT's own name: its resolveMentions matches typed mentions against it)
@@ -360,10 +364,15 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
-  await pushRow(row, members)
-  // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees)
+  // (the message is in the room from here on: delivering it and telling the members may fail — say so in the log — but the send stands,
+  // so a caller does not take it back or send it twice — lib/mailRooms.js, PR #100 review)
+  const told = async (what, fn) => { try { await fn() } catch (e) { console.warn(`[rooms] ${what}`, e.message) } }
+  await told('push', () => pushRow(row, members))
+  // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees; a mail sent with its
+  // attachments — lib/mailRooms.js — is one mail, not one mail and N more)
   const attachment = !!refs?.length && refs.every((r) => r.type === 'mailatt')
-  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id), { attachment })
+  const subjects = kind === 'mailref' && refs.some((r) => r.type === 'mail') ? refs.filter((r) => r.type === 'mail').map((r) => r.name) : [...files, ...linked]
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await told('notify', () => notifyMembers(me, t, row, kind, subjects, context, members.filter((m) => m.id !== me.id), { attachment }))
   return viewFor(me, row, by)
 }
 

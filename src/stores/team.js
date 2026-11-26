@@ -16,6 +16,10 @@ import { viewW } from '../viewport.js'
 import { merged } from '../messageMerge.js'
 // reactions on a room's messages: my own toggled at once, the server's answer and the room's live ones after (src/roomReactions.js)
 import { toggled } from '../roomReactions.js'
+// my share cards' people: asked in parts, merged without guessing (src/shareReceipts.js)
+import { receiptChunks, mergeReceipts } from '../shareReceipts.js'
+// a room read here: its phone notification goes (src/browserNotify.js)
+import { clearRoom } from '../browserNotify.js'
 
 const store = () => { try { return window.localStorage } catch { return null } }
 
@@ -40,14 +44,18 @@ export const useTeam = defineStore('team', {
     suggestions: {},          // threadId -> [assist suggestion] (lib/team/assist.js)
     assistOn: {},             // threadId -> the thread's AI 제안 switch
     assistStatus: {},         // suggestion id -> live status text while it runs
-    // a mail the mail sheet's 「동료에게 공유」 put here (src/fileDrag.js mailItem): the conversation picked next gets it as a chip (Messenger.vue)
-    pendingMention: null,
     aiStatus: {},             // threadId -> {messageId, text}: 「AI가 찾는 중…」 while 「@AI …」 is answered (lib/team/aiHelp.js)
     // auto-translation (server/lib/team/roomTranslate.js): message id -> {body, from} | {lines: {i: text}} |
     // {minutes: {summary, decisions, actions}} | {same: true}; original: message id -> showing the original
     tr: {},
     original: {},
     dockState: loadDock(store()), // {dock, width} as chosen on this device (a narrow window floats it: dockNow)
+    // my share messages as their sender sees them (server lib/team/shares.js receipts): message id -> [{id, name, email, files, opened,
+    // openedAt, lastOpenedAt, branch}] — for each person it went to, opened or not, and what their copy changed
+    receipts: {},
+    replyAt: 0,               // when 「답장」 on a phone notification opened a room (Messenger.vue focuses the composer)
+    // this database has no reactions yet (sql/062 — the room's messages say so): none are offered, so none are put on and taken back off
+    rxOff: false,
   }),
   getters: {
     // the dock in effect on this window: float · right · left · panel
@@ -184,6 +192,8 @@ export const useTeam = defineStore('team', {
       }
       // a message's reactions changed (server lib/team/reactions.js): its chips as I see them — nothing else (no unread, no toast)
       else if (data.type === 'reactions') this.setReactions(data.threadId, data.messageId, data.reactions)
+      // someone opened a file I shared for the first time (server lib/team/shares.js recordOpen — to me only): my card says so
+      else if (data.type === 'opened' && this.receipts[data.messageId]) this.loadReceipts(data.threadId, [data.messageId]).catch(() => {})
     },
     say(text, go) {
       clearTimeout(this._t)
@@ -191,10 +201,11 @@ export const useTeam = defineStore('team', {
       this._t = setTimeout(() => (this.toast = null), 6000)
     },
 
-    async openMessenger(threadId, messageId) {
+    // reply: opened from 「답장」 on a room's phone notification (public/sw.js) — the composer gets the focus once the room is in (Messenger.vue)
+    async openMessenger(threadId, messageId, { reply = false } = {}) {
       this.open = true
       this.toast = null
-      if (threadId) { this.tab = 'threads'; await this.openThread(threadId, messageId) }
+      if (threadId) { this.tab = 'threads'; await this.openThread(threadId, messageId); if (reply) this.replyAt = Date.now() }
       else this.loadInbox()
     },
     async openThread(id, messageId) {
@@ -207,6 +218,7 @@ export const useTeam = defineStore('team', {
         ;[r, a] = await Promise.all([api(`/team/threads/${id}/messages`), api(`/team/threads/${id}/suggestions`).catch(() => null)])
       } finally { if (this._live[id] === live) delete this._live[id] }
       this.msgs[id] = merged(r.messages, [...live.values()])
+      this.rxOff = r.thread?.reactions === false
       this.takeTr(r.messages)
       if (a) { this.suggestions[id] = a.suggestions; this.assistOn[id] = a.assist && a.enabled; this.sugTr(a.suggestions) }
       this.markRead(id)
@@ -225,6 +237,8 @@ export const useTeam = defineStore('team', {
       this.loadThreads()
     },
     async markRead(id) {
+      // its notification on this device goes too (one per room: src/browserNotify.js clearRoom)
+      clearRoom(id)
       const n = this.unread.byThread[id] || 0
       if (n) this.unread = { total: Math.max(0, this.unread.total - n), byThread: { ...this.unread.byThread, [id]: 0 } }
       await api(`/team/threads/${id}/read`, { method: 'POST' }).catch(() => {})
@@ -256,6 +270,7 @@ export const useTeam = defineStore('team', {
     // One of my reactions on someone else's message, put on or taken off (POST /team/messages/:id/reactions): the chips change at once,
     // then become the server's — back as they were if it refused
     async react(m, key) {
+      if (this.rxOff) return null
       const list = this.msgs[m.threadId] || []
       const was = list.find((x) => x.id === m.id)?.reactions || []
       const on = !was.find((c) => c.key === key)?.mine
@@ -266,7 +281,13 @@ export const useTeam = defineStore('team', {
         const r = await api(`/team/messages/${encodeURIComponent(m.id)}/reactions`, { method: 'POST', body: { key, on } })
         this.setReactions(m.threadId, m.id, r.reactions)
         return r
-      } catch (e) { this.setReactions(m.threadId, m.id, was); throw e }
+      } catch (e) {
+        this.setReactions(m.threadId, m.id, was)
+        // (the database has none yet: no more are offered — sql/062. Only the server's own word for it: a 503 from a proxy during a
+        // rollout is not that)
+        if (e.code === 'reactions_off') this.rxOff = true
+        throw e
+      }
     },
     async startThread(members, title) {
       const t = await api('/team/threads', { method: 'POST', body: { members, title } })
@@ -292,7 +313,8 @@ export const useTeam = defineStore('team', {
       const { message } = await api(`/team/shares/${shareId}/open`, { method: 'POST' })
       const list = (app.messages[message.thread_id] ||= [])
       if (!list.some((x) => x.id === message.id)) list.push(message)
-      const r = await openArtifact(app, router, message, { link: false, edit })
+      // (the server recorded my open just now: counted)
+      const r = await openArtifact(app, router, message, { link: false, edit, counted: true })
       if (r.opened && closesMessenger(r, this.dockNow)) this.open = false
       return { message, ...r }
     },
@@ -358,9 +380,14 @@ export const useTeam = defineStore('team', {
       else if (router) await router.push('/chat')
       return r
     },
-    // what each recipient's branch of my share did
-    async branches(messageId) {
-      return (await api(`/team/messages/${messageId}/branches`)).branches
+    // my share messages in a room (ids): for each person they went to, opened or not and what their copy changed — in parts of
+    // 100, the most recent first (src/shareReceipts.js); only what the server looked at is kept
+    async loadReceipts(threadId, ids) {
+      if (!threadId) return
+      for (const part of receiptChunks(ids)) {
+        const r = await api(`/team/threads/${encodeURIComponent(threadId)}/receipts?ids=${part.map(encodeURIComponent).join(',')}`)
+        this.receipts = mergeReceipts(this.receipts, r)
+      }
     },
     // a file of a branch, read-only unless the branch is mine — in the panel like any document (same answer as openShared);
     // a picture · sound · video in the viewer (read-only there: no 「편집」)

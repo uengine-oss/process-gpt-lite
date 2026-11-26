@@ -22,7 +22,10 @@ const BASE = ['-c', 'core.quotepath=false', '-c', 'core.pager=cat', '-c', 'advic
 // what the git HTTP backend (gitHttp.js) starts from: the same environment, nothing of the host's git overrides
 export const gitEnv = () => ({ ...ENV })
 
+// how many git processes this server started (the tests hold reads under a reference slot to a few per request)
+export const stats = { spawns: 0 }
 export function git(cwd, args, { buffer = false, check = true, input, timeout = TIMEOUT } = {}) {
+  stats.spawns++
   return new Promise((resolve, reject) => {
     const child = execFile('git', [...BASE, ...args], { cwd, env: ENV, timeout, maxBuffer: 256 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
       if (err && check) return reject(new GitError(args, err.code, stderr, stdout))
@@ -127,9 +130,23 @@ export async function show(cwd, ref, path) {
   return git(cwd, ['show', `${ref}:${path}`], { buffer: true })
 }
 
-// stage everything and commit; returns the new head or null when nothing changed
+// what runs before commitAll stages a work tree: registered by the modules that keep paths out of a commit (folders/refs.js — a folder's
+// reference slots). Each gives the paths to leave out; they stay in the work tree as they are (nothing is deleted or unstaged beyond
+// them). A step that fails stops the commit.
+const beforeCommit = []
+export const onBeforeCommit = (fn) => { beforeCommit.push(fn) }
+// stage everything (but what a step leaves out) and commit; returns the new head or null when nothing changed
 export async function commitAll(cwd, message, author = {}) {
+  const leave = []
+  for (const fn of beforeCommit) leave.push(...((await fn(cwd)) || []))
   await git(cwd, ['add', '-A'])
+  if (leave.length) {
+    // (those paths back to the last commit's state in the index only — the files stay as they are; when that fails nothing is committed)
+    try { await git(cwd, ['reset', '-q', '--', ...leave.map((p) => `:(literal)${p}`)]) } catch (e) {
+      await git(cwd, ['reset', '-q'], { check: false })
+      throw Object.assign(new Error(`some paths could not be left out of the commit: ${e.message}`), { status: 503, code: 'ref_unchecked' })
+    }
+  }
   const staged = (await git(cwd, ['diff', '--cached', '--name-only'])).trim()
   if (!staged) return null
   await git(cwd, [...who(author.name, author.email), 'commit', '-q', '-m', message])

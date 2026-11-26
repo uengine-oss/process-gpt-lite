@@ -23,7 +23,7 @@ description: 메일에서 생긴 Home 카드가 무슨 일을 하는 카드인�
 3. **캘린더에 추가**: 사람이 양식을 고치고 누르면 그 사람의 Google 캘린더에 넣습니다. 넣기 전에 그 시각(종일이면 그날)에 같은 제목의
    일정이 있는지 보고, 있으면 새로 만들지 않고 「이미 캘린더에 있어요」라고 그 일정을 알려 줍니다. 데모 메일함은 Google 에 닿지 않고
    기록만 합니다. Google 이 연결되지 않았거나 캘린더 권한이 없으면 설정에서 다시 연결하라고 합니다.
-4. **답장 말고 할 일**(`rules.json` 의 `follow`): 모든 메일 시트에는 「이 메일로」 줄이 있습니다. 앞에는 늘 「이 회사 알아보기」와
+4. **답장 말고 할 일**(`rules.json` 의 `follow`): 모든 메일 시트에는 「이 메일로」 줄이 있습니다. 앞에는 늘 「이 회사 알아보기」 · 「대화방에 공유」 ·
    「채팅에서 이어서」(`fixed: true`)가 있고 — 첨부가 있는 메일이면 「이 첨부로 묻기」(`do: askatt`, `fixed: true`)도 —, 그 뒤에 판정
    모델이 `follow.actions` 에서 이 메일에 맞는 것을 고릅니다
    (`prompts/suggest-follow.md`, 보기는 각 일의 `label — hint`, 첫 글자 확률이 `minP` 이상인 것을 `max` 개까지, 확률을 주지 않는
@@ -37,12 +37,13 @@ description: 메일에서 생긴 Home 카드가 무슨 일을 하는 카드인�
    `knownCases`)을 붙여 보통의 에이전트 턴으로 돌립니다. 결과는 메일이 인스턴스에 이어져 있으면 그 인스턴스의 대화와 작업 폴더
    (`조사/`), 아니면 메인 채팅의 새 대화에 남고, 카드의 한 줄(「회사 알아본 결과 · 열기」)이 그 자리를 엽니다. `do: chat` 은 채팅
    입력창에 메일을 멘션으로, `do: askatt` 는 채팅 입력창에 메일과 첨부를 칩으로(에이전트는 첨부를 비공개 사본으로 읽음 —
-   서버 `lib/mailAttachments.js`), `do: share` 는 메신저에 메일 멘션(동료에게는 요약만)을 붙입니다. 프롬프트마다 메일을 보내거나 일정을
+   서버 `lib/mailAttachments.js`), `do: share`(「대화방에 공유」, `fixed: true`)는 시트 안에서 대화방을 고르게 합니다 — 이 메일과 가까운 방을 먼저 보이고, 판정 모델은 `prompts/suggest-room.md` 로 최근 그룹 방 가운데 `rooms.max` 개까지 고르며(`rooms.minP`), 보내기는 사람이 누릅니다(서버 `lib/mailRooms.js`). 프롬프트마다 메일을 보내거나 일정을
    만들지 말라고 적어 둡니다 — 보내기는 시트의 「보내기」만 합니다.
 
 ## 남기는 것
 
 - 카드의 일: `pro_actions.source.kind`(`calendar` · `reply` · `task`)와 `source.kind_read`(누가 · 확신 · 때 · 스킬 판).
 - 읽은 일정: `source.event_draft`. 넣은 일정: `source.event`(Google 일정 id · 링크 · 때), 카드는 끝남.
+- 대화방에 공유: 판정 모델이 고른 방 `source.room_suggest`, 올린 방 `source.room_posts`, 「앞으로 …」 약속 `source.room_follow`.
 - 답장 말고 할 일: `source.follow.suggest`(고른 것과 확신) · `source.follow.atts`(첨부 이름) · `source.follow.read`(누가 · 때 · 스킬 판),
   실행한 일 `source.follow.runs.<key>`(상태 · 대화 · 메시지 · 인스턴스 · 작업 폴더의 파일).

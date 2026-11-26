@@ -1,14 +1,15 @@
 // Reactions on a room's messages (2026-11-26 사용자 「다른 사람 말풍선에 좋아요 확인했음 사랑해 웃음 등을 붙힐 수 있게」, 스펙 room-reactions):
-// the short fixed set the bar offers and the chips show — the server keeps the same keys (server/lib/team/reactions.js KEYS) — and the
+// the short fixed set the bar offers and the chips show — drawn as the app's own line icons (icon, components/Icon.vue); the emoji is for
+// words only (a copy, a notice) — the server keeps the same keys (server/lib/team/reactions.js KEYS) — and the
 // rules the screen needs without a server. Unit test: server/test/roomReactions.test.js
 //   chips: [{key, count, mine, people: [{id, name}]}] (the server's summarize, for one viewer)
 export const REACTIONS = [
-  { key: 'like', emoji: '👍', label: '좋아요' },
-  { key: 'check', emoji: '✅', label: '확인했음' },
-  { key: 'love', emoji: '❤️', label: '사랑해' },
-  { key: 'laugh', emoji: '😂', label: '웃음' },
-  { key: 'wow', emoji: '😮', label: '놀람' },
-  { key: 'thanks', emoji: '🙏', label: '감사' },
+  { key: 'like', icon: 'rx-like', emoji: '👍', label: '좋아요' },
+  { key: 'check', icon: 'rx-check', emoji: '✅', label: '확인했음' },
+  { key: 'love', icon: 'rx-love', emoji: '❤️', label: '사랑해' },
+  { key: 'laugh', icon: 'rx-laugh', emoji: '😂', label: '웃음' },
+  { key: 'wow', icon: 'rx-wow', emoji: '😮', label: '놀람' },
+  { key: 'thanks', icon: 'rx-thanks', emoji: '🙏', label: '감사' },
 ]
 export const reactionOf = (key) => REACTIONS.find((r) => r.key === key) || null
 

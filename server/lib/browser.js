@@ -32,6 +32,9 @@ import * as H from './localAgents/hub.js'
 import { BLOCK, HARD, turnOf, progressOf, budgetAfter } from './browserProgress.js'
 import * as BF from './browserFiles.js'
 import * as P from './privateStore.js'
+// the person hears of a wait on them on their phone too, even with Lite closed (lib/askPerson.js — 2026-11-26)
+import * as ASK from './askPerson.js'
+import { refusalOf } from './pushActions.js'
 
 export { STEP } from './browserSteps.js'
 export { PROFILES, profilesDir, LIVE } from './browserServer.js'
@@ -1808,7 +1811,7 @@ async function doAct(s, task, name, a) {
       const answer = await waitForUser(s, task, {
         need: 'approve', site,
         reason: `${a.summary || L('이 단계는 승인이 필요해요.', 'This step needs your approval.')} ${L('카드에서 「승인」을 누르면 진행하고, 「취소」를 누르면 하지 않아요.', 'Press "Approve" on the card to go ahead, or "Cancel" to skip it.')}`,
-        message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? L(`\n결제 카드: ${card.label}`, `\nPayment card: ${card.label}`) : ''}`.trim(), options: L(['승인', '취소'], ['Approve', 'Cancel']) }],
+        message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? L(`\n결제 카드: ${card.label}`, `\nPayment card: ${card.label}`) : ''}`.trim(), options: L(['승인', '취소'], ['Approve', 'Cancel']), refusal: L('취소', 'Cancel') }],
       })
       const yes = /chose: (승인|Approve)\./.test(String(answer))
       if (yes) task.approved = true
@@ -1906,7 +1909,7 @@ async function uploadAllowed(s, task, f, signal) {
   const answer = await waitForUser(s, task, { need: 'approve', site: host,
     reason: L(`「${f.name}」은(는) 이 작업에 첨부한 파일이 아니라서, ${host}에 올리기 전에 물어봐요. 카드에서 「승인」을 누르면 올리고, 「취소」를 누르면 올리지 않아요.`,
       `"${f.name}" was not attached to this task, so I ask before uploading it to ${host}. Press "Approve" on the card to upload it, or "Cancel" not to.`),
-    message: ['choice', { site: host, approval: true, upload: true, question: L(`「${f.name}」을(를) ${nameOn(task, host)}(${host})에 올릴까요?`, `Upload "${f.name}" to ${nameOn(task, host)} (${host})?`), options: L(['승인', '취소'], ['Approve', 'Cancel']) }] })
+    message: ['choice', { site: host, approval: true, upload: true, question: L(`「${f.name}」을(를) ${nameOn(task, host)}(${host})에 올릴까요?`, `Upload "${f.name}" to ${nameOn(task, host)} (${host})?`), options: L(['승인', '취소'], ['Approve', 'Cancel']), refusal: L('취소', 'Cancel') }] })
   if (/chose: (승인|Approve)\./.test(String(answer))) { task.uploadOk.add(key); return { yes: true } }
   return { yes: false, why: `the person did not allow uploading "${f.name}" to ${host}; do not upload it, say so when you finish` }
 }
@@ -2045,8 +2048,10 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   // (2026-11-25 review: a typed message could approve a payment)
   const vaultish = message?.[0] === 'vault' || !!message?.[1]?.vault
   const approval = !!message?.[1]?.approval
+  // files · quick · refusal: what an answer from outside the card may be (answerCard — a phone notification's button, review 11-26 PR #89)
   task.asking = { seq: ++task.asks, need, reason: reason || '', question: String(message?.[1]?.question || ask || '').trim(), options: message?.[0] === 'choice' ? (message[1].options || []) : [],
-    kind: message?.[0] || null, vault: vaultish, approval, locked: vaultish || approval || ['login', 'captcha', 'approve'].includes(need), card: null }
+    kind: message?.[0] || null, vault: vaultish, approval, locked: vaultish || approval || ['login', 'captcha', 'approve'].includes(need), card: null,
+    files: !!message?.[1]?.files, quick: message?.[1]?.quick === true, refusal: message?.[1]?.refusal || null }
   // the card asks the person: not a stall the watchdog should report
   task.dog?.hold()
   // the card goes up first, so whoever sees "needs input" also finds what to answer
@@ -2056,6 +2061,11 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   const s0 = sessions.get(task.userId)
   if (s0?.queue.length) refreshQueue(task.userId, s0)
   say(task, null)
+  // a notice of the wait (a Home card, and a push to the person's phone): its card, else the task card for a wait on the screen — not for
+  // a task nobody watches (a process step's). A page that shows this thread in front keeps the phone quiet (public/sw.js)
+  const askAt = !task.unattended && task.threadId ? { via: 'task', threadId: task.threadId, cardId: posted?.id || task.id } : null
+  const notice = askAt ? ASK.ask(task.userId, { ...askAt, kind: posted ? askKindOf(message) : need === 'login' ? 'login' : 'hands',
+    text: task.asking?.question || reason || site || '' }).catch((e) => { console.warn('[browser] ask notice', e.message); return null }) : null
   await setThreadStatus(task.userId, task.threadId, 'needs_input')
   await pushFrame(task.userId, s)
   let checking = false
@@ -2068,6 +2078,8 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   task.waiting = null
   task.waitScreen = false
   task.asking = null
+  // answered, cancelled, taken over: the notice goes (its Home card, and nothing to answer from the phone)
+  if (notice) notice.then((id) => id && ASK.settle(task.userId, askAt)).catch(() => {})
   if (s0?.queue.length) refreshQueue(task.userId, s0)
   if (timer) clearInterval(timer)
   // a card the user never answered (cancel, takeover) should not stay actionable
@@ -2079,6 +2091,37 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   await setThreadStatus(task.userId, task.threadId, 'working')
   task.dog?.go('read', L('페이지 읽기', 'reading the page'))
   return answer
+}
+
+// a waiting card's kind for its notice (lib/pushActions.js askKind): a question, an approval, a sign-in
+// (a file to upload, picked on the card, is an approval: picking it lets the upload go)
+const askKindOf = (message) => (message?.[0] === 'choice' ? (message[1]?.approval || message[1]?.files ? 'approval' : message[1]?.vault ? 'login' : 'question') : message?.[0] === 'vault' ? 'login' : 'hands')
+
+// An answer from the phone's notification (lib/askPerson.js act — a signed, single-use action): the task still waits on exactly that pick-one
+// card and the answer is one the card allows from outside it. A notification's buttons show on a lock screen to whoever holds the phone
+// (review 11-26, PR #89), so only: an option of a card its asker marked light (quick), or the refusal the card names. Never an approval,
+// never a file to upload (picking one lets it go to the site), never a vault card (a login, a card, a code). → true when the task took it
+export function canAnswerCard(asking, cardId, label) {
+  const a = asking || {}
+  if (!cardId || a.card !== cardId || a.kind !== 'choice' || a.vault || a.files) return false
+  const opts = (a.options || []).map(String)
+  const said = String(label)
+  if (!opts.includes(said)) return false
+  // (a refusal that is nothing else: named once, not the first option — lib/pushActions.js refusalOf)
+  if (a.refusal != null && said === refusalOf(opts, a.refusal)) return true
+  return a.quick === true && !a.approval
+}
+export async function answerCard(userId, cardId, label) {
+  const t = sessions.get(userId)?.task
+  if (!t?.waiting || t.cancelled || t.over || !canAnswerCard(t.asking, cardId, label)) return false
+  const opts = (t.asking.options || []).map(String)
+  const [m] = await q(`update pro_messages set content = content || $2::jsonb where id=$1 and content->>'state'='pending' returning *`,
+    [cardId, JSON.stringify({ state: 'answered', value: String(label), via: 'notification' })])
+  if (!m) return false
+  emit(userId, 'message', m)
+  console.log(`[browser] task ${t.id}: answered from a notification (${opts.indexOf(String(label))})`)
+  t.waiting?.(`The user chose: ${label}. Continue with that choice.`)
+  return true
 }
 
 // Which saved login/card to use: asks the user to add one if there is none, and which one if

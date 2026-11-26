@@ -249,6 +249,11 @@ export async function writeFile(room, rel, content, expectedMtime) {
   if (room.readonly || room.writable === false) throw Object.assign(new Error(L('이 변형의 작업본은 다른 곳에 있어서 여기서는 읽기만 할 수 있어요.', "This variation's working copy is elsewhere, so it is read only here.")), { status: 409, readonly: true })
   const p = inside(room, rel)
   await assertNoLink(room.root, path.relative(room.root, p))
+  // (a reference slot of a shared folder is read only there — folders/refs.js)
+  if (room.folder && (room.kind === 'folder' || room.kind === 'variation')) {
+    const [R, FS] = await Promise.all([import('./folders/refs.js'), import('./folders/service.js')])
+    await R.assertWritable(await FS.folderById(room.folder), path.relative(room.root, p))
+  }
   const st = await fs.stat(p).catch(() => null)
   if (st && expectedMtime && Math.abs(st.mtimeMs - expectedMtime) > 1) throw Object.assign(new Error('changed'), { status: 409, mtime: st.mtimeMs })
   await fs.mkdir(path.dirname(p), { recursive: true })

@@ -394,17 +394,24 @@ export function createSegments({ promoteAt = PROMOTE_CHARS, onDelta, onRetract, 
 // deepagents' done.content is the last assistant message — or, when the agent stopped to ask the person (request_human_input), the
 // interrupt as JSON: {"type":"human_input_required","question","context","options","run_state"} (deepagents executor.py). That JSON
 // was saved as the answer (review 11-25 #1). The question becomes the answer; any other JSON is never taken as answer text.
-export function humanInput(text) {
+// → {question, context, options, quick, refusal} of that JSON, or null (the phone's notification of the question reads them: lib/askPerson.js).
+// quick: the asker marked the choice light enough to be answered from a lock screen's button; refusal: which option declines — only these
+// make a notification's answer buttons (review 11-26, PR #89); neither is guessed from the words
+export function humanInputParts(text) {
   const t = String(text ?? '').trim()
   if (!t.startsWith('{')) return null
   let j
   try { j = JSON.parse(t) } catch { return null }
   if (!j || j.type !== 'human_input_required' || !String(j.question || '').trim()) return null
-  const opts = (Array.isArray(j.options) ? j.options : []).map((o) => String(o && typeof o === 'object' ? o.label ?? o.text ?? o.value ?? '' : o ?? '').trim()).filter(Boolean).slice(0, 6)
-  const context = String(j.context || '').trim()
-  const question = String(j.question).trim()
+  const options = (Array.isArray(j.options) ? j.options : []).map((o) => String(o && typeof o === 'object' ? o.label ?? o.text ?? o.value ?? '' : o ?? '').trim()).filter(Boolean).slice(0, 6)
+  const refusal = typeof j.refusal === 'string' && options.includes(j.refusal.trim()) ? j.refusal.trim() : null
+  return { question: String(j.question).trim(), context: String(j.context || '').trim(), options, quick: j.quick === true, refusal }
+}
+export function humanInput(text) {
+  const p = humanInputParts(text)
+  if (!p) return null
   // (the options as a list right under the question: the chat's quick replies read them — src/replies.js)
-  return [context, [question, ...opts.map((o) => `- ${o}`)].join('\n')].filter(Boolean).join('\n\n')
+  return [p.context, [p.question, ...p.options.map((o) => `- ${o}`)].join('\n')].filter(Boolean).join('\n\n')
 }
 const isJson = (t) => { const x = String(t ?? '').trim(); if (!/^[[{]/.test(x)) return false; try { JSON.parse(x); return true } catch { return false } }
 // done: done.content (or null); segs: the stream's segments (createSegments) → {text, asks}

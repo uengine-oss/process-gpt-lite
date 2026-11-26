@@ -10,7 +10,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from '../config.js'
-import { q } from './supa.js'
+import { q, isMember } from './supa.js'
 
 const b64u = (buf) => Buffer.from(buf).toString('base64url')
 const unb64u = (s) => Buffer.from(String(s || ''), 'base64url')
@@ -68,11 +68,48 @@ export function encrypt(plaintext, { p256dh, auth }, { salt = crypto.randomBytes
   return Buffer.concat([salt, rs, Buffer.from([asPublic.length]), asPublic, ct])
 }
 
+// ---- where a push may go (review 11-26, PR #89) ----
+// A subscription's endpoint is the browser's push service — Chrome's and Edge's FCM, Safari's Apple Push, Firefox's Mozilla autopush,
+// Windows' WNS — and nothing else: any other address would have this server send requests where a subscriber points it (SSRF). Checked
+// when a browser subscribes and again before every send; redirects are never followed. PRO_PUSH_ALLOW_ORIGINS: exact origins a test's own
+// fake push service listens on (tests only).
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^([a-z0-9-]+\.)*push\.apple\.com$/, /^updates\.push\.services\.mozilla\.com$/, /^([a-z0-9-]+\.)*notify\.windows\.com$/]
+export function pushHostAllowed(endpoint) {
+  let u
+  try { u = new URL(String(endpoint || '')) } catch { return false }
+  const extra = String(process.env.PRO_PUSH_ALLOW_ORIGINS || '').split(',').map((x) => x.trim()).filter(Boolean)
+  if (extra.includes(u.origin)) return true
+  return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') && PUSH_HOSTS.some((re) => re.test(u.hostname.toLowerCase()))
+}
+
+// ---- who may get pushes: an approved member of this company (lib/supa.js isMember — the approval state is its own), not removed ----
+export async function memberHere(userId, tenantId = config.tenantId) {
+  if (!userId || !(await isMember(String(userId), tenantId).catch(() => false))) return false
+  const [gone] = await q('select 1 from pro_team_removed where tenant_id=$1 and user_id::text=$2', [tenantId, String(userId)]).catch(() => [])
+  return !gone
+}
+/** a person removed from a company: their devices there hear nothing more (lib/team.js removeMember; a membership change elsewhere calls it too) */
+export async function forgetDevices(userId, tenantId = config.tenantId) {
+  return (await q('delete from pro_push_subscriptions where user_id::text=$1 and tenant_id=$2 returning endpoint', [String(userId), tenantId]).catch(() => [])).length
+}
+
+// 「시험 알림 보내기」: three a minute for one person
+const testSlots = new Map() // userId → times (ms) of the last minute
+export function testSlot(userId, now = Date.now()) {
+  const recent = (testSlots.get(userId) || []).filter((t) => now - t < 60_000)
+  if (recent.length >= 3) { testSlots.set(userId, recent); return false }
+  recent.push(now)
+  testSlots.set(userId, recent)
+  if (testSlots.size > 5000) testSlots.delete(testSlots.keys().next().value)
+  return true
+}
+
 // ---- subscriptions ----
 export async function subscribe(me, sub, ua = '') {
   const endpoint = String(sub?.endpoint || '')
   const p256dh = sub?.keys?.p256dh, auth = sub?.keys?.auth
-  if (!/^https:\/\//.test(endpoint) || !p256dh || !auth) throw Object.assign(new Error('bad subscription'), { status: 400 })
+  if (!/^https:\/\//.test(endpoint) || !pushHostAllowed(endpoint) || !p256dh || !auth) throw Object.assign(new Error('bad subscription'), { status: 400 })
+  if (!(await memberHere(me.id))) throw Object.assign(new Error('not a member'), { status: 403 })
   await q(`insert into pro_push_subscriptions(endpoint, user_id, tenant_id, p256dh, auth, ua) values ($1,$2,$3,$4,$5,$6)
            on conflict (endpoint) do update set user_id=excluded.user_id, tenant_id=excluded.tenant_id, p256dh=excluded.p256dh, auth=excluded.auth, ua=excluded.ua, fails=0`,
   [endpoint, me.id, config.tenantId, p256dh, auth, String(ua).slice(0, 200)])
@@ -83,21 +120,25 @@ export async function unsubscribe(me, endpoint) {
   return { ok: true }
 }
 
+// (for this server's own logs — never in a response: what a push service answered is not handed to a page)
 export const stats = { sent: 0, gone: 0, failed: 0, lastError: null }
 async function sendOne(s, payload) {
+  // a row that names no push service (written before this check, or by hand): dropped, never requested
+  if (!pushHostAllowed(s.endpoint)) { stats.gone++; await q('delete from pro_push_subscriptions where endpoint=$1', [s.endpoint]); return }
   const body = encrypt(JSON.stringify(payload), s)
   const r = await fetch(s.endpoint, {
-    method: 'POST', signal: AbortSignal.timeout(10000), body,
+    method: 'POST', signal: AbortSignal.timeout(10000), body, redirect: 'error',
     headers: { TTL: '86400', Urgency: 'high', 'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', Authorization: vapidAuth(s.endpoint) },
   })
   if (r.status === 404 || r.status === 410) { stats.gone++; await q('delete from pro_push_subscriptions where endpoint=$1', [s.endpoint]); return }
-  if (!r.ok) { stats.failed++; stats.lastError = `${r.status} ${(await r.text().catch(() => '')).slice(0, 160)}`; await q('update pro_push_subscriptions set fails=fails+1 where endpoint=$1', [s.endpoint]); return }
+  if (!r.ok) { stats.failed++; stats.lastError = `${r.status}`; await r.body?.cancel().catch(() => {}); await q('update pro_push_subscriptions set fails=fails+1 where endpoint=$1', [s.endpoint]); return }
   stats.sent++
   await q('update pro_push_subscriptions set last_ok_at=now(), fails=0 where endpoint=$1', [s.endpoint])
 }
 
-// one Home card to every device of the person (a table that is not there yet: nothing, quietly)
+// one Home card to every device of the person (a table that is not there yet: nothing, quietly) — a member of this company only
 export async function pushTo(userId, payload) {
+  if (!(await memberHere(userId))) return 0
   const subs = await q('select * from pro_push_subscriptions where user_id=$1 and tenant_id=$2 and fails < 10', [userId, config.tenantId]).catch(() => [])
   for (const s of subs) await sendOne(s, payload).catch((e) => { stats.failed++; stats.lastError = e.message })
   return subs.length
