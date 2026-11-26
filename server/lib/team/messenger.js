@@ -34,7 +34,7 @@ import { people as resolvePeople } from '../people.js'
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
 // A group has no size limit (2026-11-27 사용자 「그룹대화 인원 한도 없어」 — it was 8). Only one request is bounded: making a room or inviting takes
-// at most PER_REQUEST people at a time (each is checked as a teammate, one by one) — a guard on the request, not on the room.
+// at most PER_REQUEST people at a time (all checked as teammates in one query — access.js notOnTeam) — a guard on the request, not on the room.
 export const PER_REQUEST = 100
 // 「정하윤님이 김서연님, 박도윤님을 초대했어요」 — ten names at most, then 「외 N명」 (a room has no size limit: the line, and Process GPT's
 // notice titled by it, stay short)
