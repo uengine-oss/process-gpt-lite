@@ -65,6 +65,21 @@ test.describe('공유 폴더', () => {
     expect((await a.get(`/folders/${slug}`)).status).toBe(403)
   })
 
+  // 작업실은 git 작업 트리: 저장소 자체의 자료(.git)는 작업실로 읽거나 쓰지 않는다 (2026-11-26 검토)
+  test('F-FO-12 작업실에서 .git 아래는 읽기 · 쓰기 모두 400, 보통 파일은 그대로', async ({ as, db, cleanup }) => {
+    const o = await as('fo-owner')
+    const slug = await seedFolder(o, db, cleanup, '회귀 작업실 경로')
+    for (const p of ['.git/config', '.GIT/hooks/pre-commit', 'a/../.git/HEAD']) {
+      const w = await o.put(`/workroom/folder/${slug}/file`, { path: p, content: '[core]\n' })
+      expect(w.status, `${p} ${w.text}`).toBe(400)
+    }
+    expect((await o.get(`/workroom/folder/${slug}/file?path=${encodeURIComponent('.git/config')}`)).status).toBe(400)
+    const ok = await o.put(`/workroom/folder/${slug}/file`, { path: '메모.md', content: '작업실에서 쓴 메모\n' })
+    expect(ok.status, ok.text).toBe(200)
+    const tree = await o.get(`/workroom/folder/${slug}`)
+    expect(JSON.stringify(tree.body)).not.toContain('.git/')
+  })
+
   test('F-FO-11 폴더 화면의 「저장소 연결」 단추는 연결할 수 있는 사람에게만', async ({ as, pageAs, db, cleanup }) => {
     const p = await pageAs('fo-owner')
     await p.goto('/folders')

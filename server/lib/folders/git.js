@@ -15,10 +15,10 @@ export class GitError extends Error {
   }
 }
 
-// paths stay as UTF-8 (core.quotepath=false), no pager, no hooks or editors of the host's config.
+// paths stay as UTF-8 (core.quotepath=false), no pager, no hooks, file monitor or editors of the host's config.
 // gc.auto=0: git never starts an automatic gc in the middle of a save (a commit that triggers one would
 // repack a big folder while the person waits); folders are packed by the nightly pass instead (gc.js).
-const BASE = ['-c', 'core.quotepath=false', '-c', 'core.pager=cat', '-c', 'advice.detachedHead=false', '-c', 'core.hooksPath=/dev/null', '-c', 'gc.auto=0']
+const BASE = ['-c', 'core.quotepath=false', '-c', 'core.pager=cat', '-c', 'advice.detachedHead=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'gc.auto=0']
 // what the git HTTP backend (gitHttp.js) starts from: the same environment, nothing of the host's git overrides
 export const gitEnv = () => ({ ...ENV })
 

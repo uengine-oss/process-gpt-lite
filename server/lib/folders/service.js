@@ -29,13 +29,15 @@ export const RANK = { viewer: 1, runner: 2, editor: 3, owner: 4 }
 const err = (status, message) => Object.assign(new Error(message), { status })
 
 // ---------- folders & permissions ----------
+// a linked folder (a repository registered where it is) exists only where linking is on (linkingOn)
+const usable = (f) => (f && (f.kind !== 'linked' || linkingOn()) ? f : null)
 export async function folderBySlug(slug) {
   const [f] = await q('select * from pro_folders where tenant_id=$1 and slug=$2', [T(), slug])
-  return f || null
+  return usable(f)
 }
 export async function folderById(id) {
   const [f] = await q('select * from pro_folders where id=$1', [id])
-  return f || null
+  return usable(f)
 }
 export async function roleOf(folder, user) {
   if (!folder || !user) return null
@@ -63,7 +65,7 @@ export async function access(slug, user, need = 'viewer') {
 }
 export async function readableFolderIds(userId) {
   return (await q(`select f.id from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
-                   where f.tenant_id=$1`, [T(), String(userId)])).map((r) => r.id)
+                   where f.tenant_id=$1 and (f.kind <> 'linked' or $3)`, [T(), String(userId), linkingOn()])).map((r) => r.id)
 }
 
 const slugify = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
@@ -113,11 +115,23 @@ export async function createFolder(user, { name, description = '', slug }) {
 // turns it off on an install too.
 export const linkingOn = () => !config.tenantFromHeader && !config.tenantHosts && process.env.PRO_FOLDERS_LINK !== '0'
 export async function mayLink(user) { return linkingOn() && !!user?.id && (await isAdmin(user)) }
-async function insideFoldersBase(dir) {
+
+// Where a repository to link really is: its own top folder, refused when it or its git data (a
+// worktree keeps its data in the repository it came from) is in the folders base, or holds the base.
+export async function linkTarget(repoPath) {
+  const given = path.resolve(String(repoPath || ''))
+  if (!(await G.isRepo(given))) throw err(400, L('git 저장소가 아니에요.', "That isn't a git repository."))
+  // the repository's own top folder (not a folder inside some other work tree), and where its git data
+  // lives (a worktree's data is in the repository it came from): neither may be in the folders base,
+  // and the base may not be inside it
   const real = async (p) => fs.realpath(p).catch(() => path.resolve(p))
+  const top = await real((await G.git(given, ['rev-parse', '--show-toplevel'])).trim())
+  if (top !== (await real(given))) throw err(400, L('저장소의 맨 위 폴더를 골라 주세요.', "Pick the repository's top folder."))
+  const common = await real(path.resolve(top, (await G.git(top, ['rev-parse', '--git-common-dir'])).trim()))
   const base = await real(config.foldersRoot || path.join(os.homedir(), 'pgpt-folders'))
-  const d = await real(dir)
-  return d === base || d.startsWith(base + path.sep)
+  const within = (p, b) => p === b || p.startsWith(b + path.sep)
+  if (within(top, base) || within(common, base) || within(base, top)) throw err(400, L('이미 폴더로 관리되는 곳이에요. 그 폴더의 구성원으로 초대받아 주세요.', 'That place is already kept as a folder. Ask to be invited to it.'))
+  return top
 }
 
 // An existing repository registered as it is: nothing in it is changed (its branches and
@@ -125,11 +139,9 @@ async function insideFoldersBase(dir) {
 export async function linkRepo(user, { repoPath, name, description = '' }) {
   if (!linkingOn()) throw err(403, L('이 서버에서는 저장소를 연결할 수 없어요. 새 폴더를 만들어 파일을 올려 주세요.', "Repositories can't be linked on this server. Create a folder and upload the files instead."))
   if (!(await isAdmin(user))) throw err(403, L('저장소 연결은 관리자만 할 수 있어요.', 'Only an administrator can link a repository.'))
-  const dir = path.resolve(String(repoPath || ''))
-  if (await insideFoldersBase(dir)) throw err(400, L('이미 폴더로 관리되는 곳이에요. 그 폴더의 구성원으로 초대받아 주세요.', 'That place is already kept as a folder. Ask to be invited to it.'))
-  if (!(await G.isRepo(dir))) throw err(400, L('git 저장소가 아니에요.', "That isn't a git repository."))
+  const dir = await linkTarget(repoPath)
   const existing = (await q('select * from pro_folders where tenant_id=$1 and repo_path=$2', [T(), dir]))[0]
-  if (existing) return existing
+  if (existing) throw err(409, L('이 저장소는 이미 연결돼 있어요. 그 폴더의 구성원으로 초대받아 주세요.', 'This repository is already linked. Ask to be invited to that folder.'))
   const branch = (await G.git(dir, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim()
   const main = (await G.branchExists(dir, 'main')) ? 'main' : branch
   const slug = await freeSlug(slugify(name || path.basename(dir)))
@@ -146,7 +158,7 @@ export async function listFolders(user) {
       (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='open')::int as open,
       (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready')::int as ready
     from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
-    where f.tenant_id=$1 and f.kind <> 'skill' order by f.updated_at desc`, [T(), String(user.id)])
+    where f.tenant_id=$1 and f.kind <> 'skill' and (f.kind <> 'linked' or $3) order by f.updated_at desc`, [T(), String(user.id), linkingOn()])
   // (everyone's members at once: one lookup of names for the whole list, not one per folder)
   const all = await membersOfFolders(rows.map((f) => f.id))
   for (const f of rows) {
