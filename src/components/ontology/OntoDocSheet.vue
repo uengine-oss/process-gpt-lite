@@ -4,6 +4,7 @@
 // url 이 있으면 그대로, 없으면 load() 가 {name, url} 을 준다(서버가 사본을 올림). 지도 화면에도 채팅 화면에도 그대로 뜬다(body 로 Teleport).
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
+import DownloadButton from '../DownloadButton.vue'
 import { officeEditorFor } from '../../officeEditor.js'
 
 const props = defineProps({ name: { type: String, default: '' }, url: { type: String, default: '' }, load: { type: Function, default: null }, note: { type: String, default: '' } })
@@ -31,7 +32,8 @@ const openable = (d) => !!officeEditorFor(d?.name || d?.url)
         <template v-else-if="openable(doc)">
           <OfficeEditorFrame class="frame" :file-url="doc.url" :name="doc.name" read-only v-model:maximized="maximized" @close="emit('close')" />
         </template>
-        <p v-else class="msg">이 파일은 이음오피스로 열 수 없어요. <a :href="doc.url" target="_blank" rel="noopener">내려받기</a></p>
+        <!-- (the editor's bar has 「내려받기」; a file it does not open gets the same button here — spec file-download) -->
+        <p v-else class="msg">이 파일은 이음오피스로 열 수 없어요. <DownloadButton class="lnk" :source="{ url: doc.url, name: doc.name }" /></p>
       </div>
     </div>
   </Teleport>
@@ -46,5 +48,6 @@ const openable = (d) => !!officeEditorFor(d?.name || d?.url)
 .note { margin: 0; padding: 8px 14px; font-size: 12.5px; color: #3c4043; background: #f1f4f9; border-bottom: 1px solid rgba(0, 0, 0, .06); }
 .msg { margin: auto; padding: 24px; font-size: 14px; color: #5f6368; text-align: center; }
 .msg.err { color: #c62828; }
+.lnk { color: #2a78d6; font-weight: 600; font-size: 14px; vertical-align: middle; }
 @media (max-width: 760px) { .veil { padding: 40px 0 0; } .sheet { border-radius: 18px 18px 0 0; } }
 </style>

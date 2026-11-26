@@ -4,9 +4,13 @@
 // 폴더의 편집자가 main 의 문서(워드·엑셀·PPT·한글)를 열면 이음오피스가 편집으로 열리고, 고친 내용은 저절로 저장돼
 // 폴더 main 에 「이음오피스에서 고침」으로 남는다(같은 편집은 이력 한 줄). 닫을 때는 남은 수정을 저장한 뒤에 닫는다.
 // 연 뒤에 다른 사람이 먼저 고쳤으면 덮어쓰지 않고 「… (이름 수정본)」으로 옆에 둔다.
+// 머리의 「내려받기」(DownloadButton — 파일이 열리는 모든 곳의 같은 단추, 스펙 file-download)는 이 판의 파일을 그 이름으로 받는다. 편집 중이면
+// 남은 수정을 먼저 폴더에 저장하고 받으며(따로 저장된 수정본이면 그 파일), 저장하지 못하면 마지막으로 저장된 판을 받을지 묻는다.
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
+import DownloadButton from '../DownloadButton.vue'
+import { freshToken } from '../../api.js'
 import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import FileView from '../files/FileView.vue'
@@ -95,6 +99,22 @@ async function leave() {
   return true
 }
 async function close() { if (await leave()) emit('close') }
+// 「내려받기」: what is left of an edit goes into the folder first (its version is then the one downloaded); a copy saved beside the
+// file because someone else changed it first is that copy, said so
+async function prepareDownload() {
+  if (!editing.value) return { ok: true, version: 'current' }
+  const r = await (fv.value?.flush?.(20000) || Promise.resolve({ clean: true }))
+  await chain
+  if (lastFail) { const { url } = lastFail; chain = chain.then(() => commitCopy(url)); await chain }
+  if (r?.timeout || r?.error || lastFail) return { ok: false, why: lastFail ? '폴더에 저장하지 못했어요' : r?.error || '편집기가 답하지 않았어요' }
+  return { ok: true, version: r?.saved ? 'saved' : 'current' }
+}
+async function downloadSource({ last = false } = {}) {
+  await freshToken()
+  const p = (!last && editing.value?.path) || props.file.path
+  const moved = p !== props.file.path
+  return { url: rawUrl(props.folder.slug, p, props.ref_, true), name: baseName(p), ...(moved ? { note: `다른 사람이 먼저 고쳐 내 수정은 따로 저장돼 있어요 — 그 파일을 내려받았어요 · ${baseName(p)}` } : {}) }
+}
 defineExpose({ leave })
 // (a commit: the version a file mention named — 멘션한 때의 판)
 const where = computed(() => (props.ref_ === 'main' ? '기준본(main)' : /^[0-9a-f]{40}$/.test(props.ref_ || '') ? props.refLabel || '이전 판' : `변형 ${props.refLabel || ''}`))
@@ -117,7 +137,7 @@ function ask() {
             <small><FIcon :name="ref_ === 'main' ? 'folder' : 'branch'" :size="13" /> {{ folder.name }} · {{ ref_ === 'main' ? 'main' : refLabel }} · {{ file.path }}</small>
           </div>
           <span v-if="saveNote" class="sv" :class="saveNote.kind" :title="saveNote.text">{{ saveNote.text }}</span>
-          <a class="tb press dl" :href="rawUrl(folder.slug, file.path, ref_, true)" target="_blank" rel="noopener">원본 받기</a>
+          <DownloadButton class="tb" :source="downloadSource" :prepare="prepareDownload" />
           <button class="tb ic press" :title="maximized ? '원래 크기' : '크게 보기'" @click="maximized = !maximized"><Icon :name="maximized ? 'shrink' : 'expand'" :size="15" /></button>
           <button class="tb ic press" title="닫기" @click="close"><Icon name="close" :size="16" /></button>
         </header>
@@ -192,6 +212,8 @@ function ask() {
 .sv.ok { background: rgba(40, 160, 90, .12); color: #1e8a4c; }
 .sv.copy { background: rgba(230, 150, 20, .14); color: #a86400; white-space: normal; }
 .sv.err { background: rgba(200, 60, 50, .1); color: #b3261e; white-space: normal; }
-/* a phone: the status takes the title's row room, 원본 받기 folds away while it shows */
+/* a phone: the status takes the title's row room */
 @media (max-width: 520px) { .hd { flex-wrap: wrap; height: auto; min-height: 60px; padding-top: 8px; padding-bottom: 8px; } .sv { order: 10; max-width: 100%; flex-basis: 100%; } }
+/* 「내려받기」 folds to its arrow on a phone (DownloadButton), round like the buttons beside it */
+@media (max-width: 520px) { .hd .dlb { width: 32px; padding: 0; justify-content: center; } }
 </style>

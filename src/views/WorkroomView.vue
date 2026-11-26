@@ -4,13 +4,16 @@
 // files sit in a side panel, and a file opens in place of the terminal (✕ 터미널 to go back) in
 // the viewer the shared folders use too (components/files/FileView.vue). A deepagents run gets a
 // steer box under the terminal instead (it has no terminal session of its own).
+// The open file's bar has 「내려받기」 (DownloadButton — the one every place a file opens has, spec file-download): a text file with
+// changes not saved yet is saved first, then downloaded under its name.
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from '../components/Icon.vue'
+import DownloadButton from '../components/DownloadButton.vue'
 import WorkroomTerminal from '../components/WorkroomTerminal.vue'
 import FileView from '../components/files/FileView.vue'
 import { viewOf, fmtSize } from '../components/folders/fileKind.js'
-import { api, auth } from '../api.js'
+import { api, auth, freshToken } from '../api.js'
 import { BASE } from '../base.js'
 
 const route = useRoute()
@@ -100,6 +103,15 @@ async function save(content) {
   } finally { saving.value = false }
 }
 
+// 「내려받기」: what is typed and not saved goes first (a refusal — the agent changed the file meanwhile — offers the saved file)
+async function prepareDownload() {
+  if (!dirty.value) return { ok: true, version: 'current' }
+  const draft = viewer.value.draft
+  await save(draft)
+  return file.value?.content === draft ? { ok: true, version: 'saved' } : { ok: false, why: note.value }
+}
+async function downloadSource() { await freshToken(); return { url: rawUrl(file.value.path), name: file.value.path.split('/').pop() } }
+
 function openTab(t) { tab.value = t; opened.value[t] = true; if (file.value) closeFile() }
 const live = computed(() => termState.value[tab.value] === 'live')
 const off = computed(() => (room.value ? termOff(tab.value) : ''))
@@ -159,7 +171,7 @@ async function sendSteer() {
             </div>
             <button v-if="file.content !== undefined" class="fb" :disabled="!dirty || saving" @click="save(viewer.draft)">{{ saving ? '저장 중…' : dirty ? '저장 ⌘S' : '저장됨' }}</button>
             <button v-if="isClaude" class="fb" title="Claude Code 에 이 파일을 가리켜요" @click="mention">@ Claude</button>
-            <a class="fb" :href="rawUrl(file.path)" target="_blank" title="원본 받기">원본</a>
+            <DownloadButton class="fb" :size="13" :source="downloadSource" :prepare="file.content !== undefined ? prepareDownload : null" />
             <button class="fb" @click="closeFile"><Icon name="close" :size="13" /> 터미널</button>
           </div>
           <p v-if="note" class="note">{{ note }}</p>

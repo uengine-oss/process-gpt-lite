@@ -22,6 +22,7 @@ const { pathToFileURL } = require('node:url')
 const settings = require('./settings')
 const server = require('./server')
 const policy = require('./policy')
+const downloads = require('./downloads')
 const menu = require('./menu')
 const { createLocalRunner } = require('./runner')
 const { uploadQuestion } = require('./runner/sync')
@@ -273,7 +274,14 @@ function setupSession(ses) {
   })
   ses.setPermissionCheckHandler((_wc, permission, origin) => ALLOWED.has(permission) && fromServer(origin))
   // a window opened only to download a file (원본 받기) stays empty: close it once the download starts
-  ses.on('will-download', (_e, _item, wc) => {
+  ses.on('will-download', (_e, item, wc) => {
+    // the page's 「내려받기」 (spec file-download): straight into Downloads under the page's name, as a browser does — Electron would ask
+    // with a save dialog; on a Mac the Downloads stack in the Dock bounces when it is there. Only the chosen server's own (a blob: it made,
+    // its routes): anything else keeps the dialog
+    if (!item.getSavePath() && downloads.quietSave(item.getURL(), ctx())) {
+      try { item.setSavePath(downloads.savePathFor(app.getPath('downloads'), item.getFilename(), require('node:fs').existsSync)) } catch { /* the system's dialog then */ }
+      item.once('done', (_ev, state) => { if (state === 'completed' && process.platform === 'darwin') try { app.dock?.downloadFinished?.(item.getSavePath()) } catch { /* no Dock */ } })
+    }
     const w = wc && BrowserWindow.fromWebContents(wc)
     if (w && w !== win && (!wc.getURL() || wc.getURL() === 'about:blank')) setTimeout(() => { if (!w.isDestroyed()) w.close() }, 200)
   })

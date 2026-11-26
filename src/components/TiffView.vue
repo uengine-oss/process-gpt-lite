@@ -12,6 +12,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import Icon from './Icon.vue'
 import { openTiff, draw } from '../tiff.js'
 import { TIFF_REASON } from '../tiffCore.js'
+import DownloadButton from './DownloadButton.vue'
 
 const props = defineProps({
   src: { type: String, default: '' },
@@ -120,7 +121,8 @@ watch(() => props.src, load)
         <p v-if="state === 'loading' && !size" class="msg shimmer-text" data-test="tiff-loading">불러오는 중…</p>
         <p v-else-if="state === 'error'" class="msg calm" role="status" data-test="tiff-error">
           <span>이 TIFF 는 열 수 없어요<template v-if="why"> · {{ why }}</template></span>
-          <a :href="src" download target="_blank" rel="noopener" data-test="tiff-download"><Icon name="down" :size="13" /> 내려받기</a>
+          <!-- under its name (DownloadButton — storage on another origin ignores the download attribute; a refusal is said) -->
+          <DownloadButton class="tdl" data-test="tiff-download" :source="{ url: src, name, type: 'image/tiff' }"><Icon name="down" :size="13" /> 내려받기</DownloadButton>
         </p>
         <canvas v-show="state !== 'error' && size" ref="cv" class="tpage" :class="{ dim: busy }" :style="pageStyle" data-test="tiff-page" role="img"
           :aria-label="`${name} ${cur + 1}쪽`" @click="press" />
@@ -155,7 +157,7 @@ watch(() => props.src, load)
 .viewer .msg { color: rgba(255, 255, 255, .82); }
 .inline .msg { color: inherit; opacity: .8; }
 .calm { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; padding: 0 12px; }
-.calm a { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 14px; border-radius: 17px; font-weight: 500; text-decoration: none; color: inherit;
+.calm .tdl { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 14px; border-radius: 17px; font-weight: 500; text-decoration: none; color: inherit;
   background: rgba(127, 127, 127, .2); }
 .tnav { flex: none; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 6px 16px 2px; }
 .nb { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; }

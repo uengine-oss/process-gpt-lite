@@ -14,9 +14,12 @@
 // in artcraft/patches, VectorCraft · FilmCraft built in) is joined to the server over a websocket;
 // the agent's tool calls arrive as control requests, run on this window, and the replies go back —
 // so the person watches the agent's edits land here.
+// 「내려받기」 (DownloadButton, spec file-download) before 공유: the file as last saved (the card's address follows each save); with changes
+// not saved in the app yet the person is told so and offered that last saved version (each app saves its own way: ⌘S · SAVE · export).
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
+import DownloadButton from './DownloadButton.vue'
 import { uploadAttachment } from '../api.js'
 import { openLiveLink } from '../liveLink.js'
 import { officeEditorFor } from '../officeEditor.js'
@@ -29,6 +32,8 @@ const props = defineProps({
   maximized: { type: Boolean, default: false },
   // opened from a document to edit one of its pictures (OfficeSheet): a button hands the result back
   returnLabel: { type: String, default: '' },
+  // 「내려받기」 in the bar (false: the host has its own, or there is nothing to keep — a picture out of a document)
+  download: { type: Boolean, default: true },
 })
 const emit = defineEmits(['saved', 'error', 'update:maximized', 'close', 'live', 'return'])
 
@@ -72,6 +77,8 @@ const fullscreen = ref(false)
 let timer = null
 let wait = null
 const savedUrls = new Set()
+// the copy the app saved last in this opening: the page that opened it moves the card to it only after its own call (or never — a meeting)
+let lastSaved = ''
 // live co-editing
 const LIVE = new Set(['photocraft', 'vectorcraft', 'filmcraft', 'cadcraft', 'soundcraft'])
 const READS = /^(ui\.inspect|ui\.elements|ui\.render|engine\.commands|ui\.screenshot|jobs\.list|ui\.menu\.list|cmdline\.state|control\.methods|ping)$|inspect|render|find_text|query/i
@@ -86,6 +93,7 @@ function load() {
   stopLive()
   dirty.value = false
   clearTimeout(wait)
+  lastSaved = ''
   frameSrc.value = app.value ? `${BASE}/craft/${appName()}/${app.value.query}` : ''
 }
 function show(kind, text, link) {
@@ -192,7 +200,7 @@ async function onSave({ name, bytes }) {
   show('agent', own ? '저장하는 중…' : `${name} 내보내는 중…`)
   try {
     const f = await uploadAttachment(new File([bytes], name || props.name))
-    if (own) { savedUrls.add(f.url); dirty.value = false; link?.rename(f.name); show('success', '저장했어요. 편집본이 원본 옆에 올라갔어요.'); emit('saved', { url: f.url, name: f.name }) }
+    if (own) { savedUrls.add(f.url); lastSaved = f.url; dirty.value = false; link?.rename(f.name); show('success', '저장했어요. 편집본이 원본 옆에 올라갔어요.'); emit('saved', { url: f.url, name: f.name }) }
     else show('success', `${f.name} 을(를) 만들었어요.`, f.url)
   } catch (e) { show('error', `저장하지 못했어요: ${e.message}`); emit('error', e.message) }
 }
@@ -211,6 +219,11 @@ async function toggleFullscreen() {
   catch { show('error', '이 브라우저에서는 전체 화면을 쓸 수 없어요.') }
 }
 const onFs = () => { fullscreen.value = document.fullscreenElement === root.value }
+// 「내려받기」: the last saved file; unsaved changes in the app are said first
+const downloadSource = () => ({ url: lastSaved || props.fileUrl, name: props.name })
+const prepareDownload = async () => (dirty.value
+  ? { ok: false, text: `앱에서 고친 내용이 아직 저장되지 않았어요(${app.value?.save || 'SAVE 로 저장'}). 마지막으로 저장된 판을 내려받을까요?` }
+  : { ok: true, version: 'current' })
 // the app asks before a page with unsaved changes goes away; so do we
 const onLeave = (e) => { if (dirty.value) { e.preventDefault(); e.returnValue = '' } }
 
@@ -235,6 +248,7 @@ onBeforeUnmount(() => {
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 화면에 바로 적용돼요"><i />{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span>
       <span v-if="dirty" class="badge warn">저장 안 됨 · {{ app?.save || 'SAVE 로 저장' }}</span>
       <span class="sp" />
+      <DownloadButton v-if="download && !returnLabel" class="tb" data-testid="cef-download" :source="downloadSource" :prepare="prepareDownload" />
       <ShareButton v-if="!returnLabel" :for-name="name" plain class="tb" />
       <button v-if="returnLabel" class="tb press primary" :disabled="!live" @click="emit('return')">{{ returnLabel }}</button>
       <button v-if="!fullscreen && !returnLabel" class="tb opt press" @click="emit('update:maximized', !maximized)">

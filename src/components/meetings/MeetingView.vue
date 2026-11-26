@@ -11,7 +11,7 @@ import { useTeam } from '../../stores/team.js'
 import { openArtifact } from '../../artifacts.js'
 import { officeEditorFor, CRAFT_APPS } from '../../officeEditor.js'
 
-import { api } from '../../api.js'
+import { api, freshToken } from '../../api.js'
 import VideoTile from './VideoTile.vue'
 import { MAIN_LANGS, langLabel } from '../../i18n/mainLangs.js'
 import MaterialBody from './MaterialBody.vue'
@@ -19,6 +19,8 @@ import FolderDocStage from './FolderDocStage.vue'
 import MaterialPicker from './MaterialPicker.vue'
 import OfficeEditorFrame from '../OfficeEditorFrame.vue'
 import CraftEditorFrame from '../CraftEditorFrame.vue'
+import DownloadButton from '../DownloadButton.vue'
+import { rawUrl } from '../../foldersApi.js'
 
 const mt = useMeetings()
 const app = useApp()
@@ -44,6 +46,19 @@ const shown = computed(() => mt.stage || mt.mine)
 const KIND = { file: '파일', process: '진행 상황', panel: '앱 데이터', folder: '폴더 문서', result: '에이전트 결과' }
 const hhmm = (d) => new Date(d).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
 const editorOf = (msg) => (msg ? officeEditorFor(msg.content?.name || msg.content?.url) : null)
+// 「내려받기」 on the stage's bar where the stage has no editor bar of its own (an editor's bar has it — spec file-download): a folder's
+// document (each person through their own folder access) or a file no editor opens
+const stageDownload = computed(() => {
+  const m = shown.value?.material
+  if (!m || shown.value.hidden) return null
+  if (m.kind === 'folder' && m.folder?.file && m.folder.slug && m.folder.path) {
+    const { slug, path } = m.folder
+    return async () => { await freshToken(); return { url: rawUrl(slug, path, 'main', true), name: path.split('/').pop() } }
+  }
+  const msg = shown.value.message
+  if (m.kind === 'file' && msg?.content?.url && !editorOf(msg)) return { url: msg.content.url, name: msg.content.name || m.title }
+  return null
+})
 
 watch(() => mt.lines.length, async () => { await nextTick(); const el = lineBox.value; if (el) el.scrollTop = el.scrollHeight })
 watch(() => mt.tab, (t) => { if (t === 'materials') mt.unseen = 0 })
@@ -164,6 +179,7 @@ const trOf = (l) => (other(l) ? l.tr?.[myLang.value] || null : null)
               <b v-if="shown.material">{{ KIND[shown.material.kind] }} · {{ shown.material.title }}</b>
               <span class="sp" />
               <button v-if="mt.mine && !mt.stage && shown.material && !String(shown.material.id).startsWith('share:')" class="sb main press" @click="present(shown.material)">모두에게 띄우기</button>
+              <DownloadButton v-if="stageDownload" class="sb" :source="stageDownload" />
               <button v-if="shown.message" class="sb press" @click="bigEditor(shown.message)">편집기로 크게</button>
               <button v-if="mt.stage && mt.stage.byId === m.me.id" class="sb press" @click="mt.clearStage()">내리기</button>
               <button v-if="mt.mine && !mt.stage" class="sb press" @click="mt.mine = null">닫기</button>

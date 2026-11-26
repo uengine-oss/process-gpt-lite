@@ -3057,12 +3057,50 @@
   "이미 파일이 있는 폴더예요 — 다른 PC 에서 이어 올리기는 다음 단계에서 돼요": "This folder already has files — uploading to it from another PC comes in the next stage",
   "링크 · 안에 든 다른 저장소 · .gitmodules · .lfsconfig 는 올릴 수 없어요": "Links, repositories inside, .gitmodules and .lfsconfig can't be uploaded",
   "서버가 올린 것을 확인하지 못해 받지 않았어요 — 잠시 뒤 다시 올려 주세요": "The server couldn't check the upload, so it didn't take it — please upload again in a moment",
-  "너무 자주 올렸어요 — 잠시 뒤 다시 해 주세요": "Too many uploads at once — please try again in a moment"
+  "너무 자주 올렸어요 — 잠시 뒤 다시 해 주세요": "Too many uploads at once — please try again in a moment",
+  "내려받기 전에 저장하는 중…": "Saving before the download…",
+  "마지막 저장본 받기": "Download last saved",
+  "브라우저가 새 창을 막았어요 · 눌러서 여세요": "The browser blocked the new tab · press to open",
+  "내려받을 파일을 찾지 못했어요.": "Couldn't find the file to download.",
+  "내려받을 주소가 없어요.": "There is no address to download from.",
+  "이 파일을 내려받을 권한이 없어요.": "You don't have access to download this file.",
+  "파일을 찾지 못했어요.": "Couldn't find the file.",
+  "주소가 만료됐어요. 다시 열어 주세요.": "This address has expired. Please open it again.",
+  "폴더에 저장하지 못했어요": "Couldn't save to the folder",
+  "저장하지 못했어요. 마지막으로 저장된 판을 내려받을까요? 방금 고친 내용은 들어 있지 않아요.": "Couldn't save. Download the last saved version? Your latest edits aren't in it."
  },
  "patterns": [
   [
    "이 폴더에는 실행되는 설정이 있어요: {0} — 이 폴더에서 일하는 사람의 컴퓨터에서 훅 · MCP 서버 · 허용 목록이 돌아요",
    "This folder has settings that run: {0} — hooks, MCP servers and allow lists run on the computer of whoever works in this folder"
+  ],
+  [
+   "저장하지 못했어요 ({0}). 마지막으로 저장된 판을 내려받을까요? 방금 고친 내용은 들어 있지 않아요.",
+   "Couldn't save ({0}). Download the last saved version? Your latest edits aren't in it."
+  ],
+  [
+   "앱에서 고친 내용이 아직 저장되지 않았어요({0}). 마지막으로 저장된 판을 내려받을까요?",
+   "Changes in the app aren't saved yet ({0}). Download the last saved version?"
+  ],
+  [
+   "다른 사람이 먼저 고쳐 내 수정은 따로 저장돼 있어요 — 그 파일을 내려받았어요 · {0}",
+   "Someone else changed it first, so your edits were saved separately — downloaded that file · {0}"
+  ],
+  [
+   "마지막으로 저장된 판을 내려받았어요 — 방금 고친 내용은 들어 있지 않아요 · {0}",
+   "Downloaded the last saved version — your latest edits aren't in it · {0}"
+  ],
+  [
+   "새 창에서 열었어요 — 거기서 저장하세요 · {0}",
+   "Opened in a new tab — save it from there · {0}"
+  ],
+  [
+   "방금 저장한 판을 내려받았어요 · {0}",
+   "Downloaded the version just saved · {0}"
+  ],
+  [
+   "서버가 파일을 주지 않았어요 ({0}).",
+   "The server didn't return the file ({0})."
   ],
   [
    "지금 쓰는 PC 앱은 {0} 버전이에요",
@@ -3145,6 +3183,10 @@
    "Link to the running ‘{0}’"
   ],
   [
+   "내려받지 못했어요 · {0}",
+   "Couldn't download · {0}"
+  ],
+  [
    "올렸어요 — 파일 {0}개",
    "Uploaded — {0} files"
   ],
@@ -3163,6 +3205,10 @@
   [
    "반응 확인했음 {0}개",
    "Got it · {0}"
+  ],
+  [
+   "내려받았어요 · {0}",
+   "Downloaded · {0}"
   ],
   [
    "루틴 · {0} 열기",
@@ -7109,6 +7155,11 @@
    ".rxs",
    "감사",
    "Thanks"
+  ],
+  [
+   ".dlb",
+   "받는 중…",
+   "Downloading…"
   ]
  ],
  "따로 관리되는 폴더 · 링크 · git 제어 파일": "Folders managed on their own · links · git control files",
