@@ -69,7 +69,7 @@ Lite 의 화면에는 사람이 직접 작성하지 않은 글이 많이 표시�
 - `index.html` 의 meta: `object-src 'none'; base-uri 'self'`. Vite 개발 서버 · 웹 이미지 · 데스크톱 앱이 모두 같은 페이지를 사용하므로 모든 환경에 적용된다. 페이지에 `<object>` · `<embed>` 가 포함되어도 아무것도 불러오지 않고, `<base>` 가 포함되어도 페이지의 상대 주소가 바뀌지 않는다.
 - 설치 번들의 nginx(`install/docker/nginx.conf`, 운영의 웹 이미지도 같은 설정)는 앱 페이지에 `frame-ancestors 'self'; object-src 'none'; base-uri 'self'` 헤더를 추가한다. 같은 주소의 페이지만 앱을 틀(iframe) 안에 넣을 수 있다.
 - 같은 nginx 는 저장소(`/storage/v1/…`)가 이 주소로 제공하는 HTML · SVG · XML 파일에 `sandbox` 정책(BFF 가 직접 제공하는 파일에 적용하는 것과 같은 정책)을 적용한다. 해당 파일을 별도로 열어도 그림과 글만 표시되고 파일 내부의 스크립트는 실행되지 않는다. 그림 · PDF · 영상 · JSON 과 REST · 로그인 응답에는 적용하지 않는다.
-- 작업실의 파일 원본(`GET /api/workroom/:kind/:id/raw`)이 그림 · 소리 · 영상 · PDF · 일반 텍스트(txt · md · csv · json)가 아니면 동일한 `sandbox` 정책을 적용해 전송한다. 확장자가 `.xhtml` · `.xsl`처럼 HTML · XML로 해석되는 파일에도 동일한 정책을 적용한다.
+- 작업실의 파일 원본(`GET /api/workroom/:kind/:id/raw`)은 PDF만 정책 없이 전송하고, 나머지 파일에는 스크립트를 허용하지 않는 동일한 `sandbox` 정책을 적용한다. HTML · XML로 해석되는 파일(`.xhtml` · `.xsl` 등)에는 경로에서 직접 정책을 적용하고, 그림 · 소리 · 영상 · 일반 텍스트(txt · md · csv · json)에는 아래 「API 응답」 요구사항의 공통 정책을 적용한다. 그림 · 소리 · 영상 · 글은 그대로 표시된다.
 - 스크립트 출처(`script-src`)는 아직 제한하지 않는다. 패널 앱은 sandbox 가 적용된 srcdoc 틀 안에서 자체 인라인 스크립트를 실행하는데, srcdoc 틀은 페이지의 정책을 상속하기 때문이다.
 
 #### Scenario: 저장소의 HTML 파일을 따로 연다
@@ -78,7 +78,7 @@ Lite 의 화면에는 사람이 직접 작성하지 않은 글이 많이 표시�
 
 #### Scenario: 작업실의 XHTML 파일
 - **WHEN** 에이전트가 해당 단계의 작업실에 `화면.xhtml`을 남기고, 윤하린이 해당 파일의 원본을 연다
-- **THEN** 응답에 `sandbox` 정책이 포함되고, 같은 작업실의 `.png` · `.pdf` · `.md` 응답에는 포함되지 않는다
+- **THEN** 응답에 `sandbox` 정책이 포함되고, 같은 작업실의 `.png` · `.md` 응답에도 스크립트를 허용하지 않는 정책이 적용되어 그대로 표시되며, `.pdf` 응답에는 정책이 적용되지 않는다
 
 ## 시험
 화면: `e2e/tests/feature/safe-html.spec.js`(F-SH-01~07, 자체 스택 — 테넌트 `safehtml-ui`, BFF 8971 · Vite 5371부터). F-SH-01 은 변환 모듈을 브라우저에서 직접 불러와 까다로운 입력 모음과 일반적인 Markdown 을 확인하고, F-SH-02~05 는 대화 · 「이미 한 요청」 · 스킬 시트 · 인스턴스 산출물 화면을 확인하며, F-SH-06 은 meta 정책과 실제 nginx(도커가 있을 때)의 헤더를, F-SH-07 은 작업실 파일 원본의 헤더를 확인한다. 명령과 증거는 `e2e/README.md` 63절과 `openspec/specs/markdown-rendering/e2e/README.md` 에 있다.

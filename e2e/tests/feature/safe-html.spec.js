@@ -10,7 +10,7 @@
 //   F-SH-05 인스턴스 화면의 산출물(단계의 긴 글 결과): 같은 규칙
 //   F-SH-06 페이지의 보안 정책: <object> · <base> 를 받지 않는다(index.html meta). 설치 번들의 nginx 는 남의 사이트가 앱을 틀에 넣지 못하게 하고,
 //           저장소의 HTML · SVG · XML 은 따로 열려도 스크립트가 돌지 않게 한다(도커가 있으면 실제 nginx 로)
-//   F-SH-07 작업실의 파일 원본: 그림 · 소리 · 영상 · PDF · 일반 텍스트가 아니면(.html · .xhtml · .svg · .xml · .xsl …) sandbox 정책으로
+//   F-SH-07 작업실의 파일 원본: PDF 만 정책 없이, 그 밖은 모두 스크립트 없는 sandbox 정책으로(.html · .xhtml · .svg · .xml · .xsl … 은 경로가, 그림 · 글은 /api 공통 규칙이)
 // 스택은 따로 띄운다(lib/localStack.js: 테넌트 safehtml-ui 의 BFF 와 Vite, 8971 · 5371 부터 빈 포트). 모델 · 공유 서비스 없음. 사람은 지어낸 이름.
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/safe-html.spec.js
 import { test, expect } from '@playwright/test'
@@ -350,7 +350,7 @@ test('F-SH-06 페이지는 <object> · <base> 를 받지 않고, 설치 번들�
   }
 })
 
-test('F-SH-07 작업실의 파일 원본: 그림 · 소리 · 영상 · PDF · 일반 텍스트만 sandbox 없이, 나머지(.html · .xhtml · .svg · .xml · .xsl …)는 sandbox 로', async () => {
+test('F-SH-07 작업실의 파일 원본: PDF 만 sandbox 없이, 나머지(그림 · 소리 · 영상 · 글 · .html · .xhtml · .svg · .xml · .xsl …)는 스크립트 없는 sandbox 로', async () => {
   const inst = await S.instance('작업실 파일', [{ id: 'build', name: '화면 만들기' }], [ME], { owner: ME.id })
   cleanups.push(() => S.q('delete from todolist where proc_inst_id=$1', [inst.inst]))
   const [t] = await S.q(`insert into todolist (id, tenant_id, user_id, proc_inst_id, root_proc_inst_id, proc_def_id, activity_id, activity_name, status, agent_mode, agent_orch, start_date)
@@ -368,5 +368,7 @@ test('F-SH-07 작업실의 파일 원본: 그림 · 소리 · 영상 · PDF · �
   }
   const SAND = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'"
   for (const f of ACTIVE) expect(await head(f), f).toEqual([200, SAND, 'nosniff'])
-  for (const f of PASSIVE) expect(await head(f), f).toEqual([200, null, 'nosniff'])
+  // pictures, sound, video and plain text get the same script-free policy from the /api rule (apiHeaders, #88) and still show as they are;
+  // only a PDF goes without one, since the browser's PDF viewer does not run in a sandbox
+  for (const f of PASSIVE) expect(await head(f), f).toEqual([200, f.endsWith('.pdf') ? null : SAND, 'nosniff'])
 })
