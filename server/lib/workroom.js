@@ -187,21 +187,29 @@ export function assertWritable(room, user) {
   }
 }
 
-export async function tree(room) {
-  if (room.git) {
-    // the branch's files, with their folders (sorted like the disk listing: folders first, then names)
-    const files = (await G.lsTree(room.git.repo, room.git.ref)).filter((f) => !f.path.split('/').some((s) => SKIP.has(s) || s.startsWith('.processgpt')))
-    const dirs = new Set()
-    for (const f of files) { const parts = f.path.split('/'); for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/')) }
-    const out = []
-    const walk = (dir, depth) => {
-      const under = (p) => (dir ? p.startsWith(dir + '/') && !p.slice(dir.length + 1).includes('/') : !p.includes('/'))
-      for (const d of [...dirs].filter(under).sort((a, b) => a.localeCompare(b))) { if (out.length >= 3000) return; out.push({ path: d, dir: true, depth }); if (depth < 8) walk(d, depth + 1) }
-      for (const f of files.filter((x) => under(x.path)).sort((a, b) => a.path.localeCompare(b.path))) { if (out.length >= 3000) return; out.push({ path: f.path, dir: false, depth, size: f.size, mtime: null }) }
-    }
-    walk('', 0)
-    return out
+// A branch's files ({path, size}) as the room's listing: folders first then files, by name, each with its depth — one pass to group them by
+// folder, one sort per folder (a read-only room lists the branch as saved)
+export function listing(files, { max = Infinity } = {}) {
+  const kids = new Map() // folder → {dirs: Set, files: []}
+  const at = (d) => { let k = kids.get(d); if (!k) kids.set(d, (k = { dirs: new Set(), files: [] })); return k }
+  for (const f of files) {
+    const parts = f.path.split('/')
+    for (let i = 1; i < parts.length; i++) at(parts.slice(0, i - 1).join('/')).dirs.add(parts.slice(0, i).join('/'))
+    at(parts.slice(0, -1).join('/')).files.push(f)
   }
+  const out = []
+  const walk = (dir, depth) => {
+    const k = kids.get(dir)
+    if (!k) return
+    for (const d of [...k.dirs].sort((a, b) => a.localeCompare(b))) { if (out.length >= max) return; out.push({ path: d, dir: true, depth }); if (depth < 8) walk(d, depth + 1) }
+    for (const f of k.files.sort((a, b) => a.path.localeCompare(b.path))) { if (out.length >= max) return; out.push({ path: f.path, dir: false, depth, size: f.size, mtime: null }) }
+  }
+  walk('', 0)
+  return out
+}
+
+export async function tree(room) {
+  if (room.git) return listing((await G.lsTree(room.git.repo, room.git.ref)).filter((f) => !f.path.split('/').some((s) => SKIP.has(s) || s.startsWith('.processgpt'))), { max: 3000 })
   const out = []
   const walk = async (dir, depth) => {
     for (const e of (await fs.readdir(dir, { withFileTypes: true }).catch(() => [])).sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name))) {
@@ -248,6 +256,15 @@ export async function writeFile(room, rel, content, expectedMtime) {
   // a shared folder's main or a variation checkout: the edit becomes a commit
   if (room.afterWrite) await room.afterWrite(path.relative(room.root, p)).catch((e) => console.warn('[workroom] commit', e.message))
   return { mtime: (await fs.stat(p)).mtimeMs }
+}
+
+// The workroom's PUT: refused unless the room is this person's to write; a variation's write waits for any move of that variation and is
+// refused when the room moved since it was read (folders/seats.js guardedWrite) — it never lands in a folder that left
+export async function writeAs(room, user, rel, content, expectedMtime) {
+  assertWritable(room, user)
+  if (room.kind !== 'variation' || room.legacy) return writeFile(room, rel, content, expectedMtime)
+  const SE = await import('./folders/seats.js')
+  return SE.guardedWrite(room, user, () => writeFile(room, rel, content, expectedMtime))
 }
 
 // Live steering of a deepagents turn (process-gpt SDK POST /chat/steer: applied before the next
@@ -420,7 +437,7 @@ export function attachTerminal(server) {
       try { s = sessionFor(room, mode, ticket.lang, ticket.tenant) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close(4500, 'spawn') }
       clearTimeout(s.timer)
       s.viewers.add(ws)
-      ws.send(JSON.stringify({ type: 'session', mode, cwd: room.cwd, session: room.session || null }))
+      ws.send(JSON.stringify({ type: 'session', mode, session: room.session || null }))
       if (s.buf) ws.send(JSON.stringify({ type: 'output', data: s.buf, replay: true }))
       ws.on('message', (raw) => {
         let m

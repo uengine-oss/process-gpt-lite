@@ -940,7 +940,7 @@ const fail = (res, e) => res.status(e.status || 500).json({ error: e.message, mt
 app.get('/api/workroom/:kind/:id', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   // (what stays on the server: the disk paths of a read-only room, the seat's own row, the save hook)
-  const { root, git, seatRow, afterWrite, userId, ...info } = r
+  const { root, cwd, git, seatRow, afterWrite, userId, folderRow, variationRow, role, ...info } = r
   // a variation: where its working copy is (folders/seats.js) — read only here unless it is this person's server workroom
   const seat = r.kind === 'variation' ? await roomSeat(r, req.user).catch(() => null) : null
   res.json({ ...info, folder: root ? path.basename(root) : r.branch || '', ...(seat ? { seat } : {}), terminal: workroom.terminalInfo(r), files: await workroom.tree(r) })
@@ -967,7 +967,7 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
 })
 app.put('/api/workroom/:kind/:id/file', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
-  try { workroom.assertWritable(r, req.user); res.json(await workroom.writeFile(r, req.body.path, String(req.body.content ?? ''), req.body.mtime)) } catch (e) { fail(res, e) }
+  try { res.json(await workroom.writeAs(r, req.user, req.body.path, String(req.body.content ?? ''), req.body.mtime)) } catch (e) { fail(res, e) }
 })
 app.post('/api/workroom/:kind/:id/publish', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return

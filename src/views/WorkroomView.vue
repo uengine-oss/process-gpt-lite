@@ -62,9 +62,9 @@ async function seatAct(what) {
   try {
     if (what === 'release') {
       if (dirty.value && !confirm('저장하지 않은 편집이 있어요. 버리고 돌려놓을까요?')) return
-      await F.releaseSeat(room.value.slug, room.value.variation, seat.value?.epoch)
+      const r = await F.releaseSeat(room.value.slug, room.value.variation, seat.value?.epoch)
       file.value = null; dirty.value = false
-      seatNote.value = '작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요.'
+      seatNote.value = r?.kept ? `작업본을 보관했어요 — git 이 싣지 않는 파일 ${r.kept > 0 ? `${r.kept}개` : ''}는 서버에 따로 남겨 두었어요.` : '작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요.'
     } else if (what === 'recall') { await F.recallSeat(room.value.slug, room.value.variation); seatNote.value = `${seat.value?.who?.name || ''} 님에게 돌려 달라고 했어요.` }
     else if (what === 'open') { await F.openSeat(room.value.slug, room.value.variation); opened.value = { shell: false, claude: false }; termState.value = {} }
     await load()
@@ -171,7 +171,7 @@ async function sendSteer() {
     <header class="hd" :class="{ tabs: isClaude }">
       <button class="ib" title="뒤로" @click="router.back()"><Icon name="back" :size="17" /></button>
       <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : agentLabel }}</span>
-      <span v-if="room" class="chip" :title="room.cwd || room.branch"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch && room.branch !== room.folder"> · {{ room.branch }}</template></span>
+      <span v-if="room" class="chip" :title="room.branch || room.folder"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch && room.branch !== room.folder"> · {{ room.branch }}</template></span>
       <SeatPill v-if="seat" class="seatp" :seat="seat" dark compact />
       <span v-if="room" class="st" :class="{ on: live && !off, bad: failed || !!off }" :title="off || (failed ? termWhy[tab] : '')"><i />{{ statusText }}</span>
       <span class="ttl">{{ room?.title }}<template v-if="room?.sub"> · {{ room.sub }}</template><b v-if="room?.running" class="run"> · 실행 중</b></span>

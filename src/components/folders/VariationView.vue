@@ -93,7 +93,7 @@ async function seatAct(what) {
   if (what === 'take' && !confirm(seatMine.value ? '이 변형을 마지막으로 올린 데서부터 여기로 가져올까요? PC 에 남은 변경은 새 변형으로 올라와요.' : '작업본을 가져올까요? 저장 안 한 변경은 그대로 저장되고, PC 에 남은 변경은 새 변형으로 올라와요.')) return
   seatBusy.value = true
   try {
-    if (what === 'release') { await F.releaseSeat(props.slug, props.vid, seat.value?.epoch); say('작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요') }
+    if (what === 'release') { const r = await F.releaseSeat(props.slug, props.vid, seat.value?.epoch); say(r?.kept ? `작업본을 보관했어요 — git 이 싣지 않는 파일 ${r.kept > 0 ? `${r.kept}개` : ''}는 서버에 따로 남겨 두었어요` : '작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요') }
     else if (what === 'recall') { await F.recallSeat(props.slug, props.vid); say(`${seat.value?.who?.name || ''} 님에게 돌려 달라고 했어요`) }
     else if (what === 'take') { await F.takeSeat(props.slug, props.vid, seat.value?.epoch); say('작업본을 가져왔어요 — 이제 보관 중이에요') }
     await load()

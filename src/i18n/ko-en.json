@@ -3103,7 +3103,9 @@
   "내 작업실에서 열기": "Open in my workroom",
   "파일은 오른쪽 「파일」에서 읽을 수 있어요.": "You can read the files under \"Files\" on the right.",
   "읽기 전용이에요 — 이 변형이 마지막으로 저장된 내용이에요.": "Read only — what this variation last saved.",
-  "이 변형의 작업본이 다른 곳에 있어요": "This variation's working copy is elsewhere"
+  "이 변형의 작업본이 다른 곳에 있어요": "This variation's working copy is elsewhere",
+  "작업본을 보관했어요 — git 이 싣지 않는 파일 는 서버에 따로 남겨 두었어요": "The working copy is put away — files git does not carry were kept aside on the server",
+  "작업본을 보관했어요 — git 이 싣지 않는 파일 는 서버에 따로 남겨 두었어요.": "The working copy is put away — files git does not carry were kept aside on the server."
  },
  "patterns": [
   [
@@ -7025,6 +7027,14 @@
   [
    "{0} 님이 고치는 중이에요 — 마지막으로 저장된 내용을 보여 줘요.",
    "{0} is changing it — showing what was last saved."
+  ],
+  [
+   "작업본을 보관했어요 — git 이 싣지 않는 파일 {0}개는 서버에 따로 남겨 두었어요",
+   "The working copy is put away — {0} files git does not carry were kept aside on the server"
+  ],
+  [
+   "작업본을 보관했어요 — git 이 싣지 않는 파일 {0}개는 서버에 따로 남겨 두었어요.",
+   "The working copy is put away — {0} files git does not carry were kept aside on the server."
   ]
  ],
  "context": [

@@ -260,10 +260,11 @@ export function folderRoutes(auth) {
   r.post('/folders/:slug/variations/:vid/seat/release', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
     const v = await S.variation(folder, req.params.vid)
-    await SE.closeServer(folder, v, { by: req.user.id, me: req.user, epoch: req.body?.epoch ?? null })
+    const out = await SE.closeServer(folder, v, { by: req.user.id, me: req.user, epoch: req.body?.epoch ?? null })
     const now = await S.variationById(v.id)
     changeCard(folder, now).catch(() => {})
-    return { ok: true, seat: await SE.viewOf(null, now, { me: req.user, role }) }
+    // (kept: things git does not carry — ignored files, a repository inside — moved aside on the server rather than deleted)
+    return { ok: true, kept: out?.kept || 0, seat: await SE.viewOf(null, now, { me: req.user, role }) }
   }))
   // a save point: what my server workroom holds is committed on the variation, the working copy stays where it is
   r.post('/folders/:slug/variations/:vid/seat/save', auth, h(async (req) => {

@@ -1044,7 +1044,7 @@ async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   // stopped while the variation was being made (review 11-25 #5): it is closed as a stopped run, and the chat is not pointed at it
   const stoppedNow = turnCtx.getStore()?.turn?.stopped
   if (stoppedNow) {
-    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
+    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, run: work.run, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
     checkpoint(turnCtx.getStore()?.turn)
   }
   await TF.noteVariation(user, threadId, folder, work.v).catch(() => {})
@@ -1057,10 +1057,10 @@ async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
     // stopped before the agent was called (review 11-25 #5): the variation made for it is closed as a stopped run, and the chat
     // does not stay pointed at its room
     pinned.delete(threadId)
-    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
+    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, run: work.run, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
     throw e
   }
-  await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
+  await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, run: work.run, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
   await TF.announce(user.id, threadId).catch(() => {})
   return msg
 }

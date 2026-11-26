@@ -1488,7 +1488,7 @@ cd e2e && RT_WORKERS=1 RT_API_FROM=8967 RT_WEB_FROM=5367 RT_OFFICE_FROM=5402 npx
 사용자(11-26): 「폴더내 작업실을 누르면 일렉트론에 연결된 모바일이나 일렉트론내 해당 워크트리를 클론하여 작업할 수 있고 로컬 폴더 작업 결과를 서버로 동기화 할 수 있다. 작업본이 여러군데 흩어져서는 안되니 잘 설계해」. 변형마다 작업본이 있는 자리는 하나다(보관 중 · 서버 작업실 · 서버 에이전트 · PC 하나). 자리를 옮길 때는 이전 자리에서 저장하지 않은 것까지 있는 그대로 커밋한 뒤 그 자리를 치운다. 이 단계에서 PC의 자리는 채팅의 「내 PC」 실행이 프로젝트 변형에서 도는 동안에만 생긴다(데스크톱의 작업본은 다음 단계). 화면 · HTTP 시험은 실행 중인 스택(BFF · Vite)을 대상으로 시험 계정 셋(`pro-rt-ws-a` · `ws-b` · `ws-c`)을 사용해 진행한다. 모델은 호출하지 않는다. 증거는 `openspec/specs/variation-seats/e2e/README.md`에 있다.
 
 ```bash
-cd server && node --test test/variationSeats.test.js
+cd server && node --test test/variationSeats.test.js test/variationSeats.review.test.js
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/variation-seats.spec.js
 ```
 
@@ -1504,6 +1504,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/varia
 | 채팅의 「내 PC」 실행이 프로젝트 변형의 자리를 가짐(서버 작업실은 커밋 후 닫힘), 그동안 작업실 · 기본 에이전트 턴 · 같은 변형의 다른 실행은 거절, 기본 에이전트 턴은 읽기만 하고 작업본의 위치를 안내, 실행이 끝나면 보관 중, 자리를 잃은 뒤 올라온 결과는 새 변형 | 스펙 요구 7 · `local-agents` · `project-room` | WL-I-08 · WL-U-03 | 단위 | ✅ |
 | 자리의 규칙: 열기 · 마무리 · 돌려놓기 · 가져오기(본인은 언제나, 소유자는 24시간 + PC 꺼짐) · 돌려 달라고 하기 · 기한 · 누가 여는가 | 스펙 요구 1 · 3 · 6 | WL-U-01 ~ 08 | 단위 | ✅ |
 | 기존 흐름 유지: 공유 폴더 · 작업실 · 챔피언 폴더 · 로컬 에이전트 · 채팅에서 고르는 에이전트 | 회귀 | `folders.spec.js` · `workroom.spec.js` · `champion-folders.spec.js` · `local-agents-*.spec.js` · `chat-agent-*.spec.js` · 서버 단위 | feature · 단위 | ✅ (F-CA-05는 모델이 없는 스택에서 기본 에이전트의 실패 문구가 달라 origin/main에서도 같은 결과) |
+| 검토 반영(PR #86): 외부에서 실행 중인 단계 · 채팅 변경은 재시작 시 쓸기에서 제외, 커밋 실패 시 이동하지 않음 · git이 포함하지 않는 항목은 옆으로 이동, 실행은 자기 회차에서만 종료 · 자리를 잃으면 새 변형 생성, 인스턴스 줄은 읽기 전용, 반영 중에는 어떤 자리도 받지 않음 · 앞서간 변형은 반영된 상태가 아님, 넘기는 중인 이동은 잠금으로 보호, 늦은 쓰기 거절, 자리 없는 체크아웃 보관, 돌려 달라는 알림 제한, 회사 확인, 목록 · 질의 축소, 설정 실패 시 자리 반환, 응답에 서버 경로 없음 | 스펙 요구 1 · 3 · 4 · 5 · 6 · 9 · 「서버 에이전트의 실행은 자기 자리만 끝낸다」 | R-01 ~ R-13 · F-WL-05 | 단위 · feature | ✅ |
 | 데스크톱에서 받아 작업 · 저장 지점 · 돌려놓기 · 남은 변경 / 휴대폰에서 PC에 작업 시키기 / 로컬 작업을 같은 작업본에서 수행 | 설계 P1 ~ P3 | F-WL-10 ~ 32 | — | 다음 단계 |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

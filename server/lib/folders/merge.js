@@ -61,12 +61,14 @@ async function proceed(folder, row, user) {
   for (const vid of row.variation_ids) {
     if (steps.some((s) => s.variation_id === vid)) continue
     const v = await S.variationById(vid)
-    const out = await G.git(row.worktree_path, [...G.who(user.name, user.email), 'merge', '--no-ff', '--no-edit', '-m', L(`반영: ${v.title} (${v.branch})`, `Merge: ${v.title} (${v.branch})`), v.branch], { check: false })
+    // (the commit merged is the branch's head now, kept with the step: a variation that moves past it is not called merged at the end)
+    const at = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
+    const out = await G.git(row.worktree_path, [...G.who(user.name, user.email), 'merge', '--no-ff', '--no-edit', '-m', L(`반영: ${v.title} (${v.branch})`, `Merge: ${v.title} (${v.branch})`), at || v.branch], { check: false })
     const unmerged = (await G.git(row.worktree_path, ['diff', '--name-only', '--diff-filter=U'])).split('\n').filter(Boolean)
     if (unmerged.length) {
       const conflicts = []
       for (const p of unmerged) conflicts.push({ path: p, variation_id: vid, binary: await isBinaryConflict(row.worktree_path, p) })
-      steps.push({ variation_id: vid, ok: false, title: v.title })
+      steps.push({ variation_id: vid, ok: false, title: v.title, head: at })
       await q(`update pro_folder_integrations set steps=$2, conflicts=$3, status='conflicted', updated_at=now() where id=$1`, [row.id, JSON.stringify(steps), JSON.stringify(conflicts)])
       await S.setStatus(v, 'conflicted')
       const r = await get(folder, row.id)
@@ -74,7 +76,7 @@ async function proceed(folder, row, user) {
       return r
     }
     if (/fatal|error/i.test(out) && !(await G.head(row.worktree_path))) throw err(500, out.slice(0, 300))
-    steps.push({ variation_id: vid, ok: true, title: v.title })
+    steps.push({ variation_id: vid, ok: true, title: v.title, head: at })
     await q('update pro_folder_integrations set steps=$2, updated_at=now() where id=$1', [row.id, JSON.stringify(steps)])
   }
   return finish(folder, await get(folder, row.id), user)
@@ -190,10 +192,18 @@ async function finish(folder, row, user) {
   const head = await G.head(folder.repo_path, folder.default_branch)
   for (const vid of row.variation_ids) {
     const v = await S.variationById(vid)
-    // (a checkout that is still there — opened before seats, or by a path that did not ask — is saved on its branch, not thrown away)
+    // (a checkout that is still there — opened before seats, or by a path that did not ask — is saved on its branch, not thrown away; one
+    // that could not be saved stays where it is)
+    let closed = true
     if (v.worktree_path) await SE.closeServer(folder, v, { system: true, status: null, reason: L('이 변형을 반영해서 작업실을 닫았어요.', 'This variation was merged, so the workroom was closed.') })
-      .catch(async (e) => { console.warn('[folders] merge close', e.message); await S.keepWhatIsThere(folder, v.worktree_path, v.branch); await S.release(folder, v) })
-    await q(`update pro_folder_variations set status='merged', updated_at=now() where id=$1`, [vid])
+      .catch((e) => { closed = false; console.warn('[folders] merge close', e.message) })
+    // merged only when what was merged is all it has: a branch that moved past the merged commit (or a checkout that could not be saved)
+    // keeps its new work as a variation to review again
+    const merged = (row.steps || []).find((x) => x.variation_id === vid)?.head
+    const now = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
+    const whole = closed && (!merged || !now || now === merged)
+    await q(`update pro_folder_variations set status=$2, updated_at=now() where id=$1`, [vid, whole ? 'merged' : 'ready'])
+    if (!whole) console.warn(`[folders] ${v.branch} moved past what was merged (${String(merged).slice(0, 8)} → ${String(now).slice(0, 8)}): left ready`)
   }
   await G.git(folder.repo_path, ['worktree', 'remove', '--force', row.worktree_path], { check: false })
   await G.git(folder.repo_path, ['worktree', 'prune'], { check: false })

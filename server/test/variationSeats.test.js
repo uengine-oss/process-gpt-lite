@@ -119,7 +119,8 @@ test('WL-U-07 서 있지 않은 자리: 기한이 지난 넘기는 중 · 체크
   assert.equal(d(seat(), { type: 'expire' }).why, 'none')
   assert.ok(SE.stale(seat(), V({ worktree_path: null }), NOW))
   assert.ok(!SE.stale(seat({ place: 'device', device_id: 'd', run: null }), V({ worktree_path: null }), NOW), 'PC 의 자리는 서버 체크아웃이 없어도 선다')
-  assert.equal(d(seat(), { type: 'drop' }).next, null)
+  assert.equal(d(seat({ run: 'agent' }), { type: 'drop', epoch: 3 }).next, null, '실행의 끝은 그 실행의 회차로')
+  assert.equal(d(seat(), { type: 'drop', epoch: 3 }).ok, false, '작업실 자리는 실행의 끝으로 지워지지 않는다')
 })
 
 test('WL-U-08 사람의 변형은 그 사람만, 에이전트의 변형은 실행할 수 있는 누구나 연다', () => {
@@ -227,7 +228,7 @@ test('WL-I-03 옮길 때 저장 안 한 변경은 있는 그대로 커밋된다 
   const roomDir = (await S.variationById(v.id)).worktree_path
   await scribble(v, '메모.md', '작업실에서 쓰고 저장 안 함\n')
   const before = Number((await S.variationById(v.id)).seat_epoch)
-  await SE.openServer(f, v, { user: owner, run: 'agent', dir: S.runCheckoutDir('turn-1', f) })
+  const run = await SE.openServer(f, v, { user: owner, run: 'agent', work: 'turn', ref: 'turn-1', dir: S.runCheckoutDir('turn-1', f) })
   assert.match(await fileOn(f, v, '메모.md'), /저장 안 함/, '작업실에 남아 있던 것이 가지에 있다')
   await assert.rejects(fs.stat(roomDir), '옛 자리(작업실)는 디스크에서 치웠다')
   const s = await SE.seatOf(v.id)
@@ -237,10 +238,11 @@ test('WL-I-03 옮길 때 저장 안 한 변경은 있는 그대로 커밋된다 
   assert.deepEqual(log.map((l) => l.action), ['open', 'held', 'move', 'held'])
   assert.equal(log[2].from_place, 'server:workroom')
   assert.equal(log[2].to_place, 'server:agent')
-  // the run ends: committed and released → none
-  await S.commitVariation(f, await S.variationById(v.id), owner, '턴')
-  await S.release(f, await S.variationById(v.id))
+  // the run ends: committed and released → none (its own seat, at its epoch)
+  const end = await SE.finishRun(f, await S.variationById(v.id), run, { commit: (cur) => S.commitVariation(f, cur, owner, '턴') })
+  assert.equal(end.held, true)
   assert.equal(await SE.seatOf(v.id), null)
+  assert.equal((await q('select count(*)::int as n from pro_variation_seats where variation_id=$1', [v.id]))[0].n, 0)
   // S.checkout itself (whoever calls it): another checkout of the branch is committed before it goes
   const v2 = await personVar(f, owner, '직접')
   const d1 = path.join(ROOT, 'co-1'), d2 = path.join(ROOT, 'co-2')

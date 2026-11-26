@@ -146,7 +146,7 @@ export async function handover(folder, v, from, { to: asked, mode = 'continue', 
 async function runReceiver({ folder, v, from, to, next, done, toRoomId, toTaskId, jwt }) {
   const dir = S.runCheckoutDir(toRoomId, folder)
   // the receiving agent's run has the working copy until it commits and releases it (folders/seats.js)
-  await SE.openServer(folder, v, { user: { id: String(to.id), name: to.name }, run: 'agent', dir })
+  const run = await SE.openServer(folder, v, { user: { id: String(to.id), name: to.name }, run: 'agent', work: 'handover', ref: String(toTaskId), dir })
   await q(`update pro_folder_variations set status='open', source = source || $2, updated_at=now() where id=$1`, [v.id, { room_id: toRoomId, todo_id: toTaskId }])
   await q(`update todolist set status='IN_PROGRESS' where id=$1`, [toTaskId])
   const msg = L(`${to.description ? `너는 '${to.name}' 이야 — ${to.description}\n` : ''}${from.name} 님이 공유 폴더 '${folder.name}' 의 변형 '${v.title}' 을(를) 넘겼어요.
@@ -164,10 +164,12 @@ When you are done, say briefly what you changed.`)
   const seeded = await pushRoomDir(dir, container).catch((e) => { console.warn('[folders] handover seed', e.message); return null })
   let note = '', ran = false
   try { note = await runAgent({ jwt, user: from, conversationId: toRoomId, message: msg }); ran = true } catch (e) { note = L(`실행 실패: ${e.message}`, `Run failed: ${e.message}`) }
-  if (seeded) await pullRoomChanges(container, seeded, dir, { wait: ran }).catch((e) => console.warn('[folders] handover pull', e.message))
-  const cur = await S.variationById(v.id)
-  await S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`)
-  await S.release(folder, cur)
+  // (only while this run still holds the variation's seat; when it moved meanwhile, what it made becomes a variation of its own)
+  await SE.finishRun(folder, await S.variationById(v.id), run, {
+    fill: seeded ? (d) => pullRoomChanges(container, seeded, d, { wait: ran }).catch((e) => console.warn('[folders] handover pull', e.message)) : null,
+    commit: (cur) => S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`),
+    user: String(to.id), where: L('인계받은 에이전트', 'the receiving agent'),
+  })
   const after = await S.variationById(v.id)
   await changeCard(folder, after).catch(() => {})
   await q(`update todolist set status='DONE', end_date=${ENGINE_NOW}, output=$2 where id=$1`, [toTaskId,

@@ -40,6 +40,11 @@ create table if not exists pro_variation_seats (
   recall       jsonb,
   constraint pro_variation_seats_device check ((place = 'device') = (device_id is not null))
 );
+-- (what runs in a server agent's place — work: turn · chat · step · handover · knowhow; ref: that run's own id — and when this server
+-- last said it is still running it, seen_at: a run that stops saying so died with its process and is put away; a step deepagents runs
+-- outside this server is never put away by that)
+alter table pro_variation_seats add column if not exists work text;
+alter table pro_variation_seats add column if not exists ref text;
 create index if not exists pro_variation_seats_device on pro_variation_seats (tenant_id, device_id) where device_id is not null;
 create index if not exists pro_variation_seats_folder on pro_variation_seats (folder_id);
 create index if not exists pro_variation_seats_job on pro_variation_seats (job_id) where job_id is not null;

@@ -96,10 +96,13 @@ export async function startChatWork({ user, folder, text, threadId }) {
     source: { label: L(`${user.name} 님의 채팅 요청`, `Chat request from ${user.name}`), room_id: room, thread_id: threadId, engine: 'deepagents', request: text.slice(0, 500) }, createdBy: user.id,
   })
   const dir = S.runCheckoutDir(room, folder)
-  // (the run has the new variation's working copy until it commits and releases it — folders/seats.js)
-  await SE.openServer(folder, v, { user, run: 'agent', dir })
-  // the agent may run on another pod, with no disk in common: it gets the files from storage
-  const seeded = await pushRoomDir(dir, S.runCheckoutContainer(room, folder))
+  // (the run — a 'chat' of this room — has the new variation's working copy until it ends — folders/seats.js; a seed upload that fails
+  // gives it back)
+  let seeded = null
+  const run = await SE.withRun(folder, v, { user, work: 'chat', ref: room, dir }, async () => {
+    // the agent may run on another pod, with no disk in common: it gets the files from storage
+    seeded = await pushRoomDir(dir, S.runCheckoutContainer(room, folder))
+  })
   const [cat] = await catalog(user.id).then((c) => c.filter((x) => x.slug === folder.slug))
   const listing = (cat?.files || []).map((f) => `- ${f.path}${f.summary ? ` — ${f.summary}` : ''}`).join('\n')
   const message = L(`${text}
@@ -113,14 +116,19 @@ ${RULES} ${CHANGE_TALK})`, `${text}
 Files in this folder:
 ${listing || '(no files yet)'}
 ${rules()} ${CHANGE_TALK_EN})`)
-  return { room, v, message, seeded }
+  return { room, v, message, seeded, run }
 }
 
-export async function finishChatWork({ user, folder, v, threadId, room, seeded, stopped = false }) {
-  const cur = await S.variationById(v.id)
-  await pullRoomChanges(S.runCheckoutContainer(room, folder), seeded, cur.worktree_path, { wait: !stopped })
-  await S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`채팅 요청: ${cur.title}`, `Chat request: ${cur.title}`))
-  await S.release(folder, cur)
+// (run: what startChatWork opened; after a restart — recoverChatRuns — the seat names it: a 'chat' of this room)
+export async function finishChatWork({ user, folder, v, threadId, room, seeded, stopped = false, run = null }) {
+  const r = run || await SE.runOf(v.id, { work: 'chat', ref: room || v.source?.room_id })
+  const end = await SE.finishRun(folder, await S.variationById(v.id), r, {
+    fill: seeded ? (dir) => pullRoomChanges(S.runCheckoutContainer(room, folder), seeded, dir, { wait: !stopped }) : null,
+    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`채팅 요청: ${cur.title}`, `Chat request: ${cur.title}`)),
+    user: user.id, where: L('채팅 요청', 'a chat request'),
+  })
+  // (its seat moved meanwhile: what it made is a variation of its own — leftover — and this one is left as it is)
+  if (!end.held) return null
   const after = await S.variationById(v.id)
   const changed = await G.changes(folder.repo_path, folder.default_branch, after.branch)
   if (!changed.length) {
@@ -179,11 +187,29 @@ export async function seedStep(folder, v, room, dir) {
   return seeded
 }
 // (a process step's room is uploaded before its work item is closed — no waiting for the upload, unlike a chat turn)
-export async function pullStep(v) {
+export async function pullStep(v, dir = v.worktree_path) {
   const s = v.source?.room_store
   const seeded = seededOf(s)
-  if (!seeded || !v.worktree_path) return []
-  return pullRoomChanges(s.container, seeded, v.worktree_path, { wait: false })
+  if (!seeded || !dir) return []
+  return pullRoomChanges(s.container, seeded, dir, { wait: false })
+}
+// A step is done: what the agent left (in storage) is brought into its checkout and committed, and its seat ends. Its checkout went
+// meanwhile and nobody took the variation: it gets one again first (the output is never dropped for want of a folder). Someone else took
+// it: the output becomes a variation of its own. (exported for the tests)
+export async function finishStep(folder, v, row) {
+  let run = await SE.runOf(v.id, { work: 'step', ref: String(row.id) })
+  let reopened = false
+  if (run.none) {
+    const room = v.source?.room_id || row.root_proc_inst_id || row.proc_inst_id || row.id
+    run = await SE.openServer(folder, v, { user: { id: String(v.holder_id || 'deepagents'), name: v.holder_name }, run: 'agent', work: 'step', ref: String(row.id), dir: S.runCheckoutDir(room, folder) })
+    reopened = true
+  }
+  const end = await SE.finishRun(folder, await S.variationById(v.id), run, {
+    fill: (dir) => pullStep(v, dir).catch((e) => console.warn('[folders] step pull', row.id, e.message)),
+    commit: (cur) => S.commitVariation(folder, cur, { name: v.holder_name || 'agent', email: 'agent@pgpt-pro.local' }, L(`${row.activity_name || '단계'} 결과`, `${row.activity_name || 'Step'} result`)),
+    user: v.holder_id, where: L('프로세스 단계', 'a process step'),
+  })
+  return { ...end, reopened }
 }
 
 async function stepTick() {
@@ -248,17 +274,16 @@ export async function stepOne(row) {
         const nv = await S.createVariation(folder, { title: row.activity_name || L('프로세스 단계', 'Process step'), kind: 'run', base: await baseOf(folder, row),
           holder: { type: 'agent', id: row.agent_orch || 'deepagents', name: row.activity_name || L('에이전트', 'Agent') },
           source: { label: row.activity_name, todo_id: row.id, proc_inst_id: row.proc_inst_id, room_id: room, engine: row.agent_orch || 'deepagents' } })
-        await SE.openServer(folder, nv, { user: { id: String(nv.holder_id || row.agent_orch || 'deepagents'), name: nv.holder_name }, run: 'agent', dir: S.runCheckoutDir(room, folder) })
+        // (a 'step' of this work item: deepagents runs it outside this server, so its seat is never put away by a restart — its own end
+        // below brings its result in)
+        await SE.openServer(folder, nv, { user: { id: String(nv.holder_id || row.agent_orch || 'deepagents'), name: nv.holder_name }, run: 'agent', work: 'step', ref: String(row.id), dir: S.runCheckoutDir(room, folder) })
         await seedStep(folder, nv, room, S.runCheckoutDir(room, folder)).catch((e) => console.warn('[folders] step seed', row.id, e.message))
         const note = L(`\n\n[Folder] 공유 폴더 '${folder.name}' 의 변형 ${nv.branch} 에서 작업하세요. 작업 폴더: ${S.runCheckoutContainer(room, folder)}\n${RULES}`,
           `\n\n[Folder] Work on variation ${nv.branch} of the shared folder '${folder.name}'. Working folder: ${S.runCheckoutContainer(room, folder)}\n${rules()}\n[Instruction] Write your answer, and the text of any file you create or change, in English.`)
         if (!String(row.query || '').includes('[Folder]')) await q('update todolist set query = coalesce(query,\'\') || $2 where id=$1', [row.id, note])
         handled.set(row.id, 'prepared')
       } else if (v && done && v.status === 'open') {
-        await pullStep(v).catch((e) => console.warn('[folders] step pull', row.id, e.message))
-        await S.commitVariation(folder, v, { name: v.holder_name || 'agent', email: 'agent@pgpt-pro.local' }, L(`${row.activity_name || '단계'} 결과`, `${row.activity_name || 'Step'} result`))
-        const cur = await S.variationById(v.id)
-        await S.release(folder, cur)
+        await finishStep(folder, v, row)
         await instanceLine(folder, row, (await S.variationById(v.id)).head_commit)
         changeCard(folder, await S.variationById(v.id)).catch(() => {})
         await q(`update todolist set output = coalesce(output,'{}'::jsonb) || $2 where id=$1`, [row.id, { folder_variation: { folder: folder.slug, variation: v.id, branch: v.branch, url: `/folders/${folder.slug}/v/${v.id}` } }])
@@ -280,7 +305,10 @@ async function recoverChatRuns() {
       const user = { id: v.holder_id, name: v.holder_name, email: null }
       // the chat's person gets the card in their saved language
       await asUser(v.holder_id, async () => {
-        if (!v.source?.thread_id) { await S.commitVariation(folder, v, user, L(`채팅 요청(중단 후 저장): ${v.title}`, `Chat request (saved after a stop): ${v.title}`)); await S.release(folder, await S.variationById(v.id)); return }
+        if (!v.source?.thread_id) {
+          await SE.finishRun(folder, v, await SE.runOf(v.id, { work: 'chat', ref: v.source?.room_id }), { commit: (cur) => S.commitVariation(folder, cur, user, L(`채팅 요청(중단 후 저장): ${v.title}`, `Chat request (saved after a stop): ${v.title}`)) })
+          return
+        }
         await finishChatWork({ user, folder, v, threadId: v.source.thread_id })
       })
       console.log('[folders] recovered chat run', v.id)

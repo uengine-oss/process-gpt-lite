@@ -192,6 +192,11 @@ test('F-WL-05 세 사람: 남은 반영 409, 본인 반영은 저장 안 한 변
   expect(Array.isArray(choices.body.devices) && choices.body.devices.every((d) => !('id' in d))).toBe(true)
   expect(JSON.stringify(choices.body)).not.toMatch(/pgpt-folders|\.people/)
   expect((await a.post(`/folders/${slug}/variations/${vid}/seat`, { to: 'device' })).status).toBe(501)
+  // her own (writable) workroom says no server path (review #11)
+  const mine = await a.get(`/workroom/variation/${vid}`)
+  expect(mine.body.readonly).toBeFalsy()
+  expect('cwd' in mine.body).toBe(false)
+  expect(JSON.stringify(mine.body)).not.toMatch(/pgpt-folders|\.people/)
   // A saves a file in her workroom (a save point: ready to merge) and leaves one more unsaved in it
   const w = await a.put(`/workroom/variation/${vid}/file`, { path: '안내문.md', content: NOTICE.replace('일시: 11월 20일\n', '일시: 11월 20일\n신청 마감: 11월 14일\n') })
   expect(w.status, w.text).toBe(200)

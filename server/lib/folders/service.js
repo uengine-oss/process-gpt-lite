@@ -492,26 +492,63 @@ export async function checkout(folder, v, dir) {
     await release(folder, { ...v, worktree_path: other.path }, { keep: true })
   }
   await fs.mkdir(path.dirname(dir), { recursive: true })
-  if (here) {
-    if (here.branch) await keepWhatIsThere(folder, here.path, here.branch)
-    await G.git(folder.repo_path, ['worktree', 'remove', '--force', dir], { check: false })
-  }
-  await fs.rm(dir, { recursive: true, force: true })
+  // what is at `dir` now — another branch's checkout, or a folder left there — leaves it the safe way (committed as it is, moved aside
+  // when git does not carry everything): never deleted
+  if (here?.branch) await keepWhatIsThere(folder, here.path, here.branch)
+  await retire(folder.repo_path, dir)
   await G.git(folder.repo_path, ['worktree', 'prune'])
   await G.git(folder.repo_path, ['worktree', 'add', '-q', dir, v.branch])
   await setWorktree(v, dir)
   return dir
 }
 const setWorktree = (v, dir) => q('update pro_folder_variations set worktree_path=$2, locked=false, updated_at=now() where id=$1', [v.id, dir])
-// a checkout about to go off disk: what it holds is committed as it is (the author: that branch's holder), never reset or cleaned
+// a checkout about to go off disk: what it holds is committed as it is (the author: that branch's holder), never reset or cleaned. A commit
+// git refuses (a file it cannot read, a lock, the time running out) throws: the caller then moves and removes nothing
 export async function keepWhatIsThere(folder, dir, branch) {
   if (!dir || !branch || !(await fs.stat(dir).catch(() => null))) return null
   const [owner] = await q('select holder_name, holder_id from pro_folder_variations where folder_id=$1 and branch=$2', [folder.id, branch]).catch(() => [])
   const [p] = owner?.holder_id ? await q('select name, email from pro_profile where user_id::text=$1', [String(owner.holder_id)]).catch(() => []) : []
-  const sha = await G.commitAll(dir, L('작업실에서 옮김', 'Moved from the workroom'), { name: p?.name || owner?.holder_name || 'Process GPT Lite', email: p?.email || undefined })
-    .catch((e) => { console.warn('[folders] keep before moving', e.message); return null })
+  let sha
+  try { sha = await G.commitAll(dir, L('작업실에서 옮김', 'Moved from the workroom'), { name: p?.name || owner?.holder_name || 'Process GPT Lite', email: p?.email || undefined }) } catch (e) {
+    const why = (await import('./seats.js')).gitWhy(e)
+    throw Object.assign(new Error(L(`작업본의 변경을 저장하지 못해 옮기지 않았어요 — 작업본은 그대로예요 (${why})`, `The working copy's changes could not be saved, so it did not move — it is as it was (${why})`)), { status: 409, why: 'unsaved' })
+  }
   if (sha) await q('update pro_folder_variations set head_commit=$3, updated_at=now() where folder_id=$1 and branch=$2', [folder.id, branch, await G.head(folder.repo_path, `refs/heads/${branch}`)])
   return sha
+}
+// What git does not carry in a checkout — ignored files, files it could not take, a repository inside it (git keeps only a link to that) —
+// as paths; null when it cannot tell (git failed: then nothing is deleted either)
+export async function leftIn(dir) {
+  let out
+  try { out = await G.git(dir, ['status', '--porcelain', '--ignored', '--untracked-files=all', '-z']) } catch { return null }
+  const left = out.split('\0').filter((x) => /^.. /.test(x)).map((x) => x.slice(3))
+  if (left.length) return left
+  const walk = async (d, depth) => {
+    for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
+      if (e.name === '.git') { if (d !== dir) left.push(path.relative(dir, d)); continue }
+      if (e.isDirectory() && depth < 16) await walk(path.join(d, e.name), depth + 1)
+    }
+  }
+  await walk(dir, 0)
+  return left
+}
+// A checkout (or a folder left where one goes) leaves the disk: removed only when git carries everything in it; otherwise moved aside next to
+// where it was (<dir>.kept-<time>) — never deleted. → {kept: how many things were kept aside (-1: could not tell), aside}
+export async function retire(repo, dir) {
+  if (!dir || !(await fs.stat(dir).catch(() => null))) { await G.git(repo, ['worktree', 'prune'], { check: false }); return { kept: 0 } }
+  const checkout = !!(await fs.stat(path.join(dir, '.git')).catch(() => null))
+  const left = checkout ? await leftIn(dir) : ((await fs.readdir(dir).catch(() => null)) || null)
+  if (left && !left.length) {
+    if (checkout) await G.git(repo, ['worktree', 'remove', '--force', dir], { check: false })
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+    await G.git(repo, ['worktree', 'prune'], { check: false })
+    return { kept: 0 }
+  }
+  const aside = `${dir}.kept-${Date.now().toString(36)}`
+  await fs.rename(dir, aside)
+  await G.git(repo, ['worktree', 'prune'], { check: false })
+  console.warn(`[folders] ${left ? left.length : 'some'} thing(s) git does not carry kept aside: ${aside}`)
+  return { kept: left ? left.length : -1, aside }
 }
 
 // commit what changed in the checkout; the variation becomes ready for review
@@ -524,18 +561,12 @@ export async function commitVariation(folder, v, author, message) {
   return sha
 }
 
-// take the checkout off disk; the branch (the variation's content) stays. Its server seat goes with it (folders/seats.js — seat: false
-// when the seat module moves the seat itself)
-export async function release(folder, v, { keep = false, seat = true } = {}) {
-  if (v.worktree_path) {
-    await G.git(folder.repo_path, ['worktree', 'remove', '--force', v.worktree_path], { check: false })
-    await fs.rm(v.worktree_path, { recursive: true, force: true }).catch(() => {})
-    await G.git(folder.repo_path, ['worktree', 'prune'], { check: false })
-  }
-  if (!keep) {
-    await q('update pro_folder_variations set worktree_path=null, updated_at=now() where id=$1', [v.id])
-    if (seat) await (await import('./seats.js')).dropServer(v.id)
-  }
+// take the checkout off disk (retire: what git does not carry is moved aside, never deleted); the branch (the variation's content) stays.
+// Its seat is the seat module's to end (folders/seats.js endRun · closeServer) — a release never drops a seat. → {kept, aside}
+export async function release(folder, v, { keep = false } = {}) {
+  const gone = v.worktree_path ? await retire(folder.repo_path, v.worktree_path) : { kept: 0 }
+  if (!keep) await q('update pro_folder_variations set worktree_path=null, updated_at=now() where id=$1', [v.id])
+  return gone
 }
 
 export async function variations(folder) {

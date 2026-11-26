@@ -13,8 +13,19 @@
 // place gets it, so there is never a moment with two places that can change the variation. Every change of seat raises the variation's
 // epoch (pro_folder_variations.seat_epoch): a write, a terminal or a push that comes from an older epoch is refused.
 // The rules are pure (decide); the database is changed under a row lock on the variation (transition), so two claims at once never both win.
+// What follows a decision on disk (a commit, a checkout, a removal) holds a database lock of that variation (onDisk), so two servers never
+// work on the same checkout at once. A move whose commit fails changes nothing (the seat is put back, the folder stays); a checkout leaves
+// the disk only when git carries everything in it — otherwise it is moved aside next to where it was, never deleted (S.release).
+// A server agent's seat names its run (work: turn · chat · step · handover · knowhow, ref: that run's id); a run ends only its own seat
+// (its epoch) and leaves its result as a variation of its own when its seat moved meanwhile (finishRun). Runs of this process say every
+// BEAT_MS that they still run; a turn, a handover or a know-how edit whose process stopped saying so is put away by the sweep. A step that
+// deepagents runs outside this server, and a chat change (recoverChatRuns has those), are never put away that way.
 // Before sql/063 runs there is no seat table: everything here then answers as before seats existed (legacy), and says so once in the log.
 import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import crypto from 'node:crypto'
+import pg from 'pg'
 import { config } from '../../config.js'
 import { q, pool } from '../supa.js'
 import { emit } from '../bus.js'
@@ -26,12 +37,20 @@ const T = () => config.tenantId
 export const MOVE_MS = 90_000
 export const RECALL_WAIT_MS = 24 * 3600_000
 export const MAX_DEVICE_SEATS = 20
+export const BEAT_MS = 30_000
+export const DEAD_MS = 3 * 60_000
+export const RECALL_NOTIFY_MS = 4 * 3600_000
+// the server agent runs that hold a seat, and which of them the sweep puts away when their process stopped saying they run
+export const RUNS = ['turn', 'chat', 'step', 'handover', 'knowhow']
+const SWEPT = ['turn', 'handover', 'knowhow']
 const LIVE = ['open', 'ready', 'conflicted']
 const err = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra })
 
 // ---------- the rules (pure) ----------
 // whose a variation is to open: a person's variation only by that person; an agent's (a run, an imported branch) by anyone who may run it
+// (a process instance's line — inst/<id> — is written by its steps and mails, never opened in a workroom: read only for everyone)
 export function mayHold(v, actorId) {
+  if (v?.kind === 'instance') return false
   if (v?.holder_type === 'user' && v.holder_id) return String(v.holder_id) === String(actorId)
   return true
 }
@@ -52,10 +71,10 @@ export function ownerMayTake(seat, { now = Date.now(), online = false } = {}) {
 }
 
 // The next seat for an event, or why not. seat: the row (null: 보관 중 — a stale one counts as none), v: the variation.
-// ev: {type: 'open', run, user} · {type: 'device', device, user, job} · {type: 'settle', epoch} · {type: 'release', by, epoch?, system?}
-//     · {type: 'take', by, owner, online, epoch?} · {type: 'recall', by, why} · {type: 'drop'} · {type: 'expire'}
+// ev: {type: 'open', run, user, work?, ref?} · {type: 'device', device, user, job} · {type: 'settle', epoch} · {type: 'release', by, epoch?,
+//     system?} · {type: 'take', by, owner, online, epoch?} · {type: 'recall', by, why} · {type: 'drop', epoch} · {type: 'expire'}
 // → {ok: true, next (a row without epoch — null: none), bump (a new epoch), clear (the old server checkout is committed and taken off disk),
-//    action} | {ok: false, why}
+//    action, notify?} | {ok: false, why}
 export function decide(seat, ev, { v = null, now = Date.now() } = {}) {
   const s = seat && !stale(seat, v, now) ? seat : null
   const me = (id) => !!s && String(s.user_id) === String(id)
@@ -67,20 +86,25 @@ export function decide(seat, ev, { v = null, now = Date.now() } = {}) {
     case 'open': {
       // a server place: the web workroom of its person, or a server agent run
       const run = ev.run === 'workroom' ? 'workroom' : 'agent'
-      if (!s) return { ok: true, next: { place: 'server', state: 'moving', run, user_id: String(ev.user), device_id: null, job_id: null, since: at, deadline: until }, bump: true, clear: false, action: 'open' }
+      const work = run === 'agent' ? (RUNS.includes(ev.work) ? ev.work : 'turn') : null
+      const ref = run === 'agent' && ev.ref != null ? String(ev.ref).slice(0, 200) : null
+      const next = { place: 'server', state: 'moving', run, work, ref, user_id: String(ev.user), device_id: null, job_id: null, since: at, deadline: until, recall: null }
+      if (!s) return { ok: true, next, bump: true, clear: false, action: 'open' }
       if (moving) return no('moving')
       if (s.place === 'device') return no(me(ev.user) ? 'device-mine' : 'device')
       if (!me(ev.user)) return no(s.run === 'agent' ? 'agent' : 'held')
-      if (s.run === run) return { ok: true, next: s, bump: false, clear: false, action: 'same' }
+      // the same place again: the same workroom, or the same run (its kind and id)
+      if (s.run === run && (run === 'workroom' || (String(s.work || 'turn') === work && String(s.ref ?? '') === String(ref ?? '')))) return { ok: true, next: s, bump: false, clear: false, action: 'same' }
       // the person's own: their agent's turn takes it from their workroom (what the workroom holds is committed first); their workroom
-      // does not take it from a turn that is running
-      if (s.run === 'agent') return no('agent')
-      return { ok: true, next: { ...s, state: 'moving', run, since: at, deadline: until, recall: null }, bump: true, clear: true, action: 'move' }
+      // does not take it from a turn that is running; another run of theirs (the next turn of the project, in another conversation)
+      // takes it from the last one, whose checkout is committed and put away first
+      if (s.run === 'agent' && run === 'workroom') return no('agent')
+      return { ok: true, next, bump: true, clear: true, action: 'move' }
     }
     case 'device': {
       // a computer of the seat's person (now a chat's 「내 PC」 run on a project's variation: held at once, the run's own push brings its
       // work in; the desktop's working copy will answer ready — design P1)
-      const next = { place: 'device', state: ev.ready === false ? 'moving' : 'held', run: null, user_id: String(ev.user), device_id: String(ev.device), job_id: ev.job ? String(ev.job) : null,
+      const next = { place: 'device', state: ev.ready === false ? 'moving' : 'held', run: null, work: null, ref: null, user_id: String(ev.user), device_id: String(ev.device), job_id: ev.job ? String(ev.job) : null,
         since: at, deadline: ev.ready === false ? until : null, recall: null }
       if (!s) return { ok: true, next, bump: true, clear: false, action: 'open' }
       if (s.place === 'device' && ev.job && String(s.job_id || '') === String(ev.job) && me(ev.user)) {
@@ -100,6 +124,8 @@ export function decide(seat, ev, { v = null, now = Date.now() } = {}) {
       if (!s) return { ok: true, next: null, bump: false, clear: false, action: 'none' }
       if (ev.epoch != null && Number(ev.epoch) !== Number(s.epoch)) return no('stale')
       if (!ev.system && !me(ev.by)) return no('not-holder')
+      // (a server agent's place ends with its run — finishRun — never by a person's 「돌려놓기」, even of their own project's turn)
+      if (!ev.system && s.place === 'server' && s.run !== 'workroom') return no('agent')
       if (moving) return no('moving')
       // a server place: committed as it is and taken off disk while it is 'returning'; then none
       if (s.place === 'server') return { ok: true, next: { ...s, state: 'returning', since: at, deadline: until }, bump: true, clear: true, action: 'release' }
@@ -121,14 +147,24 @@ export function decide(seat, ev, { v = null, now = Date.now() } = {}) {
       if (s.place === 'server') return { ok: true, next: { ...s, state: 'returning', since: at, deadline: until }, bump: true, clear: true, action: 'take' }
       return { ok: true, next: null, bump: true, clear: false, action: 'take' }
     }
-    case 'recall':
+    case 'recall': {
       if (!s) return no('none')
       if (me(ev.by)) return no('self')
       if (s.run === 'agent' && s.place === 'server') return no('agent')
-      return { ok: true, next: { ...s, recall: { by: String(ev.by), at: at.toISOString(), why: String(ev.why || '').slice(0, 300) } }, bump: false, clear: false, action: 'recall' }
+      // the first ask starts the owner's day and keeps it (asking again does not restart it); each asker notifies at most once in
+      // RECALL_NOTIFY_MS
+      const by = String(ev.by)
+      const asks = { ...(s.recall?.asks || {}) }
+      const last = asks[by] ? new Date(asks[by]).getTime() : 0
+      const notify = now - last >= RECALL_NOTIFY_MS
+      if (notify) asks[by] = at.toISOString()
+      const recall = { by: s.recall?.by || by, at: s.recall?.at || at.toISOString(), why: s.recall?.why || String(ev.why || '').slice(0, 300), asks }
+      return { ok: true, next: { ...s, recall }, bump: false, clear: false, action: 'recall', notify }
+    }
     case 'drop':
-      // a server checkout went off disk (its run committed and released it): its seat goes with it
-      if (!seat || seat.place !== 'server' || seat.state !== 'held') return no('none')
+      // a server agent run ended and took its checkout off disk: its seat goes with it — only its own (its epoch), never a person's
+      if (!seat || seat.place !== 'server' || seat.run !== 'agent' || seat.state !== 'held') return no('none')
+      if (ev.epoch == null || Number(ev.epoch) !== Number(seat.epoch)) return no('stale')
       return { ok: true, next: null, bump: true, clear: false, action: 'release' }
     case 'expire':
       if (!seat || s) return no('none')
@@ -180,13 +216,14 @@ export async function transition(vid, decideFn, { by = null, note = null } = {})
       if (prev) await c.query('delete from pro_variation_seats where variation_id=$1', [vid])
     } else if (out.next !== prev) {
       const n = out.next
-      const { rows: [row] } = await c.query(`insert into pro_variation_seats (variation_id, tenant_id, folder_id, place, state, user_id, device_id, run, job_id, epoch, since, deadline, recall)
-             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-             on conflict (variation_id) do update set place=$4, state=$5, user_id=$6, device_id=$7, run=$8, job_id=$9, epoch=$10, since=$11, deadline=$12, recall=$13,
+      const { rows: [row] } = await c.query(`insert into pro_variation_seats (variation_id, tenant_id, folder_id, place, state, user_id, device_id, run, job_id, epoch, since, deadline, recall, work, ref, seen_at)
+             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
+             on conflict (variation_id) do update set place=$4, state=$5, user_id=$6, device_id=$7, run=$8, job_id=$9, epoch=$10, since=$11, deadline=$12, recall=$13, work=$14, ref=$15, seen_at=now(),
                dirty=case when pro_variation_seats.place=$4 and pro_variation_seats.device_id is not distinct from $7 then pro_variation_seats.dirty else 0 end,
                ahead=case when pro_variation_seats.place=$4 and pro_variation_seats.device_id is not distinct from $7 then pro_variation_seats.ahead else 0 end
              returning *`,
-      [vid, T(), v.folder_id, n.place, n.state, String(n.user_id), n.device_id || null, n.run || null, n.job_id || null, epoch, n.since || new Date(), n.deadline || null, n.recall ? JSON.stringify(n.recall) : null])
+      [vid, T(), v.folder_id, n.place, n.state, String(n.user_id), n.device_id || null, n.run || null, n.job_id || null, epoch, n.since || new Date(), n.deadline || null, n.recall ? JSON.stringify(n.recall) : null,
+        n.work || null, n.ref ?? null])
       seat = row
     } else seat = prev
     if (out.action !== 'same' && out.action !== 'none') {
@@ -280,21 +317,58 @@ export async function refusal(out, folder, { me = null, role = null } = {}) {
     online: L(`${who} 님의 PC 가 켜져 있어요 — 그 PC 에서 돌려놓기를 기다려 주세요.`, `${who}'s PC is on — wait for it to be given back there.`),
     limit: L(`PC 에 둔 작업본이 너무 많아요(${MAX_DEVICE_SEATS}개) — 몇 개를 돌려놓은 뒤에 해 주세요.`, `Too many working copies on PCs (${MAX_DEVICE_SEATS}) — give some back first.`),
     integrating: L('이 변형을 반영하는 중이에요 — 끝난 뒤에 열어 주세요.', 'This variation is being merged — open it when that is done.'),
+    line: L('프로세스 인스턴스의 줄은 단계 결과가 이어지는 곳이라 작업실에서 고치지 않아요 — 읽기 전용으로 볼 수 있어요.', "A process instance's line is where its steps' results go on, so it is not changed in a workroom — you can look at it read only."),
   }[out.why] || L('지금은 이 변형의 작업본을 옮길 수 없어요.', "This variation's working copy can't move right now.")
   return err(409, text, { seat: view, why: out.why })
 }
 
 // ---------- the server's own places ----------
-// one line of git work per variation at a time in this process (a commit, a checkout, a removal): the row lock orders the decisions,
-// this orders what follows them on disk
+// What follows a decision on disk, one at a time per variation: in this process (a queue) and across servers (a database advisory lock of
+// the variation, on a pool of its own so the work inside can still use the main pool). tryOnly: give up at once when another holds it
+// ({busy: true}) — the sweep does not wait for a move in progress, nor expire it.
+const lockPool = new pg.Pool({ ...config.db, max: 4, allowExitOnIdle: true })
+lockPool.on('error', (e) => console.warn('[seats] lock client:', e.message))
+export const lockKey = (vid) => BigInt.asIntN(64, BigInt(`0x${crypto.createHash('sha1').update(`pgl-seat:${vid}`).digest('hex').slice(0, 16)}`)).toString()
 const disk = new Map()
-const onDisk = (vid, fn) => {
-  const run = (disk.get(vid) || Promise.resolve()).then(fn, fn)
+export function onDisk(vid, fn, { tryOnly = false } = {}) {
+  const work = async () => {
+    const c = await lockPool.connect()
+    const key = lockKey(vid)
+    try {
+      if (tryOnly) {
+        const { rows: [r] } = await c.query('select pg_try_advisory_lock($1::bigint) as ok', [key])
+        if (!r.ok) return { busy: true }
+      } else await c.query('select pg_advisory_lock($1::bigint)', [key])
+      try { return await fn() } finally { await c.query('select pg_advisory_unlock($1::bigint)', [key]).catch(() => {}) }
+    } finally { c.release() }
+  }
+  const run = (disk.get(vid) || Promise.resolve()).then(work, work)
   const tail = run.catch(() => {})
   disk.set(vid, tail)
   tail.then(() => { if (disk.get(vid) === tail) disk.delete(vid) })
   return run
 }
+// a move in progress says it still goes on before each of its steps on disk (a slow commit or checkout does not run out its time)
+async function renew(vid, epoch) {
+  await q(`update pro_variation_seats set deadline = now() + ($3 || ' milliseconds')::interval where variation_id=$1 and epoch=$2 and state in ('moving','returning')`, [vid, epoch, String(MOVE_MS)])
+    .catch((e) => { if (!isLegacy(e)) throw e })
+}
+
+// the runs of this process that hold a server seat say so every BEAT_MS (seen_at); a run whose process stopped is put away by the sweep
+const beats = new Map() // variation id → epoch
+let beatTimer = null
+function beat(vid, epoch) {
+  beats.set(String(vid), Number(epoch))
+  if (beatTimer) return
+  beatTimer = setInterval(() => {
+    const ids = [...beats.keys()]
+    if (ids.length) q('update pro_variation_seats set seen_at=now() where variation_id = any($1::uuid[])', [ids]).catch(() => {})
+  }, BEAT_MS)
+  beatTimer.unref?.()
+}
+// (a run that ended — or a test that plays a process that stopped)
+export function forget(vid) { beats.delete(String(vid)) }
+
 async function personOf(id, v) {
   if (!id) return { name: v?.holder_name || 'Process GPT Lite', email: undefined }
   const [p] = await q('select name, email from pro_profile where user_id::text=$1', [String(id)]).catch(() => [])
@@ -302,75 +376,186 @@ async function personOf(id, v) {
   const [u] = await q('select username, email from users where id::text=$1', [String(id)]).catch(() => [])
   return { name: u?.username || v?.holder_name || 'Process GPT Lite', email: u?.email || `${String(id).slice(0, 8)}@agents.pgpt-pro.local` }
 }
+// a commit that did not happen stops the move: nothing is taken off disk and the seat is put back (409 'unsaved', git's first words)
+// (git's own words: its first error line — 「error: open("…"): Permission denied」 · 「'안쪽/' does not have a commit checked out」 — else its last)
+export const gitWhy = (e) => { const ls = String(e?.stderr || e?.message || '').trim().split('\n').map((x) => x.trim()).filter(Boolean); return (ls.find((x) => /^error:/.test(x)) || ls.pop() || '').slice(0, 200) }
+const unsaved = (e) => err(409, L(`작업본의 변경을 저장하지 못해 옮기지 않았어요 — 작업본은 그대로예요 (${gitWhy(e)})`,
+  `The working copy's changes could not be saved, so it did not move — it is as it was (${gitWhy(e)})`), { why: 'unsaved' })
 // What a server checkout holds, committed as it is (its person the author — nothing reset, nothing cleaned), the variation's head
-// following; its status is left as it is. → the new head, or null when nothing was there to commit
+// following; its status is left as it is. → the new head, or null when there was nothing to commit. Throws (409 'unsaved') when git could
+// not commit: the caller does not move anything then.
 export async function commitAsIs(folder, v, { author, message } = {}) {
   const cur = await S.variationById(v.id)
   if (!cur?.worktree_path || !fs.existsSync(cur.worktree_path)) return null
-  const sha = await G.commitAll(cur.worktree_path, message || L('작업실에서 옮김', 'Moved from the workroom'), author || await personOf(cur.holder_id, cur))
-    .catch((e) => { console.warn('[seats] commit as is', e.message); return null })
+  let sha
+  try { sha = await G.commitAll(cur.worktree_path, message || L('작업실에서 옮김', 'Moved from the workroom'), author || await personOf(cur.holder_id, cur)) } catch (e) { throw unsaved(e) }
   const head = await G.head(folder.repo_path, `refs/heads/${cur.branch}`)
   await q('update pro_folder_variations set head_commit=$2, updated_at=now() where id=$1', [cur.id, head])
   if (sha) await S.touch(folder)
   return sha
 }
-// the old server place goes: committed as it is (by the seat's person), its shells closed with a word to whoever watches, off disk
+// The old server place goes: its shells and Claude Code are closed first (nothing writes there any more), what it holds is committed as it
+// is (by the seat's person — a failure stops here, the folder untouched), then it leaves the disk (S.release: moved aside when git does
+// not carry everything in it). → {sha, kept}
 async function clearServer(folder, v, prev, { reason, by } = {}) {
-  const author = await personOf(prev?.user_id || v.holder_id, v)
-  const sha = await commitAsIs(folder, v, { author, message: L('작업실에서 옮김', 'Moved from the workroom') })
   const W = await import('../workroom.js')
   W.closeRoom('variation', String(v.id), reason || L('작업본이 다른 곳으로 옮겨져 이 작업실을 닫았어요.', 'The working copy moved elsewhere, so this workroom was closed.'))
+  const author = await personOf(prev?.user_id || v.holder_id, v)
+  const sha = await commitAsIs(folder, v, { author, message: L('작업실에서 옮김', 'Moved from the workroom') })
   const cur = await S.variationById(v.id)
-  if (cur?.worktree_path) await S.release(folder, cur, { seat: false })
+  const gone = cur?.worktree_path ? await S.release(folder, cur) : { kept: 0 }
+  forget(v.id)
   if (by) emit(String(by), 'folders', { slug: folder.slug, variation: v.id })
-  return sha
+  return { sha, kept: gone?.kept || 0 }
+}
+// A move that could not finish (its commit failed, the checkout failed): the seat goes back to where it was when that place is still on
+// disk (a new epoch: whatever was read before the move is refused), else to none
+async function putBack(vid, out, note) {
+  await transition(vid, (vv, seat) => {
+    if (!seat || Number(seat.epoch) !== Number(out.epoch)) return { ok: false, why: 'none' }
+    const p = out.prev && !stale(out.prev, vv) && (out.prev.place !== 'server' || !!vv.worktree_path) ? out.prev : null
+    return { ok: true, next: p ? { ...p, state: 'held', deadline: null } : null, bump: true, action: 'putback' }
+  }, { note: String(note || '').slice(0, 200) }).catch((e) => console.warn('[seats] put back', e.message))
+}
+// is a variation part of a merge that is not over (no place takes it then)
+export async function integrating(folder, vid) {
+  const [busy] = await q(`select 1 from pro_folder_integrations where folder_id=$1 and status in ('running','conflicted','resolving') and $2 = any(variation_ids) limit 1`, [folder.id, vid])
+  return !!busy
 }
 const room = (folder) => ({ slug: folder.slug })
 
-// Open a variation in a server place: the web workroom of its person (run 'workroom') or a server agent run (run 'agent'), its branch on
-// disk at `dir` (S.checkout). Refused (409, with the seat) when its seat is someone else's, a computer's, or moving.
-export async function openServer(folder, v, { user, run = 'agent', dir }) {
-  if (run === 'workroom') {
-    if (!mayHold(v, user.id)) throw await refusal({ ok: false, why: 'not-yours', v, seat: await seatOf(v.id) }, folder, { me: user })
-    const [busy] = await q(`select 1 from pro_folder_integrations where folder_id=$1 and status in ('running','conflicted','resolving') and $2 = any(variation_ids) limit 1`, [folder.id, v.id])
-    if (busy) throw await refusal({ ok: false, why: 'integrating', v }, folder, { me: user })
-  }
+// Open a variation in a server place: the web workroom of its person (run 'workroom') or a server agent run (run 'agent' — work: what runs,
+// ref: its id), its branch on disk at `dir` (S.checkout). Refused (409, with the seat) when its seat is someone else's, a computer's,
+// moving, or the variation is being merged. → {epoch, base (the variation's head when the run got it), work, ref, seat, action}: what the
+// run passes to finishRun / endRun.
+export async function openServer(folder, v, { user, run = 'agent', dir, work = null, ref = null }) {
+  if (run === 'workroom' && !mayHold(v, user.id)) throw await refusal({ ok: false, why: v.kind === 'instance' ? 'line' : 'not-yours', v, seat: await seatOf(v.id) }, folder, { me: user })
+  if (await integrating(folder, v.id)) throw await refusal({ ok: false, why: 'integrating', v }, folder, { me: user })
+  const kind = run === 'workroom' ? null : (RUNS.includes(work) ? work : 'turn')
   return onDisk(String(v.id), async () => {
-    const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'open', run, user: user.id }, { v: vv }), { by: user.id })
-    if (out.legacy) { await S.checkout(folder, await S.variationById(v.id), dir); return out }
+    const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'open', run, user: user.id, work: kind, ref }, { v: vv }), { by: user.id })
+    if (out.legacy) { await S.checkout(folder, await S.variationById(v.id), dir); return { ...out, epoch: 0, work: kind, ref, base: await G.head(folder.repo_path, `refs/heads/${v.branch}`) } }
     if (!out.ok) throw await refusal(out, folder, { me: user })
+    let cleared = false
     try {
-      if (out.clear) await clearServer(folder, out.v, out.prev, { reason: run === 'agent' ? L('에이전트가 이 변형에서 일을 시작해 작업실을 닫았어요 — 고친 것은 저장했어요.', 'An agent started working on this variation, so the workroom was closed — what you changed is saved.') : undefined })
+      if (out.clear) { await clearServer(folder, out.v, out.prev, { reason: run === 'agent' ? L('에이전트가 이 변형에서 일을 시작해 작업실을 닫았어요 — 고친 것은 저장했어요.', 'An agent started working on this variation, so the workroom was closed — what you changed is saved.') : undefined }); cleared = true }
+      if (out.action !== 'same') await renew(v.id, out.epoch)
       await S.checkout(folder, await S.variationById(v.id), dir)
-      if (out.action === 'same') return out
+      const base = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
+      const res = { ...out, work: kind, ref, base }
+      if (out.action === 'same') { if (kind) beat(v.id, out.epoch); return res }
       const done = await transition(v.id, (vv, seat) => decide(seat, { type: 'settle', epoch: out.epoch }, { v: vv }), { by: user.id })
       if (!done.ok) throw await refusal(done, folder, { me: user })
-      return { ...out, seat: done.seat }
+      if (kind) beat(v.id, out.epoch)
+      return { ...res, seat: done.seat }
     } catch (e) {
-      if (out.action !== 'same') await transition(v.id, (vv, seat) => (seat && Number(seat.epoch) === Number(out.epoch) ? { ok: true, next: null, bump: false, action: 'fail' } : { ok: false, why: 'none' }), { by: user.id, note: String(e.message).slice(0, 200) }).catch(() => {})
+      if (out.action !== 'same') await putBack(v.id, cleared ? { ...out, prev: null } : out, e.message)
       throw e
     }
   })
 }
+// open a server agent run and set it up (a seed upload, a prompt): a setup that fails gives the seat back and takes the checkout off disk
+export async function withRun(folder, v, opts, setup) {
+  const run = await openServer(folder, v, { run: 'agent', ...opts })
+  try { if (setup) await setup(run) } catch (e) {
+    await endRun(folder, await S.variationById(v.id), run).catch((x) => console.warn('[seats] end after a failed setup', x.message))
+    throw e
+  }
+  return run
+}
+// The run a seat names (its kind and id), as finishRun takes it — for a run that outlived the process that opened it (a step deepagents runs
+// outside this server; a chat change finished after a restart). → {epoch, work, ref, base} — legacy: before sql/063 · unseated: a checkout
+// of it with no seat at all (from before seats) · none: no seat and nothing on disk · epoch -1: someone else has the variation now
+export async function runOf(vid, { work, ref }) {
+  const s = await seatOf(vid)
+  const v = await S.variationById(vid)
+  const base = v?.base_commit || null
+  if (s === undefined) return { epoch: null, work, ref, base, legacy: true }
+  if (s && s.place === 'server' && s.run === 'agent' && s.state === 'held' && String(s.work || 'turn') === work && String(s.ref ?? '') === String(ref ?? '')) return { epoch: Number(s.epoch), work, ref, base }
+  if (!s && v?.worktree_path) return { epoch: null, work, ref, base, unseated: true }
+  if (!s) return { epoch: -1, work, ref, base, none: true }
+  return { epoch: -1, work, ref, base }
+}
+// does this run still hold the variation's seat (a server agent's seat of its kind and id, at its epoch)
+export async function holdsRun(vid, run) {
+  if (!run) return false
+  const s = await seatOf(vid)
+  if (s === undefined || run.legacy) return s === undefined // before sql/063
+  if (run.unseated) return !s && !!(await S.variationById(vid))?.worktree_path
+  return !!s && s.place === 'server' && s.run === 'agent' && s.state === 'held' && (run.epoch == null || Number(s.epoch) === Number(run.epoch))
+    && (!run.work || String(s.work || 'turn') === run.work) && (run.ref == null || String(s.ref ?? '') === String(run.ref))
+}
+// a run ends: its checkout leaves the disk and its seat goes — only while the seat is still its own (another place that took the variation
+// since is not touched)
+export async function endRun(folder, v, run) {
+  return onDisk(String(v.id), () => endRunNow(folder, v, run))
+}
+async function endRunNow(folder, v, run) {
+  forget(v.id)
+  if (!(await holdsRun(v.id, run))) return { held: false }
+  const cur = await S.variationById(v.id)
+  const gone = cur?.worktree_path ? await S.release(folder, cur) : { kept: 0 }
+  if (run.epoch > 0) await transition(v.id, (vv, seat) => decide(seat, { type: 'drop', epoch: run.epoch }, { v: vv }), { note: run.work || null })
+  return { held: true, kept: gone?.kept || 0 }
+}
+// A run's end with its result: while it still holds the seat, fill (bring what the agent made into the checkout) → commit → end; when the
+// seat moved meanwhile its result is never mixed in nor lost — it is filled into a checkout of where the run started and becomes a variation
+// of its own (leftover). → {held, sha?, left?}
+export async function finishRun(folder, v, run, { fill = null, commit = null, user = null, where = '' } = {}) {
+  return onDisk(String(v.id), async () => {
+    if (await holdsRun(v.id, run)) {
+      const cur = await S.variationById(v.id)
+      if (fill && cur?.worktree_path) await fill(cur.worktree_path)
+      const sha = commit ? await commit(await S.variationById(v.id)) : null
+      const end = await endRunNow(folder, v, run)
+      return { held: true, sha, kept: end.kept || 0 }
+    }
+    forget(v.id)
+    const left = fill ? await leftoverFrom(folder, v, run?.base || v.base_commit, fill, { user, where }).catch((e) => { console.warn('[seats] leftover', e.message); return null }) : null
+    return { held: false, left }
+  })
+}
+// a fresh checkout of `base` (detached, next to the folders), filled and committed → a leftover variation of v from that commit
+async function leftoverFrom(folder, v, base, fill, { user, where }) {
+  const tmp = path.join(S.foldersRoot(), '.leftover', `${String(v.id).slice(0, 8)}-${crypto.randomBytes(4).toString('hex')}`)
+  await fsp.mkdir(path.dirname(tmp), { recursive: true })
+  await G.git(folder.repo_path, ['worktree', 'add', '-q', '--detach', tmp, base || `refs/heads/${v.branch}`])
+  try {
+    await fill(tmp)
+    const me = await personOf(user, v)
+    const sha = await G.commitAll(tmp, L(`${where || '실행'}에 남아 있던 변경`, `Changes left on ${where || 'a run'}`), me)
+    return sha ? await leftover(folder, v, sha, { user, where }) : null
+  } finally { await S.release(folder, { id: null, worktree_path: tmp }, { keep: true }).catch(() => {}) }
+}
 
 // Put a server place away (돌려놓기 · 작업실 닫기): what it holds is committed as it is, it goes off disk, the seat is none (보관 중) and the
-// variation is ready to review. by: who asks (the seat's person, unless system); epoch: the one the page saw.
+// variation is ready to review. by: who asks (the seat's person, unless system); epoch: the one the page saw. A commit that fails puts the
+// seat back (409 'unsaved'). A checkout with no seat (from before seats, or left by a crash) is put away the same way. → {action, kept}
 export async function closeServer(folder, v, { by, epoch = null, system = false, status = 'ready', reason, me = null } = {}) {
   return onDisk(String(v.id), async () => {
     const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'release', by, epoch, system }, { v: vv }), { by })
-    if (out.legacy) {
+    if (out.legacy || (out.ok && out.action === 'none')) {
+      // no seat: a checkout still on disk is put away (its person, or the system)
       const cur = await S.variationById(v.id)
-      if (cur.worktree_path) { await commitAsIs(folder, cur, { author: await personOf(by, cur), message: L('작업실 닫기', 'Close the workroom') }); await S.release(folder, cur) }
-      return { ok: true, action: 'release' }
+      if (!cur?.worktree_path || (!system && !mayHold(cur, by))) return { ...out, kept: 0 }
+      const W = await import('../workroom.js')
+      W.closeRoom('variation', String(v.id), reason || L('작업본을 보관했어요 — 고친 것은 저장했어요.', 'The working copy was put away — what was changed is saved.'))
+      await commitAsIs(folder, cur, { author: await personOf(by || cur.holder_id, cur), message: L('작업실 닫기', 'Close the workroom') })
+      const gone = await S.release(folder, await S.variationById(v.id))
+      if (status) await q(`update pro_folder_variations set status=$2, updated_at=now() where id=$1 and status in ('open','conflicted')`, [v.id, status])
+      return { ok: true, action: 'release', kept: gone?.kept || 0 }
     }
     if (!out.ok) throw await refusal(out, folder, { me: me || (by ? { id: by } : null) })
-    if (out.action === 'none') return out
+    let kept = 0
     if (out.prev?.place === 'server') {
-      await clearServer(folder, out.v, out.prev, { reason: reason || L('작업본을 보관했어요 — 고친 것은 저장했어요.', 'The working copy was put away — what was changed is saved.'), by })
+      try {
+        await renew(v.id, out.epoch)
+        kept = (await clearServer(folder, out.v, out.prev, { reason: reason || L('작업본을 보관했어요 — 고친 것은 저장했어요.', 'The working copy was put away — what was changed is saved.'), by })).kept
+      } catch (e) { await putBack(v.id, out, e.message); throw e }
       await transition(v.id, (vv, seat) => (seat && Number(seat.epoch) === Number(out.epoch) ? { ok: true, next: null, bump: false, action: 'none' } : { ok: false, why: 'none' }))
     }
     if (status) await q(`update pro_folder_variations set status=$2, updated_at=now() where id=$1 and status in ('open','conflicted')`, [v.id, status])
-    return out
+    return { ...out, kept }
   })
 }
 
@@ -391,10 +576,24 @@ export async function checkMove(folder, v, actor, { role = null } = {}) {
 export const closeMine = (folder, v, actor) => closeServer(folder, v, { by: actor.id, me: actor,
   reason: L('이 변형을 넘기거나 반영해서 작업실을 닫았어요 — 고친 것은 저장했어요.', 'This variation was handed over or merged, so the workroom was closed — what you changed is saved.') })
 
-// A server agent run's checkout went (S.release): its seat goes with it
-export async function dropServer(vid, by = null) {
-  const out = await transition(vid, (vv, seat) => decide(seat, { type: 'drop' }, { v: vv }), { by }).catch((e) => { console.warn('[seats] drop', e.message); return null })
+// A server agent run's seat goes (its run ended and its checkout is off disk) — only with that run's epoch
+export async function dropServer(vid, { epoch = null, by = null } = {}) {
+  const out = await transition(vid, (vv, seat) => decide(seat, { type: 'drop', epoch }, { v: vv }), { by }).catch((e) => { console.warn('[seats] drop', e.message); return null })
+  if (out?.ok) forget(vid)
   return out?.ok ? out : null
+}
+
+// A write into a person's server workroom (the workroom's PUT): one at a time with the moves of that variation, and only while the room is
+// still that person's at the epoch it was read in — a write that comes after a move is refused, never landing in a folder that left
+export async function guardedWrite(room, user, fn) {
+  return onDisk(String(room.variation), async () => {
+    const s = await seatOf(room.variation)
+    const v = await S.variationById(room.variation)
+    const ok = !!s && s.place === 'server' && s.run === 'workroom' && s.state === 'held' && String(s.user_id) === String(user?.id) && Number(s.epoch) === Number(room.epoch)
+      && !!v?.worktree_path && v.worktree_path === room.root && fs.existsSync(room.root)
+    if (!ok) throw err(409, L('그사이 작업본이 다른 곳으로 옮겨졌어요 — 새로 고쳐 보고 다시 해 주세요.', 'The working copy moved somewhere else meanwhile — reload and try again.'), { readonly: true })
+    return fn()
+  })
 }
 
 // ---------- a computer's place ----------
@@ -404,11 +603,15 @@ export async function claimDevice(folder, v, { user, device, job = null, ready =
   const [{ n } = { n: 0 }] = await q(`select count(*)::int as n from pro_variation_seats where tenant_id=$1 and user_id=$2 and place='device' and variation_id <> $3`, [T(), String(user.id), v.id])
     .catch((e) => { if (isLegacy(e)) return [{ n: 0 }]; throw e })
   if (n >= MAX_DEVICE_SEATS) throw await refusal({ ok: false, why: 'limit', v }, folder, { me: user })
+  if (await integrating(folder, v.id)) throw await refusal({ ok: false, why: 'integrating', v }, folder, { me: user })
   return onDisk(String(v.id), async () => {
     const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'device', device, user: user.id, job, ready }, { v: vv }), { by: user.id })
     if (out.legacy) return out
     if (!out.ok) throw await refusal(out, folder, { me: user })
-    if (out.clear && out.prev?.place === 'server') await clearServer(folder, out.v, out.prev, { reason: L('이 변형을 내 PC 로 옮겨 작업실을 닫았어요 — 고친 것은 저장했어요.', 'This variation moved to your PC, so the workroom was closed — what you changed is saved.'), by: user.id })
+    if (out.clear && out.prev?.place === 'server') {
+      try { await clearServer(folder, out.v, out.prev, { reason: L('이 변형을 내 PC 로 옮겨 작업실을 닫았어요 — 고친 것은 저장했어요.', 'This variation moved to your PC, so the workroom was closed — what you changed is saved.'), by: user.id }) }
+      catch (e) { await putBack(v.id, out, e.message); throw e }
+    }
     if (out.action !== 'same') emit(String(user.id), 'folders', { slug: folder.slug, variation: v.id })
     return out
   })
@@ -468,7 +671,7 @@ export async function recall(folder, v, by, { why = '', role = null } = {}) {
   if (out.legacy) return { ok: false }
   if (!out.ok) throw await refusal(out, folder, { me: by, role })
   const to = String(out.seat.user_id)
-  if (/^[0-9a-f-]{36}$/i.test(to)) {
+  if (out.notify !== false && /^[0-9a-f-]{36}$/i.test(to)) {
     await withLang(await langOf(to).catch(() => 'ko'), async () => {
       const name = (await namesOf([by.id], v)).get(String(by.id)) || by.name || ''
       await q(`insert into notifications (id, user_id, title, type, description, url, from_user_id, tenant_id) values (gen_random_uuid(),$1,$2,'seat_recall',$3,$4,$5,$6)`,
@@ -493,7 +696,8 @@ export async function take(folder, v, by, { role = null, epoch = null } = {}) {
     if (out.legacy) return out
     if (!out.ok) throw await refusal(out, folder, { me: by, role })
     if (out.prev?.place === 'server') {
-      await clearServer(folder, out.v, out.prev, { reason: L('폴더 소유자가 작업본을 가져가 작업실을 닫았어요 — 고친 것은 저장했어요.', 'The folder owner took the working copy, so the workroom was closed — what was changed is saved.'), by: by.id })
+      try { await clearServer(folder, out.v, out.prev, { reason: L('폴더 소유자가 작업본을 가져가 작업실을 닫았어요 — 고친 것은 저장했어요.', 'The folder owner took the working copy, so the workroom was closed — what was changed is saved.'), by: by.id }) }
+      catch (e) { await putBack(v.id, out, e.message); throw e }
       await transition(v.id, (vv, seat) => (seat && Number(seat.epoch) === Number(out.epoch) ? { ok: true, next: null, bump: false, action: 'none' } : { ok: false, why: 'none' }))
     }
     if (out.prev?.job_id) {
@@ -519,33 +723,61 @@ export async function setPrefs(folder, v, by, { autoSave, watch } = {}) {
 }
 
 // ---------- the sweep ----------
-// moves that ran out of time end as 보관 중 (what the old place held was committed before it went); a server agent's seat from before this
-// process started is a run that died with it: committed as it is and put away
-const STARTED = new Date()
-export async function sweep({ restart = false } = {}) {
-  let rows
+// Every 30 s, per tenant, and only where no move holds the variation's lock (tryOnly — a move in progress elsewhere is left alone):
+//   · moves that ran out of time end as 보관 중 (what the old place held was committed before it went), server seats whose checkout is gone
+//   · a turn, a handover or a know-how edit whose process stopped saying it runs (seen_at older than DEAD_MS) — committed as it is, put
+//     away. Never a step deepagents runs outside this server (its own end — stepTick — brings its result in), nor a chat change (its
+//     process's next start finishes it: recoverChatRuns)
+//   · a checkout with no seat at all (from before seats, or left by a crash) that nobody touched for ORPHAN_MS: committed as it is, put
+//     away — not a step's or a chat change's (those end by their own paths), not while the variation is being merged
+const ORPHAN_MS = 10 * 60_000
+export async function sweep() {
+  let rows, orphans
   try {
-    rows = await q(`select s.*, v.worktree_path from pro_variation_seats s join pro_folder_variations v on v.id=s.variation_id
+    rows = await q(`select s.variation_id, s.place, s.run, s.state, s.work, v.worktree_path from pro_variation_seats s join pro_folder_variations v on v.id=s.variation_id
                     where s.tenant_id=$1 and ((s.state in ('moving','returning') and s.deadline < now()) or (s.place='server' and s.state='held' and v.worktree_path is null)
-                      or ($2 and s.place='server' and s.run='agent' and s.since < $3))`, [T(), restart, STARTED])
+                      or (s.place='server' and s.run='agent' and s.state='held' and s.work = any($2) and coalesce(s.seen_at, s.since) < now() - ($3 || ' milliseconds')::interval))`,
+    [T(), SWEPT, String(DEAD_MS)])
+    orphans = await q(`select v.id from pro_folder_variations v join pro_folders f on f.id=v.folder_id
+                       where f.tenant_id=$1 and v.worktree_path is not null and v.status in ('open','ready','conflicted') and v.kind not in ('run','chat','instance')
+                         and v.updated_at < now() - ($2 || ' milliseconds')::interval
+                         and not exists (select 1 from pro_variation_seats s where s.variation_id=v.id)
+                         and not exists (select 1 from pro_folder_integrations i where i.folder_id=v.folder_id and i.status in ('running','conflicted','resolving') and v.id = any(i.variation_ids))`,
+    [T(), String(ORPHAN_MS)])
   } catch (e) { if (isLegacy(e)) return 0; throw e }
+  let n = 0
   for (const s of rows) {
+    if (beats.has(String(s.variation_id))) continue // (this process runs it)
     const v = await S.variationById(s.variation_id)
     const f = v && await S.folderById(v.folder_id)
     if (!f) continue
-    if (s.place === 'server' && s.run === 'agent' && s.state === 'held' && v.worktree_path) {
-      await closeServer(f, v, { system: true, status: null, reason: L('서버가 다시 시작돼 에이전트의 작업본을 보관했어요.', "The server restarted, so the agent's working copy was put away.") }).catch((e) => console.warn('[seats] sweep', e.message))
-      continue
-    }
-    await transition(s.variation_id, (vv, seat) => decide(seat, { type: 'expire' }, { v: vv }), { note: 'deadline' }).catch((e) => console.warn('[seats] expire', e.message))
+    const dead = s.place === 'server' && s.run === 'agent' && s.state === 'held' && !!v.worktree_path
+    const done = await onDisk(String(v.id), async () => {
+      if (dead) {
+        const out = await transition(v.id, (vv, seat) => (seat && seat.state === 'held' && seat.run === 'agent' && SWEPT.includes(seat.work) ? { ok: true, next: { ...seat, state: 'returning', deadline: new Date(Date.now() + MOVE_MS) }, bump: true, action: 'expire' } : { ok: false, why: 'none' }), { note: `${s.work} stopped` })
+        if (!out.ok) return null
+        try { await clearServer(f, out.v, out.prev, { reason: L('에이전트의 실행이 멈춰 작업본을 보관했어요.', "The agent's run stopped, so its working copy was put away.") }) } catch (e) { await putBack(v.id, out, e.message); throw e }
+        return transition(v.id, (vv, seat) => (seat && Number(seat.epoch) === Number(out.epoch) ? { ok: true, next: null, bump: false, action: 'none' } : { ok: false, why: 'none' }))
+      }
+      return transition(v.id, (vv, seat) => decide(seat, { type: 'expire' }, { v: vv }), { note: 'deadline' })
+    }, { tryOnly: true }).catch((e) => { console.warn('[seats] sweep', e.message); return null })
+    if (done && !done.busy) n++
   }
-  return rows.length
+  for (const o of orphans) {
+    const v = await S.variationById(o.id)
+    const f = v && await S.folderById(v.folder_id)
+    if (!f) continue
+    const done = await closeServer(f, v, { system: true, status: null, reason: L('아무도 쓰지 않던 작업본을 보관했어요.', 'A working copy nobody used was put away.') }).catch((e) => { console.warn('[seats] orphan', e.message); return null })
+    if (done) n++
+  }
+  return n
 }
 let timer = null
-export function startSeatSweep(each, { restart = true } = {}) {
+// (the second argument is kept for the callers of P0 — every sweep is the same now: a process that stopped is told by its silence)
+export function startSeatSweep(each, _opts = {}) {
   if (timer) return
   const tick = () => each(() => sweep()).catch((e) => console.warn('[seats] sweep', e.message)).finally(() => { timer = setTimeout(tick, 30_000) })
-  timer = setTimeout(() => each(() => sweep({ restart })).catch(() => {}).finally(() => { timer = setTimeout(tick, 30_000) }), 20_000)
+  timer = setTimeout(tick, 20_000)
 }
 
 // what the folder header's 「작업실」 sheet needs at once (design §2 — the sheet itself comes with the desktop's working copy, P1 · P2): my

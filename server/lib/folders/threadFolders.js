@@ -202,12 +202,15 @@ export async function prepareProjectWork({ user, thread }) {
   const dir = S.runCheckoutDir(conv, folder)
   // the turn's run takes the project variation's working copy (folders/seats.js): from the person's own server workroom (saved as it is
   // first); never from a computer that has it (a 「내 PC」 run) — that refusal (409, e.seat) goes back to the turn (seatHint)
-  await SE.openServer(folder, v, { user, run: 'agent', dir })
-  await q(`update pro_folder_variations set status='open', updated_at=now() where id=$1 and status='ready'`, [v.id])
-  const before = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
+  // (the run is a 'turn' of this conversation; a setup that fails — the seed upload — gives the seat back)
   const container = S.runCheckoutContainer(conv, folder)
-  // the agent may run on another pod, with no disk in common: it gets the files from storage
-  const seeded = await pushRoomDir(dir, container)
+  let seeded = null
+  const run = await SE.withRun(folder, v, { user, work: 'turn', ref: conv, dir }, async () => {
+    // the agent may run on another pod, with no disk in common: it gets the files from storage
+    seeded = await pushRoomDir(dir, container)
+  })
+  await q(`update pro_folder_variations set status='open', updated_at=now() where id=$1 and status='ready'`, [v.id])
+  const before = run.base || await G.head(folder.repo_path, `refs/heads/${v.branch}`)
   const files = (await G.lsTree(folder.repo_path, v.branch)).filter((f) => f.path !== '.gitattributes').map((f) => ({ path: f.path }))
   const note = L(`\n\n(이 프로젝트는 공유 폴더 '${folder.name}' 에서 작업해요. 이 프로젝트의 변형 '${v.branch}' 이 작업 폴더에 열려 있어요: ${container}
 이 폴더의 파일:
@@ -217,7 +220,7 @@ ${listing(files) || '(아직 파일 없음)'}
 Files in this folder:
 ${listing(files) || '(no files yet)'}
 Read and change the folder's files in this working folder. ${rules()} What you change here goes into the project's variation, not the original (main); a person merges it with 「반영」 above the project. So do not say "I updated it" as if the original changed — say "I put it in the project's variation".)`)
-  return { user, thread, conv, folder, v, dir, container, seeded, before, note }
+  return { user, thread, conv, folder, v, dir, container, seeded, before, note, run }
 }
 
 // What the agent is told when the project's working copy is elsewhere this turn (prepareProjectWork refused with the seat): it may not
@@ -235,10 +238,16 @@ export function seatHint(e) {
 // turn), a chip when files changed, and the header refreshed
 export async function finishProjectWork(work, { stopped = false } = {}) {
   const { user, thread, folder, v, container, seeded, before } = work
-  const cur = await S.variationById(v.id)
-  await pullRoomChanges(container, seeded, cur.worktree_path || work.dir, { wait: !stopped })
-  await S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`프로젝트 「${thread.title || ''}」 작업`, `Project "${thread.title || ''}" work`))
-  await S.release(folder, await S.variationById(v.id))
+  // (only while this turn still holds the variation's seat; when it moved meanwhile, what the turn made becomes a variation of its own)
+  const end = await SE.finishRun(folder, await S.variationById(v.id), work.run, {
+    fill: seeded ? (dir) => pullRoomChanges(container, seeded, dir, { wait: !stopped }) : null,
+    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, L(`프로젝트 「${thread.title || ''}」 작업`, `Project "${thread.title || ''}" work`)),
+    user: user.id, where: L('서버 에이전트 턴', 'a server agent turn'),
+  })
+  if (!end.held) {
+    await announce(user.id, thread.id)
+    return { changed: [], variation: await S.variationById(v.id), left: end.left || null }
+  }
   const after = await S.variationById(v.id)
   const changed = before && after.head_commit && after.head_commit !== before ? await G.changes(folder.repo_path, before, after.branch).catch(() => []) : []
   if (changed.length) {
