@@ -244,7 +244,7 @@ test('토큰이 없거나 맞지 않으면 401 · 403 · 404', { skip: !db }, as
   await G.git(seed, ['init', '-q', '-b', 'main'])
   await fs.writeFile(path.join(seed, 'a.txt'), 'a')
   await G.commitAll(seed, 'a')
-  const linked = await S.linkRepo(user, { repoPath: seed, name: `연결형 ${Date.now()}` })
+  const linked = await S.registerLinked(user, seed, { name: `연결형 ${Date.now()}` })
   made.push(linked)
   r = await refs({ authorization: `Bearer ${H.mintToken({ folderId: linked.id })}` }, linked.id)
   assert.equal(r.status, 403)

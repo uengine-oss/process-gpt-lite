@@ -20,6 +20,7 @@ import * as D from './db.js'
 import * as E from './events.js'
 import * as PV from './privacy.js'
 import { L, isEn } from '../lang.js'
+import { assertNoLink } from '../noLinks.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 const sha1 = (buf) => crypto.createHash('sha1').update(buf).digest('hex')
@@ -178,8 +179,10 @@ export async function createApp(user, { description, def, rows = [], folderHint 
   for (let i = 2; await fs.stat(path.join(folder.repo_path, defPath)).catch(() => null); i++) { defPath = `apps/${base} ${i}.panel.json`; sheetPath = `apps/${base} ${i}.xlsx` }
   await fs.mkdir(path.join(folder.repo_path, 'apps'), { recursive: true })
   const defText = defFileText(def, sheetPath)
+  await assertNoLink(folder.repo_path, defPath)
   await fs.writeFile(path.join(folder.repo_path, defPath), defText)
   // tier db: the data lives in the database; the folder keeps the definition (and later snapshots)
+  await assertNoLink(folder.repo_path, sheetPath)
   if (def.tier !== 'db') await fs.writeFile(path.join(folder.repo_path, sheetPath), await X.bookBuffer(def.kind === 'events' ? await E.eventsBook(def, []) : await X.newBook(def, rows)))
   await S.commitMain(folder, { name: user.name, email: user.email }, L(`패널 앱 만들기: ${def.title}${def.tier === 'db' ? ' (데이터베이스·행 단위 권한)' : ''}`, `Panel app created: ${def.title}${def.tier === 'db' ? ' (database, row-level access)' : ''}`))
   await reindex(folder, { cards: false }).catch((e) => console.warn('[panelApps] index', e.message))
@@ -320,6 +323,7 @@ export async function write(user, id, op) {
       message = L(`패널: ${app.title} 행 고침`, `Panel: ${app.title} row edited`)
     } else if (op.remove) message = L(`패널: ${app.title} 행 지움`, `Panel: ${app.title} row deleted`)
     const res = X.applyOp(wb, app.def, op)
+    await assertNoLink(folder.repo_path, app.sheet_path)
     await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(wb))
     const after = X.readRows(wb, app.def)
     const row = after.find((r) => r._id === res.id) || null
@@ -369,6 +373,7 @@ export async function sheetSaved(user, id, { url, sha }) {
     const wb = await X.readBook(buf)
     const before = X.readRows(cur.wb, app.def)
     const after = X.readRows(wb, app.def)
+    await assertNoLink(folder.repo_path, app.sheet_path)
     await fs.writeFile(sheetFile(folder, app), buf)
     const commit = await S.commitMain(folder, { name: user.name, email: user.email }, L(`시트에서 고침: ${app.title}`, `Edited in the sheet: ${app.title}`))
     await q('update pro_panel_apps set updated_at=now() where id=$1', [app.id])
@@ -393,6 +398,8 @@ export async function hide(user, id, hidden = true) {
 export async function remove(user, id) {
   const { app, folder } = await appFor(user, id, 'owner')
   const ids = await members(folder)
+  await assertNoLink(folder.repo_path, app.def_path)
+  await assertNoLink(folder.repo_path, app.sheet_path)
   await fs.rm(path.join(folder.repo_path, app.def_path), { force: true })
   await fs.rm(path.join(folder.repo_path, app.sheet_path), { force: true })
   await S.commitMain(folder, { name: user.name, email: user.email }, L(`패널 앱 지우기: ${app.title}`, `Panel app deleted: ${app.title}`))
@@ -560,6 +567,7 @@ export async function changeFields(user, id, { fields, confirmDrop = false }) {
 
 async function saveDefFile(user, folder, app, def, message) {
   const text = defFileText(def, app.sheet_path)
+  await assertNoLink(folder.repo_path, app.def_path)
   await fs.mkdir(path.join(folder.repo_path, path.posix.dirname(app.def_path)), { recursive: true })
   await fs.writeFile(path.join(folder.repo_path, app.def_path), text)
   await q('update pro_panel_apps set def=$2, def_sha=$3, title=$4, icon=$5, tier=$6, updated_at=now() where id=$1', [app.id, def, sha1(text), def.title, def.icon, def.tier || 'sheet'])
@@ -595,6 +603,7 @@ export async function snapshot(user, id) {
   const people = await peopleOf(folder)
   // personal / sensitive values never go into the folder (a member can open the file; the index reads it)
   const shown = visible.map((r) => { const o = { ...r }; for (const f of app.def.fields) { if (PV.restricted(f)) o[f.key] = E.masked(); else if (f.type === 'person' && o[f.key]) o[f.key] = people.find((p) => p.id === o[f.key])?.name || o[f.key] } return o })
+  await assertNoLink(folder.repo_path, app.sheet_path)
   await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await X.newBook(app.def, shown)))
   const commit = await S.commitMain(folder, { name: user.name, email: user.email }, L(`스냅샷: ${app.title} (${visible.length}/${all.length}행, 구성원 모두가 볼 수 있는 행만)`, `Snapshot: ${app.title} (${visible.length}/${all.length} rows, only rows every member can see)`))
   reindex(folder, { cards: false }).catch(() => {})
@@ -693,6 +702,7 @@ export async function appendEvent(user, id, input) {
       const cur = await sheetLog(folder, app, people)
       if (ev.ref && E.replay(def, cur).closedBy[ev.ref]) throw err(409, L('이미 취소(또는 처리)된 기록이에요.', 'That record has already been canceled (or handled).'))
       const e = { seq: (cur.at(-1)?.seq || 1) + 1, id: E.newEventId(), at: new Date().toISOString(), by: user.id, type: ev.type, entity: ev.entity, ref: ev.ref, ...ev.values }
+      await assertNoLink(folder.repo_path, app.sheet_path)
       await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await E.eventsBook(def, [...cur, e], { names: nameOf(people) })))
       await S.commitMain(folder, { name: user.name, email: user.email }, L(`기록: ${t.label} — ${def.entity.type === 'person' ? nameOf(people)(ev.entity) : ev.entity}`, `Record: ${t.label} — ${def.entity.type === 'person' ? nameOf(people)(ev.entity) : ev.entity}`))
       reindex(folder, { cards: false }).catch(() => {})
@@ -737,6 +747,7 @@ async function eventsSheetSaved(user, id, { url, sha }) {
   // sheet tier: the folder file is rewritten from the log, so edits of old rows are undone there too
   if (app.tier !== 'db' && rejected.length && !appended) {
     const cur = await sheetLog(folder, app, people)
+    await assertNoLink(folder.repo_path, app.sheet_path)
     await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await E.eventsBook(app.def, cur, { names: nameOf(people) })))
   }
   snapshots.set(String(sha), { ...snap, log: await eventLog(user, app, folder, people), at: Date.now() })
@@ -804,6 +815,7 @@ export async function convertToEvents(user, id, { def: rawDef, mapping }) {
     await D.importEvents(next, evs)
     await D.logMigration(next, 'upgrade', [`-- ${old.length} rows → ${evs.length} events (migrated)`], { user })
   } else {
+    await assertNoLink(folder.repo_path, app.sheet_path)
     await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await E.eventsBook(def, evs, { names: nameOf(people) })))
   }
   await q('update pro_panel_apps set kind=$2, tier=$3 where id=$1', [app.id, 'events', def.tier])
@@ -836,6 +848,7 @@ async function eventsSnapshot(user, app, folder) {
   const visible = all.filter((e) => R.allows(app.def.access.read, { _created_by: e.by, _by: e.by, _subject: e.entity }, everyone))
     .map((e) => { const o = { ...e }; for (const f of app.def.fields) if (PV.restricted(f)) o[f.key] = E.masked(); return o })
   // replayed tabs only from what may be shown: restricted numbers are blanked above
+  await assertNoLink(folder.repo_path, app.sheet_path)
   await fs.writeFile(sheetFile(folder, app), await X.bookBuffer(await E.eventsBook(app.def, visible, { names: nameOf(people) })))
   const commit = await S.commitMain(folder, { name: user.name, email: user.email }, L(`스냅샷: ${app.title} (기록 ${visible.length}/${all.length}개, 개인정보·민감 항목은 비공개)`, `Snapshot: ${app.title} (${visible.length}/${all.length} records, personal and sensitive fields private)`))
   reindex(folder, { cards: false }).catch(() => {})

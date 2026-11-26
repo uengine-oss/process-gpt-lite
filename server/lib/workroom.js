@@ -16,6 +16,7 @@ import { folderRoom, folderRoomAccess } from './folders/rooms.js'
 import { L, isEn, withLang, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
 import { scopePattern } from './projectTopics.js'
+import { assertNoLink } from './noLinks.js'
 
 // node-pty is a native module: a build without it still serves the workroom's files, and the page
 // says why there is no terminal (terminalStatus)
@@ -127,14 +128,27 @@ export async function publishFile(room, rel, user) {
   return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: path.basename(p) }
 }
 
-// A path from the browser, kept inside the room (no "..", symlinks may not lead out).
-function inside(room, rel) {
+// A path from the browser, kept inside the room (no "..", symlinks may not lead out) and out of
+// the repository's own data: a room is a git work tree, and its `.git` (a folder, or a file that
+// points to one) is the server's to keep — read, written, renamed or listed by nobody else.
+export const gitPart = (rel) => String(rel || '').split(/[\\/]+/).some((seg) => /^\.git\.*$/i.test(seg.trim()))
+export function inside(room, rel) {
+  if (gitPart(rel)) throw Object.assign(new Error('not a document path'), { status: 400 })
   const p = path.resolve(room.root, String(rel || '').replace(/^\/+/, ''))
   if (p !== room.root && !p.startsWith(room.root + path.sep)) throw Object.assign(new Error('outside'), { status: 400 })
-  let real
-  try { real = realpathSync(p) } catch { return p } // not created yet (write)
-  const rootReal = realpathSync(room.root)
-  if (real !== rootReal && !real.startsWith(rootReal + path.sep)) throw Object.assign(new Error('outside'), { status: 400 })
+  if (gitPart(path.relative(room.root, p))) throw Object.assign(new Error('not a document path'), { status: 400 })
+  // where it really lands (a file not made yet: its nearest existing folder): inside the room, not in .git
+  let rootReal
+  try { rootReal = realpathSync(room.root) } catch { return p } // the room's folder is made by the first write
+  let probe = p, rest = ''
+  for (;;) {
+    try { const real = realpathSync(probe); probe = rest ? path.join(real, rest) : real; break } catch { /* not there yet */ }
+    if (probe === room.root || probe === path.dirname(probe)) return p
+    rest = rest ? path.join(path.basename(probe), rest) : path.basename(probe)
+    probe = path.dirname(probe)
+  }
+  if (probe !== rootReal && !probe.startsWith(rootReal + path.sep)) throw Object.assign(new Error('outside'), { status: 400 })
+  if (gitPart(path.relative(rootReal, probe))) throw Object.assign(new Error('not a document path'), { status: 400 })
   return p
 }
 
@@ -169,6 +183,7 @@ export function rawPath(room, rel) { return inside(room, rel) }
 // Code injected by a person: written in place, refused if the agent changed the file meanwhile.
 export async function writeFile(room, rel, content, expectedMtime) {
   const p = inside(room, rel)
+  await assertNoLink(room.root, path.relative(room.root, p))
   const st = await fs.stat(p).catch(() => null)
   if (st && expectedMtime && Math.abs(st.mtimeMs - expectedMtime) > 1) throw Object.assign(new Error('changed'), { status: 409, mtime: st.mtimeMs })
   await fs.mkdir(path.dirname(p), { recursive: true })
@@ -211,7 +226,7 @@ const onPath = (bin) => (String(bin).includes('/') ? existsSync(bin) : String(pr
 // that holds every tenant's folders and the vault keyring.
 export function terminalStatus(room, mode = 'shell') {
   const no = (reason, status = 503) => ({ ok: false, status, reason })
-  if (config.tenantFromHeader && !config.terminalKey) return no(L('여러 회사가 함께 쓰는 이 서버에서는 터미널을 열지 않아요', 'This server is shared by several companies, so it does not open terminals'))
+  if ((config.tenantFromHeader || config.tenantHosts) && !config.terminalKey) return no(L('여러 회사가 함께 쓰는 이 서버에서는 터미널을 열지 않아요', 'This server is shared by several companies, so it does not open terminals'))
   if (!pty) return no(L('이 서버에 터미널 모듈(node-pty)이 설치돼 있지 않아요', 'The terminal module (node-pty) is not installed on this server'))
   if (!shellPath()) return no(L('이 서버에 셸이 없어요', 'This server has no shell'))
   if (!isDir(room.cwd)) return no(L('이 작업실의 폴더가 서버에 없어요', "This workroom's folder is not on the server"), 404)

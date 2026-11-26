@@ -16,6 +16,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from '../config.js'
+import { assertNoLink } from './noLinks.js'
 import { q, admin } from './supa.js'
 import { emit } from './bus.js'
 import { addMessage } from './store.js'
@@ -200,6 +201,7 @@ async function messageOf(userId, card) {
 
 async function write(root, rel, buf) {
   const p = S.safeRel(rel)
+  await assertNoLink(root, p)
   const host = path.join(root, p)
   await fs.mkdir(path.dirname(host), { recursive: true })
   await fs.writeFile(host, buf)

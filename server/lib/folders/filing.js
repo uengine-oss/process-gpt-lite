@@ -14,6 +14,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from '../../config.js'
+import { assertNoLink } from '../noLinks.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { L } from '../lang.js'
@@ -371,6 +372,7 @@ export async function file(user, ref, { slug, sub = '', newFolder = '', by = 'pe
     if (there) return { path: there.path, already: true, commit: null }
     const rel = freePath(dir ? `${dir}/${doc.name}` : doc.name, new Set(list.map((x) => x.path)))
     const p = S.safeRel(rel)
+    await assertNoLink(folder.repo_path, p)
     const host = path.join(folder.repo_path, p)
     await fs.mkdir(path.dirname(host), { recursive: true })
     await fs.writeFile(host, buf)

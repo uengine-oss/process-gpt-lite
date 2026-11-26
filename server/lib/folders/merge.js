@@ -13,6 +13,7 @@ import { runAgent, RULES, rules } from './runner.js'
 import { L } from '../lang.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { afterMerge } from './skills.js'
+import { assertNoLink } from '../noLinks.js'
 
 const err = (status, message) => Object.assign(new Error(message), { status })
 const intDir = (folder, id) => path.join(S.foldersRoot(), '.integrate', folder.slug, id)
@@ -148,6 +149,7 @@ When you are done, say in one or two sentences what you combined and how.`)
       await q(`update pro_folder_integrations set status='conflicted', updated_at=now() where id=$1`, [row.id])
       throw err(422, L(`해결 에이전트가 '${c.path}' 의 충돌을 다 풀지 못했어요. 직접 골라 주세요.`, `The resolving agent couldn't resolve every conflict in '${c.path}'. Please choose yourself.`))
     }
+    await assertNoLink(row.worktree_path, c.path)
     await fs.writeFile(path.join(row.worktree_path, c.path), text)
     await G.git(row.worktree_path, ['add', '--', c.path])
   }

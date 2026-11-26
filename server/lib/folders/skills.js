@@ -25,6 +25,7 @@ import { runAgent } from './runner.js'
 import { addMessage } from '../store.js'
 import { PGPT_ROOT } from '../paths.js'
 import { L, isEn, langOf } from '../lang.js'
+import { dropLinks } from '../noLinks.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -132,6 +133,7 @@ export async function materialize(folder) {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'pro-skill-'))
   try {
     await run('sh', ['-c', `git -C "$1" archive --format=tar ${folder.default_branch} | tar -x -C "$2"`, 'sh', folder.repo_path, tmp])
+    await dropLinks(tmp)
     await fs.rm(target, { recursive: true, force: true })
     await fs.mkdir(path.dirname(target), { recursive: true })
     await fs.cp(tmp, target, { recursive: true })
@@ -150,6 +152,7 @@ export async function share(folder, user, jwt) {
     const dir = path.join(tmp, name)
     await fs.mkdir(dir)
     await run('sh', ['-c', `git -C "$1" archive --format=tar main | tar -x -C "$2"`, 'sh', folder.repo_path, dir])
+    await dropLinks(dir)
     await run('zip', ['-qr', `${name}.zip`, name], { cwd: tmp })
     const form = new FormData()
     form.set('tenant_id', config.tenantId)
@@ -272,6 +275,7 @@ async function versionDir(folder, ref, room) {
   await fs.rm(dir, { recursive: true, force: true })
   await fs.mkdir(dir, { recursive: true })
   await run('sh', ['-c', `git -C "$1" archive --format=tar "$3" | tar -x -C "$2"`, 'sh', folder.repo_path, dir, ref])
+  await dropLinks(dir)
   return `/workspace/.bpmn/${room}/skill/${folder.settings.skill_name}`
 }
 async function writeCases(folder, v) {
