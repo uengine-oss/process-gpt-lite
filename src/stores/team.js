@@ -44,8 +44,6 @@ export const useTeam = defineStore('team', {
     suggestions: {},          // threadId -> [assist suggestion] (lib/team/assist.js)
     assistOn: {},             // threadId -> the thread's AI 제안 switch
     assistStatus: {},         // suggestion id -> live status text while it runs
-    // a mail the mail sheet's 「동료에게 공유」 put here (src/fileDrag.js mailItem): the conversation picked next gets it as a chip (Messenger.vue)
-    pendingMention: null,
     aiStatus: {},             // threadId -> {messageId, text}: 「AI가 찾는 중…」 while 「@AI …」 is answered (lib/team/aiHelp.js)
     // auto-translation (server/lib/team/roomTranslate.js): message id -> {body, from} | {lines: {i: text}} |
     // {minutes: {summary, decisions, actions}} | {same: true}; original: message id -> showing the original

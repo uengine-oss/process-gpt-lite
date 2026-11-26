@@ -338,6 +338,9 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
   // a mail of a thread that is already a running instance's goes to that instance, without a model (lib/mailFlow.js)
   const MF = await import('./mailFlow.js')
   const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })
+  // 「앞으로 … 메일도 이 방에 올리기」: the rules the owner set when sharing a mail post the ones they take to their rooms (lib/mailRooms.js —
+  // the summary for the room, the body when the rule says so; a mail with no card gets one already done)
+  await import('./mailRooms.js').then((R) => R.autoShare(userId, asked.filter((m) => !m.fixture), cards, deps)).catch((e) => console.warn('[mail] rooms', e.message))
   // the brief and the mailbox's own lines go into the person's 브리프 conversation (lib/ownConversations.js), never into the conversation
   // the person happens to be in
   if (r.brief) {
