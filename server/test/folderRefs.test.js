@@ -9,6 +9,7 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -396,7 +397,7 @@ test('RF-U-19 원본 경로 끝의 「/」: 하위 폴더 · 파일로 그대로
   } finally { await R.remove(comp, 'owner', owner, a.id); await R.remove(comp, 'owner', owner, b.id) }
 })
 
-test('RF-U-20 main 의 작업 트리에서 자리에 놓인 파일은 다른 저장이 커밋해도 담기지 않고, 지워지지도 않는다', { skip: !db && 'no database' }, async () => {
+test('RF-U-20 main 의 작업 트리에서 자리에 놓인 파일은 다른 저장이 커밋해도 담기지 않고, 지워지지 않고 보관 자리로 옮겨진다', { skip: !db && 'no database' }, async () => {
   const { comp } = await world()
   const fake = path.join(comp.repo_path, '폴더1', 'fake.md')
   await fs.mkdir(path.dirname(fake), { recursive: true })
@@ -406,9 +407,15 @@ test('RF-U-20 main 의 작업 트리에서 자리에 놓인 파일은 다른 저
     const files = (await G.lsTree(comp.repo_path, 'main')).map((f) => f.path)
     assert.ok(files.includes('옆/other.md'))
     assert.ok(!files.includes('폴더1/fake.md'))
-    assert.equal(await fs.readFile(fake, 'utf8'), 'FAKE')
+    const kept = path.join(comp.repo_path, '.slot-leftover')
+    const stamps = await fs.readdir(kept)
+    assert.ok(stamps.some((x) => fsSync.existsSync(path.join(kept, x, '폴더1', 'fake.md'))))
+    assert.equal(await fs.stat(fake).catch(() => null), null)
     assert.equal((await R.resolve(comp, '폴더1/가격 정책.docx', owner)).state, 'ok')
-  } finally { await fs.rm(path.join(comp.repo_path, '폴더1'), { recursive: true, force: true }) }
+  } finally {
+    await fs.rm(path.join(comp.repo_path, '폴더1'), { recursive: true, force: true })
+    await fs.rm(path.join(comp.repo_path, '.slot-leftover'), { recursive: true, force: true })
+  }
 })
 
 test('RF-U-21 자리를 확인하지 못하면(데이터베이스 오류) 커밋하지 않는다 — 알아들을 말과 함께', { skip: !db && 'no database' }, async () => {
@@ -514,4 +521,116 @@ test('RF-U-25 자잘한 것: 자리로 연 파일 카드는 읽기 전용 · 접
   const [fn] = await q(`select proconfig from pg_proc where proname='pro_folder_refs_same_tenant'`)
   assert.ok((fn.proconfig || []).some((x) => x.startsWith('search_path=')))
   await R.remove(comp, 'owner', owner, r.id)
+})
+
+// ---------- second review of PR #92 (each written first against 9a23dc1, before its fix) ----------
+const commitOutside = async (repo, rel, body) => {
+  await fs.mkdir(path.dirname(path.join(repo, rel)), { recursive: true })
+  await fs.writeFile(path.join(repo, rel), body)
+  await G.git(repo, ['add', '--', rel])
+  await G.git(repo, [...G.who('pc', 'pc@example.test'), 'commit', '-q', '-m', '서버 밖의 커밋'])
+}
+const statusOf = async (repo) => (await G.git(repo, ['status', '--porcelain', '--untracked-files=all'])).trim()
+
+test('RF-U-26 자리의 부모가 링크여도 다른 저장은 커밋된다(링크 너머의 경로는 빼는 목록에서 뺀다)', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const r = await R.add(comp, 'owner', owner, { source: sales.slug, path: '안내', slot: 'p/q' })
+  const outside = await fs.mkdtemp(path.join(ROOT, 'link-target-'))
+  await fs.symlink(outside, path.join(comp.repo_path, 'p'))
+  try {
+    await S.upload(comp, owner, '옆/after-link.md', enc('링크 뒤의 저장'))
+    assert.ok((await G.lsTree(comp.repo_path, 'main')).some((f) => f.path === '옆/after-link.md'))
+    assert.deepEqual(await fs.readdir(outside), [])
+  } finally {
+    await fs.rm(path.join(comp.repo_path, 'p'), { force: true })
+    await R.remove(comp, 'owner', owner, r.id)
+  }
+})
+
+test('RF-U-27 변형의 커밋에서 자리를 확인하지 못하면 거절이 그대로 올라가고, 변형은 「반영 대기」가 되지 않으며 작업은 남는다', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  const v = await S.createVariation(comp, { title: '확인 못 함', kind: 'person', holder: { type: 'user', id: owner.id, name: owner.name } })
+  const dir = path.join(ROOT, 'unchecked', v.id)
+  await S.checkout(comp, v, dir)
+  await fs.writeFile(path.join(dir, 'mine.md'), '아직 담지 못한 작업')
+  const keep = R.guardDeps.q
+  R.guardDeps.q = async () => { throw Object.assign(new Error('terminating connection'), { code: '57P01' }) }
+  try {
+    await assert.rejects(S.commitVariation(comp, await S.variationById(v.id), { name: 'o', email: 'o@example.test' }, '작업'), (e) => e.code === 'ref_unchecked' && e.status === 503)
+  } finally { R.guardDeps.q = keep }
+  try {
+    assert.equal((await S.variationById(v.id)).status, 'open')
+    assert.ok(!(await G.lsTree(comp.repo_path, `refs/heads/${v.branch}`)).some((f) => f.path === 'mine.md'))
+    assert.equal(await fs.readFile(path.join(dir, 'mine.md'), 'utf8'), '아직 담지 못한 작업')
+  } finally { await S.release(comp, await S.variationById(v.id)) }
+})
+
+test('RF-U-28 main 의 자리에 놓인 파일은 보관 자리(.slot-leftover)로 옮겨 main 을 깨끗이 두고 편집자에게 한 번 알린다 · 자리를 뺄 때도 먼저 옮긴다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const r = await R.add(comp, 'owner', owner, { source: sales.slug, path: '안내', slot: '남김' })
+  await commitOutside(comp.repo_path, '남김/own.md', '서버 밖에서 들어온 원래 내용')
+  await fs.writeFile(path.join(comp.repo_path, '남김', 'own.md'), '제자리에서 고친 내용')
+  await fs.writeFile(path.join(comp.repo_path, '남김', 'fake.md'), '셸로 놓은 파일')
+  const before = new Date()
+  await S.upload(comp, owner, '옆/clean.md', enc('다른 저장'))
+  assert.equal((await G.show(comp.repo_path, 'main', '남김/own.md')).toString(), '서버 밖에서 들어온 원래 내용')
+  assert.ok(!(await G.lsTree(comp.repo_path, 'main')).some((f) => f.path === '남김/fake.md'))
+  assert.equal(await statusOf(comp.repo_path), '')
+  const kept = path.join(comp.repo_path, '.slot-leftover')
+  const stamp = (await fs.readdir(kept)).find((x) => fsSync.existsSync(path.join(kept, x, '남김')))
+  assert.equal(await fs.readFile(path.join(kept, stamp, '남김', 'fake.md'), 'utf8'), '셸로 놓은 파일')
+  assert.equal(await fs.readFile(path.join(kept, stamp, '남김', 'own.md'), 'utf8'), '제자리에서 고친 내용')
+  // (the editors' notice is checked where the company has its row — RF-E-06; this tenant has none, so it is not written here)
+  void before
+  // removing a slot moves what lies there first: the next commit sweeps nothing in
+  await fs.writeFile(path.join(comp.repo_path, '남김', 'late.md'), '자리를 빼기 직전에 놓인 파일')
+  await R.remove(comp, 'owner', owner, r.id)
+  await S.upload(comp, owner, '옆/after-remove.md', enc('뺀 뒤의 저장'))
+  assert.ok(!(await G.lsTree(comp.repo_path, 'main')).some((f) => f.path === '남김/late.md'))
+  assert.equal(await statusOf(comp.repo_path), '')
+  const stamps = await fs.readdir(kept)
+  assert.ok(stamps.some((s) => fsSync.existsSync(path.join(kept, s, '남김', 'late.md'))))
+  await G.git(comp.repo_path, ['rm', '-q', '-r', '--', '남김'])
+  await G.git(comp.repo_path, [...G.who('t', 't@example.test'), 'commit', '-q', '-m', '정리'])
+  await fs.rm(kept, { recursive: true, force: true })
+})
+
+test('RF-U-29 가려진 파일은 채팅 안내 · 폴더 정리 판단 · 회의 자료 후보에도 나오지 않는다', { skip: !db && 'no database' }, async () => {
+  const { comp } = await world()
+  await commitOutside(comp.repo_path, '폴더1/숨김-자료.md', '가려질 파일')
+  await reindex(await S.folderById(comp.id), { cards: false })
+  try {
+    const TF = await import('../lib/folders/threadFolders.js')
+    const hint = await TF.refHint({ mode: 'ref', folder_id: comp.id, slug: comp.slug, name: comp.name }, owner)
+    assert.ok(!hint.includes('숨김-자료'))
+    const FI = await import('../lib/folders/filing.js')
+    const [desc] = await FI.describeFolders([await S.folderById(comp.id)])
+    assert.ok(!JSON.stringify(desc).includes('숨김-자료'))
+    const MM = await import('../lib/meetings/materials.js')
+    const cands = await MM.candidates('folder', { speaker: owner })
+    assert.ok(!cands.some((c) => String(c.ref?.path || '').includes('숨김-자료')))
+  } finally {
+    await G.git(comp.repo_path, ['rm', '-q', '--', '폴더1/숨김-자료.md'])
+    await G.git(comp.repo_path, [...G.who('t', 't@example.test'), 'commit', '-q', '-m', '정리'])
+    await reindex(await S.folderById(comp.id), { cards: false })
+  }
+})
+
+test('RF-U-30 유니코드 정규화: Mac 의 NFD 경로도 NFC 자리와 같은 자리로 읽고 막는다 · 자리는 NFC 로 저장한다', { skip: !db && 'no database' }, async () => {
+  const { sales, comp } = await world()
+  const nfc = 'éclair'.normalize('NFC'), nfd = nfc.normalize('NFD')
+  assert.notEqual(nfc, nfd)
+  const r = await R.add(comp, 'owner', owner, { source: sales.slug, slot: nfd })
+  try {
+    assert.equal(r.slot, nfc)
+    assert.ok(R.underSlot([nfc], `${nfd}/x.md`))
+    await assert.rejects(R.assertWritable(comp, `${nfd}/x.md`), (e) => e.status === 409)
+    const res = await R.resolve(comp, `${nfd}/가격 정책.docx`, owner)
+    assert.equal(res?.state, 'ok'); assert.equal(res.path, '가격 정책.docx')
+  } finally { await R.remove(comp, 'owner', owner, r.id) }
+})
+
+test('RF-U-31 접근 요청의 「하루」는 회사의 날짜(기본 Asia/Seoul)로 센다', () => {
+  assert.equal(R.dayOf(new Date('2026-11-26T16:30:00Z')), '2026-11-27')
+  assert.equal(R.dayOf(new Date('2026-11-26T14:59:00Z')), '2026-11-26')
 })

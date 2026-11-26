@@ -370,6 +370,32 @@ test('RF-E-05 이름 없이 더하면 「참조 N」 · 경로 끝의 「/」 ·
   }
 })
 
+test('RF-E-06 main 의 자리에 놓인 파일: 다른 저장의 커밋에 담기지 않고 보관 자리로 옮겨지며, 편집자에게 알림 한 번 · 작업실에서 그 경로로 열린다', async () => {
+  const r = await call(A, 'POST', `/folders/${COMP.slug}/refs`, { source: SALES.slug, path: '안내', slot: '자리남김' })
+  expect(r.status, r.text).toBe(200)
+  const repo = path.join(S.root, 'folders', TENANT, COMP.slug)
+  fs.mkdirSync(path.join(repo, '자리남김'), { recursive: true })
+  fs.writeFileSync(path.join(repo, '자리남김', 'fake.md'), '셸로 놓은 파일\n')
+  try {
+    const up = await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${COMP.slug}/files?path=${enc('옆/e2e.md')}`, { method: 'POST', headers: { Authorization: `Bearer ${A.token}`, 'Content-Type': 'application/octet-stream' }, body: 'x' })
+    expect(up.status).toBe(200)
+    const own = (await call(A, 'GET', `/folders/${COMP.slug}/tree?ref=main`)).body.filter((f) => !f.ref).map((f) => f.path)
+    expect(own).toContain('옆/e2e.md'); expect(own.some((x) => x.startsWith('자리남김/'))).toBe(false)
+    expect(execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo }).toString().trim()).toBe('')
+    const [n] = await S.q(`select title, description, url from notifications where tenant_id=$1 and user_id=$2 and type='folder_slot_leftover' order by time_stamp desc limit 1`, [TENANT, A.id])
+    const where = /\.slot-leftover\/[^/ ]+\//.exec(n.description)[0]
+    expect(n.url).toBe(`/workroom/folder/${COMP.slug}`)
+    // in the workroom, at the path the notice gives (read only: nothing is saved there)
+    const read = await call(A, 'GET', `/workroom/folder/${COMP.slug}/file?path=${enc(`${where}자리남김/fake.md`)}`)
+    expect(read.status, read.text).toBe(200); expect(read.body.content).toBe('셸로 놓은 파일\n')
+    expect((await call(A, 'PUT', `/workroom/folder/${COMP.slug}/file`, { path: `${where}자리남김/fake.md`, content: 'x' })).status).toBe(409)
+  } finally {
+    await call(A, 'DELETE', `/folders/${COMP.slug}/refs/${r.body.id}`)
+    await call(A, 'DELETE', `/folders/${COMP.slug}/files?path=${enc('옆/e2e.md')}`)
+    fs.rmSync(path.join(repo, '.slot-leftover'), { recursive: true, force: true })
+  }
+})
+
 // ---------- opening, locked, writing ----------
 test('F-RF-03 자리의 파일을 열면 「참조된 자료 · 원본 열기」, 편집 단추 없이 원본의 내용 · 원본 열기는 원본 폴더의 그 파일로', async ({ browser }) => {
   const p = await open(browser, A, DESK)

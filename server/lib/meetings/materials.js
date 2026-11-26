@@ -12,6 +12,7 @@ import * as P from '../processes.js'
 import * as PA from '../panelApps/service.js'
 import * as F from '../folders/service.js'
 import * as IX from '../folders/indexer.js'
+import { slotsOf, underSlot } from '../folders/refs.js'
 import * as S from '../team/shares.js'
 import { view as messageView } from '../team/messenger.js'
 import { isEn, L } from '../lang.js'
@@ -138,7 +139,9 @@ async function folderFileCandidates(speaker) {
                         from pro_folder_files f join pro_folders p on p.id=f.folder_id
                         where f.folder_id = any($1) and p.kind is distinct from 'skill'
                         order by f.mtime desc nulls last limit 600`, [ids]).catch(() => [])
-  return rows.map(folderFile)
+  // (a file under its folder's reference slot is not one of its files while the slot is there — folders/refs.js)
+  const slots = await slotsOf([...new Set(rows.map((r) => r.folder_id))]).catch(() => new Map())
+  return rows.filter((r) => !underSlot(slots.get(String(r.folder_id)), r.path)).map(folderFile)
 }
 const folderFile = (r) => ({ kind: 'folder', id: `${r.folder_id}:${r.path}`, title: baseOf(r.path), folderFile: true,
   where: r.folder_name, keywords: Array.isArray(r.keywords) ? r.keywords.slice(0, 12) : [], ref: { folderId: r.folder_id, slug: r.slug, path: r.path } })
@@ -243,6 +246,7 @@ export async function resolve(key, ctx) {
     const f = await F.folderById(folderId).catch(() => null)
     if (!f || f.kind === 'skill') return null
     try { await F.access(f.slug, ctx.speaker) } catch { return null }
+    if (underSlot((await slotsOf([f.id]).catch(() => new Map())).get(String(f.id)), path)) return null
     const [row] = await q('select path from pro_folder_files where folder_id=$1 and path=$2', [f.id, path])
     return row ? folderFile({ folder_id: f.id, slug: f.slug, folder_name: f.name, path: row.path }) : null
   }

@@ -504,7 +504,7 @@ const setWorktree = (v, dir) => q('update pro_folder_variations set worktree_pat
 // commit what changed in the checkout; the variation becomes ready for review
 export async function commitVariation(folder, v, author, message) {
   if (!v.worktree_path) return null
-  const sha = await G.commitAll(v.worktree_path, message || `${v.title}`, author).catch((e) => { console.warn('[folders] commit', e.message); return null })
+  const sha = await G.commitAll(v.worktree_path, message || `${v.title}`, author).catch((e) => { if (e.code === 'ref_unchecked') throw e; console.warn('[folders] commit', e.message); return null })
   const head = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
   await q(`update pro_folder_variations set head_commit=$2, status=case when status in ('open','conflicted') then 'ready' else status end, updated_at=now() where id=$1`, [v.id, head])
   await touch(folder)

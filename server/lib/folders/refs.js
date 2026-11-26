@@ -14,8 +14,9 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from '../../config.js'
-import { q } from '../supa.js'
+import { q, ENGINE_TZ } from '../supa.js'
 import { emit } from '../bus.js'
+import { linkOnPath } from '../noLinks.js'
 import { L } from '../lang.js'
 import * as G from './git.js'
 import * as S from './service.js'
@@ -62,7 +63,9 @@ export async function slotsOf(folderIds) {
   for (const r of rows) { if (!out.has(r.f)) out.set(r.f, []); out.get(r.f).push(r.slot) }
   return out
 }
-const inside = (slot, p) => p === slot || p.startsWith(`${slot}/`)
+// (paths are compared in one Unicode form: a Mac's NFD name and a slot kept in NFC are the same slot)
+const nfc = (s) => String(s || '').normalize('NFC')
+const inside = (slot, p) => { const a = nfc(slot), b = nfc(p); return b === a || b.startsWith(`${a}/`) }
 // two paths on one another (the same, or one inside the other)
 export const overlaps = (a, b) => inside(a, b) || inside(b, a)
 // under one of these slots
@@ -173,7 +176,8 @@ export async function resolve(folder, rel, user, { rows, cache } = {}) {
   if (!r) return null
   const [{ st }] = await states([r], user, { cache, check: false })
   if (st.state !== 'ok') return { ref: r, state: st.state }
-  const inner = p === r.slot ? '' : p.slice(r.slot.length + 1)
+  // (what is below the slot, by parts — the slot's part count is the same in either Unicode form)
+  const inner = p.split('/').slice(r.slot.split('/').length).join('/')
   const at = r.source_type === 'file' ? (inner ? null : r.source_path) : [r.source_path, inner].filter(Boolean).join('/') || null
   return { ref: r, state: 'ok', source: st.source, role: st.role, rev: st.rev, path: at, type: r.source_type }
 }
@@ -343,7 +347,7 @@ export function sourcePathOf(given) {
 // a slot path from what was typed: no control characters, '/' between parts only, no part '.git' or '..' (safeRel). A file's extension
 // is put on only when asked for (keepExt) and not typed already — the name is what every member sees.
 function slotPath(s, { type, sourcePath, keepExt = false }) {
-  let p = String(s || '').replace(/[\u0000-\u001f\u007f]/g, '').split('/').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean).join('/')
+  let p = String(s || '').normalize('NFC').replace(/[\u0000-\u001f\u007f]/g, '').split('/').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean).join('/')
   p = S.safeRel(p)
   const ext = keepExt && type === 'file' ? path.posix.extname(sourcePath || '') : ''
   if (ext && path.posix.extname(p).toLowerCase() !== ext.toLowerCase()) p = `${p}${ext}`
@@ -440,6 +444,7 @@ export async function rename(folder, role, user, id, { slot, label } = {}) {
     s = slotPath(base, { type: r.source_type, sourcePath: r.source_path })
     if (s !== r.slot) await assertFree(folder, s, await rowsOf(folder.id), r.id)
   }
+  if (s !== r.slot) await S.serial(folder.id, () => sweepLeftovers(folder, [r.slot], folder.repo_path, { by: 'renamed' }))
   const [n] = await q('update pro_folder_refs set slot=$2, label=$3, updated_at=now() where id=$1 returning *', [r.id, s, name || r.label]).catch((e) => {
     if (e.code === '23505') throw err(409, L('그 자리에는 이미 참조가 있어요. 다른 이름을 적어 주세요.', 'There is already a reference there. Please choose another name.'), 'ref_taken')
     throw e
@@ -453,6 +458,8 @@ export async function rename(folder, role, user, id, { slot, label } = {}) {
 export async function remove(folder, role, user, id) {
   mayCompose(folder, role)
   const r = await own(folder, id)
+  // (what lies at the slot in main's working tree is moved aside first: the next commit sweeps nothing in that nobody saw)
+  await S.serial(folder.id, () => sweepLeftovers(folder, [r.slot], folder.repo_path, { by: 'removed' }))
   await q('delete from pro_folder_refs where id=$1', [r.id])
   await event(folder, r.id, user.id, 'removed', { slot: r.slot })
   emit(user.id, 'folders', { slug: folder.slug })
@@ -464,12 +471,14 @@ export async function remove(folder, role, user, id) {
 // person picked) — no access of its own per reference: accepted, it is membership of the source. Once a day per person and slot (the
 // record is claimed first: requests at the same moment send one). The answer says nothing about the source (not who was told).
 export const requestUrl = (slug, userId) => `/folders/${slug}?share=${userId}`
+// the company's date of a moment (PRO_TIME_ZONE, Asia/Seoul by default): 「하루에 한 번」 is counted in it
+export const dayOf = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: process.env.PRO_TIME_ZONE || ENGINE_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
 export async function requestAccess(folder, user, id) {
   const r = await own(folder, id)
   const src = await sourceOf(r.source_folder_id, new Map())
   if (!src) throw err(404, L('원본을 찾을 수 없는 참조예요.', "This reference's original can't be found."))
   if (await S.roleOf(src, user)) return { requested: false, access: true }
-  const day = new Date().toISOString().slice(0, 10)
+  const day = dayOf(new Date())
   const [claim] = await q(`insert into pro_folder_ref_events (tenant_id, folder_id, ref_id, actor, kind, detail, once_key) values ($1,$2,$3,$4,'access_requested','{}',$5)
                            on conflict (once_key) where once_key is not null do nothing returning id`, [T(), folder.id, r.id, user.id, `access:${r.id}:${user.id}:${day}`])
   if (!claim) return { requested: true }
@@ -491,13 +500,17 @@ export async function requestAccess(folder, user, id) {
 }
 
 // ---------- writes under a slot ----------
+// where what was left at a slot of main's work tree is kept: in the folder's own directory, ignored by git (its info/exclude, and left
+// out of every commit besides), so main stays clean and editors find it in the workroom — never inside a slot, never a commit's
+export const LEFTOVER = '.slot-leftover'
 // A person's write into the composing folder at rel (올리기 · 지우기 · 이음오피스 저장 · 작업실 · 폴더에 넣기): refused where a reference
-// is — the slot wins, also over a file a commit from elsewhere put there
+// is — the slot wins, also over a file a commit from elsewhere put there — and in the place leftovers are kept (nothing there is saved)
 export async function assertWritable(folder, rel) {
   if (!folder || folder.kind !== 'managed') return
+  const p = S.safeRel(rel)
+  if (inside(LEFTOVER, p)) throw err(409, L('참조 자리에서 옮겨 둔 파일의 보관 자리예요. 여기에는 저장되지 않아요 — 내려받아 필요한 곳에 올려 주세요.', "This is where files moved off reference slots are kept; nothing is saved here — download them and upload where they belong."), 'ref_readonly')
   const rows = await rowsOf(folder.id)
   if (!rows.length) return
-  const p = S.safeRel(rel)
   if (rows.some((r) => overlaps(r.slot, p))) throw err(409, L('참조된 자료예요. 원본 폴더에서 고쳐 주세요.', 'This is referenced material. Change it in its original folder.'), 'ref_readonly')
 }
 // the slots a new file may not take (filing picks another name beside them)
@@ -505,12 +518,28 @@ export async function slotPaths(folder) {
   if (!folder || folder.kind !== 'managed') return []
   return (await rowsOf(folder.id)).map((r) => r.slot)
 }
+// The paths a commit of this work tree leaves out for these slots: each in both Unicode forms (a Mac may have written the other), none
+// behind a symbolic link (git takes no path beyond one, and nothing can be written there through the tree anyway)
+async function leavePaths(dir, slots) {
+  const out = []
+  for (const s of slots) {
+    for (const form of new Set([s.normalize('NFC'), s.normalize('NFD')])) {
+      const parent = form.includes('/') ? form.slice(0, form.lastIndexOf('/')) : ''
+      if (parent && await linkOnPath(dir, parent)) continue
+      out.push(form)
+    }
+  }
+  return out
+}
 
 // Before any commit this server makes of a folder's work tree (git.js commitAll — main's working tree, or a variation's checkout): the
-// folder's slot paths are kept out of it. What was written there is left where it is (never deleted); for a variation the person whose
-// run it was is told in their conversation. When the slots cannot be looked up the commit is refused (it could sweep a slot in).
+// folder's slot paths are kept out of it, nothing is deleted. In main's working tree what lies at a slot is moved to the folder's
+// leftover place first (main stays clean, and nothing there is swept in later — under someone else's name — once the slot goes), and its
+// editors are told once where it is. In a variation's checkout it stays where it is and the person whose run it was is told in their
+// conversation. When the slots cannot be looked up the commit is refused (it could sweep a slot in).
 // guardDeps: the query it uses (the tests make it fail)
 export const guardDeps = { q }
+const unchecked = () => err(503, L('참조 자리를 확인하지 못해 저장하지 않았어요. 잠시 뒤 다시 해 주세요.', "The reference slots couldn't be checked, so nothing was saved. Please try again in a moment."), 'ref_unchecked')
 export async function slotGuard(cwd) {
   let v, folder, rows
   try {
@@ -521,30 +550,92 @@ export async function slotGuard(cwd) {
   } catch (e) {
     if (missing(e)) return []
     console.warn('[folders] refs: the slots could not be looked up — commit refused', e.message)
-    throw err(503, L('참조 자리를 확인하지 못해 저장하지 않았어요. 잠시 뒤 다시 해 주세요.', "The reference slots couldn't be checked, so nothing was saved. Please try again in a moment."), 'ref_unchecked')
+    throw unchecked()
   }
   const slots = rows.map((r) => r.slot)
-  if (!slots.length) return []
-  const paths = await writtenAt(cwd, slots).catch(() => [])
-  if (paths.length) {
-    console.warn(`[folders] refs: ${paths.length} write(s) at a reference slot of '${folder.slug}' left out of the commit (${v ? `variation ${v.id}` : 'main'})`)
-    if (v) await noteLeftOut(v, paths)
+  const main = !v
+  const leave = await leavePaths(cwd, slots)
+  if (main && await fs.stat(path.join(cwd, LEFTOVER)).then(() => true, () => false)) leave.push(LEFTOVER)
+  if (!slots.length) return leave
+  if (main) {
+    await sweepLeftovers(folder, slots, cwd, { leave })
+    return leave
   }
-  return slots
+  const paths = await writtenAt(cwd, leave.filter((p) => p !== LEFTOVER)).catch(() => [])
+  if (paths.length) {
+    console.warn(`[folders] refs: ${paths.length} write(s) at a reference slot of '${folder.slug}' left out of the commit (variation ${v.id})`)
+    await noteLeftOut(v, paths)
+  }
+  return leave
 }
 G.onBeforeCommit(slotGuard)
-// what is written (changed, new, staged) at these slots in a work tree
-async function writtenAt(dir, slots) {
-  const st = await G.git(dir, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...slots.map((s) => `:(literal)${s}`)], { check: false })
+// what is written (changed, new, staged, deleted) at these paths in a work tree
+async function writtenAt(dir, paths) {
+  if (!paths.length) return []
+  const st = await G.git(dir, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...paths.map((s) => `:(literal)${s}`)], { check: false })
   const parts = st.split('\0')
-  const paths = []
+  const out = []
   for (let i = 0; i < parts.length; i++) {
     const e = parts[i]
     if (!e) continue
-    paths.push(e.slice(3))
-    if (e[0] === 'R' || e[0] === 'C') i++ // (a rename names where it came from next)
+    out.push(e.slice(3))
+    if (e[0] === 'R' || e[0] === 'C') { i++; if (parts[i]) out.push(parts[i]) } // (a rename names where it came from next)
   }
-  return paths
+  return [...new Set(out)]
+}
+// Main's working tree at these slots made clean again: a new file is moved to <folder>/.slot-leftover/<time>/<its path>, a changed file
+// that main has is copied there and put back as main has it (a file main has and the tree lost is put back too). Nothing is deleted.
+// The folder's editors get one notice that says where. → {stamp, paths} (paths: what was moved or copied)
+export async function sweepLeftovers(folder, slots, dir = folder.repo_path, { leave = null, by = 'commit' } = {}) {
+  const specs = leave ? leave.filter((p) => p !== LEFTOVER) : await leavePaths(dir, slots)
+  const written = (await writtenAt(dir, specs)).filter((p) => specs.some((s) => inside(s, p)))
+  if (!written.length) return { stamp: null, paths: [] }
+  // (a leftover place that is not a plain folder of this one — a link — is never written through: the files stay, left out of commits)
+  if (await linkOnPath(dir, LEFTOVER)) { console.warn(`[folders] refs: ${folder.slug} ${LEFTOVER} is a link — leftovers left in place`); return { stamp: null, paths: [] } }
+  await keepOutOfGit(dir)
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const types = await typesAt(dir, 'HEAD', written)
+  const moved = []
+  for (const p of written) {
+    if (await linkOnPath(dir, path.posix.dirname(p) === '.' ? '' : path.posix.dirname(p))) continue
+    const from = path.join(dir, p)
+    const st = await fs.lstat(from).catch(() => null)
+    if (!st || st.isDirectory()) continue
+    const to = path.join(dir, LEFTOVER, stamp, p)
+    await fs.mkdir(path.dirname(to), { recursive: true })
+    if (types.get(p) && !st.isSymbolicLink()) await fs.copyFile(from, to)
+    else await fs.rename(from, to)
+    moved.push(p)
+  }
+  // the index and the tree back to main's for these paths (a file main has is put back as main has it)
+  await G.git(dir, ['reset', '-q', '--', ...specs.map((s) => `:(literal)${s}`)], { check: false })
+  const tracked = written.filter((p) => types.get(p))
+  if (tracked.length) await G.git(dir, ['checkout', '-q', 'HEAD', '--', ...tracked.map((p) => `:(literal)${p}`)], { check: false })
+  if (moved.length) {
+    console.warn(`[folders] refs: ${moved.length} file(s) at a reference slot of '${folder.slug}' moved to ${LEFTOVER}/${stamp} (${by})`)
+    await noteEditors(folder, moved, stamp)
+  }
+  return { stamp, paths: moved }
+}
+// this folder's git never sees the leftover place (its own .gitignore cannot bring it back either: commitAll leaves it out too)
+async function keepOutOfGit(dir) {
+  const f = path.join(dir, '.git', 'info', 'exclude')
+  const now = await fs.readFile(f, 'utf8').catch(() => '')
+  if (now.split('\n').includes(`/${LEFTOVER}/`)) return
+  await fs.mkdir(path.dirname(f), { recursive: true })
+  await fs.writeFile(f, `${now}${now && !now.endsWith('\n') ? '\n' : ''}/${LEFTOVER}/\n`)
+}
+async function noteEditors(folder, paths, stamp) {
+  const people = (await q(`select principal_id as id from pro_folder_members where folder_id=$1 and principal_type='user' and role in ('owner','editor')`, [folder.id]).catch(() => [])).map((x) => x.id)
+  const shown = paths.slice(0, 3).map((x) => `‘${x}’`).join(', ') + (paths.length > 3 ? L(` 외 ${paths.length - 3}개`, ` and ${paths.length - 3} more`) : '')
+  const where = `${LEFTOVER}/${stamp}/`
+  for (const id of people) {
+    await q(`insert into notifications(id,user_id,title,type,description,url,tenant_id) values (gen_random_uuid(),$1,$2,'folder_slot_leftover',$3,$4,$5)`, [id,
+      L(`‘${folder.name}’ 폴더의 참조 자리에 놓인 파일 ${paths.length}개를 옮겨 두었어요`, `${paths.length} file(s) left at a reference slot of ‘${folder.name}’ were moved aside`).slice(0, 200),
+      L(`${shown} — 참조 자리는 원본을 읽는 자리라 이 폴더에 담지 않았어요. 작업실의 ${where} 에 그대로 있어요.`, `${shown} — a reference slot reads its original, so these were not put in this folder. They are in the workroom at ${where}.`),
+      `/workroom/folder/${folder.slug}`, T()]).catch((e) => console.warn('[folders] refs leftover notice', e.message))
+    emit(id, 'notifications', {})
+  }
 }
 async function noteLeftOut(v, paths) {
   const thread = v?.source?.thread_id

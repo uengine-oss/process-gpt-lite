@@ -215,8 +215,11 @@ export async function candidates(user, doc = {}) {
 // each folder as the judge reads it: name · description · its sub-folders · its newest files with their card's summary
 export async function describeFolders(folders, R = DEFAULTS) {
   const out = []
+  // (a file under a folder's reference slot is not one of its files while the slot is there — folders/refs.js)
+  const slots = await REFS.slotsOf(folders.map((f) => f.id)).catch(() => new Map())
   for (const f of folders) {
-    const files = await q(`select path, card from pro_folder_files where folder_id=$1 and path <> '.gitattributes' order by mtime desc nulls last, path limit 300`, [f.id])
+    const files = (await q(`select path, card from pro_folder_files where folder_id=$1 and path <> '.gitattributes' order by mtime desc nulls last, path limit 300`, [f.id]))
+      .filter((x) => !REFS.underSlot(slots.get(String(f.id)), x.path))
     const dirs = new Map()
     for (const x of files) { const i = x.path.indexOf('/'); if (i > 0) { const d = x.path.slice(0, i); if (!dirs.has(d)) dirs.set(d, []); dirs.get(d).push(x) } }
     out.push({ id: f.id, slug: f.slug, name: f.name, description: clean(f.description).slice(0, 160), work: !!f.settings?.work, count: files.length,

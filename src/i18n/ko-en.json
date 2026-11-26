@@ -3185,7 +3185,9 @@
   ],
   [
    "공유한 파일 {0}개와 글을 ‘{1}’ 입력창에 넣었어요.",
-   "Added {0} shared file(s) and text to the ‘{1}’ message box.",
+   "Added {0} shared file(s) and text to the ‘{1}’ message box."
+  ],
+  [
    "기기 {0}대에 보냈어요. 이 브라우저는 푸시를 받지 못해 직접 띄웠어요.",
    "Sent to {0} devices. This browser can't receive push, so it was shown here."
   ],
@@ -4115,7 +4117,9 @@
   ],
   [
    "{0} 외 {1}개",
-   "{0} and {1} more",
+   "{0} and {1} more"
+  ],
+  [
    "{0}개 고침",
    "{0} edited"
   ],
@@ -7377,7 +7381,9 @@
   [
    "[data-test=\"slot-pill\"]",
    "참조",
-   "Reference",
+   "Reference"
+  ],
+  [
    "[data-test=\"share-put\"]",
    "넣기",
    "Add"

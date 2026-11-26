@@ -139,11 +139,14 @@ export const onBeforeCommit = (fn) => { beforeCommit.push(fn) }
 export async function commitAll(cwd, message, author = {}) {
   const leave = []
   for (const fn of beforeCommit) leave.push(...((await fn(cwd)) || []))
+  await git(cwd, ['add', '-A'])
   if (leave.length) {
-    await git(cwd, ['add', '-A', '--', '.', ...leave.map((p) => `:(exclude,literal)${p}`)])
-    // (what was staged there before — an agent's own `git add` — goes back to the last commit's state, in the index only)
-    await git(cwd, ['reset', '-q', '--', ...leave.map((p) => `:(literal)${p}`)], { check: false })
-  } else await git(cwd, ['add', '-A'])
+    // (those paths back to the last commit's state in the index only — the files stay as they are; when that fails nothing is committed)
+    try { await git(cwd, ['reset', '-q', '--', ...leave.map((p) => `:(literal)${p}`)]) } catch (e) {
+      await git(cwd, ['reset', '-q'], { check: false })
+      throw Object.assign(new Error(`some paths could not be left out of the commit: ${e.message}`), { status: 503, code: 'ref_unchecked' })
+    }
+  }
   const staged = (await git(cwd, ['diff', '--cached', '--name-only'])).trim()
   if (!staged) return null
   await git(cwd, [...who(author.name, author.email), 'commit', '-q', '-m', message])
