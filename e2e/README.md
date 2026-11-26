@@ -1515,7 +1515,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/local
 사용자(11-26): 「폴더내 작업실을 누르면 일렉트론에 연결된 모바일이나 일렉트론내 해당 워크트리를 클론하여 작업할 수 있고 로컬 폴더 작업 결과를 서버로 동기화 할 수 있다. 작업본이 여러군데 흩어져서는 안되니 잘 설계해」. 변형마다 작업본이 있는 자리는 하나다(보관 중 · 서버 작업실 · 서버 에이전트 · PC 하나). 자리를 옮길 때는 이전 자리에서 저장하지 않은 것까지 있는 그대로 커밋한 뒤 그 자리를 치운다. 이 단계에서 PC의 자리는 채팅의 「내 PC」 실행이 프로젝트 변형에서 도는 동안에만 생긴다(데스크톱의 작업본은 다음 단계). 화면 · HTTP 시험은 실행 중인 스택(BFF · Vite)을 대상으로 시험 계정 셋(`pro-rt-ws-a` · `ws-b` · `ws-c`)을 사용해 진행한다. 모델은 호출하지 않는다. 증거는 `openspec/specs/variation-seats/e2e/README.md`에 있다.
 
 ```bash
-cd server && node --test test/variationSeats.test.js test/variationSeats.review.test.js test/variationSeats.review2.test.js test/variationSeats.review3.test.js test/variationSeats.review4.test.js
+cd server && node --test test/variationSeats.test.js test/variationSeats.review.test.js test/variationSeats.review2.test.js test/variationSeats.review3.test.js test/variationSeats.review4.test.js test/variationSeats.review5.test.js
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/variation-seats.spec.js
 ```
 
@@ -1535,6 +1535,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/varia
 | 검토 반영 2(PR #86): 무시된 파일은 실행에서는 버리고 사람의 작업실에서는 해당 경로만 `.kept`에 남김(기록 · 화면의 「따로 남긴 파일」 · zip · 14일 뒤 삭제), 잠금은 임대 방식 · 사람의 작업은 몇 초 뒤 409 busy 반환, 오래된 git 잠금 제거 · 실패한 시도는 회차 · 기록 없음 · 쓸기는 재시도를 미룸 · 서버 경로를 포함하지 않는 메시지, 하트비트는 실행의 회차에 속함, 커밋 실패 시 모두 남김 | 스펙 요구 1 · 4 | K-01 · L-02 · W-03 · H-04 · C-05 · F-WL-03 | 단위 · feature | ✅ |
 | 검토 반영 3(PR #86): 남긴 파일은 한도(전체 200 MB · 파일 하나당 100 MB) 내에서만 내려받도록 하고, 크기는 내려받을 때 다시 측정하며, 한도를 넘으면 413과 화면 문구로 알린다. 작업본을 정리하는 동안에는 저장소에서 잠가 두어 다른 변형의 작업 트리 정리와 겹쳐도 해당 경로만 남기며, 보관 기간은 기록 시각부터 계산한다. 임대를 잃으면 정리 · 체크아웃 · 커밋 전에 중단한다. 오래된 git 잠금은 lsof가 명확히 응답할 때만 제거하며, 저장할 때마다 확인하지 않는다. 자리를 잃은 실행에서 커밋하지 못한 결과도 기록한다. | 스펙 요구 1 · 4 | Z-01 · R-02 · E-03 · S-04 · O-05 · F-WL-03 | 단위 · feature | ✅ |
 | 검토 반영 4(PR #86): 치우다 중단된 서버가 남긴 worktree 잠금은 표시로 알아보고, 체크아웃 · 쓸기에서 잠금을 풀고 정리한다(그사이에는 409). 많은 항목을 치워도 이벤트 루프가 멈추지 않는다. 임대 갱신은 행을 다시 확보하지 않으며, 시간 제한이 있는 별도 연결로 수행한다. 남긴 파일은 읽을 차례가 되었을 때 센 크기만큼 읽고, zip은 동시에 2개까지 만든다. 내려받기를 그만두면 자리를 돌려주고, 사라진 폴더에는 404를 반환한다. 결과를 들이기 전에 임대를 잃으면 결과를 새 변형으로 남긴다. `.git` 파일에 의존하지 않고 저장소에서 worktree 항목을 찾는다. 5xx 응답에는 서버 경로를 포함하지 않는다. | 스펙 요구 1 · 4 · 「서버 에이전트의 실행은 자기 자리만 끝낸다」 | R4-B1 ~ B3 · R4-S1 ~ S6 | 단위 | ✅ |
+| 치우기 도중 중단된 서버의 `.retiring/` 사본은 쓸기가 해당 변형의 「따로 남긴 파일」로 옮기고 기록한다(다른 서버가 작업 중인 사본은 그대로 둔다). | 스펙 요구 4 | T-01 | 단위 | ✅ |
 | 데스크톱에서 받아 작업 · 저장 지점 · 돌려놓기 · 남은 변경 / 휴대폰에서 PC에 작업 시키기 / 로컬 작업을 같은 작업본에서 수행 | 설계 P1 ~ P3 | F-WL-10 ~ 32 | — | 다음 단계 |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

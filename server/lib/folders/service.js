@@ -647,13 +647,52 @@ async function letGo(admin) {
 async function retireStopped(admin, reason, olderThan, mine = false) {
   if (mine && reason.trim() === RETIRE_MARK_V1) return true
   const m = /^pgl-retire (\S+):(\d+) (\S+)/.exec(reason || '')
-  if (m && m[1] === os.hostname()) {
-    const pid = Number(m[2])
-    if (pid === process.pid) return !retiring.has(admin)
+  const at = m ? Date.parse(m[3]) : (await fs.stat(path.join(admin, 'locked')).catch(() => null))?.mtimeMs
+  return ranStopped({ host: m?.[1], pid: m ? Number(m[2]) : null, at }, olderThan, retiring.has(admin))
+}
+// did the retire run by host:pid (started at `at`) stop: this process's, when it is not `going` on · another process of this host that is
+// gone · another server's (or one that did not say) once older than `olderThan`
+function ranStopped({ host, pid, at }, olderThan, going) {
+  if (host === os.hostname() && pid) {
+    if (pid === process.pid) return !going
     try { process.kill(pid, 0); return false } catch (e) { return e.code === 'ESRCH' }
   }
-  const at = m ? Date.parse(m[3]) : (await fs.stat(path.join(admin, 'locked')).catch(() => null))?.mtimeMs
   return Number.isFinite(at) && Date.now() - at > olderThan
+}
+// The staging copies of retires that stopped mid-way (a pod killed after the move, before what git does not carry was kept): kept whole in
+// <folders>/.kept/<variation>/<time> and recorded on the variation like any kept folder (「따로 남긴 파일」, removed after the usual days).
+// Which retire, when and for which variation is in its note beside it (<staging>.json — retire writes it before the move). A copy with no
+// note (an older version's) goes by its own time and is kept under no variation. → how many were kept
+const staged = new Set() // staging copies this process's retires are working on now
+export async function keepStoppedStagings() {
+  let n = 0
+  for (const base of new Set([foldersRoot(), workspaceDir()])) {
+    const root = path.join(base, '.retiring')
+    for (const name of await fs.readdir(root).catch(() => [])) {
+      const staging = path.join(root, name)
+      if (name.endsWith('.json') || staged.has(staging) || !(await fs.lstat(staging).catch(() => null))?.isDirectory()) continue
+      let note = null
+      try { note = JSON.parse(await fs.readFile(`${staging}.json`, 'utf8')) } catch { /* no note */ }
+      const at = note?.at ? Date.parse(note.at) : (await fs.stat(staging).catch(() => null))?.mtimeMs
+      if (!ranStopped({ host: note?.host, pid: note?.pid, at }, STALE_RETIRE_MS, false)) continue
+      let [v] = note?.vid ? await q('select id, folder_id from pro_folder_variations where id=$1', [note.vid]).catch(() => []) : []
+      if (!v && note?.repo && note?.branch) {
+        [v] = await q('select v.id, v.folder_id from pro_folder_variations v join pro_folders f on f.id=v.folder_id where f.repo_path=$1 and v.branch=$2', [note.repo, note.branch]).catch(() => [])
+      }
+      const keptDir = path.join(keptRootOf(), String(v?.id || 'none'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(2).toString('hex')}`)
+      if (!(await keepPath(staging, keptDir))) { console.warn(`[folders] a stopped retire's copy could not be kept — left at ${staging}`); continue }
+      const now = new Date()
+      await fs.utimes(keptDir, now, now).catch(() => {})
+      await fs.rm(`${staging}.json`, { force: true })
+      if (v) {
+        await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, note) values ($1,$2,$3,null,'kept',$4)`,
+          [T(), v.id, v.folder_id, JSON.stringify({ dir: path.relative(keptRootOf(), keptDir), count: -1, bytes: await sizeOf(keptDir).catch(() => 0), mode: note?.mode || 'person', why: null })])
+          .catch((e) => { if (e.code !== '42P01') console.warn('[folders] kept record', e.message) })
+      }
+      n++
+    }
+  }
+  return n
 }
 // Worktree entries a retire left locked when it stopped mid-way (a pod killed): their folder is gone and the lock carries RETIRE_MARK.
 // Unlocked and pruned, so their branch can be checked out again. branch: the caller holds that variation's lease (checkout) — its entry is
@@ -691,8 +730,14 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
   const staging = stagingFor(dir)
   await fs.mkdir(path.dirname(staging), { recursive: true })
   const held = await holdWorktree(repo, dir)
+  // (its note, beside the copy until it is gone: who moved it and for which variation — a pod killed meanwhile leaves the copy to the
+  // sweep, keepStoppedStagings)
+  const note = `${staging}.json`
+  const branch = held ? (await fs.readFile(path.join(held, 'HEAD'), 'utf8').catch(() => '')).match(/^ref: refs\/heads\/(.+)$/m)?.[1] || null : null
+  staged.add(staging)
   let keptDir = null, bytes = 0, stuck = false, whole = false, left = []
   try {
+    await fs.writeFile(note, JSON.stringify({ vid, repo, branch, mode, host: os.hostname(), pid: process.pid, at: new Date().toISOString() }))
     await fs.rename(dir, staging)
     const checkout = !!(await fs.stat(path.join(staging, '.git')).catch(() => null))
     left = checkout ? await leftIn(staging, { gitDir: held }) : (await fs.readdir(staging).catch(() => [])).map((n) => ({ path: n, kind: 'untracked' }))
@@ -720,6 +765,8 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
     if (stuck) console.warn(`[folders] some of what git does not carry could not be moved to the kept folder — left at ${staging}`)
     else if (!whole) await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
   } finally {
+    staged.delete(staging)
+    if (!(await fs.lstat(staging).catch(() => null))) await fs.rm(note, { force: true }).catch(() => {})
     if (held) await letGo(held)
   }
   await G.git(repo, ['worktree', 'prune'], { check: false })

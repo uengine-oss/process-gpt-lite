@@ -925,6 +925,7 @@ export async function sweep() {
     if (done) { n++; failures.delete(String(v.id)) }
   }
   n += await freeStoppedEverywhere().catch((e) => { console.warn('[seats] stopped retires', e.message); return 0 })
+  n += await S.keepStoppedStagings().catch((e) => { console.warn('[seats] stopped retires\' copies', e.message); return 0 })
   n += await dropOldKept().catch((e) => { console.warn('[seats] kept', e.message); return 0 })
   return n
 }
