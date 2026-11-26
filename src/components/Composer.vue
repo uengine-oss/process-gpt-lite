@@ -19,6 +19,7 @@ import { dragKind, itemsOf, zoneWords, dragging as draggedItems } from '../fileD
 import { kindOf, kindLabel } from '../artifacts.js'
 // words another app shared, put here and then taken to another place (「다른 곳에」 — components/ShareArrival.vue)
 import { inbox } from '../shareInbox.js'
+import { clip } from '../sendQueue.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
 const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
@@ -161,18 +162,29 @@ onMounted(() => {
 onBeforeUnmount(() => { window.removeEventListener('dragstart', arm); window.removeEventListener('dragend', disarm); window.removeEventListener('drop', disarm) })
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
 
-// A message the server did not take (stores/app.js send — sendIssue, 2026-11-27 recording: sent while a deploy restarted the server, the
-// words vanished): said here while it is sent again, and given back to the box with why when it cannot be. 「그만두기」 takes the words back.
-const issue = computed(() => (props.overlay ? null : app.sendIssue[app.activeId] || null))
-const putBack = (t) => { if (t && !text.value.trim()) { text.value = t; nextTick(() => ta.value?.focus()) } }
-watch(() => (issue.value?.state === 'failed' ? issue.value.id : null), (id) => { if (id) putBack(issue.value.text) })
-function closeIssue() {
-  if (issue.value?.state === 'retrying') putBack(app.takeBackSend(app.activeId))
-  else delete app.sendIssue[app.activeId]
+// Messages the server has not taken yet (stores/app.js unsent, src/sendQueue.js — 2026-11-27 recording: sent while a deploy restarted
+// the server, the words vanished). Each one of this room is a line here: 「다시 보내는 중 · N번째」 (그만두기), 「앞의 메시지를 보낸 뒤 보내요」
+// (그만두기), or kept — 「보내지 못했어요 — 까닭」 with 다시 보내기 · 입력창에 넣기 · 지우기. A kept one of this very conversation comes back into
+// an empty box by itself (said once); a box with words in it is never written over — its line keeps the message until the person picks.
+const lines = computed(() => (props.overlay ? [] : app.unsent.filter((u) => u.threadId === app.activeId)))
+const backNote = ref('')
+function intoBox(id) {
+  const back = app.takeBackUnsent(id)
+  if (!back?.text) return
+  text.value = text.value.trim() ? `${text.value.trimEnd()}\n${back.text}` : back.text
+  nextTick(() => ta.value?.focus())
 }
-const clipText = (t) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > 40 ? `${s.slice(0, 40)}…` : s }
+watch(() => `${lines.value.filter((u) => u.state === 'failed').map((u) => u.id).join(',')}|${app.composerKey(app.activeId)}`, () => {
+  const key = app.composerKey(app.activeId)
+  const u = lines.value.find((x) => x.state === 'failed' && x.key === key)
+  if (!u || text.value.trim()) return
+  backNote.value = `${u.error} · 입력창에 다시 넣어 두었어요`
+  intoBox(u.id)
+}, { immediate: true })
+const clipText = clip
 
 async function submit() {
+  backNote.value = ''
   const v = text.value.trim() || (app.panelMode ? suggestions[si.value].t : '')
   if (!v && !app.attachments.length && !app.fileRefs.some((r) => !r.error)) return
   // sending ends dictation first: nothing heard afterwards comes back into the emptied box
@@ -219,13 +231,24 @@ defineExpose({ focus: () => ta.value?.focus() })
     <Transition name="fade">
       <button v-if="app.panelMode" class="undo press" aria-label="취소" @click="app.panelMode = false"><Icon name="undo" :size="20" /></button>
     </Transition>
-    <p v-if="issue" class="sendissue" :class="issue.state" role="status" data-test="send-issue" :data-state="issue.state">
-      <Icon :name="issue.state === 'retrying' ? 'refresh' : 'alert'" :size="14" />
-      <span v-if="issue.state === 'retrying'" class="shimmer-text">서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {{ issue.tries }}번째 · 「{{ clipText(issue.text) }}」</span>
-      <span v-else>보내지 못했어요 — {{ issue.error }}</span>
-      <span v-if="issue.state !== 'retrying'">입력창에 다시 넣어 두었어요</span>
-      <span v-if="issue.state !== 'retrying' && issue.refs">끌어 놓은 파일은 다시 놓아 주세요</span>
-      <button class="press" data-test="send-issue-close" @click="closeIssue">{{ issue.state === 'retrying' ? '그만두기' : '닫기' }}</button>
+    <p v-for="u in lines" :key="u.id" class="sendissue" :class="u.state" role="status" data-test="send-issue" :data-state="u.state" :data-id="u.id">
+      <Icon :name="u.state === 'failed' ? 'alert' : 'refresh'" :size="14" />
+      <span v-if="u.state === 'retrying'" class="shimmer-text">서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {{ u.tries }}번째</span>
+      <span v-else-if="u.state === 'waiting'">앞의 메시지를 보낸 뒤 보내요</span>
+      <span v-else>보내지 못했어요 — {{ u.error }}</span>
+      <span class="said">「{{ clipText(u.text) }}」</span>
+      <span class="acts">
+        <template v-if="u.state === 'failed'">
+          <button class="press" data-test="send-issue-retry" @click="app.retryUnsent(u.id)">다시 보내기</button>
+          <button class="press" data-test="send-issue-take" @click="intoBox(u.id)">입력창에 넣기</button>
+          <button class="press" data-test="send-issue-forget" @click="app.forgetUnsent(u.id)">지우기</button>
+        </template>
+        <button v-else class="press" data-test="send-issue-close" @click="intoBox(u.id)">그만두기</button>
+      </span>
+    </p>
+    <p v-if="backNote && !overlay" class="sendissue failed" role="status" data-test="send-back-note">
+      <Icon name="alert" :size="14" /><span>{{ backNote }}</span>
+      <span class="acts"><button class="press" data-test="send-back-close" @click="backNote = ''">닫기</button></span>
     </p>
     <ComposerTeam v-if="!overlay" :tm="tm" />
     <div v-if="app.mentions.length || app.docSelChip" class="mentions">
@@ -311,7 +334,9 @@ defineExpose({ focus: () => ta.value?.focus() })
 .sendissue > :deep(svg) { flex: none; color: var(--text-secondary); }
 .sendissue.failed > :deep(svg) { color: #c2410c; }
 .sendissue span { min-width: 0; }
-.sendissue button { margin-left: auto; flex: none; height: 24px; padding: 0 10px; border-radius: 9999px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--hairline); }
+.sendissue .said { color: var(--text-secondary); }
+.sendissue .acts { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.sendissue button { flex: none; height: 24px; padding: 0 10px; border-radius: 9999px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--hairline); }
 .agentrow { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin: 0 6px 6px; }
 .box { display: flex; align-items: flex-end; min-height: 48px; border-radius: 24px; padding-right: 6px; --thin-bg: var(--composer-bg); transition: background-color 1s, margin .4s var(--spring); }
 .panel .box { margin-left: 60px; }

@@ -1,3 +1,4 @@
+import * as SO from './lib/sendOnce.js'
 import express from 'express'
 import { apiHeaders } from './lib/apiHeaders.js'
 import nodeFs from 'node:fs'
@@ -777,6 +778,12 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // nothing to send: no words, no file, no dragged file (a composer that once cleared a chip still being checked sent this — PR #45 review)
   const has = (x) => Array.isArray(x) && x.length > 0
   if (!String(req.body?.text ?? '').trim() && !has(req.body?.files) && !has(req.body?.refs)) return res.status(400).json({ error: L('보낼 말이나 파일이 없어요.', 'There is nothing to send.') })
+  // the page's own id for this message (lib/sendOnce.js): a message sent again after a lost answer is taken once
+  const clientId = SO.validId(req.body?.clientId)
+  if (clientId && !(await SO.claim(t.id, clientId))) { const { send, end } = openStream(res); send('done', { duplicate: true }); return end() }
+  try { return await postMessage(req, res, t, clientId) } finally { if (clientId) SO.release(t.id, clientId) }
+})
+async function postMessage(req, res, t, clientId) {
   // the composer's picker named a CLI on the sender's own PC (lib/localAgents/chat.js): the message goes to their desktop — the server
   // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
   if (req.body?.agent && req.body.agent !== 'default') {
@@ -789,12 +796,12 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     return end()
   }
   // an instance's conversation while a local CLI agent runs one of its steps: what its person types steers that run (lib/localAgents)
-  const steered = await steerFromThread(req.user, t, req.body?.text).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
+  const steered = await steerFromThread(req.user, t, req.body?.text, { clientId }).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
   if (steered) { const { send, end } = openStream(res); send('done', { steered: true, steer: steered.steer, delivered: steered.delivered }); return end() }
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, onDelta: (d) => send('delta', { d }),
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId, onDelta: (d) => send('delta', { d }),
       // the draft answer turned out to be an interim text (a tool call followed it): the page clears the draft (lib/turnPlan.js)
       onRetract: () => send('retract', {}) })
     send('done', final)
@@ -813,7 +820,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     send('error', { message: e.message })
   }
   end()
-})
+}
 // 멈추기: the answer being written in this thread (deepagents /chat/stop), or its browser task.
 // Messages waiting their turn (대기) then go ahead.
 app.post('/api/threads/:id/stop', auth, async (req, res) => {

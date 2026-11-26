@@ -116,9 +116,10 @@ export function uploadTeamFile(file, onProgress = () => {}) {
 // an HTML page where an API answer was expected (the media type, or a body that is a document)
 export const htmlPage = (r, text) => /\bhtml\b/i.test(r.headers?.get?.('content-type') || '') || /^\s*<(!doctype|html)\b/i.test(String(text || ''))
 
-export async function api(path, { method = 'GET', body, raw } = {}) {
+export async function api(path, { method = 'GET', body, raw, signal } = {}) {
   const go = () => fetch(`${BASE}/api${path}`, {
     method,
+    ...(signal ? { signal } : {}),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` },
     body: body ? JSON.stringify(body) : undefined,
   })
@@ -161,20 +162,26 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
 }
 
 // POST that streams SSE events back: onEvent(type, data)
-// A failure says whether the server took the request (accepted): false — no answer at all (no connection) or an error status before
-// any event (a gateway's 502 while the server restarts, a refusal) — the message was not taken and may be sent again; true — the
-// stream broke after the server took it (its answer still arrives as a live event: never sent twice). Before 2026-11-27 an error
-// status was read as an empty stream and the message vanished without a word (recording 07:03: sent during a deploy's restart).
-export async function stream(path, body, onEvent) {
+// POST that streams SSE events back: onEvent(type, data). A failure says whether the server took the request (accepted):
+//   false — no answer at all (no connection, aborted), an error status, or a 200 that is not an event stream (a proxy's page in front):
+//           the message was not taken and may be sent again (src/sendQueue.js)
+//   true  — the stream broke after the server took it: its answer still arrives as live events — never sent again
+// onAccepted() is called the moment the server has taken it (its event stream began), long before the answer is written.
+// Before 2026-11-27 an error status was read as an empty stream and the message vanished without a word (recording 07:03).
+export async function stream(path, body, onEvent, { onAccepted, signal } = {}) {
   let r
-  try { r = await api(path, { method: 'POST', body, raw: true }) } catch (e) { throw Object.assign(e, { accepted: false }) }
-  if (!r.ok) {
+  try { r = await api(path, { method: 'POST', body, raw: true, signal }) } catch (e) {
+    throw Object.assign(e, { accepted: false, ...(e?.name === 'AbortError' ? { aborted: true } : {}), ...(e?.message === 'unauthorized' ? { unauthorized: true } : {}) })
+  }
+  const sse = /text\/event-stream/i.test(r.headers.get('content-type') || '')
+  if (!r.ok || !sse) {
     const t = await r.text().catch(() => '')
     let m = t
     try { m = JSON.parse(t).error || t } catch { /* plain text */ }
     if (m === t && (!t || htmlPage(r, t))) m = `서버가 응답하지 못했어요 (${r.status}).`
-    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.status, accepted: false })
+    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.ok ? 0 : r.status, accepted: false, ...(r.ok ? { proxyPage: true } : {}) })
   }
+  onAccepted?.()
   const reader = r.body.getReader()
   const dec = new TextDecoder()
   let buf = ''
