@@ -7,6 +7,8 @@ import { q, admin } from '../lib/supa.js'
 import * as G from '../lib/folders/git.js'
 import * as S from '../lib/folders/service.js'
 import * as M from '../lib/folders/merge.js'
+// reference slots (참조 자리): every read under one goes through REFS.resolve — the reader's role in the source, now
+import * as REFS from '../lib/folders/refs.js'
 import { reindex, search, changeCard, cardsSoon } from '../lib/folders/indexer.js'
 import { handover } from '../lib/folders/handover.js'
 import { listTeam } from '../lib/team.js'
@@ -139,31 +141,57 @@ export function folderRoutes(auth) {
   // ---------- files ----------
   r.get('/folders/:slug/tree', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    return S.tree(folder, req.query.ref)
+    const own = await S.tree(folder, req.query.ref)
+    // (main: the files of the slots this person may read, at the slots' paths — each with `ref`; the slot wins over a file of this folder
+    // a commit from elsewhere put under it)
+    return !req.query.ref || req.query.ref === 'main' ? [...(await REFS.ownRows(folder, own)), ...(await REFS.treeRows(folder, req.user))] : own
   }))
-  r.get('/folders/:slug/file', auth, h(async (req) => {
+  // a file read through a slot answers from its source, for a reader of the source only; locked · dangling: nothing of it
+  const through = async (folder, rel, ref, user) => {
+    if (ref && ref !== 'main') return null
+    const res = await REFS.resolve(folder, rel, user)
+    const no = REFS.refusal(res)
+    if (no) throw no
+    return res?.state === 'ok' ? res : null
+  }
+  const refused = (res, e) => res.status(e.status).json({ error: e.message, code: e.code })
+  r.get('/folders/:slug/file', auth, h(async (req, res) => {
     const { folder } = await S.access(req.params.slug, req.user)
     const p = S.safeRel(req.query.path)
+    const via = await through(folder, p, req.query.ref, req.user).catch((e) => { if (!String(e.code || '').startsWith('ref_')) throw e; refused(res, e); return false })
+    if (via === false) return
+    if (via) return via.path ? REFS.fileRow(via) : { path: p }
     const [row] = !req.query.ref || req.query.ref === 'main' ? await q('select path, kind, size, sha, mtime, author, card, card_error from pro_folder_files where folder_id=$1 and path=$2', [folder.id, p]) : []
     return row || { path: p }
   }))
   r.get('/folders/:slug/raw', tokenAuth, auth, h(async (req, res) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    const buf = await S.readBlob(folder, req.query.ref, req.query.path)
-    const ext = path.extname(String(req.query.path)).slice(1).toLowerCase()
+    const via = await through(folder, req.query.path, req.query.ref, req.user).catch((e) => { if (!String(e.code || '').startsWith('ref_')) throw e; refused(res, e); return false })
+    if (via === false) return
+    if (via && !via.path) throw Object.assign(new Error(L('파일이 없어요.', "That file isn't there.")), { status: 404 })
+    const buf = via ? await S.readBlob(via.source, via.rev, via.path) : await S.readBlob(folder, req.query.ref, req.query.path)
+    // (a slot's file is of its original's kind — the slot's name need not carry the extension)
+    const ext = path.extname(via ? via.path : String(req.query.path)).slice(1).toLowerCase()
+    const named = path.basename(String(req.query.path))
+    const saveAs = via && ext && !path.extname(named) ? `${named}.${ext}` : named
     res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Cache-Control', 'private, max-age=60')
     // a file an agent wrote must not run script on this origin
     if (/^(html?|svg|xml)$/.test(ext)) res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
-    if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(String(req.query.path)))}`)
+    if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(saveAs)}`)
     res.end(buf)
   }))
   // IeumOffice and the ArtCraft apps load documents only from storage: publish a copy of this
   // version (content-addressed, so the same blob is uploaded once) and hand back its URL
   // editable: main's IeumOffice document, for an editor of the folder — the editor saves into the folder
-  r.post('/folders/:slug/publish', auth, h(async (req) => {
+  r.post('/folders/:slug/publish', auth, h(async (req, res) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
+    // (a slot's file: its source's copy, never edited from here — 「원본 열기」 goes to the original)
+    const via = await through(folder, req.body.path, req.body.ref, req.user).catch((e) => { if (!String(e.code || '').startsWith('ref_')) throw e; refused(res, e); return false })
+    if (via === false) return
+    if (via && !via.path) throw Object.assign(new Error(L('파일이 없어요.', "That file isn't there.")), { status: 404 })
+    if (via) return { ...(await S.publishFile(via.source, via.path, via.rev)), editable: false, origin: { slug: via.source.slug, name: via.source.name, path: via.path } }
     const out = await S.publishFile(folder, req.body.path, req.body.ref)
     const ext = path.extname(String(req.body.path || '')).slice(1).toLowerCase()
     const editable = (!req.body.ref || req.body.ref === 'main') && folder.kind !== 'linked' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(ext)
@@ -189,6 +217,38 @@ export function folderRoutes(auth) {
     await S.removeFile(folder, user(req), req.query.path)
     await reindex(folder)
     return { ok: true }
+  }))
+
+  // ---------- reference slots (lib/folders/refs.js) ----------
+  // (a refusal of a slot carries its code: ref_locked · ref_readonly · ref_taken …)
+  // (a server error is said without its internal words — REFS.answerOf)
+  const hr = (fn) => async (req, res) => {
+    try { res.json(await fn(req)) } catch (e) {
+      if (!e.status) console.warn('[folders] refs', req.method, req.path, e.message)
+      const a = REFS.answerOf(e)
+      res.status(a.status).json(a.body)
+    }
+  }
+  r.get('/folders/:slug/refs', auth, hr(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user)
+    return REFS.list(folder, req.user)
+  }))
+  r.post('/folders/:slug/refs', auth, hr(async (req) => {
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    const b = req.body || {}
+    return REFS.add(folder, role, user(req), { source: b.source, path: b.path, slot: b.slot, label: b.label, keepExt: b.keepExt === true })
+  }))
+  r.patch('/folders/:slug/refs/:id', auth, hr(async (req) => {
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    return REFS.rename(folder, role, user(req), req.params.id, { slot: req.body?.slot, label: req.body?.label })
+  }))
+  r.delete('/folders/:slug/refs/:id', auth, hr(async (req) => {
+    const { folder, role } = await S.access(req.params.slug, req.user)
+    return REFS.remove(folder, role, user(req), req.params.id)
+  }))
+  r.post('/folders/:slug/refs/:id/request-access', auth, hr(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user)
+    return REFS.requestAccess(folder, user(req), req.params.id)
   }))
 
   // ---------- linked repository ----------

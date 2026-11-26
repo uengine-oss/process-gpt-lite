@@ -1561,6 +1561,38 @@
   "회의 내용 요약하기": "Summarize the meeting",
   "제안을 찾지 못했어요.": "I couldn't find that suggestion.",
   "자료를 찾지 못했어요.": "I couldn't find the material.",
+  "볼 수 없는 자료": "Can't be read",
+  "원본에서 찾을 수 없음": "Not found in the original",
+  "접근 요청": "Request access",
+  "파일 올리기": "Upload files",
+  "참조 더하기": "Add a reference",
+  "다른 폴더 · 파일을 가리키기만 해요": "Only points at another folder or file",
+  "원본 열기": "Open original",
+  "이름 바꾸기": "Rename",
+  "참조 빼기": "Remove reference",
+  "원본은 그대로예요": "The original stays as it is",
+  "참조 메뉴": "Reference menu",
+  "자리 이름을 바꿨어요": "Renamed the slot",
+  "참조를 뺐어요 · 원본은 그대로예요": "Reference removed · the original stays as it is",
+  "원본 폴더의 주인에게 접근을 요청했어요": "Asked the original folder's owners for access",
+  "참조된 자료": "Referenced material",
+  "참조 더하기 — 원본 고르기": "Add a reference — choose the original",
+  "무엇을 가리킬까요": "What should it point at?",
+  "자리 이름": "Slot name",
+  "다른 폴더의 자료를 이 폴더 안에 참조로 두면, 내용은 원본에만 있고 이 폴더는 가리키기만 해요. 에이전트에게 이 폴더를 주면 참조된 자료까지 함께 읽어요.": "Keep another folder's material in this folder as a reference: the content stays only in the original, and this folder just points at it. Give this folder to an agent and it reads the referenced material too.",
+  "폴더 찾기": "Find a folder",
+  "참조할 수 있는 폴더가 없어요. 내가 구성원인 폴더만 보여요.": "No folder to reference. Only folders you are a member of are shown.",
+  "폴더 전체": "The whole folder",
+  "이 하위 폴더 아래의 파일을 모두 가리켜요": "Points at every file under this sub-folder",
+  "이 폴더의 파일을 모두 가리켜요": "Points at every file of this folder",
+  "이 폴더에는 아직 파일이 없어요. 폴더 전체를 가리키면 파일이 생길 때 함께 보여요.": "This folder has no files yet. Point at the whole folder and its files show here as they come.",
+  "이 폴더에서 보일 이름": "Name shown in this folder",
+  "원본의 최신(main)을 따라가요 — 원본이 바뀌면 여기서도 바뀐 내용을 읽어요.": "Follows the latest of the original (main) — when the original changes, this reads the change.",
+  "이 이름은 이 폴더의 모든 구성원에게 보여요. 내용은 원본 폴더의 구성원만 볼 수 있어요.": "Every member of this folder sees this name. Only members of the original folder see the content.",
+  "이 폴더에서는 읽기만 해요. 고치려면 원본 폴더에서 고쳐요.": "Read only in this folder. Change it in the original folder.",
+  "더하기": "Add",
+  "더하는 중…": "Adding…",
+  "다음": "Next",
   "파일을 열 수 없어요.": "I can't open the file.",
   "회의에 참여 중인 분만 띄울 수 있어요.": "Only people in the meeting can show material.",
   "받아쓰기 키가 설정되지 않았어요.": "No transcription key is set up.",
@@ -3097,6 +3129,30 @@
   "이 PC 연결하기": "Connect this PC",
   "머리말": "Front matter",
   "연결하는 중…": "Connecting…",
+  "보내기를 눌러야 보내져요.": "It's not sent until you tap Send.",
+  "다른 곳에": "Elsewhere",
+  "어디에 넣을까요?": "Where should this go?",
+  "내 채팅": "My chat",
+  "Process GPT 채팅": "Process GPT chat",
+  "AI에게 이 파일로 질문하기": "Ask the AI about this file",
+  "AI에게 이 글로 질문하기": "Ask the AI about this text",
+  "1:1 대화": "Direct message",
+  "최근에 연 폴더": "Opened recently",
+  "넣기만 하고 보내지는 않아요. 보내기는 직접 눌러 주세요.": "Nothing is sent — it's only added. Tap Send yourself.",
+  "함께 온 글은 폴더에 넣지 않아요.": "Text shared with it isn't added to the folder.",
+  "공유한 내용을 받지 못했어요. 다시 공유해 주세요.": "The shared item didn't arrive. Please share it again.",
+  "공유한 내용을 찾지 못했어요. 다시 공유해 주세요.": "Couldn't find what was shared. Please share it again.",
+  "공유한 내용이 비어 있어요.": "What was shared is empty.",
+  "이 폴더에 넣을 권한이 없어요. 넣을 곳을 골라 주세요.": "You can't add files to this folder. Choose another place.",
+  "글 · 링크": "Text · Link",
+  "휴대폰 홈 화면에 추가하면 다른 앱의 「공유」에 Process GPT 가 나타나요.": "Add it to your phone's home screen and Process GPT appears in other apps' Share menu.",
+  "보이지 않으면 홈 화면의 아이콘을 지우고 다시 추가해 주세요.": "If it doesn't show, remove the home-screen icon and add it again.",
+  "지금 열어 둔 곳": "Open right now",
+  "마지막으로 연 곳": "Last opened",
+  "공유한 파일이 너무 커요. 한 번에 200MB까지 받을 수 있어요.": "The shared files are too large. Up to 200MB can be taken at once.",
+  "안 열어 봄": "Not opened",
+  "열어 봄": "Opened",
+  "에이전트가 고침": "Changed by the agent",
   "앱을 닫아도 팀 메시지 · AI 질문 · 내 할 일을 알려 드려요": "Even with the app closed, get team messages, AI questions and your to-dos",
   "알림이 켜져 있어요": "Notifications are on",
   "메시지는 방별로 묶고, AI 질문은 알림에서 바로 답할 수 있어요": "Messages are grouped by room, and you can answer AI questions right from the notification",
@@ -3143,8 +3199,28 @@
    "Downloaded the last saved version — your latest edits aren't in it · {0}"
   ],
   [
+   "파일 {0}개는 한 번에 받을 수 있는 200MB를 넘어서 넣지 못했어요.",
+   "{0} files went over the 200MB limit for one share and were not added."
+  ],
+  [
+   "파일은 한 번에 {0}개까지 받아요. {1}개는 넣지 못했어요.",
+   "Up to {0} files at a time. {1} were not added."
+  ],
+  [
+   "공유한 파일 {0}개와 글을 ‘{1}’ 입력창에 넣었어요.",
+   "Added {0} shared file(s) and text to the ‘{1}’ message box."
+  ],
+  [
    "기기 {0}대에 보냈어요. 이 브라우저는 푸시를 받지 못해 직접 띄웠어요.",
    "Sent to {0} devices. This browser can't receive push, so it was shown here."
+  ],
+  [
+   "이름에 파일 형식({0})을 붙여요 — 형식도 모든 구성원에게 보여요",
+   "Add the file type ({0}) to the name — every member sees the type too"
+  ],
+  [
+   "{0} · main 따라감 · 이 폴더의 파일 {1}개를 가림",
+   "{0} · follows main · hides {1} file(s) of this folder"
   ],
   [
    "보냈어요 · 기기 {0}대. 몇 초 안에 알림이 와요.",
@@ -3153,6 +3229,26 @@
   [
    "새 창에서 열었어요 — 거기서 저장하세요 · {0}",
    "Opened in a new tab — save it from there · {0}"
+  ],
+  [
+   "‘{0}’({1})는 50MB가 넘어서 넣지 못했어요.",
+   "‘{0}’ ({1}) is over 50MB and was not added."
+  ],
+  [
+   "파일 {0}개는 50MB가 넘어서 넣지 못했어요.",
+   "{0} files are over 50MB and were not added."
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’ 입력창에 넣었어요.",
+   "Added {0} shared file(s) to the ‘{1}’ message box."
+  ],
+  [
+   "‘{0}’ 파일이 비어 있어서 넣지 못했어요.",
+   "‘{0}’ is empty and was not added."
+  ],
+  [
+   "공유한 글을 ‘{0}’ 입력창에 넣었어요.",
+   "Added the shared text to the ‘{0}’ message box."
   ],
   [
    "방금 저장한 판을 내려받았어요 · {0}",
@@ -3169,6 +3265,10 @@
   [
    "지금 쓰는 PC 앱은 {0} 버전, 최신은 {1} 버전이에요",
    "This desktop app is version {0}; the latest is {1}"
+  ],
+  [
+   "… 외 {0}개 · 원본 폴더에서 보기",
+   "… {0} more · see them in the original folder"
   ],
   [
    "PC 앱 새 버전({0})이 나왔어요",
@@ -3215,6 +3315,10 @@
    "No output matches “{0}”."
   ],
   [
+   "빈 파일 {0}개는 넣지 못했어요.",
+   "{0} empty files were not added."
+  ],
+  [
    "「{0}」와 맞는 대화가 없어요.",
    "No conversation matches “{0}”."
   ],
@@ -3235,6 +3339,10 @@
    "{0} outputs of this project"
   ],
   [
+   "파일 {0}개 중 {1}개 열어 봄",
+   "Opened {1} of {0} files"
+  ],
+  [
    "‘{0}’의 시작으로 보여요",
    "Looks like the start of ‘{0}’"
   ],
@@ -3247,8 +3355,16 @@
    "Couldn't download · {0}"
   ],
   [
+   "‘{0}’를 참조로 더했어요",
+   "Added ‘{0}’ as a reference"
+  ],
+  [
    "올렸어요 — 파일 {0}개",
    "Uploaded — {0} files"
+  ],
+  [
+   "{0} · main 따라감",
+   "{0} · follows main"
   ],
   [
    "채팅의 산출물 {0}개 {1}",
@@ -3257,6 +3373,10 @@
   [
    "마지막 소식 {0}초 전",
    "last update {0} s ago"
+  ],
+  [
+   "마지막으로 연 때 {0}",
+   "Last opened {0}"
   ],
   [
    "채팅의 산출물 {0}개",
@@ -3293,6 +3413,18 @@
   [
    "진행 중 변경 {0}",
    "Changes in progress {0}"
+  ],
+  [
+   "{0} · 읽기 전용",
+   "{0} · read only"
+  ],
+  [
+   "「{0}」 폴더 전체",
+   "The whole \"{0}\" folder"
+  ],
+  [
+   "{0} · 폴더 전체",
+   "{0} · whole folder"
   ],
   [
    "{0}에 저장했어요",
@@ -3759,6 +3891,10 @@
    "MCP servers {0}"
   ],
   [
+   "단체방 · {0}명",
+   "Group · {0} people"
+  ],
+  [
    "유휴 {0} ({1})",
    "Idle {0} ({1})"
   ],
@@ -3843,6 +3979,10 @@
    "Run settings {0}"
   ],
   [
+   "· 원본: {0}",
+   "· Original: {0}"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -3901,6 +4041,10 @@
   [
    "프롬프트 {0}",
    "Prompts {0}"
+  ],
+  [
+   "참조 · {0}",
+   "Reference · {0}"
   ],
   [
    "{0}(소유)",
@@ -3995,6 +4139,22 @@
    "{0} files"
   ],
   [
+   "{0} 외 {1}개",
+   "{0} and {1} more"
+  ],
+  [
+   "{0}개 고침",
+   "{0} edited"
+  ],
+  [
+   "{0}개 추가",
+   "{0} added"
+  ],
+  [
+   "{0}개 지움",
+   "{0} removed"
+  ],
+  [
    "나: {0}",
    "Me: {0}"
   ],
@@ -4061,6 +4221,10 @@
   [
    "스펙 {0}",
    "Specs {0}"
+  ],
+  [
+   "참조 {0}",
+   "Reference {0}"
   ],
   [
    "시작{0}",
@@ -7013,6 +7177,22 @@
   [
    "자세히 · {0}단계",
    "Details · {0} steps"
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’에 넣을까요?",
+   "Add {0} shared file(s) to ‘{1}’?"
+  ],
+  [
+   "공유한 파일 {0}개와 글을 ‘{1}’에 넣을까요?",
+   "Add {0} shared file(s) and text to ‘{1}’?"
+  ],
+  [
+   "공유한 글을 ‘{0}’에 넣을까요?",
+   "Add the shared text to ‘{0}’?"
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’ 폴더에 넣을까요?",
+   "Add {0} shared file(s) to the ‘{1}’ folder?"
   ]
  ],
  "context": [
@@ -7220,6 +7400,16 @@
    ".dlb",
    "받는 중…",
    "Downloading…"
+  ],
+  [
+   "[data-test=\"slot-pill\"]",
+   "참조",
+   "Reference"
+  ],
+  [
+   "[data-test=\"share-put\"]",
+   "넣기",
+   "Add"
   ]
  ],
  "따로 관리되는 폴더 · 링크 · git 제어 파일": "Folders managed on their own · links · git control files",

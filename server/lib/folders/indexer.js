@@ -16,6 +16,7 @@ import * as G from './git.js'
 import { readableFolderIds } from './service.js'
 import { withTenant, tenants } from '../tenant.js'
 import { discover as discoverKit } from './kit.js'
+import { summaries as refSummaries, slotsOf, underSlot } from './refs.js'
 
 const DOC = /\.(md|markdown|txt|csv|docx|xlsx|pptx|hwpx|pdf)$/i
 export const kindOf = (p) => (String(p).split('.').pop() || '').toLowerCase()
@@ -298,22 +299,31 @@ export async function search(userId, text, limit = 20) {
         from pro_folder_files f join pro_folders p on p.id=f.folder_id
        where f.folder_id = any($1)) m
      where score > 0 order by score desc, name_hit desc, mtime desc nulls last limit $3`, [ids, likes, limit, ws])
-  return [...folders.map((f) => ({ type: 'folder', folder: f })), ...files.map((f) => ({ type: 'file', folder: { id: f.folder_id, slug: f.slug, name: f.folder_name }, file: { path: f.path, kind: f.kind, size: f.size, card: f.card }, by: f.by, score: f.score, words: ws.length, snippet: f.snippet }))]
+  // (a file of a folder under one of its reference slots is not one of its files while the slot is there — the slot wins)
+  const slots = await slotsOf([...new Set(files.map((f) => f.folder_id))]).catch(() => new Map())
+  const shown = slots.size ? files.filter((f) => !underSlot(slots.get(String(f.folder_id)), f.path)) : files
+  return [...folders.map((f) => ({ type: 'folder', folder: f })), ...shown.map((f) => ({ type: 'file', folder: { id: f.folder_id, slug: f.slug, name: f.folder_name }, file: { path: f.path, kind: f.kind, size: f.size, card: f.card }, by: f.by, score: f.score, words: ws.length, snippet: f.snippet }))]
 }
 
 // the catalog an agent reads first: folders it may use, each with its files and their cards. With a
 // query: only what matched, best first. matched = how many of the query's words a file matched, its
 // folder's name counted in ("장진영 이력서": 장진영 in the file name + 이력서 the folder = 2). A folder
-// that matched by name keeps all its files, the ones that matched first.
-export async function catalog(userId, query) {
+// that matched by name keeps all its files, the ones that matched first. refs: each folder's reference slots too (the agent's folder_catalog;
+// finding a folder by name does not look at its slots' sources)
+export async function catalog(userId, query, { refs = false } = {}) {
   const ids = await readableFolderIds(userId)
   if (!ids.length) return []
   const folders = await q('select id, slug, name, description, kind, index_state from pro_folders where id = any($1) order by updated_at desc', [ids])
   const hits = query ? await search(userId, query, 40) : null
   const ws = query ? words(query).map((w) => w.toLowerCase()) : []
+  // each folder's reference slots as this person sees them (name and state; the source's name only for a reader of it — refs.js).
+  // What a slot holds is never copied into this index: it is read through folder_files · folder_read.
+  const slots = refs ? await refSummaries(folders.map((f) => f.id), { id: userId }).catch((e) => { console.warn('[folders] refs catalog', e.message); return new Map() }) : new Map()
+  const under = await slotsOf(folders.map((f) => f.id)).catch(() => new Map())
   const out = []
   for (const f of folders) {
     let files = await q(`select path, kind, size, card from pro_folder_files where folder_id=$1 order by path limit 200`, [f.id])
+    if (under.has(String(f.id))) files = files.filter((x) => !underSlot(under.get(String(f.id)), x.path))
     let best = 0
     if (hits) {
       const score = new Map(hits.filter((h) => h.type === 'file' && h.folder.id === f.id).map((h) => [h.file.path, h.score]))
@@ -324,7 +334,8 @@ export async function catalog(userId, query) {
       best = files[0]?.matched || named
     }
     out.push({ slug: f.slug, name: f.name, description: f.description, kind: f.kind, index: f.index_state?.state, best,
-      files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [], ...(hits ? { matched: x.matched } : {}) })) })
+      files: files.map((x) => ({ path: x.path, size: x.size, summary: x.card?.abstract || null, keywords: x.card?.keywords || [], ...(hits ? { matched: x.matched } : {}) })),
+      ...(slots.get(String(f.id))?.length ? { refs: slots.get(String(f.id)) } : {}) })
   }
   if (hits) out.sort((a, b) => b.best - a.best)
   return out.map(({ best, ...f }) => f)

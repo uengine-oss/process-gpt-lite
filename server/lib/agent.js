@@ -1537,7 +1537,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (projectWork) { thread = { ...thread, conversation_id: projectWork.conv }; turn.setConv(projectWork.conv); text += projectWork.note }
     else {
       const ref = await TF.linkOf(threadId).catch(() => null)
-      const hint = ref ? await TF.refHint(ref).catch(() => '') : ''
+      const hint = ref ? await TF.refHint(ref, user).catch(() => '') : ''
       if (hint) { text += hint; console.log(`[folders] reference hint: '${ref.slug}' thread=${String(threadId).slice(0, 8)}`) }
     }
   }

@@ -8,6 +8,8 @@ import { startDrag, folderItem, dragKind, dragging as draggedItems, itemsOf, zon
 import Icon from '../Icon.vue'
 import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
+// reference slots (참조 자리 — server lib/folders/refs.js): other folders' material this folder only points at
+import RefSheet from './RefSheet.vue'
 import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 // 에이전트 자산 · the computers that upload this folder (champion folders — src/desktopFolders.js, server lib/folders/kit.js · sources.js)
@@ -15,6 +17,8 @@ import KitTab from './KitTab.vue'
 import { bridge as pcBridge, pcFolders, refreshPcFolders, pcFolderOf, stateText, stopped, whyText, reasonText } from '../../desktopFolders.js'
 import { folders as F, whoOf, holderName, roleLabel, statusLabel, sourceLabel, indexLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
+// files another app shared (Android's share sheet), put in this folder after 「이 폴더에 넣기」 (components/ShareArrival.vue)
+import { inbox } from '../../shareInbox.js'
 
 const props = defineProps({ slug: String })
 const emit = defineEmits(['preview'])
@@ -38,6 +42,9 @@ const cand = ref(null)
 const skill = ref(null)        // skill folders: author, visibility, agents & bosses, contributions, merge right
 const sharing2 = ref(false)
 const fileInput = ref(null)
+// the folder's reference slots as I see them: ok (its files come with the tree, each with `ref`) · locked · dangling
+const refs = ref([])
+const addingRef = ref(false)
 const say = (t) => { toast.value = t; setTimeout(() => { if (toast.value === t) toast.value = '' }, 2800) }
 
 const can = (need) => ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[folder.value?.role] >= ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[need]
@@ -49,8 +56,8 @@ const mine = computed(() => (folder.value && pcFolders.ready ? pcFolderOf(folder
 const syncing = ref('')
 async function load() {
   try {
-    const [f, t, k] = await Promise.all([F.get(props.slug), F.tree(props.slug), F.kit(props.slug).catch(() => [])])
-    folder.value = f; files.value = t; kit.value = k
+    const [f, t, k, rs] = await Promise.all([F.get(props.slug), F.tree(props.slug), F.kit(props.slug).catch(() => []), F.refs(props.slug).catch(() => [])])
+    folder.value = f; files.value = t; kit.value = k; refs.value = rs
     sources.value = f.settings?.champion ? await F.sources(props.slug).catch(() => []) : []
     if (pcBridge()?.list) refreshPcFolders()
     if (f.kind === 'skill') skill.value = await F.skillInfo(props.slug).catch(() => null)
@@ -66,17 +73,65 @@ const busy = computed(() => folder.value && (folder.value.variations.some((v) =>
 let poll = setInterval(() => { if (busy.value && !merging.value) load() }, 4000)
 onBeforeUnmount(() => clearInterval(poll))
 
+// the folder's own files by folder; a slot is a row of its own where it is — a folder-like one among the folders (its files under it),
+// a readable file slot among the files
+const ownFiles = computed(() => files.value.filter((f) => !f.ref))
+const slotFiles = (s) => files.value.filter((f) => f.ref?.id === s.id)
 const tree = computed(() => {
   const dirs = new Map(), top = []
-  for (const f of files.value) {
+  for (const f of ownFiles.value) {
     const i = f.path.lastIndexOf('/')
     if (i < 0) { top.push(f); continue }
     const d = f.path.slice(0, i)
     if (!dirs.has(d)) dirs.set(d, [])
     dirs.get(d).push(f)
   }
-  return { dirs: [...dirs.entries()].sort((a, b) => a[0].localeCompare(b[0])), top }
+  const fileSlot = (s) => s.state === 'ok' && s.type === 'file'
+  const groups = [...[...dirs.entries()].map(([d, list]) => ({ key: `d:${d}`, d, list })), ...refs.value.filter((s) => !fileSlot(s)).map((s) => ({ key: `s:${s.id}`, d: s.slot, slot: s, list: slotFiles(s) }))]
+  const rows = [...top.map((f) => ({ key: `f:${f.path}`, f })), ...refs.value.filter(fileSlot).map((s) => ({ key: `s:${s.id}`, slot: s, f: slotFiles(s)[0] || { path: s.slot, ref: { id: s.id } } }))]
+  return { dirs: groups.sort((a, b) => a.d.localeCompare(b.d)), top: rows.sort((a, b) => (a.f?.path || '').localeCompare(b.f?.path || '')) }
 })
+// a slot's second words: where it points (for a reader of the original), or why it gives nothing
+// (hidden: files of this folder a commit from elsewhere put under the slot — the slot wins, they show again when it goes)
+const slotMeta = (s) => (s.state === 'locked' ? '볼 수 없는 자료' : s.state === 'dangling' ? '원본에서 찾을 수 없음'
+  : `${s.from?.name || ''}${s.type === 'folder' ? '' : ` / ${s.from?.path || ''}`} · main 따라감`) + (s.hidden ? ` · 이 폴더의 파일 ${s.hidden}개를 가림` : '')
+// a slot's file is of its original's kind (the slot's name need not carry the extension)
+const kindOfRow = (f) => kindOf(f.source_path || f.path)
+const inSlot = (s, f) => (f.path.startsWith(`${s.slot}/`) ? f.path.slice(s.slot.length + 1) : baseName(f.path))
+// the slot's menu (⋯): 원본 열기 · 이름 바꾸기 · 참조 빼기 — beside the button on a wide screen, a sheet from the bottom on a phone
+const menu = ref(null)  // {s, x, y}
+const slotActs = (s) => [...(s.state !== 'locked' && s.from ? ['open'] : []), ...(can('editor') ? ['rename', 'remove'] : [])]
+function openMenu(e, s) {
+  const b = e.currentTarget.getBoundingClientRect()
+  menu.value = { s, x: Math.max(12, Math.min(window.innerWidth - 232, b.right - 220)), y: Math.min(window.innerHeight - 180, b.bottom + 6) }
+}
+function openSource(s) {
+  menu.value = null
+  if (!s.from) return
+  // (a file that is there opens in its folder; a gone one opens the folder)
+  router.push(s.type === 'file' && s.state === 'ok' ? { path: `/folders/${s.from.slug}`, query: { file: s.from.path } } : `/folders/${s.from.slug}`)
+}
+async function renameSlot(s) {
+  menu.value = null
+  const name = prompt('자리 이름 (이 폴더의 모든 구성원에게 보여요)', s.label)
+  if (!name || name.trim() === s.label) return
+  try { await F.renameRef(props.slug, s.id, { label: name.trim() }); await load(); say('자리 이름을 바꿨어요') } catch (e) { say(e.message) }
+}
+async function removeSlot(s) {
+  menu.value = null
+  if (!confirm(`참조 ‘${s.label}’를 뺄까요? 원본 폴더의 자료는 그대로예요.`)) return
+  try { await F.removeRef(props.slug, s.id); await load(); say('참조를 뺐어요 · 원본은 그대로예요') } catch (e) { say(e.message) }
+}
+async function askAccess(s) {
+  try { await F.requestRefAccess(props.slug, s.id); s.requested = true; say('원본 폴더의 주인에게 접근을 요청했어요') } catch (e) { say(e.message) }
+}
+// 「올리기 ▾」: 파일 올리기 · 참조 더하기
+const upMenu = ref(null)  // {x, y}
+function openUpMenu(e) {
+  const b = e.currentTarget.getBoundingClientRect()
+  upMenu.value = upMenu.value ? null : { x: Math.max(12, Math.min(window.innerWidth - 232, b.right - 220)), y: b.bottom + 6 }
+}
+function refAdded(r) { addingRef.value = false; load(); say(`‘${r.label}’를 참조로 더했어요`) }
 function toggle(d) { const s = new Set(closed.value); s.has(d) ? s.delete(d) : s.add(d); closed.value = s }
 const live = computed(() => (folder.value?.variations || []).filter((v) => ['open', 'ready', 'conflicted'].includes(v.status)))
 const past = computed(() => (folder.value?.variations || []).filter((v) => ['merged', 'discarded'].includes(v.status)))
@@ -157,16 +212,24 @@ watch(() => (route.query.share && folder.value?.id ? `${route.query.share}:${fol
   router.replace({ query: rest })
 }, { immediate: true })
 
+// files another app shared, after 「이 폴더에 넣기」 (components/ShareArrival.vue): this folder's own upload — the editor's right, the progress, 「올렸어요」
+watch(() => (inbox.forFolder?.slug === props.slug && folder.value ? inbox.forFolder : null), (s) => {
+  if (!s) return
+  inbox.forFolder = null
+  uploadFiles(s.files)
+}, { immediate: true })
 async function uploadFiles(list, dir = '') {
   if (!can('editor')) return say('올리려면 편집 권한이 필요해요.')
+  let failed = 0
   for (const file of list) {
     const rel = (file.webkitRelativePath || '').trim() || (dir ? `${dir}/${file.name}` : file.name)
     uploading.value = rel
-    try { await F.upload(props.slug, rel, file) } catch (e) { say(`${file.name}: ${e.message}`) }
+    try { await F.upload(props.slug, rel, file) } catch (e) { failed++; say(`${file.name}: ${e.message}`) }
   }
   uploading.value = ''
   await load()
-  say('올렸어요 — 문서 카드는 잠시 뒤 생겨요')
+  // (a refusal — a reference slot's name, say — stays on screen instead of 「올렸어요」)
+  if (!failed) say('올렸어요 — 문서 카드는 잠시 뒤 생겨요')
 }
 function onDrop(e) {
   const k = dragKind(e.dataTransfer?.types)
@@ -228,7 +291,8 @@ async function syncNow() {
 const revealPc = () => pcBridge()?.reveal?.(folder.value.id)
 const CTYPE = { CREATED: '만듦', MODIFIED: '고침', PROPOSAL_APPROVED: '제안 반영' }
 const cardOf = (f) => f.card?.abstract
-const indexLines = computed(() => files.value.map((f) => `${f.path}  ·  ${fmtSize(Number(f.size))}${cardOf(f) ? '\n    └ ' + cardOf(f) : ''}`).join('\n'))
+// (the folder's own index: what a slot holds is its original's, never copied in here)
+const indexLines = computed(() => ownFiles.value.map((f) => `${f.path}  ·  ${fmtSize(Number(f.size))}${cardOf(f) ? '\n    └ ' + cardOf(f) : ''}`).join('\n'))
 const ix = computed(() => folder.value?.index_state || {})
 </script>
 
@@ -289,30 +353,58 @@ const ix = computed(() => folder.value?.index_state || {})
             <span v-if="uploading" class="up"><span class="spin" /> {{ uploading }}</span>
             <template v-if="tab === 'files' && can('editor') && folder.kind === 'managed'">
               <input ref="fileInput" type="file" multiple hidden @change="uploadFiles([...$event.target.files]); $event.target.value = ''" />
-              <button class="tb press" @click="fileInput.click()"><FIcon name="upload" :size="15" /> 올리기</button>
+              <button class="tb press" data-test="folder-add-menu" :aria-expanded="!!upMenu" @click="openUpMenu"><FIcon name="upload" :size="15" /> 올리기<span class="caret" aria-hidden="true">▾</span></button>
             </template>
           </div>
 
           <div v-if="tab === 'files'" class="files scroll" :class="{ drag: dragging }">
             <div class="fr th"><span>이름</span><span>마지막 수정</span><span>크기</span></div>
-            <template v-for="[d, list] in tree.dirs" :key="d">
-              <button class="fr dir" @click="toggle(d)">
-                <span class="fn"><span class="tw">{{ closed.has(d) ? '▸' : '▾' }}</span><FIcon name="folder" :size="17" /> {{ d }}</span><span /><span class="sz">{{ list.length }}개</span>
+            <template v-for="g in tree.dirs" :key="g.key">
+              <!-- a reference slot shown like a folder: ↗ · 「참조」 · where it points (or why it gives nothing) · ⋯ -->
+              <div v-if="g.slot" class="fr dir slot" :class="g.slot.state" data-test="folder-slot" :data-slot="g.slot.slot" :data-state="g.slot.state">
+                <button class="fn press" :disabled="g.slot.state !== 'ok'" @click="toggle(g.d)">
+                  <span class="tw">{{ g.slot.state === 'ok' ? (closed.has(g.d) ? '▸' : '▾') : '' }}</span>
+                  <span class="si" :class="g.slot.state"><FIcon :name="g.slot.state === 'locked' ? 'lock' : g.slot.state === 'ok' ? 'folder' : 'warn'" :size="17" /><i v-if="g.slot.state === 'ok'" class="arr"><FIcon name="ref" :size="11" /></i></span>
+                  <span class="sl"><span class="sn"><span class="nm">{{ g.slot.label }}</span><span class="rp" data-test="slot-pill">참조</span><span class="ra" aria-hidden="true"><FIcon name="ref" :size="13" /></span></span><small class="sm-meta">참조 · {{ slotMeta(g.slot) }}</small></span>
+                </button>
+                <span class="by meta">{{ slotMeta(g.slot) }}</span>
+                <span class="sz">
+                  <template v-if="g.slot.state === 'ok'">{{ g.slot.count ?? g.list.length }}개</template>
+                  <button v-else-if="g.slot.state === 'locked' && !g.slot.requested" class="ask press" data-test="slot-request" @click="askAccess(g.slot)">접근 요청</button>
+                  <span v-else-if="g.slot.state === 'locked'" class="asked" data-test="slot-requested">요청했어요</span>
+                  <button v-if="slotActs(g.slot).length" class="more press" title="참조 메뉴" data-test="slot-more" @click="openMenu($event, g.slot)"><FIcon name="more" :size="18" /></button>
+                </span>
+              </div>
+              <button v-else class="fr dir" @click="toggle(g.d)">
+                <span class="fn"><span class="tw">{{ closed.has(g.d) ? '▸' : '▾' }}</span><FIcon name="folder" :size="17" /> {{ g.d }}</span><span /><span class="sz">{{ g.list.length }}개</span>
               </button>
-              <template v-if="!closed.has(d)">
-                <div v-for="f in list" :key="f.path" class="fr file" :class="{ sel: sel.has(f.path) }" draggable="true" data-test="folder-file" :data-file="f.path" @dragstart="dragRow($event, f)">
-                  <button class="fn in press" @click="clickRow($event, f)"><span class="fic sm" :class="kindOf(f.path)">{{ kindLabel[kindOf(f.path)] }}</span><span class="nm">{{ baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
+              <template v-if="!closed.has(g.d)">
+                <!-- a slot's files: read only here (no drag, no delete) — opened, they read the original -->
+                <div v-for="f in g.list" :key="f.path" class="fr file" :class="{ sel: !g.slot && sel.has(f.path), reffile: !!g.slot }" :draggable="!g.slot" data-test="folder-file" :data-file="f.path" @dragstart="!g.slot && dragRow($event, f)">
+                  <button class="fn in press" @click="g.slot ? preview(f) : clickRow($event, f)"><span class="fic sm" :class="kindOfRow(f)">{{ kindLabel[kindOfRow(f)] }}</span><span class="nm">{{ g.slot ? inSlot(g.slot, f) : baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
                   <span class="by"><Avatar v-if="f.author" :who="whoOf({ name: f.author, id: f.author })" :size="20" /> {{ f.author }} · {{ ago(f.mtime) }}</span>
-                  <span class="sz">{{ fmtSize(Number(f.size)) }}<button v-if="can('editor') && folder.kind === 'managed'" class="del" title="지우기" @click="removeFile(f)"><Icon name="trash" :size="14" /></button></span>
+                  <span class="sz">{{ fmtSize(Number(f.size)) }}<button v-if="!g.slot && can('editor') && folder.kind === 'managed'" class="del" title="지우기" @click="removeFile(f)"><Icon name="trash" :size="14" /></button></span>
                 </div>
+                <!-- more than are listed here: the rest in the original folder -->
+                <button v-if="g.slot && g.slot.count > g.list.length" class="fr file more-row press" data-test="slot-more-files" @click="openSource(g.slot)">
+                  <span class="fn in"><span class="nm">… 외 {{ (g.slot.count - g.list.length).toLocaleString() }}개 · 원본 폴더에서 보기</span></span><span /><span />
+                </button>
               </template>
             </template>
-            <div v-for="f in tree.top" :key="f.path" class="fr file" :class="{ sel: sel.has(f.path) }" draggable="true" data-test="folder-file" :data-file="f.path" @dragstart="dragRow($event, f)">
-              <button class="fn press" @click="clickRow($event, f)"><span class="fic sm" :class="kindOf(f.path)">{{ kindLabel[kindOf(f.path)] }}</span><span class="nm">{{ baseName(f.path) }}</span><span v-if="f.has_card" class="cd" :title="cardOf(f)">카드</span></button>
-              <span class="by"><Avatar v-if="f.author" :who="whoOf({ name: f.author, id: f.author })" :size="20" /> {{ f.author }} · {{ ago(f.mtime) }}</span>
-              <span class="sz">{{ fmtSize(Number(f.size)) }}<button v-if="can('editor') && folder.kind === 'managed'" class="del" title="지우기" @click="removeFile(f)"><Icon name="trash" :size="14" /></button></span>
-            </div>
-            <p v-if="!files.length" class="none">아직 파일이 없어요.</p>
+            <template v-for="t in tree.top" :key="t.key">
+              <!-- a readable file slot -->
+              <div v-if="t.slot" class="fr file slot ok" data-test="folder-slot" :data-slot="t.slot.slot" data-state="ok">
+                <button class="fn press" @click="preview(t.f)"><span class="fw"><span class="fic sm" :class="kindOfRow(t.f)">{{ kindLabel[kindOfRow(t.f)] }}</span><i class="arr"><FIcon name="ref" :size="11" /></i></span><span class="sl"><span class="sn"><span class="nm">{{ baseName(t.f.path) }}</span><span class="rp" data-test="slot-pill">참조</span><span class="ra" aria-hidden="true"><FIcon name="ref" :size="13" /></span></span><small class="sm-meta">참조 · {{ slotMeta(t.slot) }}</small></span></button>
+                <span class="by meta">{{ slotMeta(t.slot) }}</span>
+                <span class="sz">{{ t.f.size != null ? fmtSize(Number(t.f.size)) : '' }}<button v-if="slotActs(t.slot).length" class="more press" title="참조 메뉴" data-test="slot-more" @click="openMenu($event, t.slot)"><FIcon name="more" :size="18" /></button></span>
+              </div>
+              <div v-else class="fr file" :class="{ sel: sel.has(t.f.path) }" draggable="true" data-test="folder-file" :data-file="t.f.path" @dragstart="dragRow($event, t.f)">
+                <button class="fn press" @click="clickRow($event, t.f)"><span class="fic sm" :class="kindOf(t.f.path)">{{ kindLabel[kindOf(t.f.path)] }}</span><span class="nm">{{ baseName(t.f.path) }}</span><span v-if="t.f.has_card" class="cd" :title="cardOf(t.f)">카드</span></button>
+                <span class="by"><Avatar v-if="t.f.author" :who="whoOf({ name: t.f.author, id: t.f.author })" :size="20" /> {{ t.f.author }} · {{ ago(t.f.mtime) }}</span>
+                <span class="sz">{{ fmtSize(Number(t.f.size)) }}<button v-if="can('editor') && folder.kind === 'managed'" class="del" title="지우기" @click="removeFile(t.f)"><Icon name="trash" :size="14" /></button></span>
+              </div>
+            </template>
+            <p v-if="!files.length && !refs.length" class="none">아직 파일이 없어요.</p>
             <p v-if="can('editor') && folder.kind === 'managed'" class="drop">파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)</p>
           </div>
 
@@ -413,6 +505,22 @@ const ix = computed(() => folder.value?.index_state || {})
 
       <MergeSheet v-if="merging" :folder="folder" :ids="merging.ids" :integration="merging.integration" @close="merging = null; load()" @done="merged" />
       <ShareSheet v-if="sharing" :folder="folder" :pick="pickShare" @close="sharing = false; pickShare = ''; load()" />
+      <RefSheet v-if="addingRef" :folder="folder" :taken="[...refs.map((r) => r.label), ...refs.map((r) => r.slot)]" @close="addingRef = false" @added="refAdded" />
+      <!-- the menus: beside their button on a wide screen, a sheet from the bottom on a phone -->
+      <div v-if="upMenu" class="mveil" @click.self="upMenu = null">
+        <div class="pop glass" role="menu" :style="{ left: `${upMenu.x}px`, top: `${upMenu.y}px` }">
+          <button class="mi press" role="menuitem" @click="upMenu = null; fileInput.click()"><FIcon name="upload" :size="16" /> 파일 올리기</button>
+          <button class="mi press" role="menuitem" data-test="folder-add-ref" @click="upMenu = null; addingRef = true"><FIcon name="ref" :size="16" /> 참조 더하기<small>다른 폴더 · 파일을 가리키기만 해요</small></button>
+        </div>
+      </div>
+      <div v-if="menu" class="mveil" @click.self="menu = null">
+        <div class="pop glass" role="menu" data-test="slot-menu" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }">
+          <div class="mh">{{ menu.s.label }}<small>참조 · {{ slotMeta(menu.s) }}</small></div>
+          <button v-if="slotActs(menu.s).includes('open')" class="mi press" role="menuitem" data-test="slot-open-source" @click="openSource(menu.s)"><FIcon name="open" :size="16" /> 원본 열기</button>
+          <button v-if="slotActs(menu.s).includes('rename')" class="mi press" role="menuitem" data-test="slot-rename" @click="renameSlot(menu.s)"><FIcon name="index" :size="16" /> 이름 바꾸기</button>
+          <button v-if="slotActs(menu.s).includes('remove')" class="mi press danger" role="menuitem" data-test="slot-remove" @click="removeSlot(menu.s)"><Icon name="trash" :size="15" /> 참조 빼기<small>원본은 그대로예요</small></button>
+        </div>
+      </div>
     </template>
     <Transition name="fade"><div v-if="toast" class="toast">{{ toast }}</div></Transition>
     <Transition name="fade">
@@ -545,6 +653,42 @@ section.pane { position: relative; }
 .vf .dark-btn { height: 44px; }
 .dark-btn { background: var(--ink); color: var(--ink-inverse); }
 .toast { position: fixed; left: 50%; bottom: 28px; translate: -50% 0; padding: 12px 18px; border-radius: 14px; background: #1d1d1f; color: #f5f5f7; font-size: 14px; z-index: 50; max-width: 90vw; }
+/* reference slots: ↗ and a 「참조」 pill, where it points in the date column; locked · gone · taken ones muted */
+.fr.slot { position: relative; }
+.fr.slot .fn:disabled { cursor: default; opacity: 1; }
+.si { position: relative; flex: none; display: grid; place-items: center; width: 17px; margin-right: 4px; color: var(--text-primary); }
+.si.locked { color: var(--text-secondary); } .si.dangling { color: #c27a12; }
+.fw { position: relative; flex: none; display: grid; }
+.fw .arr { position: absolute; right: -4px; bottom: -4px; width: 14px; height: 14px; border-radius: 7px; display: grid; place-items: center; background: #2a78d6; color: #fff; box-shadow: 0 0 0 1.5px var(--regular-solid-bg); }
+.si .arr { position: absolute; right: -5px; bottom: -4px; width: 13px; height: 13px; border-radius: 7px; display: grid; place-items: center; background: #2a78d6; color: #fff; }
+.sl { min-width: 0; display: flex; flex-direction: column; }
+.sn { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rp { flex: none; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; background: rgba(42, 120, 214, .14); color: #1f63b8; }
+.slot.locked .rp, .slot.dangling .rp { background: var(--button-bg); color: var(--text-secondary); }
+.ra { display: none; color: #2a78d6; }
+.sm-meta { display: none; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.by.meta { color: var(--text-secondary); }
+.slot.locked .nm, .slot.dangling .nm { color: var(--text-secondary); }
+.slot.dangling .by.meta { color: #b06a0c; }
+.fr.reffile .fn.in { padding-left: 34px; }
+.more-row .nm { color: var(--text-secondary); font-size: 13px; }
+.caret { font-size: 10px; margin-left: -2px; opacity: .7; }
+.more { flex: none; width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; color: var(--text-secondary); }
+.more:hover { background: var(--button-bg); color: var(--text-primary); }
+.ask { flex: none; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; font-weight: 500; background: var(--ink); color: var(--ink-inverse); white-space: nowrap; }
+.asked { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.mveil { position: fixed; inset: 0; z-index: 46; }
+.pop { position: fixed; width: 220px; padding: 6px; border-radius: 16px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 12px 40px rgba(0, 0, 0, .22); --regular-bg: var(--regular-solid-bg); animation: pop-in .25s var(--spring) both; }
+.mh { padding: 8px 10px 6px; font-size: 13.5px; font-weight: 600; display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.mh small, .mi small { font-size: 11.5px; font-weight: 400; color: var(--text-secondary); }
+.mi { display: grid; grid-template-columns: 20px 1fr; align-items: center; column-gap: 8px; min-height: 40px; padding: 6px 10px; border-radius: 11px; text-align: left; font-size: 14px; }
+.mi small { grid-column: 2; }
+@media (hover: hover) { .mi:hover { background: var(--cell-bg); } }
+.mi.danger { color: var(--color-error); }
+:root[data-theme="dark"] .rp { background: rgba(120, 175, 255, .2); color: #9cc7ff; }
+:root[data-theme="dark"] .slot.locked .rp, :root[data-theme="dark"] .slot.dangling .rp { background: var(--button-bg); color: var(--text-secondary); }
+:root[data-theme="dark"] .si.dangling, :root[data-theme="dark"] .slot.dangling .by.meta { color: #f0b45a; }
+:root[data-theme="dark"] .ra { color: #8cc1ff; }
 @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; overflow-y: auto; } .fd { overflow-y: auto; } }
 /* phone (src/viewport.js): the title gets the first line, members and 공유·작업실 the next; the tab row
    scrolls sideways instead of wrapping; file rows drop the date column */
@@ -569,6 +713,18 @@ section.pane { position: relative; }
   .up { max-width: 120px; }
   .fr { grid-template-columns: minmax(0, 1fr) auto; padding: 4px 6px; }
   .fr > :nth-child(2) { display: none; }
+  /* a slot: two lines — its name with ↗ (no pill words), then 「참조 · where it points」 */
+  .fr.slot { min-height: 54px; }
+  .slot .rp { display: none; }
+  .slot.ok .ra { display: inline-flex; }
+  .slot .sm-meta { display: block; }
+  .slot.dangling .sm-meta { color: #b06a0c; }
+  :root[data-theme="dark"] .slot.dangling .sm-meta { color: #f0b45a; }
+  .fr.reffile .fn.in { padding-left: 22px; }
+  /* the menus come up from the bottom */
+  .pop { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; border-radius: 20px 20px 0 0; padding: 10px 10px calc(14px + env(safe-area-inset-bottom)); animation: sheet-up .28s var(--spring) both; }
+  .mveil { background: rgba(20, 24, 32, .28); }
+  .mi { min-height: 48px; font-size: 15px; }
   .fn.in { padding-left: 14px; }
   .del { opacity: .6; }
   .hr { grid-template-columns: 64px minmax(0, 1fr); row-gap: 4px; padding: 10px 6px; }
@@ -582,4 +738,5 @@ section.pane { position: relative; }
   .vf span { word-break: keep-all; }
   .vf .dark-btn { flex: none; white-space: nowrap; }
 }
+@keyframes sheet-up { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
 </style>

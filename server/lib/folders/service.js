@@ -12,6 +12,8 @@ import { q, admin } from '../supa.js'
 import * as G from './git.js'
 import { PGPT_ROOT } from '../paths.js'
 import { L } from '../lang.js'
+// a reference slot is read only in the folder that holds it (folders/refs.js)
+import * as REFS from './refs.js'
 import * as PS from '../privateStore.js'
 import { people } from '../people.js'
 import { isAdmin } from '../team.js'
@@ -288,6 +290,7 @@ export function safeRel(rel) {
 export async function upload(folder, user, rel, buf) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더에는 아직 올릴 수 없어요.', "You can't upload to a linked folder yet."))
   const p = safeRel(rel)
+  await REFS.assertWritable(folder, p)
   await assertNoLink(folder.repo_path, p)
   const host = path.join(folder.repo_path, p)
   await fs.mkdir(path.dirname(host), { recursive: true })
@@ -297,6 +300,7 @@ export async function upload(folder, user, rel, buf) {
 export async function removeFile(folder, user, rel) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 지울 수 없어요.', "Files of a linked folder can't be deleted."))
   const p = safeRel(rel)
+  await REFS.assertWritable(folder, p)
   await assertNoLink(folder.repo_path, p)
   await fs.rm(path.join(folder.repo_path, p), { force: true })
   return commitMain(folder, { name: user.name, email: user.email }, L(`지우기: ${p}`, `Delete: ${p}`))
@@ -409,6 +413,7 @@ async function copyPath(folder, rel, user) {
 export async function saveOfficeEdit(folder, user, { path: rel, base, url, session } = {}) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 여기서 고칠 수 없어요.', "Files of a linked folder can't be edited here."))
   const p = safeRel(rel)
+  await REFS.assertWritable(folder, p)
   const ext = path.extname(p).slice(1).toLowerCase()
   if (!OFFICE_EDIT.has(ext)) throw err(400, L('이음오피스로 고쳐 저장하는 형식이 아니에요.', "This format isn't saved from IeumOffice."))
   const priv = editedObject(folder, url) ? null : editedPrivateObject(folder, url)
@@ -499,7 +504,7 @@ const setWorktree = (v, dir) => q('update pro_folder_variations set worktree_pat
 // commit what changed in the checkout; the variation becomes ready for review
 export async function commitVariation(folder, v, author, message) {
   if (!v.worktree_path) return null
-  const sha = await G.commitAll(v.worktree_path, message || `${v.title}`, author).catch((e) => { console.warn('[folders] commit', e.message); return null })
+  const sha = await G.commitAll(v.worktree_path, message || `${v.title}`, author).catch((e) => { if (e.code === 'ref_unchecked') throw e; console.warn('[folders] commit', e.message); return null })
   const head = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
   await q(`update pro_folder_variations set head_commit=$2, status=case when status in ('open','conflicted') then 'ready' else status end, updated_at=now() where id=$1`, [v.id, head])
   await touch(folder)

@@ -10,6 +10,8 @@ import { catalog, extract } from '../lib/folders/indexer.js'
 import * as S from '../lib/folders/service.js'
 import { L, asUser } from '../lib/lang.js'
 import { editable } from '../lib/office.js'
+// reference slots: read through the one resolver, with the caller's role in the source (lib/folders/refs.js)
+import * as REFS from '../lib/folders/refs.js'
 
 const TOOLS = [
   {
@@ -19,7 +21,7 @@ const TOOLS = [
   },
   {
     name: 'folder_files',
-    description: '[공유 폴더] 한 폴더의 기준본(main) 파일 목록(경로·크기·수정자·문서 카드 요약). path 를 주면 그 아래만. 파일 내용을 바꾸려면 사용자에게 "<폴더 이름> 폴더의 … 고쳐줘" 처럼 요청하게 하세요 — 변형이 만들어지고 사람이 검토해 반영합니다.',
+    description: '[공유 폴더] 한 폴더의 기준본(main) 파일 목록(경로·크기·수정자·문서 카드 요약). 다른 폴더를 가리키는 참조 자리(refs)가 있으면 그 자리 아래 파일도 \'자리/파일\' 경로로 함께 나와요(읽기 전용, 볼 수 없는 참조는 이름만). path 를 주면 그 아래만. 파일 내용을 바꾸려면 사용자에게 "<폴더 이름> 폴더의 … 고쳐줘" 처럼 요청하게 하세요 — 변형이 만들어지고 사람이 검토해 반영합니다.',
     inputSchema: { type: 'object', properties: { folder: { type: 'string', description: '폴더 이름 또는 slug' }, path: { type: 'string', description: '하위 경로(선택)' } }, required: ['folder'] },
   },
   {
@@ -40,7 +42,7 @@ const text = (o) => ({ content: [{ type: 'text', text: typeof o === 'string' ? o
 
 // a folder by its slug or name, else the one folder whose name holds the given one or is held in it
 // ("이력서" for "이력서 모음") — several such folders: none, the agent is shown them to choose. Only
-// folders this user is a member of.
+// folders this user is a member of. (The catalog here carries no reference slots: finding a folder does not look at its sources.)
 async function findFolder(user, key) {
   const all = await catalog(user.id, '')
   const k = String(key || '').trim()
@@ -58,7 +60,8 @@ const FALLBACK = { perFolder: 40, total: 300, summary: 160 }
 export async function callTool(user, name, args = {}) {
   if (name === 'folder_catalog') {
     const query = args.query ? String(args.query) : ''
-    const out = await catalog(user.id, query)
+    // (this catalog says each folder's reference slots — names and states, the original's name only to its readers)
+    const out = await catalog(user.id, query, { refs: true })
     if (out.length) return text(out)
     const all = query ? await catalog(user.id, '') : []
     if (!all.length) return text(L('쓸 수 있는 공유 폴더가 없어요.', 'There are no shared folders you can use.'))
@@ -78,31 +81,54 @@ export async function callTool(user, name, args = {}) {
     const { folder: f, near } = await findFolder(user, args.folder)
     if (!f) return noFolder(args.folder, near)
     const prefix = String(args.path || '').replace(/^\/+/, '')
-    return text({ folder: f.name, slug: f.slug, files: f.files.filter((x) => !prefix || x.path.startsWith(prefix)) })
+    // (the files of the slots this user may read, at the slots' paths; a locked slot by its name only)
+    const { folder } = await S.access(f.slug, user)
+    // (at most a few hundred of the slots' files at once — more: how many are left, read with folder_read by path or a narrower path)
+    const { refs, files: slotFiles, more } = await REFS.agentView(folder, user)
+    const files = [...f.files, ...slotFiles].filter((x) => !prefix || x.path.startsWith(prefix))
+    return text({ folder: f.name, slug: f.slug, files, ...(refs.length ? { refs } : {}), ...(more ? { more } : {}) })
   }
   if (name === 'folder_read') {
     // only folders this user is a member of (S.access), only main
     const { folder: f, near } = await findFolder(user, args.folder)
     if (!f) return noFolder(args.folder, near)
-    const { folder } = await S.access(f.slug, user)
-    const p = S.safeRel(args.path)
-    const buf = await S.readBlob(folder, 'main', p)
+    const { folder: own } = await S.access(f.slug, user)
+    const asked = S.safeRel(args.path)
+    // under a reference slot: the source's file, read with this user's role in the source (locked: nothing of it)
+    const via = await REFS.resolve(own, asked, user)
+    if (via?.state === 'locked') return text({ folder: own.name, path: asked, locked: true, note: L('이 사용자가 볼 수 없는 참조예요. 원본 폴더의 구성원만 내용을 봐요(사용자는 폴더 화면의 「접근 요청」으로 요청할 수 있어요).', "This user can't read this reference. Only members of its original folder see its content (they can ask with 「접근 요청」 on the folder screen).") })
+    if (via?.state === 'dangling') return text({ folder: own.name, path: asked, note: L('원본에서 찾을 수 없는 참조예요.', "This reference's original can't be found.") })
+    const ok = via?.state === 'ok' ? via : null
+    if (ok && !ok.path) return text(L('파일이 없어요.', "That file isn't there."))
+    const folder = ok ? ok.source : own
+    const p = ok ? ok.path : asked
+    const buf = ok ? await S.readBlob(folder, ok.rev, p) : await S.readBlob(folder, 'main', p)
+    const from = ok ? { referenced: { slot: ok.ref.slot, from: folder.name, path: p, readOnly: true } } : {}
     if (BINARY.test(p) || buf.subarray(0, 8000).includes(0)) {
       const [row] = await q('select card, body from pro_folder_files where folder_id=$1 and path=$2', [folder.id, p]).catch(() => [])
       // the text of a document is read now when the index kept none (full text is kept only for big folders)
       const body = row?.body || (DOC.test(p) ? (await extract(p, buf).catch(() => ({ text: '' }))).text : '')
-      return text({ folder: folder.name, path: p, binary: !body, summary: row?.card?.abstract || null, keywords: row?.card?.keywords || [],
+      return text({ folder: own.name, path: asked, ...from, binary: !body, summary: row?.card?.abstract || null, keywords: row?.card?.keywords || [],
         text: body ? String(body).slice(0, 30000) : null, ...(body && body.length > 30000 ? { truncated: true } : {}) })
     }
     const s = buf.toString('utf8')
-    return text({ folder: folder.name, path: p, text: s.slice(0, 30000), truncated: s.length > 30000 })
+    return text({ folder: own.name, path: asked, ...from, text: s.slice(0, 30000), truncated: s.length > 30000 })
   }
   if (name === 'folder_open') {
     const { folder: f, near } = await findFolder(user, args.folder)
     if (!f) return noFolder(args.folder, near)
-    const { folder, role } = await S.access(f.slug, user)
-    const p = S.safeRel(args.path)
-    const pub = await S.publishFile(folder, p)
+    const { folder: own, role: ownRole } = await S.access(f.slug, user)
+    const asked = S.safeRel(args.path)
+    // under a reference slot: the source's file card, read only from here (the original is edited in its own folder — 「원본 열기」)
+    const via = await REFS.resolve(own, asked, user)
+    const no = REFS.refusal(via)
+    if (no) return text({ folder: own.name, path: asked, ...(via.state === 'locked' ? { locked: true } : {}), note: no.message })
+    const ok = via?.state === 'ok' ? via : null
+    if (ok && !ok.path) return text(L('파일이 없어요.', "That file isn't there."))
+    const folder = ok ? ok.source : own
+    const role = ok ? ok.role : ownRole
+    const p = ok ? ok.path : asked
+    const pub = ok ? await S.publishFile(folder, p, ok.rev) : await S.publishFile(folder, p)
     // a format no editor or player in the app takes: the link only, for the answer to give
     if (!editable(pub.name)) return text({ folder: folder.name, path: p, url: pub.url, note: L('이 형식은 앱 안에서 열 수 없어요. 링크를 알려 주세요.', "This format doesn't open inside the app. Give the link instead.") })
     // {file_url, file_name}: the shape lib/agent.js makes a file card of (documentFrom); open: the
@@ -110,9 +136,10 @@ export async function callTool(user, name, args = {}) {
     // folder_ref: the folder and the version opened — the chat's editor saves back into the folder
     // (POST /api/messages/:id/file), beside it when someone changed it in the meantime
     // editable: an editor of the folder, a format IeumOffice saves (others open it read-only)
-    const canEdit = folder.kind !== 'linked' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(p.split('.').pop().toLowerCase())
+    const canEdit = !ok && folder.kind !== 'linked' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(p.split('.').pop().toLowerCase())
     // (one line of JSON: the agent's stream passes it on as text, which the card is read back from — lib/office.js parseToolOutput)
-    return { content: [{ type: 'text', text: JSON.stringify({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p, folder_ref: { slug: folder.slug, name: folder.name, path: p, sha: pub.sha, editable: canEdit } }) }] }
+    return { content: [{ type: 'text', text: JSON.stringify({ file_url: pub.url, file_name: pub.name, open: true, folder: folder.name, path: p, folder_ref: { slug: folder.slug, name: folder.name, path: p, sha: pub.sha, editable: canEdit },
+      ...(ok ? { note: L(`참조된 자료라 여기서는 읽기만 해요. 고치려면 원본 폴더 「${folder.name}」에서 열어 고쳐요.`, `Referenced material — read only here. To change it, open it in its original folder "${folder.name}".`) } : {}) }) }] }
   }
   return { isError: true, ...text(`unknown tool ${name}`) }
 }

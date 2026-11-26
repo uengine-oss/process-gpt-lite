@@ -19,6 +19,11 @@ const P = {
   pc: 'M4.5 6h15v9.5h-15zM2.5 19h19M10 15.5v3.5M14 15.5v3.5',
   // the agent assets (스킬 · 명령 · 지침)
   kit: 'M5 7h14v12H5zM9 7V5h6v2M5 12h14M11 12v2h2v-2',
+  // a reference slot (참조): it points elsewhere ↗ · one this person cannot read · one whose original is gone or taken · its menu
+  ref: 'M8 16 16 8M9.5 8H16v6.5',
+  lock: 'M7.5 11V8.5a4.5 4.5 0 0 1 9 0V11M6 11h12v9H6zM12 14.5v2',
+  warn: 'M12 4.5 21 19.5H3zM12 10v4.5M12 17.2v.1',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
 }
 </script>
 <template>

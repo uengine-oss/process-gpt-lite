@@ -32,10 +32,19 @@ const text = ref(null)
 const info = ref(null)       // index row of main: card, size, author, mtime
 const err = ref('')
 
-const view = computed(() => viewOf(props.file?.path))
+// (a file under a reference slot is of its original's kind — the slot's name need not carry the extension)
+const kindPath = computed(() => props.file?.source_path || info.value?.ref?.from?.path || props.file?.path)
+const view = computed(() => viewOf(kindPath.value))
 const isText = computed(() => ['markdown', 'code', 'text', 'csv'].includes(view.value) || view.value === 'none')
 const url = computed(() => rawUrl(props.folder.slug, props.file.path, props.ref_))
 const card = computed(() => info.value?.card || props.file.card || null)
+// a file under a reference slot (server lib/folders/refs.js): read from its original folder, never edited from here — 「원본 열기」 goes there
+const origin = computed(() => (props.ref_ === 'main' && info.value?.ref?.from) || null)
+function openOrigin() {
+  const o = origin.value
+  emit('close')
+  router.push({ path: `/folders/${o.slug}`, query: { file: o.path } })
+}
 
 watch(() => [props.file?.path, props.ref_], async () => {
   text.value = null; info.value = null; err.value = ''
@@ -113,7 +122,9 @@ async function downloadSource({ last = false } = {}) {
   await freshToken()
   const p = (!last && editing.value?.path) || props.file.path
   const moved = p !== props.file.path
-  return { url: rawUrl(props.folder.slug, p, props.ref_, true), name: baseName(p), ...(moved ? { note: `다른 사람이 먼저 고쳐 내 수정은 따로 저장돼 있어요 — 그 파일을 내려받았어요 · ${baseName(p)}` } : {}) }
+  // (a slot named without the extension: the original's, for the saved file)
+  const ext = !/\.[^./]+$/.test(baseName(p)) ? (/\.[^./]+$/.exec(kindPath.value || '') || [''])[0] : ''
+  return { url: rawUrl(props.folder.slug, p, props.ref_, true), name: baseName(p) + ext, ...(moved ? { note: `다른 사람이 먼저 고쳐 내 수정은 따로 저장돼 있어요 — 그 파일을 내려받았어요 · ${baseName(p)}` } : {}) }
 }
 defineExpose({ leave })
 // (a commit: the version a file mention named — 멘션한 때의 판)
@@ -142,9 +153,14 @@ function ask() {
           <button class="tb ic press" title="닫기" @click="close"><Icon name="close" :size="16" /></button>
         </header>
         <div class="body">
+          <div v-if="origin" class="refband" data-test="ref-band" role="note">
+            <FIcon name="ref" :size="15" />
+            <span class="rbt"><b>참조된 자료</b><span class="rbo"> · 원본: {{ origin.name }}/{{ origin.path }}</span></span>
+            <button class="tb press" data-test="ref-open-source" @click="openOrigin">원본 열기</button>
+          </div>
           <p v-if="err" class="none">{{ err }}</p>
           <p v-else-if="isText && text === null" class="none">여는 중…</p>
-          <FileView v-else ref="fv" :path="file.path" :text="text" :url="url" :editor-url="editorUrl" mode="preview" @office-saved="officeSaved" @office-edited="onEdited" />
+          <FileView v-else ref="fv" :path="kindPath" :text="text" :url="url" :editor-url="editorUrl" mode="preview" @office-saved="officeSaved" @office-edited="onEdited" />
         </div>
       </section>
 
@@ -168,6 +184,7 @@ function ask() {
           <template v-if="info?.size"><dt>크기</dt><dd>{{ fmtSize(Number(info.size)) }}</dd></template>
           <template v-if="info?.author"><dt>마지막 수정</dt><dd class="who"><Avatar :who="whoOf({ name: info.author, id: info.author })" :size="20" /> {{ info.author }} · {{ ago(info.mtime) }}</dd></template>
           <dt>위치</dt><dd>{{ where }}</dd>
+          <template v-if="origin"><dt>원본</dt><dd>{{ origin.name }}/{{ origin.path }} · 읽기 전용</dd></template>
           <dt>색인</dt><dd>{{ card?.abstract ? '문서 카드' : '파일 목록' }}</dd>
         </dl>
 
@@ -212,6 +229,12 @@ function ask() {
 .sv.ok { background: rgba(40, 160, 90, .12); color: #1e8a4c; }
 .sv.copy { background: rgba(230, 150, 20, .14); color: #a86400; white-space: normal; }
 .sv.err { background: rgba(200, 60, 50, .1); color: #b3261e; white-space: normal; }
+.body > .refband { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--hairline); background: rgba(42, 120, 214, .08); color: #1f63b8; font-size: 13px; }
+.rbt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary); }
+.rbt b { font-weight: 600; color: #1f63b8; }
+.rbo { color: var(--text-secondary); }
+:root[data-theme="dark"] .body > .refband { background: rgba(120, 175, 255, .12); color: #9cc7ff; }
+:root[data-theme="dark"] .rbt b { color: #9cc7ff; }
 /* a phone: the status takes the title's row room */
 @media (max-width: 520px) { .hd { flex-wrap: wrap; height: auto; min-height: 60px; padding-top: 8px; padding-bottom: 8px; } .sv { order: 10; max-width: 100%; flex-basis: 100%; } }
 /* 「내려받기」 folds to its arrow on a phone (DownloadButton), round like the buttons beside it */

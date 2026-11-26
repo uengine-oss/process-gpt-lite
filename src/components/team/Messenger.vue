@@ -10,7 +10,9 @@ import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
 import { useApp } from '../../stores/app.js'
 import { useTeam, shareable } from '../../stores/team.js'
-import { kindOf, kindLabel, cardKind, viewMedia, mediaKindOf } from '../../artifacts.js'
+import { kindOf, kindLabel, cardKind, viewMedia, mediaKindOf, sawShare } from '../../artifacts.js'
+// what my share's card says about each person it went to: changed · opened · not opened (src/shareReceipts.js)
+import { receiptOf, receiptHint, missingReceipts } from '../../shareReceipts.js'
 // a picture · sound · video sent in the room: shown or played in place, opened in the viewer (not an editor) — src/openPlan.js
 import MediaPreview from '../MediaPreview.vue'
 import { openPlan } from '../../openPlan.js'
@@ -52,6 +54,8 @@ import ReactionBar from './ReactionBar.vue'
 import ReactionChips from './ReactionChips.vue'
 import { hold } from '../holdMenu.js'
 import { canReact } from '../../roomReactions.js'
+// what another app shared to Process GPT, meant for a room (components/ShareArrival.vue · src/shareInbox.js)
+import { inbox, loadDraft, saveDraft } from '../../shareInbox.js'
 
 const app = useApp()
 const team = useTeam()
@@ -176,7 +180,8 @@ async function relink(a) {
 async function viewShare(a) {
   // (an address about to run out is renewed first: the viewer's 「새 창에서 열기」 uses it too)
   if (!linkOf(a) || expOf(linkOf(a)) - Date.now() / 1000 < 120) await relink(a)
-  const url = shareSrc(a)
+  // open=1: a file sent to me, opened — the server records it for its sender's card (「열어 봄」); the small preview above asks without it
+  const url = shareSrc(a) && !a.own ? `${shareSrc(a)}&open=1` : shareSrc(a)
   if (!url) return opening(`f${a.shareId}`, () => team.openShared(a.shareId, router))
   const { editWith } = openPlan({ name: a.name, type: a.type, url }, { craftMissing })
   viewMedia(app, { kind: mediaOf(a), url, name: a.name, editWith, edit: () => team.openShared(a.shareId, router, { edit: true }) })
@@ -191,28 +196,36 @@ const cont = (m, choices) => run(`c${m.id}`, async () => {
     conflictOf.value = { ...conflictOf.value, [m.id]: e.conflicts }
   }
 })
-// my shares: what each recipient's branch did since (lib/team/worktree.js branchStatus)
-const branchesOf = ref({})
-async function loadBranches() {
-  for (const m of list.value) {
-    if (!m.mine || m.kind !== 'share' || branchesOf.value[m.id]) continue
-    branchesOf.value[m.id] = []
-    team.branches(m.id).then((b) => { branchesOf.value = { ...branchesOf.value, [m.id]: b } }).catch(() => {})
-  }
-}
-watch(() => [team.active, list.value.length], loadBranches, { immediate: true })
-const changedFiles = (b) => [...b.modified, ...b.added]
-const branchLine = (b) => {
-  const parts = [b.modified.length && `${b.modified.length}개 고침`, b.added.length && `${b.added.length}개 추가`, b.removed.length && `${b.removed.length}개 지움`].filter(Boolean)
-  return parts.length ? `${parts.join(' · ')} · ${when(b.at)}` : '아직 그대로'
-}
+// My shares: for each person a file went to — not opened yet, opened (when), or what their copy (branch) changed since
+// (server lib/team/shares.js receipts, one request for the room; a first open comes live: stores/team.js 'opened'). Only I, the
+// sender, see it (2026-11-26 사용자: 「아직그대로는 뭔가? 혹시 확인여부 ㅡ 파일을 열어서 봤는지라면 좋은데」).
+const ownShares = computed(() => list.value.filter((m) => m.mine && (m.kind === 'share' || m.kind === 'mention') && m.artifacts?.length).map((m) => m.id))
+// A room opened: all of its cards once (a copy that changed since has no live event). After that only cards not asked for yet — a
+// share just sent, older messages loaded; a first open comes by itself ('opened').
+let freshFor = ''
+watch(() => team.open, (o) => { if (!o) freshFor = '' })
+watch(() => [team.open, team.active, ownShares.value.join()], () => {
+  if (!team.open || !team.active || !ownShares.value.length) return
+  const ids = freshFor === team.active ? missingReceipts(ownShares.value, team.receipts) : ownShares.value
+  freshFor = team.active
+  if (ids.length) team.loadReceipts(team.active, ids).catch(() => {})
+}, { immediate: true })
+const sentTo = (m) => (m.mine ? team.receipts[m.id] || [] : [])
+const receipt = (r) => receiptOf(r, when)
+// same-named people told apart (src/sameNames.js): the room's people and the card's together — 「한지우 · mail-b.test」 · 「한지우 · corp-a.test」
+const sentLabel = (m, r) => labelOf(tagsFor([...(thread.value?.members || []), ...sentTo(m)]), r)
+const changedFiles = (b) => (b ? [...b.modified, ...b.added] : [])
 const openBranch = (b, path) => opening(`b${b.room}${path}`, () => team.openBranchFile(b.room, path))
+// a sound or a video sent to me, played here: opened (its sender's card says so)
+const played = (a) => { if (!a.own) sawShare(a.shareId) }
 const reply = (m) => { team.tab = 'threads'; team.openThread(m.threadId, m.id) }
 async function send() {
+  // (the room this is sent to, kept: the person may move to another room while it goes)
+  const room = team.active
   let text = draft.value.trim()
   // 「@AI 」 typed out in full (not picked from the list) addresses the AI the same way as its chip
   if (!aiOn.value && /^@AI\s/i.test(`${text} `)) { aiOn.value = true; text = text.replace(/^@AI\s*/i, '') }
-  if ((!text && !attach.value.length && !ups.value.length && !refs.value.length && !aiOn.value) || !team.active) return
+  if ((!text && !attach.value.length && !ups.value.length && !refs.value.length && !aiOn.value) || !room) return
   await run('send', async () => {
     // files still going up are waited for; one that could not go stops the send (its chip says why)
     await Promise.allSettled(ups.value.map((u) => u.job).filter(Boolean))
@@ -221,10 +234,15 @@ async function send() {
     if (refs.value.some((r) => r.error)) throw new Error('보낼 수 없는 파일이 있어요. 빼고 다시 보내 주세요.')
     const ai = aiOn.value
     const named = mentioned.value.filter((p) => text.includes(`@${p.name}`)).map((p) => p.id)
-    await team.send(team.active, ai ? `@AI ${text}`.trim() : text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)],
+    await team.send(room, ai ? `@AI ${text}`.trim() : text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)],
       { refs: refs.value.map((r) => (r.mail ? { type: 'mail', actionId: r.mail.actionId, body: !!r.body }
         : r.att ? { type: 'mailatt', actionId: r.att.actionId, i: r.att.i, name: r.att.name, share: !!r.share } : r.ref)), ai, mentions: named })
-    draft.value = ''; attach.value = []; ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = []
+    // sent: that room keeps no words (moving away mid-send kept them as its draft — sent text must not come back to be sent twice) …
+    saveDraft(room, '')
+    attach.value = []
+    // … and the box is emptied only if that room is still the one open (another room's words, chips and @ stay as they are)
+    if (team.active !== room) return
+    draft.value = ''; ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = []
   })
 }
 
@@ -319,6 +337,8 @@ function atKey(e) {
   return false
 }
 watch(draft, () => nextTick(atUpdate))
+// the box grows with what is in it, up to its max-height (several lines put in at once — a share from another app — show, not only the first)
+watch(draft, () => nextTick(() => { const el = taEl.value; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 120)}px` }))
 const atBlur = () => setTimeout(() => { at.open = false }, 150)
 const aiWait = computed(() => team.aiStatus[team.active] || null)
 
@@ -329,12 +349,13 @@ const MAX_FILES = 10, MAX_BYTES = 50 * 1024 * 1024
 const ups = ref([])            // {id, name, size, progress, state: uploading|ready|error, card, error, job}
 const filePick = ref(null)
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`)
-function addFiles(list) {
+// (share: the id of a share from another app — its chips go again if the person puts it somewhere else)
+function addFiles(list, share = null) {
   const files = [...list]
   const room = Math.max(0, MAX_FILES - attach.value.length - ups.value.length)
   err.value = files.length > room ? `파일은 한 번에 ${MAX_FILES}개까지 보낼 수 있어요.` : ''
   for (const f of files.slice(0, room)) {
-    const u = reactive({ id: crypto.randomUUID(), name: f.name, size: f.size, progress: 0, state: 'uploading', card: null, error: '', job: null })
+    const u = reactive({ id: crypto.randomUUID(), name: f.name, size: f.size, progress: 0, state: 'uploading', card: null, error: '', job: null, share })
     ups.value.push(u)
     if (f.size > MAX_BYTES) { u.state = 'error'; u.error = '50MB 초과'; continue }
     u.job = uploadTeamFile(f, (p) => { u.progress = p })
@@ -375,6 +396,10 @@ function dropped(e) {
   else if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
 }
 watch(() => team.active, () => { for (const u of ups.value) u.job?.abort?.(); ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = [] })
+// Each room keeps its own unsent words, for this window and person (src/shareInbox.js — sessionStorage): a share from another app
+// reloads the page, and the room's words come back with the shared ones added after them (2026-11-26 review). Sent: gone.
+watch(() => team.active, (room, was) => { if (was) saveDraft(was, draft.value); draft.value = room ? loadDraft(room) : '' }, { immediate: true })
+watch(draft, (v) => saveDraft(team.active, v))
 // (after the watch above, which empties the composer when the conversation changes)
 // 「동료에게 공유」 on a mail's sheet (MailFollowRow): the mail waits until a conversation is open here, then becomes its chip
 watch(() => [team.pendingMention, team.active, team.tab], () => {
@@ -383,6 +408,21 @@ watch(() => [team.pendingMention, team.active, team.tab], () => {
   team.pendingMention = null
   addItems(items)
 }, { immediate: true })
+// 다른 앱의 「공유」로 온 파일 · 글 (2026-11-26 「지금 현재 대화창이 열려 있다고 치면 팀 메시지에 여기에 곧바로 첨부를 할 수 있을 거야.」): once the
+// room it was meant for is open here, the files go up as chips (as if picked with 「내 컴퓨터에서」) and the words go in the box — nothing
+// is sent until the person presses 보내기. 「다른 곳에」 (ShareArrival) takes them back out.
+watch(() => [inbox.forRoom, team.active, team.tab], () => {
+  const s = inbox.forRoom
+  if (!s || team.active !== s.room || team.tab !== 'threads') return
+  inbox.forRoom = null
+  if (s.files?.length) addFiles(s.files, s.key)
+  if (s.text) draft.value = draft.value.trim() ? `${draft.value.trimEnd()}\n${s.text}` : s.text
+}, { immediate: true })
+watch(() => inbox.takeBack, (t) => {
+  if (!t) return
+  for (const u of ups.value.filter((x) => x.share === t.key)) dropUp(u)
+  if (t.text && draft.value.includes(t.text)) draft.value = draft.value.replace(t.text, '').trim()
+})
 function onKey(e) {
   if (atKey(e)) return
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send() }
@@ -516,7 +556,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               </button>
             </div>
             <div v-if="m.artifacts.some((a) => mediaOf(a))" class="media">
-              <MediaPreview v-for="a in m.artifacts.filter((x) => mediaOf(x))" :key="'mp' + a.shareId" :kind="mediaOf(a)" :src="shareSrc(a)" :name="a.name" compact @open="viewShare(a)" @failed="relink(a)" />
+              <MediaPreview v-for="a in m.artifacts.filter((x) => mediaOf(x))" :key="'mp' + a.shareId" :kind="mediaOf(a)" :src="shareSrc(a)" :name="a.name" compact @open="viewShare(a)" @failed="relink(a)" @play="played(a)" />
             </div>
             <template v-for="a in m.artifacts" :key="'n' + (a.shareId || a.name)">
               <p v-if="noteOf(a)" class="onote" :class="{ calm: noteOf(a).calm }" role="status" data-test="open-note" :data-file="a.name">
@@ -608,7 +648,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 <!-- a picture to look at, a sound or a video that plays right here -->
                 <div v-if="m.artifacts.some((a) => mediaOf(a))" class="media">
                   <MediaPreview v-for="a in m.artifacts.filter((x) => mediaOf(x))" :key="'mp' + a.name + a.shareId" :kind="mediaOf(a)" :src="shareSrc(a)" :name="a.name" compact
-                    @open="viewShare(a)" @failed="relink(a)" @loaded="grown" />
+                    @open="viewShare(a)" @failed="relink(a)" @loaded="grown" @play="played(a)" />
                 </div>
                 <template v-for="a in m.artifacts" :key="'n' + a.name + a.shareId">
                   <p v-if="noteOf(a)" class="onote" :class="{ calm: noteOf(a).calm }" role="status" data-test="open-note" :data-file="a.name">
@@ -623,21 +663,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 </template>
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
                 <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
-                <div v-if="branchesOf[m.id]?.length" class="brs">
-                  <div v-for="b in branchesOf[m.id]" :key="b.room" class="br" :data-room="b.room">
-                    <PersonAvatar :id="b.recipient.id" :name="b.recipient.name" size="xs" :agent="b.by === 'agent'" :title="b.by === 'agent' ? '에이전트가 고침' : ''" />
-                    <span class="bl"><b>{{ b.recipient.name }}</b> {{ branchLine(b) }}</span>
-                    <button v-for="f in changedFiles(b)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" data-test="branch-file" @click="openBranch(b, f)">
+                <!-- my share: each person it went to — 「안 열어 봄」 · 「열어 봄 · 언제」 · what their copy changed (only I see this) -->
+                <div v-if="sentTo(m).length" class="brs" data-test="share-receipts">
+                  <div v-for="r in sentTo(m)" :key="r.id" class="br" :data-room="r.branch?.room || null" data-test="share-receipt" :data-person="r.id" :data-state="receipt(r).state">
+                    <PersonAvatar :id="r.id" :name="r.name" size="xs" :agent="receipt(r).state === 'changed' && r.branch?.by === 'agent'" :title="receipt(r).state === 'changed' && r.branch?.by === 'agent' ? '에이전트가 고침' : ''" />
+                    <span class="bl" :title="receiptHint(r, when) || null"><b data-test="receipt-name">{{ sentLabel(m, r) }}</b> <span class="rs" :class="receipt(r).state" data-test="receipt-state"><Icon v-if="receipt(r).state === 'opened'" name="check" :size="12" />{{ receipt(r).text }}</span></span>
+                    <button v-for="f in changedFiles(r.branch)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" data-test="branch-file" @click="openBranch(r.branch, f)">
                       <Icon name="eye" :size="13" />{{ f.split('/').pop() }}
                     </button>
-                    <p v-for="f in changedFiles(b).filter((x) => notes[`b${b.room}${x}`])" :key="'n' + f" class="onote" :class="{ calm: notes[`b${b.room}${f}`].calm }" role="status" data-test="open-note">
-                      <Icon v-if="!notes[`b${b.room}${f}`].calm" name="alert" :size="14" /><span>{{ notes[`b${b.room}${f}`].reason }}</span>
-                      <a v-if="notes[`b${b.room}${f}`].url" :href="notes[`b${b.room}${f}`].url" target="_blank" rel="noopener" download>새 창에서 열기</a>
+                    <p v-for="f in changedFiles(r.branch).filter((x) => notes[`b${r.branch.room}${x}`])" :key="'n' + f" class="onote" :class="{ calm: notes[`b${r.branch.room}${f}`].calm }" role="status" data-test="open-note">
+                      <Icon v-if="!notes[`b${r.branch.room}${f}`].calm" name="alert" :size="14" /><span>{{ notes[`b${r.branch.room}${f}`].reason }}</span>
+                      <a v-if="notes[`b${r.branch.room}${f}`].url" :href="notes[`b${r.branch.room}${f}`].url" target="_blank" rel="noopener" download>새 창에서 열기</a>
                     </p>
                   </div>
                 </div>
                 <ConflictChoice v-if="conflictOf[m.id]" :conflicts="conflictOf[m.id]" :busy="busy === `c${m.id}`" @pick="(c) => cont(m, c)" @cancel="delete conflictOf[m.id]" />
-                <button v-if="(!m.mine && (m.kind === 'share' || m.kind === 'mention')) || (m.mine && branchesOf[m.id]?.some((b) => b.at))" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
+                <button v-if="(!m.mine && (m.kind === 'share' || m.kind === 'mention')) || (m.mine && sentTo(m).some((r) => r.branch?.at))" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
                 <small class="t">{{ when(m.at) }}</small>
               </div>
               <!-- a desktop's way in: the button by a teammate's bubble while the pointer is over it (or it has the focus) -->
@@ -688,7 +729,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                 </span>
               </template>
               <span v-for="m in attach" :key="m.id" class="chip" data-test="msg-share-chip" :data-file="m.content.name">{{ m.content.name }}<em class="as share">공유</em><button @click="toggleAttach(m)">×</button></span>
-              <span v-for="u in ups" :key="u.id" class="chip up" :class="u.state" data-test="msg-upload-chip" :data-state="u.state">
+              <span v-for="u in ups" :key="u.id" class="chip up" :class="u.state" data-test="msg-upload-chip" :data-state="u.state" :data-file="u.name">
                 <span class="cn">{{ u.name }}</span><small>{{ u.state === 'uploading' ? `${Math.round(u.progress * 100)}%` : u.state === 'error' ? u.error : kb(u.size) }}</small>
                 <i v-if="u.state === 'uploading'" class="bar" :style="{ width: `${Math.round(u.progress * 100)}%` }" />
                 <button aria-label="빼기" @click="dropUp(u)">×</button>
@@ -966,6 +1007,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .brs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .br { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
 .br .bl { color: var(--text-secondary); } .br .bl b { color: var(--text-primary); font-weight: 600; }
+/* opened: a small check in the colour of done; not opened yet: plain secondary text */
+.br .rs { display: inline-flex; align-items: center; gap: 3px; }
+.br .rs.opened { color: #0f7a52; }
+:root:not([data-theme="light"]) .br .rs.opened { color: #5fd3a2; }
 .art.sm { height: 26px; padding: 0 9px; font-size: 12px; gap: 4px; }
 .agmark { display: flex; align-items: flex-start; gap: 5px; max-width: min(78%, 420px); margin: 3px 0 0 42px; font-size: 12px; line-height: 1.4; color: #0b6f66; min-width: 0; }
 .agmark svg { flex: none; margin-top: 2px; }

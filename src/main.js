@@ -14,6 +14,8 @@ import { api, auth, adoptHostSession } from './api.js'
 import { registerWorker, setBadge } from './browserNotify.js'
 import { watchInstall } from './install.js'
 import { useApp } from './stores/app.js'
+// 다른 앱의 「공유」로 열렸다(public/sw.js → …/chat?share=<id>): the id leaves the address before the router reads it (src/shareInbox.js)
+import { stashShare } from './shareInbox.js'
 
 const routes = [
   { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
@@ -56,6 +58,7 @@ const routes = [
   { path: '/', redirect: '/chat' },
 ]
 
+stashShare()
 const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL), routes })
 adoptHostSession()
 installCjkMarkdown()
