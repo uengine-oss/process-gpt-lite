@@ -6,7 +6,12 @@
 //                            sends the browser to redirect_uri with a code and the state.
 //   POST /token              authorization_code (client, secret, redirect_uri, PKCE checked) and refresh_token
 //   GET  /userinfo           the account the code was given for
-//   GET  /gmail/v1/users/me/messages   an empty inbox
+//   GET  /gmail/v1/users/me/messages   the mailbox (empty unless a test fills mailbox.messages): the list leaves out
+//                                       what Gmail's search would (-in:sent: a message labelled SENT), newest first;
+//        …/messages/<id>?format=full    one message (headers, a text/plain body, labels, internalDate)
+//        …/threads/<id>                 a thread's messages oldest first (format=metadata: headers only)
+//        …/settings/sendAs              the addresses the account may send as (its own, then mailbox.sendAs)
+//   The mailbox answers only a token this "Google" gave out (401 otherwise); mailbox.log keeps the paths it was asked.
 // The page is drawn for the server browser's 1280×800 view: the field and the button sit at fixed spots.
 import http from 'node:http'
 import crypto from 'node:crypto'
@@ -19,6 +24,10 @@ export async function startFakeGoogle({ clients = {} } = {}) {
   const tokens = new Map() // access token -> email
   const log = { auth: [], token: [], userinfo: 0, approve: [] }
   const state = { refuse: false, error: false, scope: null, deny: false }
+  // messages: [{ id, threadId, from, to, cc, replyTo, xOriginalSender, subject, text, labels, at (ms) }] · sendAs: [{ sendAsEmail, treatAsAlias?,
+  // verificationStatus? }] (after the account's own, isPrimary) · sendAsStatus: an
+  // HTTP status to refuse settings/sendAs with (an older grant)
+  const mailbox = { messages: [], sendAs: [], sendAsStatus: 0, log: [] }
   const page = (title, body) => `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="margin:0;font-family:sans-serif;background:#fff;height:800px;overflow:hidden">${body}</body>`
   const consent = (q) => page(TITLES.consent, `
 <h1 style="position:absolute;left:440px;top:120px;font-size:28px;margin:0">Google 계정으로 로그인</h1>
@@ -80,13 +89,42 @@ ${['client_id', 'redirect_uri', 'state', 'code_challenge', 'scope'].map((k) => `
       if (!email) return json(res, 401, { error: 'invalid_token' })
       return json(res, 200, { sub: crypto.createHash('sha1').update(email).digest('hex'), email, email_verified: true, name: email.split('@')[0] })
     }
-    if (u.pathname.startsWith('/gmail/v1/users/me/messages')) return json(res, 200, { messages: [] })
+    if (u.pathname.startsWith('/gmail/v1/users/me/')) {
+      const who = tokens.get(String(req.headers.authorization || '').replace(/^Bearer /, ''))
+      mailbox.log.push(`${u.pathname.slice('/gmail/v1/users/me'.length)}${u.search}`)
+      if (!who) return json(res, 401, { error: { code: 401, message: 'Request had invalid authentication credentials.' } })
+      const rest = u.pathname.slice('/gmail/v1/users/me/'.length).split('/').map(decodeURIComponent)
+      const headers = (m, only) => [['From', m.from], ['To', m.to], ['Cc', m.cc], ['Reply-To', m.replyTo], ['X-Original-Sender', m.xOriginalSender], ['Subject', m.subject], ['Date', new Date(m.at || Date.now()).toUTCString()]]
+        .filter(([n, v]) => v && (!only || only.includes(n))).map(([name, value]) => ({ name, value }))
+      const shape = (m, metadata, only) => ({ id: m.id, threadId: m.threadId || `t-${m.id}`, labelIds: m.labels || ['INBOX'], internalDate: String(m.at || 0), snippet: String(m.text || '').slice(0, 100),
+        payload: metadata ? { headers: headers(m, only) } : { mimeType: 'text/plain', headers: headers(m), body: { data: Buffer.from(String(m.text || '')).toString('base64url') } } })
+      if (rest[0] === 'messages' && rest.length === 1) {
+        const qs = String(u.searchParams.get('q') || '')
+        const list = mailbox.messages.filter((m) => !(/(^|\s)-in:sent(\s|$)/.test(qs) && (m.labels || []).includes('SENT')))
+          .sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, Number(u.searchParams.get('maxResults')) || 100)
+        return json(res, 200, { messages: list.map((m) => ({ id: m.id, threadId: m.threadId || `t-${m.id}` })), resultSizeEstimate: list.length })
+      }
+      if (rest[0] === 'messages' && rest.length === 2) {
+        const m = mailbox.messages.find((x) => x.id === rest[1])
+        return m ? json(res, 200, shape(m, u.searchParams.get('format') === 'metadata', u.searchParams.getAll('metadataHeaders'))) : json(res, 404, { error: { code: 404, message: 'Requested entity was not found.' } })
+      }
+      if (rest[0] === 'threads' && rest.length === 2) {
+        const ms = mailbox.messages.filter((x) => (x.threadId || `t-${x.id}`) === rest[1]).sort((a, b) => (a.at || 0) - (b.at || 0))
+        const meta = u.searchParams.get('format') === 'metadata'
+        return ms.length ? json(res, 200, { id: rest[1], messages: ms.map((m) => shape(m, meta, meta ? u.searchParams.getAll('metadataHeaders') : null)) }) : json(res, 404, { error: { code: 404, message: 'Requested entity was not found.' } })
+      }
+      if (rest.join('/') === 'settings/sendAs') {
+        if (mailbox.sendAsStatus) return json(res, mailbox.sendAsStatus, { error: { code: mailbox.sendAsStatus, message: 'Request had insufficient authentication scopes.' } })
+        return json(res, 200, { sendAs: [{ sendAsEmail: who, isPrimary: true, isDefault: true }, ...mailbox.sendAs] })
+      }
+      return json(res, 404, { error: { code: 404, message: 'Not found' } })
+    }
     res.writeHead(404); res.end()
   })
   await new Promise((r) => server.listen(0, '127.0.0.1', r))
   const url = `http://127.0.0.1:${server.address().port}`
   return {
-    url, state, log, codes,
+    url, state, log, codes, mailbox,
     env: { PRO_GOOGLE_AUTH_URL: `${url}/o/oauth2/v2/auth`, PRO_GOOGLE_TOKEN_URL: `${url}/token`, PRO_GOOGLE_USERINFO_URL: `${url}/userinfo`, PRO_GOOGLE_GMAIL_URL: `${url}/gmail/v1` },
     // approve as a person would, without a browser: → the redirect_uri the browser would be sent to
     async approve(authUrl, email) {

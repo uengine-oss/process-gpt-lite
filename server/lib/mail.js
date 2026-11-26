@@ -97,7 +97,8 @@ async function fetchGmail(userId) {
     const h = Object.fromEntries((full.payload?.headers || []).map((x) => [x.name.toLowerCase(), x.value]))
     const parts = partsOf(full.payload)
     const body = bodyOf(parts)
-    out.push({ id: m.id, thread: full.threadId, from: h.from, to: h.to, cc: h.cc, subject: h.subject, date: h.date, body, labels: full.labelIds || [], text: (newPart(body) || full.snippet || '').slice(0, 6000),
+    // (Reply-To and X-Original-Sender: who a group post rewritten "via" the group came from — lib/mailSelf.js)
+    out.push({ id: m.id, thread: full.threadId, from: h.from, to: h.to, cc: h.cc, replyTo: h['reply-to'], xOriginalSender: h['x-original-sender'], subject: h.subject, date: h.date, body, labels: full.labelIds || [], text: (newPart(body) || full.snippet || '').slice(0, 6000),
       attachments: parts.attachments.map((f) => ({ name: f.name, size: f.size, attachmentId: f.attachmentId })) })
   }
   return out
@@ -114,7 +115,7 @@ async function fetchImap(userId, acc) {
     const since = new Date(Date.now() - 2 * 86400000)
     for await (const msg of client.fetch({ since }, { source: true, uid: true })) {
       const p = await simpleParser(msg.source)
-      out.push({ id: String(msg.uid), from: p.from?.text, subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 1500) })
+      out.push({ id: String(msg.uid), from: p.from?.text, to: p.to?.text, cc: p.cc?.text, replyTo: p.replyTo?.text, xOriginalSender: p.headers?.get('x-original-sender'), subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 1500) })
     }
   } finally { lock.release(); await client.logout() }
   return out.slice(-20)
@@ -232,6 +233,8 @@ Return JSON {"actions":[{"mail_id","verb","kind","text","icon_domain","due","pro
 - icon_domain: sender's company domain for a logo (e.g. lgcns.com), or "".
 - prompt: the full instruction the assistant will execute when the user taps the button.
 - Skip newsletters, ads and anything not needing action. 0-4 actions.
+- A mail with "answered": true was already answered by the user in its thread: no reply action for it, and the brief does not
+  say it needs a reply.
 - brief: 1-3 Korean 해요체 sentences on what matters most, or "" when nothing does. Say what the mails ask, not that you will do
   it: nothing is added, sent or paid until the user presses its card.
 Also return "drafts":[{"mail_id","customer","items":[{"kind","format","name"}],"summary"}] for mails that ask the user to
@@ -251,6 +254,8 @@ Return JSON {"actions":[{"mail_id","verb","kind","text","icon_domain","due","pro
 - icon_domain: sender's company domain for a logo (e.g. lgcns.com), or "".
 - prompt: the full instruction the assistant will execute when the user taps the button, in English.
 - Skip newsletters, ads and anything not needing action. 0-4 actions.
+- A mail with "answered": true was already answered by the user in its thread: no reply action for it, and the brief does not
+  say it needs a reply.
 - brief: 1-3 friendly English sentences on what matters most, or "" when nothing does. Say what the mails ask, not that you
   will do it: nothing is added, sent or paid until the user presses its card.
 Also return "drafts":[{"mail_id","customer","items":[{"kind","format","name"}],"summary"}] for mails that ask the user to
@@ -294,12 +299,33 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
   await q('update pro_mail_accounts set last_poll=now() where user_id=$1', [userId])
   if (!fresh.length) return { fresh: 0 }
 
+  // The person's own mail asks them nothing (lib/mailSelf.js — 2026-11-26 「이 메일은 내가 보낸건데 왜 내가 받은걸로 뜨는건가.」): it is
+  // kept in the archive and marked read above, but makes no card, draft or schedule question and is not read by the triage. A mail the
+  // person has answered in its thread since (their own later mail to its sender) asks for no reply: its reply cards are not made, and the
+  // documents it asks for are drafted on a review card, not a reply card — the company map and process mining still take it.
+  const S = await import('./mailSelf.js')
+  const token = acc.provider === 'gmail' ? await googleAccessToken(userId).catch(() => null) : null
+  const me = await S.myAddresses(userId, acc, { token })
+  const own = fresh.filter((m) => S.isOwn(m, me))
+  const asked = fresh.filter((m) => !own.includes(m))
+  const answered = token ? await S.answeredOf(asked.filter((m) => m.thread && !m.fixture), me, token).catch((e) => { console.warn('[mail] answered', e.message); return new Set() }) : new Set()
+  const bc = briefConversation(userId)
+  const quiet = async () => {
+    const t = await mainThread(userId)
+    await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in."), ...aside(bc) })
+  }
+  if (!asked.length) {
+    if (announce) await quiet()
+    return { fresh: fresh.length, actions: 0, own: own.length }
+  }
+
   // work that repeats (「앞으로 매주 월요일 오전에 …」): asked as a schedule — a timer event on the company map (lib/ontology/timers.js)
-  for (const m of fresh) if (!m.fixture) import('./ontology/timers.js').then((o) => o.recurFromMail(userId, m)).catch((e) => console.warn('[mail] recur', e.message))
-  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(fresh.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name) }))))
+  for (const m of asked) if (!m.fixture) import('./ontology/timers.js').then((o) => o.recurFromMail(userId, m)).catch((e) => console.warn('[mail] recur', e.message))
+  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(asked.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name), ...(answered.has(id) ? { answered: true } : {}) }))))
+  const actions = (r.actions || []).filter((a) => !(answered.has(a.mail_id) && S.repliesTo(a)))
   const cards = []
-  for (const a of r.actions || []) {
-    const src = fresh.find((m) => m.id === a.mail_id)
+  for (const a of actions) {
+    const src = asked.find((m) => m.id === a.mail_id)
     // (a Gmail mail keeps its thread: the next mail of the thread finds the work this one became — lib/mailFlow.js)
     const [row] = await q(
       `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
@@ -314,7 +340,6 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
   const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })
   // the brief and the mailbox's own lines go into the person's 브리프 conversation (lib/ownConversations.js), never into the conversation
   // the person happens to be in
-  const bc = briefConversation(userId)
   if (r.brief) {
     const t = await mainThread(userId)
     const h = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul', hour: 'numeric', hour12: false }))
@@ -326,10 +351,7 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
     const mails = cards.map((c) => now.find((x) => x.id === c.id) || c).map(MF.refOf)
     await addMessage(userId, t.id, 'agent', 'text', { text: r.brief, ...(mails.length ? { mails } : {}), ...aside(bc) })
     await listOwn(userId, bc, label, r.brief).catch((e) => console.warn('[mail] brief list', e.message))
-  } else if (announce) {
-    const t = await mainThread(userId)
-    await addMessage(userId, t.id, 'agent', 'text', { text: L('메일함을 살펴봤는데 지금 급한 건 없어요. 새 메일이 오면 다시 볼게요.', "I looked through your inbox and nothing is urgent right now. I'll check again when new mail comes in."), ...aside(bc) })
-  }
+  } else if (announce) await quiet()
   // Every mail that made a Home card is read by the company map's router now, as it arrives (2026-11-24: the map's reading is not left to
   // the first time the sheet is opened — a process set to 자동 starts, and does its first work, on the mail itself; its cost is accepted
   // for a company that uses the map). lib/mailFlow.js routeMailCards: 자동 starts and lives with its instance (its work folder holds the
@@ -338,31 +360,34 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
   // sample mails only make cards: the sheet reads them when opened.)
   const docs = new Map((r.drafts || []).filter((d) => d.items?.length).map((d) => [d.mail_id, d]))
   const routed = new Map()
-  for (const src of fresh) {
+  for (const src of asked) {
     const mine = cards.filter((c) => c.source.mail_id === src.id)
     if (src.fixture || !mine.length || threaded.has(src.id)) continue
     routed.set(src.id, MF.routeMailCards(userId, src, mine, deps).catch((e) => { console.warn('[mail] route', e.message); return false }))
   }
   // documents the mail asks for: drafts are made right away, before anyone asks (the person reviews them)
   for (const d of docs.values()) {
-    const src = fresh.find((m) => m.id === d.mail_id)
+    const src = asked.find((m) => m.id === d.mail_id)
     if (!(src && !src.fixture)) continue
     // the company map takes the mail first (read above for a mail with cards — 자동 starts, 제안 is asked on the card; a mail without
     // cards: lib/ontology/run.js), else a flow process mining registered (lib/mining), else the ad-hoc drafts. A mail of a thread already
     // linked to a running instance is not started again
     const mine = cards.filter((c) => c.source.mail_id === src.id)
+    // (deps — tests: mapMail · miningMail · draft stand in for the company map's, process mining's and the ad-hoc drafts' start)
+    const mapMail = deps.mapMail || ((...a) => import('./ontology/run.js').then((o) => o.routeMail(...a)))
+    const miningMail = deps.miningMail || ((...a) => import('./mining/service.js').then((m) => m.routeMail(...a)))
     const route = threaded.has(src.id) ? Promise.resolve(false)
-      : routed.get(src.id) || (mine.length ? Promise.resolve(false) : import('./ontology/run.js').then((o) => o.routeMail(userId, src, d)))
+      : routed.get(src.id) || (mine.length ? Promise.resolve(false) : mapMail(userId, src, d))
     route
-      .then((done) => done || (threaded.has(src.id) ? false : import('./mining/service.js').then((m) => m.routeMail(userId, src, d)).then(async (x) => {
+      .then((done) => done || (threaded.has(src.id) ? false : miningMail(userId, src, d).then(async (x) => {
         // (a registered flow put the mail in its instance's conversation itself: the cards only point there)
         if (x?.instId && mine.length) await MF.linkCards(userId, mine[0], { instId: x.instId, via: 'auto' }, { quiet: true }).catch((e) => console.warn('[mail] link', e.message))
         return x
       })))
       .catch((e) => { console.warn('[mail] route', e.message); return false })
-      .then((routed) => routed || draftFromMail(userId, src, d)).catch((e) => console.warn('[mail] drafts', e.message))
+      .then((routed) => routed || (deps.draft || draftFromMail)(userId, src, d, { answered: answered.has(src.id) })).catch((e) => console.warn('[mail] drafts', e.message))
   }
-  return { fresh: fresh.length, actions: (r.actions || []).length }
+  return { fresh: fresh.length, actions: actions.length, ...(own.length ? { own: own.length } : {}), ...(answered.size ? { answered: answered.size } : {}) }
 }
 
 // The logo domain on a Home card. The model guesses a company domain from the sender ("aurora-mfg.com"),
@@ -570,7 +595,9 @@ export async function designTemplate(userId, dxfUrl) {
   } finally { fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {}) }
 }
 
-async function draftFromMail(userId, mail, d) {
+// answered: the person has replied to the mail already (lib/mailSelf.js answeredOf) — the drafts are made all the same, on a review card
+// (kind task, the names kept as `drafted`), not on a reply card (`drafts` makes a card a reply — lib/mailReply.js isReplyCard)
+async function draftFromMail(userId, mail, d, { answered = false } = {}) {
   const [p] = await q('select email, name from pro_profile where user_id=$1', [userId])
   if (!p?.email) return
   const t = await mainThread(userId)
@@ -597,16 +624,20 @@ async function draftFromMail(userId, mail, d) {
   // the drafts are the mail's own work: a conversation of their own in the main chat (lib/ownConversations.js), kept on the card so its
   // reply and its follow-ups know it
   const conv = { conversationId: mailConversationId(userId, mail.id), title: L(`메일 · ${customer} ${what} 요청`, `Mail · ${customer} ${what} request`), kind: 'mail' }
+  const names = items.map((i) => i.name)
   const [row] = await q(
     `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,'Review',$2,null,null,$3,$4) returning *`,
-    [userId, L(`${customer} ${what} 초안 검토하고 회신하기`, `the ${what} drafts for ${customer} and reply`), L(`${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, `I've reviewed the ${what} drafts for ${customer}. Please write a draft reply mail.`),
-      { mail_id: mail.id, from: mail.from, subject: mail.subject, drafts: items.map((i) => i.name), ...(mail.thread ? { thread_id: mail.thread } : {}), ...(sib?.source?.inst ? { inst: sib.source.inst } : {}),
+    [userId, answered ? L(`${customer} ${what} 초안 검토`, `the ${what} drafts for ${customer}`) : L(`${customer} ${what} 초안 검토하고 회신하기`, `the ${what} drafts for ${customer} and reply`),
+      answered ? L(`${customer}에게 보낼 ${what} 초안을 검토해 줘.`, `Please review the ${what} drafts for ${customer}.`) : L(`${customer}에게 보낼 ${what} 초안을 검토했어요. 회신 메일 초안을 써 줘.`, `I've reviewed the ${what} drafts for ${customer}. Please write a draft reply mail.`),
+      { mail_id: mail.id, from: mail.from, subject: mail.subject, ...(answered ? { drafted: names, kind: 'task', answered: true } : { drafts: names }), ...(mail.thread ? { thread_id: mail.thread } : {}), ...(sib?.source?.inst ? { inst: sib.source.inst } : {}),
         conv: { id: conv.conversationId, title: conv.title } }])
   emit(userId, 'action', row)
   const { instRef } = await import('./mailFlow.js')
   const inst = instRef(row.source?.inst)
   await addMessage(userId, t.id, 'system', 'divider', { text: conv.title, ...aside(conv, { named: true }) })
-  const intro = L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`)
+  const intro = answered
+    ? L(`${customer} 메일에서 ${what} 요청을 찾았어요. 이미 답장한 메일이라 초안만 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. You've replied to it already, so I'll just make the drafts.`)
+    : L(`${customer} 메일에서 ${what} 요청을 찾았어요. 회신할 초안을 먼저 만들어 둘게요.`, `I found a request for ${what} in the mail from ${customer}. I'll make drafts for the reply first.`)
   await addMessage(userId, t.id, 'agent', 'text', { text: intro, mail: { from: mail.from, subject: mail.subject, actionId: row.id, mailId: mail.id, ...(inst ? { inst } : {}) }, ...aside(conv) })
   await listOwn(userId, conv, mail.subject || conv.title, intro).catch((e) => console.warn('[mail] drafts list', e.message))
   if (noPlan) await addMessage(userId, t.id, 'agent', 'text', { text: L('이 설치에는 캐드크래프트가 없어서 평면도는 그리지 않았어요. 제안서·견적서 초안만 만들게요.', "This install has no CADCraft, so I didn't draw the floor plan. I'll make only the proposal and quote drafts."), ...aside(conv) })
