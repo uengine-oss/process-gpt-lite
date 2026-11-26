@@ -34,6 +34,7 @@ import * as BF from './browserFiles.js'
 import * as P from './privateStore.js'
 // the person hears of a wait on them on their phone too, even with Lite closed (lib/askPerson.js — 2026-11-26)
 import * as ASK from './askPerson.js'
+import { refusalOf } from './pushActions.js'
 
 export { STEP } from './browserSteps.js'
 export { PROFILES, profilesDir, LIVE } from './browserServer.js'
@@ -2106,7 +2107,8 @@ export function canAnswerCard(asking, cardId, label) {
   const opts = (a.options || []).map(String)
   const said = String(label)
   if (!opts.includes(said)) return false
-  if (a.refusal != null && said === String(a.refusal)) return true
+  // (a refusal that is nothing else: named once, not the first option — lib/pushActions.js refusalOf)
+  if (a.refusal != null && said === refusalOf(opts, a.refusal)) return true
   return a.quick === true && !a.approval
 }
 export async function answerCard(userId, cardId, label) {

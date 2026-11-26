@@ -528,8 +528,9 @@ app.post('/api/push/test', auth, async (req, res) => {
 })
 // A button on a phone's notification of the AI waiting on the person (public/sw.js → lib/askPerson.js act). No sign-in: the push carried
 // a token for this one notice, signed by this server, bound to the person, the card and the answers it may give, used once, 24 hours.
-// The card must still wait (a browser task's pick-one card: lib/browser.js answerCard; the chat's question: the option as the person's
-// message — in the person's own session, found by their account id: lib/supa.js sessionOfUser).
+// The card must still wait (a browser task's pick-one card: lib/browser.js answerCard). A chat question is never answered here: its options
+// are the model's own text (re-review 11-26 — lib/askPerson.js act refuses it; the answerer is wired for when its marks come on a channel
+// the model cannot write: the option as the person's message, in their own session found by their account id — lib/supa.js sessionOfUser).
 const answerChat = ASK.chatAnswerer({ runTurn, busy: turnsRunning })
 app.post('/api/push/act', async (req, res) => {
   const r = await ASK.act({ token: req.body?.token, answer: req.body?.answer }, { answerTask: browser.answerCard, answerChat })
@@ -1311,7 +1312,7 @@ const server = app.listen(config.port, async () => {
            where kind='task' and content->>'state' in ('running','needs_input','queued')`).catch(() => {})
   await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where kind='vault' and content->>'state'='pending'`)
   // …and nothing waits on the person for them any more: their notices go (lib/askPerson.js — the Home lists only live ones anyway)
-  // (the companies this server serves only — another server on the same database keeps its own)
+  // (by the task cards' own state: a wait another server still holds keeps its notice)
   await ASK.resetTaskAsks().catch((e) => console.warn('[ask] reset', e.message))
   await q(`update pro_threads set status=null where status is not null`)
   // turns wait their turn in memory (lib/turns.js): a message still marked 대기 will not be answered now

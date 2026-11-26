@@ -3,9 +3,9 @@
 // 지어낸 사람: 정하윤(알림을 받는 사람) · 김서연(팀원).
 //   F-PH-01 휴대폰 390px 밝은 · 밤: Home 의 「브라우저 알림 켜기」 카드 — 글, 옆으로 넘치지 않음 → 「알림 켜기」 → 「알림이 켜져 있어요」 ·
 //           「시험 알림 보내기」 → 가짜 푸시 서비스에 시험 알림이 오고 카드가 결과를 말함
-//   F-PH-02 AI 의 질문: 채팅 에이전트(가짜 deepagents)가 묻고 멈춤 → 알림 피드 → 가짜 푸시 서비스 → 서비스 워커가 보여 준 알림(제목 ·
-//           질문 · 보기 두 개의 단추) → 「세 줄 요약」 단추 → 그 말이 그 대화의 내 메시지로 가고 에이전트가 이어서 답함 · Home 카드 사라짐 ·
-//           같은 알림을 다시 누르면 답하지 않고 그 대화를 연다
+//   F-PH-02 AI 의 질문: 채팅 에이전트(가짜 deepagents)가 묻고 멈춤(JSON 에 quick 이 있어도) → 알림 피드 → 가짜 푸시 서비스 → 서비스
+//           워커가 보여 준 알림(제목 · 질문 · 「열기」만) · Home 카드 → 서버 키로 만든 토큰을 실은 단추도 답하지 않고 그 대화를 연다 → 채팅에서
+//           답하면 Home 카드가 사라진다
 //   F-PH-03 방 메시지: 김서연이 1:1 방에 세 번 → 알림 하나(「김서연 · 3」, 마지막 두 줄, 방마다 한 태그) → 「답장」 → 그 방이 열리고 입력창에
 //           글자를 바로 칠 수 있음; 방을 읽으면 그 방의 알림이 사라짐
 //   F-PH-04 앞에 열어 둔 방의 메시지는 알리지 않고, 멘션은 언제나 알린다
@@ -23,7 +23,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import http from 'node:http'
 import path from 'node:path'
-import { startStack, REPO, waitFor } from '../../lib/localStack.js'
+import { startStack, REPO, SERVER as SERVER_DIR, waitFor } from '../../lib/localStack.js'
 import { startFakePush } from '../../../server/test/fixtures/fakePush.mjs'
 
 test.describe.configure({ mode: 'serial' })
@@ -159,7 +159,7 @@ test('F-PH-01 Home 의 알림 카드: 켜기 → 켜져 있어요 → 시험 알
   }
 })
 
-test('F-PH-02 AI 의 질문: 알림의 단추로 답하면 그 대화로 가고, 같은 알림은 두 번 답하지 않는다', async ({ browser }) => {
+test('F-PH-02 AI 의 질문: 채팅 질문의 알림은 「열기」만 — 누르면 그 대화가 열리고, 서버는 채팅 질문의 답을 알림에서 받지 않는다', async ({ browser }) => {
   const tid = await mainThread(HY)
   const p = await open(browser, HY)
   // (on 설정: the chat is not in front — a question arriving now is shown)
@@ -168,36 +168,38 @@ test('F-PH-02 AI 의 질문: 알림의 단추로 답하면 그 대화로 가고,
   await clearShown(sw)
   await send(HY, tid, '이번 주 회의록 정리해 줘')
   const ask = await received('hy', (x) => x.type === 'ai_ask')
-  expect(ask).toMatchObject({ title: 'Process GPT 의 질문이 있어요', body: '어떤 형식으로 정리할까요?', place: '/chat', thread: tid,
-    actions: [{ action: 'a0', title: '세 줄 요약' }, { action: 'a1', title: '표로 정리' }] })
-  expect(ask.token).toMatch(/^pa1\./)
+  // (the agent's JSON says quick: true — the model's own text, so it changes nothing: re-review 11-26 #1)
+  expect(ask).toMatchObject({ title: 'Process GPT 의 질문이 있어요', body: '어떤 형식으로 정리할까요?', place: '/chat', thread: tid, actions: [{ action: 'open', title: '열기' }] })
+  expect(ask.token).toBeUndefined()
   expect(JSON.stringify(ask)).not.toContain(HY.token)
   // the phone shows it
   await sw.evaluate((d) => self.__pgl.push(d), ask)
   expect(await shown(sw, ask.tag)).toEqual([{ title: 'Process GPT 의 질문이 있어요', body: '어떤 형식으로 정리할까요?', tag: ask.tag, requireInteraction: true,
-    actions: [{ action: 'a0', title: '세 줄 요약' }, { action: 'a1', title: '표로 정리' }] }])
+    actions: [{ action: 'open', title: '열기' }] }])
   // and so does the Home, until it is answered
   await home(p)
   const homeCard = p.locator('[data-test="notice-card"]').filter({ hasText: 'Process GPT 의 질문이 있어요' })
   await expect(homeCard).toContainText('어떤 형식으로 정리할까요?')
   await expect(homeCard.locator('.verb')).toHaveText('질문')
   await shot(p, 'f-ph-02a-home-card')
-  // 「세 줄 요약」 on the notification: answered without opening the app
+  // a token for it, made with the server's own key, still answers nothing: the button opens the chat instead
+  const { config } = await import(path.join(SERVER_DIR, 'config.js'))
+  const PA = await import(path.join(SERVER_DIR, 'lib/pushActions.js'))
+  const [notice] = await S.q(`select id from notifications where tenant_id=$1 and type='ai_ask' and url like $2`, [TENANT, `/pro/ask/chat/${tid}/%`])
+  const forced = { ...ask, token: PA.mintAction({ key: PA.actionKey(config.serviceKey), tenant: TENANT, userId: HY.id, notice: notice.id, card: ask.card, answers: ['세 줄 요약'] }), actions: [{ action: 'a0', title: '세 줄 요약' }] }
+  await sw.evaluate((d) => self.__pgl.push(d), forced)
   const n0 = asked.length
-  expect(await click(sw, ask.tag, 'a0')).toBe('answered')
-  await waitFor(() => asked.length > n0, 20000, 'the answer reached the agent')
-  expect(asked.at(-1).message).toContain('세 줄 요약')
-  const rows = await waitFor(async () => { const r = await S.api(HY.token, `/threads/${tid}/messages`); return r.some((m) => m.role === 'agent' && /세 줄로 요약했어요/.test(m.content?.text || '')) ? r : null }, 20000, 'the agent answered')
-  expect(rows.filter((m) => m.role === 'user').map((m) => m.content.text)).toEqual(['이번 주 회의록 정리해 줘', '세 줄 요약'])
-  await expect(homeCard).toHaveCount(0, { timeout: 15000 })
-  // the same notification again (shown on another device): not answered twice — it opens the chat instead
-  await sw.evaluate((d) => self.__pgl.push(d), ask)
-  expect(await click(sw, ask.tag, 'a1')).toBe('told')
+  expect(await click(sw, ask.tag, 'a0')).toBe('told')
   await expect(p).toHaveURL(/\/chat$/)
+  await expect(p.getByText('어떤 형식으로 정리할까요?').first()).toBeVisible()
+  expect(asked.length).toBe(n0)
+  // answered in the chat: the Home card goes
+  await send(HY, tid, '세 줄 요약')
+  await waitFor(async () => (await S.api(HY.token, `/threads/${tid}/messages`)).some((m) => m.role === 'agent' && /세 줄로 요약했어요/.test(m.content?.text || '')), 20000, 'the agent answered')
   await expect(p.getByText('세 줄로 요약했어요. 결정 2건, 할 일 3건이에요.')).toBeVisible()
-  const after = await S.api(HY.token, `/threads/${tid}/messages`)
-  expect(after.filter((m) => m.role === 'user').length).toBe(2)
   await shot(p, 'f-ph-02b-answered-chat')
+  await home(p)
+  await expect(homeCard).toHaveCount(0, { timeout: 15000 })
   expect(p.errors).toEqual([])
   await p.context().close()
 })

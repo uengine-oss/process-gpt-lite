@@ -139,3 +139,16 @@ test('PA-U-09 단추는 묻는 쪽이 가볍다고 한 보기만 — 그 밖은 
   assert.equal(PA.askKind({ kind: 'choice', content: { files: true, options: ['견적서.pdf', '계약서.docx'] } }), 'approval')
   assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['견적서.pdf', '계약서.docx'], quick: true }), open)
 })
+
+// 재검토 11-26 #1: 채팅 질문은 모델이 쓴 JSON(quick · refusal 을 모델이 쓸 수 있다)이라 단추 없이 「열기」만. 거절은 다른 몫(첫 보기 =
+// 승인 · 보내기 쪽, 두 번 나오는 보기)이 아닐 때만
+test('PA-U-10 채팅 질문은 언제나 「열기」만, 거절은 첫 보기 · 겹치는 보기가 아닐 때만', () => {
+  const open = { buttons: [{ action: 'open', title: '열기' }], answers: [] }
+  assert.deepEqual(PA.askButtons({ via: 'chat', kind: 'question', options: ['보내기', '보류'], quick: true }), open)
+  assert.deepEqual(PA.askButtons({ via: 'chat', kind: 'question', options: ['보내기', '보류'], refusal: '보류' }), open)
+  assert.deepEqual(PA.askButtons({ via: 'task', kind: 'question', options: ['가', '나'], quick: true }).answers, ['가', '나'])
+  // a refusal that is also the approving (first) option, or appears twice: not a refusal
+  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['승인', '취소'], refusal: '승인' }), open)
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['보내기', '보내기'], refusal: '보내기' }), open)
+  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['승인', '취소'], refusal: '취소' }).answers, ['취소'])
+})

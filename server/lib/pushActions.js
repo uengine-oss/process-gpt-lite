@@ -95,23 +95,36 @@ export function askKind({ kind, content = {} } = {}) {
   return 'question'
 }
 
+/** the option that declines, when the asker named one that is nothing else: one of the options, named once, and not the first (the first is
+ *  always the one that goes ahead — 「승인」, 「보내기」) → that option, or null */
+export function refusalOf(options = [], refusal = null) {
+  const opts = (options || []).map((o) => String(o ?? '').trim())
+  const no = refusal != null ? String(refusal).trim() : ''
+  return no && opts.filter((o) => o === no).length === 1 && opts[0] !== no ? no : null
+}
+
 /** the buttons a waiting card's notification carries, and the answers its token allows (by index). A phone's lock screen shows a
  *  notification's buttons to whoever holds the phone, so a tap may only do what is light (review 11-26, PR #89) — by default, nothing:
- *  - a question whose asker marked it light (quick: true) with one or two short options: the options — a tap answers without opening Lite
- *  - otherwise, when the asker named the option that declines (refusal, one of its options): 「열기」 and that one — refusing is safe
- *    (an approval — a payment, an upload, a file to upload — is only ever refused this way; approving is done on the card)
+ *  - a chat agent's question (via 'chat'): 「열기」 only, always. Its question, options and any quick · refusal are the model's own final
+ *    text (deepagents' done.content), which a page or a file the agent read can steer — answers from the notification come back only when
+ *    these marks arrive on a channel the model cannot write (re-review 11-26 #1)
+ *  - a browser task's question whose card the code marked light (quick: true) with one or two short options: the options
+ *  - otherwise, when the card names the option that declines (refusalOf): 「열기」 and that one — refusing is safe (an approval — a payment,
+ *    an upload, a file to upload — is only ever refused this way; approving is done on the card)
  *  - everything else (no mark, more options, a sign-in, a check only the person can do on the screen): 「열기」 */
-export function askButtons({ kind, options = [], quick = false, refusal = null }, { open = '열기' } = {}) {
+export function askButtons({ via = 'task', kind, options = [], quick = false, refusal = null }, { open = '열기' } = {}) {
+  const opener = { buttons: [{ action: 'open', title: open }], answers: [] }
+  if (via === 'chat') return opener
   const opts = (options || []).map((o) => String(o ?? '').trim()).filter(Boolean)
   const short = (o) => [...o].length <= MAX_LABEL
   if (kind === 'question' && quick === true && opts.length >= 1 && opts.length <= MAX_ACTIONS && opts.every(short)) {
     return { buttons: opts.map((o, i) => ({ action: `a${i}`, title: o })), answers: opts }
   }
-  const no = refusal != null ? String(refusal).trim() : ''
-  if ((kind === 'question' || kind === 'approval') && no && opts.includes(no) && short(no)) {
+  const no = refusalOf(opts, refusal)
+  if ((kind === 'question' || kind === 'approval') && no && short(no)) {
     return { buttons: [{ action: 'open', title: open }, { action: 'a0', title: no }], answers: [no] }
   }
-  return { buttons: [{ action: 'open', title: open }], answers: [] }
+  return opener
 }
 
 /** the notice's words: what it asks, short enough for a notification line */

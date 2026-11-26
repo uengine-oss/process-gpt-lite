@@ -11,6 +11,7 @@ import { submitTodo } from './engine.js'
 import { mainThread, addMessage } from './store.js'
 import { hideTodo } from './homeCards.js'
 import { namesOf } from './people.js'
+import { authEmailOf } from './supa.js'
 import { L, langOf, withLang } from './lang.js'
 import * as PA from './pushActions.js'
 
@@ -209,7 +210,7 @@ export async function feedOnce() {
   // database's room notices were almost all without a tenant). The room's tenant is stamped on them here, minutes old at most.
   await q(`update notifications n set tenant_id = r.tenant_id from chat_rooms r where n.tenant_id is null and n.type = 'chat'
            and n.time_stamp > now() - interval '10 minutes' and n.url = '/chats?id=' || r.id and r.tenant_id = $1`, [T()]).catch(() => {})
-  const rows = await q(`select u.id as uid, n.id, n.title, n.description, n.url, n.type, n.from_user_id, fu.id::text as from_id, fu.username as from_name, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
+  const rows = await q(`select u.id as uid, n.user_id as to_user, n.id, n.title, n.description, n.url, n.type, n.from_user_id, fu.id::text as from_id, fu.username as from_name, tl.proc_inst_id as inst_id, (max(n.time_stamp) over ())::text as newest from notifications n
                         left join users u on (u.id::text = any(string_to_array(replace(n.user_id, ' ', ''), ',')) or u.email = n.user_id) and u.tenant_id = n.tenant_id
                         left join users fu on fu.email = n.from_user_id and fu.tenant_id = n.tenant_id
                         left join todolist tl on n.url = '/todolist/' || tl.id::text
@@ -224,6 +225,8 @@ export async function feedOnce() {
 }
 const pushBody = (r) => String(r.type === 'chat' ? r.title : (r.description || '')).replace(/\s+/g, ' ').slice(0, 160)
 const pushTitle = (r) => String(r.type === 'chat' ? (r.from || '새 메시지') : r.type?.startsWith('workitem') ? `입력이 필요해요 · ${r.title}` : (r.title || 'process gpt')).slice(0, 120)
+// a row's user_id (an id, an address, or process-gpt's comma list of them) names one of `mine` (lower case)
+const addressed = (to, mine) => String(to || '').split(',').map((x) => x.trim().toLowerCase()).some((x) => x && mine.includes(x))
 async function pushRows(rows) {
   const byUser = new Map()
   for (const r of rows) if (r.uid) (byUser.get(r.uid) || byUser.set(r.uid, []).get(r.uid)).push(r)
@@ -235,12 +238,14 @@ async function pushRows(rows) {
   for (const [uid, list] of byUser) {
     // (an approved member of this company only — someone removed, or not admitted, hears nothing: review 11-26, PR #89)
     if (!(await memberHere(uid))) continue
-    // rows name a person by id or by email
-    const [u] = await q('select email from users where id::text=$1 and tenant_id=$2', [uid, T()]).catch(() => [])
-    const mine = [uid, u?.email].filter(Boolean)
-    const [c] = await q(`select count(*)::int as n from notifications where tenant_id=$1 and coalesce(is_checked,false)=false and user_id = any($2)`,
+    // rows name a person by id or by email — the address the auth server keeps for this account, never public.users.email (its owner can
+    // change it to a colleague's and would get the colleague's notices: re-review 11-26 #2). The SQL's match is a candidate; this decides.
+    const mine = [String(uid).toLowerCase(), await authEmailOf(uid)].filter(Boolean)
+    const own = list.filter((r) => addressed(r.to_user, mine))
+    if (!own.length) continue
+    const [c] = await q(`select count(*)::int as n from notifications where tenant_id=$1 and coalesce(is_checked,false)=false and lower(user_id) = any($2)`,
       [T(), mine]).catch(() => [])
-    const payloads = await withLang(await langOf(uid), () => pushPayloads(uid, mine, list))
+    const payloads = await withLang(await langOf(uid), () => pushPayloads(uid, mine, own))
     for (const p of payloads.slice(-4)) await pushTo(uid, { ...p, badge: c?.n || list.length })
   }
 }
@@ -259,7 +264,9 @@ export async function pushPayloads(uid, mine, list) {
   for (const g of PA.groupForPush(list)) {
     if (g.room) { const p = await roomPayload(mine, g, reply); if (p) out.push(p); continue }
     const r = g.row
-    if (r.from_user_id && mine.includes(r.from_user_id)) continue
+    if (r.from_user_id && mine.includes(String(r.from_user_id).toLowerCase())) continue
+    // (the AI's question goes to the one person its row names by id — never matched by an address)
+    if (r.type === 'ai_ask' && r.to_user != null && String(r.to_user) !== String(uid)) continue
     if (r.type === 'ai_ask') { const p = await askPayload(r, uid).catch((e) => { console.warn('[push] ask', e.message); return null }); if (p) out.push(p); continue }
     const room = PA.isMention(r) ? PA.roomOf(r.url) : null
     out.push({ id: r.id, type: r.type?.startsWith('workitem') ? 'workitem' : r.type, title: pushTitle(r), body: pushBody(r), url: r.url || null, instId: r.inst_id || null,
@@ -271,10 +278,10 @@ export async function pushPayloads(uid, mine, list) {
 async function roomPayload(mine, g, reply) {
   const last = g.rows[g.rows.length - 1]
   const [waiting, [n]] = await Promise.all([
-    q(`select title, from_user_id, url, description from notifications where tenant_id=$1 and type='chat' and url=$2 and user_id = any($3)
+    q(`select title, from_user_id, url, description from notifications where tenant_id=$1 and type='chat' and url=$2 and lower(user_id) = any($3)
        and coalesce(is_checked,false)=false order by time_stamp desc limit 2`, [T(), last.url, mine]).catch(() => []),
-    q(`select count(*)::int as n from notifications where tenant_id=$1 and user_id = any($2) and coalesce(is_checked,false)=false
-       and ((type='chat' and url=$3) or (type='team' and url like $4)) and coalesce(from_user_id,'') <> all($2)`, [T(), mine, last.url, `/pro/team/${g.room}/%`]).catch(() => [{}]),
+    q(`select count(*)::int as n from notifications where tenant_id=$1 and lower(user_id) = any($2) and coalesce(is_checked,false)=false
+       and ((type='chat' and url=$3) or (type='team' and url like $4)) and lower(coalesce(from_user_id,'')) <> all($2)`, [T(), mine, last.url, `/pro/team/${g.room}/%`]).catch(() => [{}]),
   ])
   // (read in the meantime — on another device, or the room opened: nothing to show)
   if (!waiting.length) return null
@@ -287,7 +294,7 @@ async function roomPayload(mine, g, reply) {
 async function roomPeople(room, mine) {
   const [r] = await q('select participants from chat_rooms where id=$1', [room]).catch(() => [])
   const others = (Array.isArray(r?.participants) ? r.participants : [])
-    .filter((p) => p && !p.is_agent && p.id && p.id !== 'system_id' && !mine.includes(String(p.id)) && !mine.includes(p.email))
+    .filter((p) => p && !p.is_agent && p.id && p.id !== 'system_id' && !mine.includes(String(p.id).toLowerCase()) && !mine.includes(String(p.email || '').toLowerCase()))
   if (others.length < 2) return null
   const names = await namesOf(others.map((p) => p.id)).catch(() => ({}))
   const list = others.map((p) => names[p.id] || p.username || String(p.email || '').split('@')[0]).filter(Boolean)

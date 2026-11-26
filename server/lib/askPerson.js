@@ -72,7 +72,14 @@ export async function settle(userId, { via, threadId, cardId = null }) {
 export async function waitingCard({ via, threadId, cardId }) {
   const [m] = await q('select role, kind, content, created_at from pro_messages where id=$1 and thread_id=$2', [cardId, threadId]).catch(() => [])
   if (!m) return null
-  if (via === 'task') return (m.kind === 'task' ? m.content?.state === 'needs_input' : m.content?.state === 'pending') ? m : null
+  if (via === 'task') {
+    if (m.kind === 'task') return m.content?.state === 'needs_input' ? m : null
+    if (m.content?.state !== 'pending') return null
+    // a card of a task (lib/browser.js waitForUser posts it with taskId): the task must still be under way — one a restart ended is not
+    if (!m.content?.taskId) return m
+    const [t] = await q(`select content->>'state' as state from pro_messages where id::text=$1`, [String(m.content.taskId)]).catch(() => [])
+    return ['running', 'needs_input', 'queued'].includes(t?.state) ? m : null
+  }
   const [after] = await q(`select 1 from pro_messages where thread_id=$1 and role='user' and created_at > $2 limit 1`, [threadId, m.created_at]).catch(() => [])
   return after ? null : m
 }
@@ -80,15 +87,18 @@ export const stillWaiting = async (at) => !!(await waitingCard(at))
 /** the card's kind for the Home card and the push: question · approval · login · hands */
 export const kindOf = (at, card) => (at.via === 'chat' ? 'question' : PA.askKind(card || {}))
 
-/** A restart ended this server's browser tasks: their notices go — of the companies this server serves only (another server on the same
- *  database keeps its own) */
+/** At start: the notices of browser-task waits that are over go — decided by the task cards' own state (waitingCard's rule), not by which
+ *  company or server: a wait another server still holds (its task card says needs_input) keeps its notice (re-review 11-26 #4) */
 export async function resetTaskAsks() {
-  const { eachTenant } = await import('./supa.js')
-  let n = 0
-  await eachTenant(async () => {
-    n += (await q(`update notifications set is_checked=true where tenant_id=$1 and type='ai_ask' and url like '/pro/ask/task/%' and not coalesce(is_checked,false) returning id`, [T()])).length
-  })
-  return n
+  return (await q(`update notifications n set is_checked=true
+    where n.type='ai_ask' and n.url like '/pro/ask/task/%' and not coalesce(n.is_checked,false)
+      and not exists (
+        select 1 from pro_messages c left join pro_messages t on t.id::text = c.content->>'taskId'
+        where c.id::text = split_part(n.url, '/', 6)
+          and ((c.kind = 'task' and c.content->>'state' = 'needs_input')
+            or (c.kind <> 'task' and c.content->>'state' = 'pending'
+                and (c.content->>'taskId' is null or t.content->>'state' in ('running','needs_input','queued')))))
+    returning n.id`)).length
 }
 
 /** where the notice opens: the project room, the routine's page, or the chat — the conversation the question was asked in when the main
@@ -110,7 +120,8 @@ export async function askPayload(row, userId, { now = Date.now() } = {}) {
   const kind = kindOf(at, card)
   // what the asker said of its choice: quick (light enough for a lock screen's tap), refusal (the option that declines)
   const said = at.via === 'chat' ? card?.content?.ask || {} : card?.kind === 'choice' ? card.content || {} : {}
-  const { buttons, answers } = withLang(await langOf(userId), () => PA.askButtons({ kind, options: said.options || [], quick: said.quick === true, refusal: said.refusal || null }, { open: L('열기', 'Open') }))
+  // (a chat question: 「열기」 only, whatever its JSON says — pushActions.askButtons)
+  const { buttons, answers } = withLang(await langOf(userId), () => PA.askButtons({ via: at.via, kind, options: said.options || [], quick: said.quick === true, refusal: said.refusal || null }, { open: L('열기', 'Open') }))
   const token = answers.length ? PA.mintAction({ key: signingKey(), tenant: T(), userId, notice: row.id, card: at.cardId, answers, now }) : null
   return {
     id: row.id, type: 'ai_ask', kind, title: String(row.title || '').slice(0, 120), body: String(row.description || '').slice(0, 160),
@@ -135,13 +146,16 @@ export async function act({ token, answer }, { answerTask, answerChat, now = Dat
   const [n] = await q(`select id, user_id, url from notifications where id=$1 and tenant_id=$2 and type='ai_ask'`, [c.n, T()])
   if (!n) return refuse(404, 'no such notice')
   const at = parseAskUrl(n.url)
-  // the token is this person's, for this notice's card, and the notice and its thread are theirs — a member of this company still
-  // (users.email is only for matching an older notice that names its person by address: the person is their id)
-  const [who] = await q(`select u.id::text as id, u.email, coalesce(nullif(p.name,''), u.username, u.email) as name from users u
+  // the token is this person's, for this notice's card, and the notice (by their id — never public.users.email, which its owner can change)
+  // and its thread are theirs — a member of this company still
+  const [who] = await q(`select u.id::text as id, coalesce(nullif(p.name,''), u.username) as name from users u
                          left join pro_profile p on p.user_id = u.id where u.id::text=$1 and u.tenant_id=$2`, [c.u, T()]).catch(() => [])
-  if (!who || !at || at.cardId !== c.c || ![who.id, who.email].includes(n.user_id) || !(await memberHere(who.id))) return refuse(403, 'not yours')
+  if (!who || !at || at.cardId !== c.c || String(n.user_id) !== who.id || !(await memberHere(who.id))) return refuse(403, 'not yours')
   const [thread] = await q('select * from pro_threads where id=$1 and user_id=$2', [at.threadId, who.id])
   if (!thread) return refuse(403, 'not yours')
+  // a chat question is never answered from a notification: its options are the model's own text (re-review 11-26 #1 — pushActions.askButtons
+  // mints no token for one; a token that names one anyway answers nothing)
+  if (at.via === 'chat') return refuse(403, withLang(await langOf(who.id), () => L('채팅 질문은 앱에서 답해 주세요.', 'Answer chat questions in the app.')))
   // used once: the notice goes from waiting to checked here — a second tap, another device, the same token again finds it checked
   const [won] = await q(`update notifications set is_checked=true where id=$1 and not coalesce(is_checked,false) returning id`, [n.id])
   if (!won) return refuse(409, withLang(await langOf(who.id), () => L('이미 답했거나 닫은 알림이에요', 'This was already answered or closed.')))
@@ -149,7 +163,7 @@ export async function act({ token, answer }, { answerTask, answerChat, now = Dat
   const label = c.a[i]
   let ok = false, failed = null
   try {
-    ok = at.via === 'task' ? await answerTask?.(who.id, at.cardId, label) : await answerChat?.(who, thread, at.cardId, label)
+    ok = at.via === 'task' ? await answerTask?.(who.id, at.cardId, label) : await answerChat?.(who, thread, at.cardId, label, { notice: n.id })
   } catch (e) { failed = e; console.warn(`[push] ${at.via} answer failed:`, e.message) }
   if (!ok) {
     // nothing was answered (a turn under way in its thread, no session, the task in another server's memory): a card that still waits gets
@@ -170,15 +184,25 @@ export async function act({ token, answer }, { answerTask, answerChat, now = Dat
  *  runTurn · busy: lib/agent.js runTurn, lib/turns.js running (given, not imported: no cycle). sessionOf(userId): the person's own session
  *  by their account id (lib/supa.js sessionOfUser — never by an address from public.users, never making an account or a users row); a
  *  session that turns out to be someone else's is not used. */
+//  Not reachable from act() while chat questions get no answer buttons (re-review 11-26 #1); kept for when their marks come on a channel
+//  the model cannot write. notice: its notice — given back if the turn fails before the person's message is in (nothing new is pushed:
+//  the row only waits again).
 export function chatAnswerer({ runTurn, busy, sessionOf = sessionOfUser }) {
-  return async (who, thread, cardId, label) => {
+  return async (who, thread, cardId, label, { notice = null } = {}) => {
     if (!(await stillWaiting({ via: 'chat', threadId: thread.id, cardId })) || busy?.({ userId: who.id, threadId: thread.id })?.length) return false
     const { user, session } = await sessionOf(who.id)
     if (!user?.id || String(user.id) !== String(who.id) || !session?.access_token) throw new Error('the session is not this person\'s')
     const person = { id: who.id, email: user.email, name: who.name }
     // (in the person's language, tenant and usage — as their own request would be: lib/lang.js asUser)
     asUser(who.id, () => runTurn({ user: person, session, threadId: thread.id, text: label }))
-      .catch((e) => console.warn('[push] chat answer', e.message))
+      .catch(async (e) => {
+        console.warn('[push] chat answer', e.message)
+        // (the turn failed before the person's message was written: the question still waits — so does its notice)
+        if (notice && await stillWaiting({ via: 'chat', threadId: thread.id, cardId })) {
+          await q('update notifications set is_checked=false where id=$1 and coalesce(is_checked,false)', [notice]).catch(() => {})
+          emit(who.id, 'notifications', {})
+        }
+      })
     return true
   }
 }

@@ -113,10 +113,14 @@ async function magicSession(email, retried = false) {
 // address is the auth server's own record of that account — never public.users.email, which Process GPT lets its owner change (a member
 // could name someone else's address there and be handed that person's session). Nothing is made: no account, no users row. The session
 // must turn out to be that account's, or it is not used.
-export async function sessionOfUser(userId) {
+// (and of this server's company, as a sign-in would be: ensureUser's rule — multi · tenantOf only for tests)
+export async function sessionOfUser(userId, { multi, tenantOf } = {}) {
   const { data, error } = await admin.auth.admin.getUserById(String(userId))
   const email = data?.user?.email
   if (error || !email) throw new Error('no such account')
+  const TN = await import('./tenant.js')
+  const theirs = (tenantOf || TN.tenantOfAuthUser)(data.user)
+  if ((multi || TN.multiTenant)() && theirs !== config.tenantId) throw new TN.TenantMismatch(theirs)
   const key = normEmail(email)
   const before = minting.get(key) || Promise.resolve()
   const mine = before.catch(() => {}).then(() => magicSession(key))
@@ -125,6 +129,20 @@ export async function sessionOfUser(userId) {
   try { session = await mine } finally { if (minting.get(key) === mine) minting.delete(key) }
   if (session?.user?.id !== String(userId)) throw new Error('the session is not that account\'s')
   return { user: { id: session.user.id, email: session.user.email || key }, session }
+}
+
+// A person's sign-in address as the auth server keeps it (lower case), by their account id — what a notice addressed by email is matched
+// against (public.users.email is the row owner's to change: re-review 11-26 #2). Cached for a few minutes; null when there is no account.
+const authEmails = new Map()
+export async function authEmailOf(userId) {
+  const k = String(userId || '')
+  const hit = authEmails.get(k)
+  if (hit && hit.at > Date.now() - 5 * 60_000) return hit.email
+  const { data } = await admin.auth.admin.getUserById(k).catch(() => ({ data: null }))
+  const email = data?.user?.email ? normEmail(data.user.email) : null
+  authEmails.set(k, { email, at: Date.now() })
+  if (authEmails.size > 5000) authEmails.delete(authEmails.keys().next().value)
+  return email
 }
 
 // The person of a token, or null when Supabase refuses it (4xx). A timeout or 5xx from a slow or restarting
