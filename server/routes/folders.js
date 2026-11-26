@@ -2,6 +2,7 @@
 import express from 'express'
 import { L } from '../lib/lang.js'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { q, admin } from '../lib/supa.js'
 import * as G from '../lib/folders/git.js'
@@ -176,7 +177,16 @@ export function folderRoutes(auth) {
     const saveAs = via && ext && !path.extname(named) ? `${named}.${ext}` : named
     res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream')
     res.setHeader('X-Content-Type-Options', 'nosniff')
-    res.setHeader('Cache-Control', 'private, max-age=60')
+    // a commit's file never changes: kept a minute. A branch (main, a variation) or a slot (it follows its original's main) moves: the
+    // browser asks again each time and gets 304 while the bytes are the same — a file changed a moment ago is never shown stale
+    // (11-27: a slot's file reopened within a minute of its original changing showed the old text)
+    if (!via && /^[0-9a-f]{40}$/i.test(String(req.query.ref || ''))) res.setHeader('Cache-Control', 'private, max-age=60')
+    else {
+      const etag = `"${crypto.createHash('sha1').update(buf).digest('hex')}"`
+      res.setHeader('Cache-Control', 'private, no-cache')
+      res.setHeader('ETag', etag)
+      if (String(req.headers['if-none-match'] || '').split(/\s*,\s*/).includes(etag)) { res.statusCode = 304; return res.end() }
+    }
     // a file an agent wrote must not run script on this origin
     if (/^(html?|svg|xml)$/.test(ext)) res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'")
     if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(saveAs)}`)

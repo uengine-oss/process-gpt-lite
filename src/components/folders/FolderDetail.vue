@@ -367,7 +367,7 @@ const ix = computed(() => folder.value?.index_state || {})
                   <span class="si" :class="g.slot.state"><FIcon :name="g.slot.state === 'locked' ? 'lock' : g.slot.state === 'ok' ? 'folder' : 'warn'" :size="17" /><i v-if="g.slot.state === 'ok'" class="arr"><FIcon name="ref" :size="11" /></i></span>
                   <span class="sl"><span class="sn"><span class="nm">{{ g.slot.label }}</span><span class="rp" data-test="slot-pill">참조</span><span class="ra" aria-hidden="true"><FIcon name="ref" :size="13" /></span></span><small class="sm-meta">참조 · {{ slotMeta(g.slot) }}</small></span>
                 </button>
-                <span class="by meta">{{ slotMeta(g.slot) }}</span>
+                <span class="by meta" :title="slotMeta(g.slot)">{{ slotMeta(g.slot) }}</span>
                 <span class="sz">
                   <template v-if="g.slot.state === 'ok'">{{ g.slot.count ?? g.list.length }}개</template>
                   <button v-else-if="g.slot.state === 'locked' && !g.slot.requested" class="ask press" data-test="slot-request" @click="askAccess(g.slot)">접근 요청</button>
@@ -395,7 +395,7 @@ const ix = computed(() => folder.value?.index_state || {})
               <!-- a readable file slot -->
               <div v-if="t.slot" class="fr file slot ok" data-test="folder-slot" :data-slot="t.slot.slot" data-state="ok">
                 <button class="fn press" @click="preview(t.f)"><span class="fw"><span class="fic sm" :class="kindOfRow(t.f)">{{ kindLabel[kindOfRow(t.f)] }}</span><i class="arr"><FIcon name="ref" :size="11" /></i></span><span class="sl"><span class="sn"><span class="nm">{{ baseName(t.f.path) }}</span><span class="rp" data-test="slot-pill">참조</span><span class="ra" aria-hidden="true"><FIcon name="ref" :size="13" /></span></span><small class="sm-meta">참조 · {{ slotMeta(t.slot) }}</small></span></button>
-                <span class="by meta">{{ slotMeta(t.slot) }}</span>
+                <span class="by meta" :title="slotMeta(t.slot)">{{ slotMeta(t.slot) }}</span>
                 <span class="sz">{{ t.f.size != null ? fmtSize(Number(t.f.size)) : '' }}<button v-if="slotActs(t.slot).length" class="more press" title="참조 메뉴" data-test="slot-more" @click="openMenu($event, t.slot)"><FIcon name="more" :size="18" /></button></span>
               </div>
               <div v-else class="fr file" :class="{ sel: sel.has(t.f.path) }" draggable="true" data-test="folder-file" :data-file="t.f.path" @dragstart="dragRow($event, t.f)">
@@ -667,7 +667,7 @@ section.pane { position: relative; }
 .slot.locked .rp, .slot.dangling .rp { background: var(--button-bg); color: var(--text-secondary); }
 .ra { display: none; color: #2a78d6; }
 .sm-meta { display: none; font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.by.meta { color: var(--text-secondary); }
+.by.meta { display: block; text-overflow: ellipsis; color: var(--text-secondary); }
 .slot.locked .nm, .slot.dangling .nm { color: var(--text-secondary); }
 .slot.dangling .by.meta { color: #b06a0c; }
 .fr.reffile .fn.in { padding-left: 34px; }

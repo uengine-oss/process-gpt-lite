@@ -18,6 +18,7 @@ import { q, ENGINE_TZ } from '../supa.js'
 import { emit } from '../bus.js'
 import { linkOnPath } from '../noLinks.js'
 import { L } from '../lang.js'
+import { ro } from '../josa.js'
 import * as G from './git.js'
 import * as S from './service.js'
 
@@ -500,7 +501,7 @@ export async function requestAccess(folder, user, id) {
     const [dup] = await q(`select 1 from notifications where tenant_id=$1 and user_id = any($2) and type='folder_access' and url=$3 and coalesce(is_checked,false)=false limit 1`, [T(), [u.id, u.email], url])
     if (dup) continue
     const title = L(`${user.name}님이 「${src.name}」 폴더 권한을 요청했어요`, `${user.name} asked for access to the "${src.name}" folder`)
-    const text = L(`다른 폴더에 둔 참조 「${r.label}」로 이 폴더의 자료를 읽으려고 해요. 폴더의 「공유」에서 구성원으로 추가할 수 있어요.`,
+    const text = L(`다른 폴더에 둔 참조 「${r.label}」${ro(r.label)} 이 폴더의 자료를 읽으려고 해요. 폴더의 「공유」에서 구성원으로 추가할 수 있어요.`,
       `They want to read this folder's material through a reference, "${r.label}", kept in another folder. Add them in the folder's Share.`)
     await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id) values (gen_random_uuid(),$1,$2,'folder_access',$3,$4,$5,$6)`,
       [u.id, title.slice(0, 200), text, url, user.email || String(user.id), T()])
