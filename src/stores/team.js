@@ -56,6 +56,8 @@ export const useTeam = defineStore('team', {
     // openedAt, lastOpenedAt, branch}] — for each person it went to, opened or not, and what their copy changed
     receipts: {},
     replyAt: 0,               // when 「답장」 on a phone notification opened a room (Messenger.vue focuses the composer)
+    // this database has no reactions yet (sql/062 — the room's messages say so): none are offered, so none are put on and taken back off
+    rxOff: false,
   }),
   getters: {
     // the dock in effect on this window: float · right · left · panel
@@ -218,6 +220,7 @@ export const useTeam = defineStore('team', {
         ;[r, a] = await Promise.all([api(`/team/threads/${id}/messages`), api(`/team/threads/${id}/suggestions`).catch(() => null)])
       } finally { if (this._live[id] === live) delete this._live[id] }
       this.msgs[id] = merged(r.messages, [...live.values()])
+      this.rxOff = r.thread?.reactions === false
       this.takeTr(r.messages)
       if (a) { this.suggestions[id] = a.suggestions; this.assistOn[id] = a.assist && a.enabled; this.sugTr(a.suggestions) }
       this.markRead(id)
@@ -269,6 +272,7 @@ export const useTeam = defineStore('team', {
     // One of my reactions on someone else's message, put on or taken off (POST /team/messages/:id/reactions): the chips change at once,
     // then become the server's — back as they were if it refused
     async react(m, key) {
+      if (this.rxOff) return null
       const list = this.msgs[m.threadId] || []
       const was = list.find((x) => x.id === m.id)?.reactions || []
       const on = !was.find((c) => c.key === key)?.mine
@@ -279,7 +283,13 @@ export const useTeam = defineStore('team', {
         const r = await api(`/team/messages/${encodeURIComponent(m.id)}/reactions`, { method: 'POST', body: { key, on } })
         this.setReactions(m.threadId, m.id, r.reactions)
         return r
-      } catch (e) { this.setReactions(m.threadId, m.id, was); throw e }
+      } catch (e) {
+        this.setReactions(m.threadId, m.id, was)
+        // (the database has none yet: no more are offered — sql/062. Only the server's own word for it: a 503 from a proxy during a
+        // rollout is not that)
+        if (e.code === 'reactions_off') this.rxOff = true
+        throw e
+      }
     },
     async startThread(members, title) {
       const t = await api('/team/threads', { method: 'POST', body: { members, title } })
