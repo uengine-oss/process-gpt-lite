@@ -138,8 +138,11 @@ export async function authEmailOf(userId) {
   const k = String(userId || '')
   const hit = authEmails.get(k)
   if (hit && hit.at > Date.now() - 5 * 60_000) return hit.email
-  const { data } = await admin.auth.admin.getUserById(k).catch(() => ({ data: null }))
+  // supabase-js answers an outage with { error }, not a throw: only a real answer is remembered, so notices addressed by
+  // email are not dropped for minutes after the auth server comes back (re-review 11-26)
+  const { data, error } = await admin.auth.admin.getUserById(k).catch((e) => ({ data: null, error: e }))
   const email = data?.user?.email ? normEmail(data.user.email) : null
+  if (error && !data?.user) return email
   authEmails.set(k, { email, at: Date.now() })
   if (authEmails.size > 5000) authEmails.delete(authEmails.keys().next().value)
   return email

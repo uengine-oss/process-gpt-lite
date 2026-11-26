@@ -1515,7 +1515,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/local
 사용자(11-26, 카카오톡 · Gemini · Claude 알림이 떠 있는 안드로이드 알림 창 화면): 「퀵하게 대화방에서 온 내용 혹은 ai의 후먼인더루프 등을 모바일에서 보게할 수 있나?」 이제 AI가 사람의 응답을 기다리면(채팅 에이전트의 질문, 브라우저 작업의 질문 · 승인 · 로그인 · 직접 확인) `notifications`에 `ai_ask` 행이 생기고, Home 카드와 휴대폰 알림으로 표시된다. 보기가 두 개 이하인 짧은 질문은 알림의 단추로 바로 답할 수 있다(한 번만 쓰는 서명 토큰, `POST /api/push/act`). 승인 알림에는 「열기」 · 「취소」 단추만 표시한다. 대화방 메시지는 방마다 알림 하나(「<방> · N」, 마지막 두 줄, 「답장」)로 묶고, 현재 열어 둔 방의 메시지는 알리지 않는다. Home과 설정에 「시험 알림 보내기」가 있고, iPhone의 Safari 탭에는 홈 화면 앱 안내가 표시된다.
 
 ```bash
-cd server && node --test test/pushActions.test.js test/webpush.test.js                       # PA-U-01~10 · WP-S-01~02
+cd server && node --test test/pushActions.test.js test/webpush.test.js test/authEmailOf.test.js                       # PA-U-01~10 · WP-S-01~02
 cd server && node --test --test-concurrency=1 test/pushHitl.integration.test.js              # PH-I-01~19 (로컬 Supabase · GoTrue, 회사 push-hitl-it)
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/push-hitl.spec.js   # F-PH-01~07 (자기 스택 8973 · 5373부터, 가짜 푸시 서비스)
 ```
