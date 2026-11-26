@@ -554,3 +554,122 @@ test('F-ST-11 ProcessGPT 의 다른 사람 세션을 넘겨받으면(게이트�
   expect(p.errors).toEqual([])
   await p.context().close()
 })
+
+// ---- re-review of 6a25084 (2026-11-26) ----
+const DESK = { viewport: { width: 1280, height: 820 }, locale: 'ko-KR' }
+async function desk(browser, who) {
+  const ctx = await browser.newContext({ ...DESK, baseURL: S.web, serviceWorkers: 'allow' })
+  await ctx.addInitScript((s) => { if (window.top !== window) return; localStorage.setItem('pgpt-pro-session', s); localStorage.setItem('pgpt-pro-theme', 'light'); localStorage.setItem('pgl-lang', 'ko'); localStorage.removeItem('pgl-messenger-dock') }, JSON.stringify(who.session))
+  const p = await ctx.newPage()
+  p.errors = []
+  p.on('pageerror', (e) => p.errors.push(String(e?.message || e)))
+  return p
+}
+const deskRoom = (p, title) => p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: new RegExp(`^${title}$`) }) }).first().click()
+
+test('F-ST-12 보낸 말은 쓰던 말로 돌아오지 않는다 — 보내는 사이 다른 방으로 옮겨도 그 방의 쓰던 말은 그대로, 보낸 방은 비어 있다', async ({ browser }) => {
+  const dm = (await S.api(HY.token, '/team/threads', { method: 'POST', body: { members: [SY.id] } })).id
+  const p = await desk(browser, HY)
+  await p.goto('/chat')
+  await p.locator('button.msg-btn').click()
+  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await deskRoom(p, '김서연')
+  await p.locator('.ms .cmp textarea').fill('김서연에게 쓰던 말')
+  await deskRoom(p, '시니어그룹')
+  await p.locator('.ms .cmp textarea').fill('이건 보낼 말이에요')
+  // the send held on the way: the person moves to the 1:1 while it is in flight
+  let release
+  const held = new Promise((r) => { release = r })
+  await p.route(`**/api/team/threads/${ROOM}/messages`, async (route) => { if (route.request().method() !== 'POST') return route.continue(); await held; await route.continue() })
+  await p.locator('[data-test="msg-send"]').click()
+  await deskRoom(p, '김서연')
+  await expect(p.locator('.ms .cmp textarea')).toHaveValue('김서연에게 쓰던 말')
+  release()
+  await expect.poll(async () => (await roomMessages(HY)).some((m) => m.body === '이건 보낼 말이에요'), { timeout: 15000 }).toBe(true)
+  await p.waitForTimeout(400)
+  // the 1:1's words stay; the room the text went to has none (no second send waiting there)
+  await expect(p.locator('.ms .cmp textarea')).toHaveValue('김서연에게 쓰던 말')
+  await deskRoom(p, '시니어그룹')
+  await expect(p.locator('.ms .cmp textarea')).toHaveValue('')
+  expect(await p.evaluate((r) => Object.keys(sessionStorage).filter((k) => k.endsWith(`:${r}`)), ROOM)).toEqual([])
+  expect(p.errors).toEqual([])
+  await p.context().close()
+  void dm
+})
+
+test('F-ST-13 로그인하지 않은 채 온 공유는 그 창에서 로그인한 사람에게만 — 나중에 다른 창에서 로그인한 사람에게는 묻지 않는다', async ({ browser }) => {
+  // the phone signed out: the share lands on the sign-in page
+  const ctx = await browser.newContext({ ...PHONE, userAgent: ANDROID, baseURL: S.web, serviceWorkers: 'allow' })
+  const p = await ctx.newPage()
+  p.errors = []
+  p.on('pageerror', (e) => p.errors.push(String(e?.message || e)))
+  await p.goto('/login')
+  await workerReady(p)
+  await osShare(p, { action: '/share-target', files: [{ name: '회의록.pdf', mimeType: 'application/pdf', buffer: PDF }] }).catch(() => {})
+  await p.waitForURL(/\/login/)
+  // someone else signs in later, in another window of this browser: nothing is offered to them, and nothing is left behind
+  const q = await ctx.newPage()
+  q.errors = []
+  q.on('pageerror', (e) => q.errors.push(String(e?.message || e)))
+  await q.goto('/login')
+  await q.evaluate((s) => localStorage.setItem('pgpt-pro-session', s), JSON.stringify(SY.session))
+  await q.goto('/chat')
+  await expect(q.locator('.composer textarea')).toBeVisible()
+  await q.waitForTimeout(1500)
+  await expect(asking(q)).toHaveCount(0)
+  await expect(q.locator('[data-test="share-chooser"]')).toHaveCount(0)
+  expect(await q.evaluate(() => localStorage.getItem('pgl-share-pending'))).toBe(null)
+  await q.close()
+  // the one who shared signs in in that same window: it is theirs to place (no place kept for a signed-out share: the chooser)
+  await p.evaluate((s) => localStorage.setItem('pgpt-pro-session', s), JSON.stringify(HY.session))
+  await p.goto('/chat')
+  const sheet = p.locator('[data-test="share-chooser"]')
+  await expect(sheet).toBeVisible()
+  await expect(sheet.locator('[data-test="share-what"]')).toHaveText('회의록.pdf')
+  await sheet.locator('[data-test="share-cancel"]').click()
+  expect(p.errors).toEqual([])
+  await ctx.close()
+})
+
+test('F-ST-14 다른 사람의 세션으로 바뀌어 버린 공유는 이 기기의 저장소에서도 지운다', async ({ browser }) => {
+  const p = await phone(browser, HY, { once: true })
+  await openRoom(p)
+  // ProcessGPT hands over 김서연's session on the very load that brings 정하윤's share: the share is not hers — gone, and its files too
+  const host = new URL(S.web).hostname
+  await p.context().addCookies([{ name: 'access_token', value: SY.session.session.access_token, domain: host, path: '/' }, { name: 'refresh_token', value: SY.session.session.refresh_token, domain: host, path: '/' }])
+  await osShare(p, { files: [{ name: '정하윤의 파일.pdf', mimeType: 'application/pdf', buffer: PDF }] })
+  await expect.poll(() => p.evaluate(() => JSON.parse(localStorage.getItem('pgpt-pro-session'))?.host === true).catch(() => null)).toBe(true)
+  await p.waitForLoadState('networkidle').catch(() => {})
+  await p.waitForTimeout(1500)
+  await expect(asking(p)).toHaveCount(0)
+  await expect(p.locator('[data-test="share-chooser"]')).toHaveCount(0)
+  await expect.poll(() => p.evaluate(async () => (await (await caches.open('pgl-share-v1')).keys()).length).catch(() => -1)).toBe(0)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-ST-15 묻는 창 — 키보드 초점은 창 안에서만 돌고, 뜬 직후의 누름은 「넣기」가 되지 않는다', async ({ browser }) => {
+  const p = await phone(browser, HY)
+  const up = uploads(p)
+  await openRoom(p)
+  await osShare(p, { files: [{ name: '견적 메모.txt', mimeType: 'text/plain', buffer: Buffer.from('메모') }] })
+  const ask = asking(p)
+  await expect(ask).toBeVisible()
+  // a tap arriving at once (the same finger that chose 「Process GPT」 in the share sheet): nothing happens
+  await p.locator('[data-test="share-put"]').click({ force: true, timeout: 1000 }).catch(() => {})
+  await p.waitForTimeout(100)
+  await expect(ask).toBeVisible()
+  expect(up).toEqual([])
+  // Tab and Shift+Tab stay in the sheet
+  for (let i = 0; i < 8; i++) {
+    await p.keyboard.press(i % 3 === 2 ? 'Shift+Tab' : 'Tab')
+    expect(await p.evaluate(() => !!document.activeElement?.closest('[data-test="share-ask"]'))).toBe(true)
+  }
+  // a moment later the tap counts
+  await p.waitForTimeout(500)
+  await putIt(p)
+  await expect(ask).toHaveCount(0)
+  await expect(upChip(p, '견적 메모.txt')).toHaveAttribute('data-state', 'ready', { timeout: 20000 })
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})

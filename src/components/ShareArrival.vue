@@ -12,7 +12,7 @@
 //   - files over the limits are named with the reason; a share that did not come says so
 // The composers take it through their own paths: the messenger's uploads (Messenger.vue — a room's files go only to that room), the
 // chat's attachments (stores/app.js addAttachments), the folder's upload (FolderDetail.vue — its own permission check).
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import PersonAvatar from './PersonAvatar.vue'
@@ -163,9 +163,51 @@ async function openChooser(first, note) {
     s.files.length ? F.list().catch(() => []) : Promise.resolve([])])
   rows.value = chooserRows({ rooms: threads, folders: list, recent: recentFolders(store(), whoNow()), meId: app.me?.user?.id, files: s.files.length, first })
 }
+// ---- the two sheets (the question, the chooser): a tap in their first half second is not taken, and the keyboard stays in them ----
+// (the finger that chose 「Process GPT」 in Android's share sheet, or a repeated tap, lands on the sheet as it appears: it must not
+// confirm — nor cancel — what the person has not seen yet)
+const SETTLE_MS = 500
+const askEl = ref(null), chooserEl = ref(null)
+let openedAt = 0, settleTimer
+const settling = ref(false)   // its buttons wait (shown so) for that half second
+const settled = () => Date.now() - openedAt >= SETTLE_MS
+const sheetEl = () => (ask.value ? askEl.value : choosing.value ? chooserEl.value : null)
+watch(() => [!!ask.value, choosing.value], async ([a, c], was = []) => {
+  if ((a && !was[0]) || (c && !was[1])) {
+    openedAt = Date.now()
+    settling.value = true
+    clearTimeout(settleTimer)
+    settleTimer = setTimeout(() => { settling.value = false }, SETTLE_MS)
+  }
+  if (!a && !c) return
+  await nextTick()
+  // the focus goes into the sheet (on the sheet itself: not on 「넣기」 — Enter must not confirm before the person looks)
+  const el = sheetEl()
+  if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
+})
+const FOCUSABLE = 'button:not([disabled]), [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+function trapKeys(e) {
+  const el = sheetEl()
+  if (!el) return
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); return }
+  if (e.key !== 'Tab') return
+  const list = [...el.querySelectorAll(FOCUSABLE)].filter((x) => x.offsetParent !== null)
+  if (!list.length) { e.preventDefault(); el.focus(); return }
+  const first = list[0], last = list[list.length - 1], at = document.activeElement
+  if (!el.contains(at) || at === el) { e.preventDefault(); (e.shiftKey ? last : first).focus(); return }
+  if (e.shiftKey && at === first) { e.preventDefault(); last.focus() } else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus() }
+}
+onMounted(() => document.addEventListener('keydown', trapKeys, true))
+onBeforeUnmount(() => { document.removeEventListener('keydown', trapKeys, true); clearTimeout(settleTimer) })
+// a tap on the sheets: taken once they have settled
+const tap = (fn) => (...a) => { if (settled()) fn(...a) }
+
 // a place picked in the chooser is the person's own choice: it goes in at once
-const pick = (row) => put(row)
+const pick = tap((row) => put(row))
+const putAsked = tap(() => put(ask.value))
+const toChooser = tap(() => openChooser(null, ''))
 function cancel() { choosing.value = false; ask.value = null; payload.value = null; placed.value = null }
+const cancelTap = tap(cancel)
 
 const askLine = computed(() => (ask.value && payload.value ? askTitle({ files: payload.value.files.length, text: !!payload.value.text }, ask.value.title, ask.value.kind) : ''))
 const what = computed(() => (payload.value ? summaryParts(payload.value) : []))
@@ -184,14 +226,14 @@ const shown = (files) => files.slice(0, 4)
   <!-- (on the body, like the messenger: the page's stage is a layer of its own, under the messenger's sheet) -->
   <Teleport to="body">
   <!-- the one question: what came (names, the first line of the words) and where it would go — nothing goes in or up before 「넣기」 -->
-  <div v-if="ask && payload" class="sa-veil" data-test="share-ask-veil" @click.self="cancel">
-    <section class="sa-sheet" role="dialog" :aria-label="askLine" data-test="share-ask" :data-kind="ask.kind" :data-place="ask.id">
+  <div v-if="ask && payload" class="sa-veil" data-test="share-ask-veil" @click.self="cancelTap">
+    <section ref="askEl" class="sa-sheet" role="dialog" aria-modal="true" tabindex="-1" :aria-label="askLine" data-test="share-ask" :data-kind="ask.kind" :data-place="ask.id">
       <header>
         <span class="ic share" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="17.5" cy="5.5" r="2.5" /><circle cx="6.5" cy="12" r="2.5" /><circle cx="17.5" cy="18.5" r="2.5" /><path d="M8.7 10.8l6.6-4M8.7 13.2l6.6 4" /></svg>
         </span>
         <div class="ti"><strong data-test="share-ask-title">{{ askLine }}</strong><small>지금 열어 둔 곳</small></div>
-        <button class="x press" aria-label="닫기" data-test="share-cancel" @click="cancel"><Icon name="close" :size="16" /></button>
+        <button class="x press" aria-label="닫기" data-test="share-cancel" :disabled="settling" @click="cancelTap"><Icon name="close" :size="16" /></button>
       </header>
       <ul v-if="payload.files.length" class="files" data-test="share-files">
         <li v-for="(f, i) in shown(payload.files)" :key="i" :data-file="f.name"><Icon name="doc" :size="15" /><span class="fn">{{ f.name }}</span><small>{{ kb(f.size) }}</small></li>
@@ -201,8 +243,8 @@ const shown = (files) => files.slice(0, 4)
       <p v-if="payload.text && ask.kind === 'folder'" class="note">함께 온 글은 폴더에 넣지 않아요.</p>
       <p v-if="payload.notice" class="warnline" data-test="share-skipped">{{ payload.notice }}</p>
       <div class="acts">
-        <button class="go press" data-test="share-put" @click="put(ask)">넣기</button>
-        <button class="soft press" data-test="share-ask-elsewhere" @click="openChooser(null, '')">다른 곳에</button>
+        <button class="go press" data-test="share-put" :disabled="settling" @click="putAsked">넣기</button>
+        <button class="soft press" data-test="share-ask-elsewhere" :disabled="settling" @click="toChooser">다른 곳에</button>
       </div>
       <p v-if="ask.kind !== 'folder'" class="foot">넣기만 하고 보내지는 않아요. 보내기는 직접 눌러 주세요.</p>
     </section>
@@ -227,14 +269,14 @@ const shown = (files) => files.slice(0, 4)
   </Transition>
 
   <!-- 「어디에 넣을까요?」: the place last open (a while ago) first, the rooms I talked in lately, my chat, the folders I opened lately -->
-  <div v-if="choosing && payload" class="sa-veil" data-test="share-chooser-veil" @click.self="cancel">
-    <section class="sa-sheet" role="dialog" aria-label="어디에 넣을까요?" data-test="share-chooser">
+  <div v-if="choosing && payload" class="sa-veil" data-test="share-chooser-veil" @click.self="cancelTap">
+    <section ref="chooserEl" class="sa-sheet" role="dialog" aria-modal="true" tabindex="-1" aria-label="어디에 넣을까요?" data-test="share-chooser">
       <header>
         <span class="ic share" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="17.5" cy="5.5" r="2.5" /><circle cx="6.5" cy="12" r="2.5" /><circle cx="17.5" cy="18.5" r="2.5" /><path d="M8.7 10.8l6.6-4M8.7 13.2l6.6 4" /></svg>
         </span>
         <div class="ti"><strong>어디에 넣을까요?</strong><small data-test="share-what"><template v-for="(w, i) in what" :key="i"><span v-if="i"> · </span><span>{{ w }}</span></template></small></div>
-        <button class="x press" aria-label="닫기" data-test="share-cancel" @click="cancel"><Icon name="close" :size="16" /></button>
+        <button class="x press" aria-label="닫기" data-test="share-cancel" :disabled="settling" @click="cancelTap"><Icon name="close" :size="16" /></button>
       </header>
       <p v-if="payload.first" class="said" data-test="share-text">{{ payload.first }}</p>
       <p v-if="payload.notice" class="warnline" data-test="share-skipped">{{ payload.notice }}</p>
@@ -243,7 +285,7 @@ const shown = (files) => files.slice(0, 4)
         <template v-else>
           <template v-if="rows.first">
             <p class="sec">마지막으로 연 곳</p>
-            <button class="row press" data-test="share-pick" :data-kind="rows.first.kind" :data-id="rows.first.id" data-first="1" @click="pick(rows.first)">
+            <button class="row press" :disabled="settling" data-test="share-pick" :data-kind="rows.first.kind" :data-id="rows.first.id" data-first="1" @click="pick(rows.first)">
               <PersonAvatar v-if="rows.first.kind === 'room' && rows.first.group" kind="group" :size="34"><Icon name="team" :size="16" /></PersonAvatar>
               <PersonAvatar v-else-if="rows.first.kind === 'room'" :id="rows.first.other?.id" :name="rows.first.other?.name || rows.first.title" :size="34" />
               <PersonAvatar v-else-if="rows.first.kind === 'chat'" kind="ai" :size="34" />
@@ -254,7 +296,7 @@ const shown = (files) => files.slice(0, 4)
           </template>
           <template v-if="rows.rooms.length">
             <p class="sec">대화</p>
-            <button v-for="r in rows.rooms" :key="'r' + r.id" class="row press" data-test="share-pick" data-kind="room" :data-id="r.id" @click="pick(r)">
+            <button v-for="r in rows.rooms" :key="'r' + r.id" class="row press" :disabled="settling" data-test="share-pick" data-kind="room" :data-id="r.id" @click="pick(r)">
               <PersonAvatar v-if="r.group" kind="group" :size="34"><Icon name="team" :size="16" /></PersonAvatar>
               <PersonAvatar v-else :id="r.other?.id" :name="r.other?.name || r.title" :size="34" />
               <span class="nm"><b>{{ r.title }}</b><small>{{ r.sub }}</small></span>
@@ -263,7 +305,7 @@ const shown = (files) => files.slice(0, 4)
           </template>
           <template v-if="rows.chat">
             <p class="sec">내 채팅</p>
-            <button class="row press" data-test="share-pick" data-kind="chat" data-id="" @click="pick(rows.chat)">
+            <button class="row press" :disabled="settling" data-test="share-pick" data-kind="chat" data-id="" @click="pick(rows.chat)">
               <PersonAvatar kind="ai" :size="34" />
               <span class="nm"><b>{{ rows.chat.title }}</b><small>{{ rows.chat.sub }}</small></span>
               <Icon name="chevron" :size="16" />
@@ -271,7 +313,7 @@ const shown = (files) => files.slice(0, 4)
           </template>
           <template v-if="rows.folders.length">
             <p class="sec">폴더</p>
-            <button v-for="f in rows.folders" :key="'f' + f.id" class="row press" data-test="share-pick" data-kind="folder" :data-id="f.id" @click="pick(f)">
+            <button v-for="f in rows.folders" :key="'f' + f.id" class="row press" :disabled="settling" data-test="share-pick" data-kind="folder" :data-id="f.id" @click="pick(f)">
               <span class="fold" aria-hidden="true"><Icon name="folder" :size="17" /></span>
               <span class="nm"><b>{{ f.title }}</b><small>{{ f.sub }}</small></span>
               <Icon name="chevron" :size="16" />
@@ -308,6 +350,7 @@ const shown = (files) => files.slice(0, 4)
 .sa-veil { position: fixed; inset: 0; z-index: 82; display: grid; place-items: end center; background: rgba(0 0 0 / .32);
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); animation: fade-in .2s both; }
 @media (min-width: 761px) { .sa-veil { place-items: center; } }
+.sa-sheet:focus { outline: none; }
 .sa-sheet { width: min(420px, 100%); max-height: min(640px, calc(100dvh - 32px)); display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 26px;
   background: var(--regular-solid-bg); color: var(--text-primary); box-shadow: var(--shadow-card); -webkit-backdrop-filter: blur(40px); backdrop-filter: blur(40px);
   animation: pop-in .35s var(--spring) both; }
@@ -341,7 +384,8 @@ header .x { background: var(--button-bg); }
 .files .more { background: transparent; padding: 0 10px; color: var(--text-secondary); font-size: 13px; }
 .acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .go { height: 40px; padding: 0 18px; border-radius: 20px; background: var(--ink); color: var(--ink-inverse); font-size: 14.5px; font-weight: 600; }
-.go:disabled { opacity: .5; }
+.go:disabled, .acts .soft:disabled, .x:disabled { opacity: .5; }
+.row:disabled { opacity: .6; }
 .acts .soft { height: 40px; border-radius: 20px; padding: 0 16px; }
 .acts .go { flex: 1; min-width: 120px; }
 </style>

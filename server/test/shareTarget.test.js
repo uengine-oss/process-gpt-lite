@@ -240,7 +240,10 @@ function worker(scope = 'https://acme.process-gpt.io/lite/', { routes = true, fa
   class InstallEvent {}
   if (routes) InstallEvent.prototype.addRoutes = function addRoutes() {}
   const self = { addEventListener: (t, f) => { (handlers[t] ||= []).push(f) }, registration: { scope }, navigator: {}, clients: {}, skipWaiting() {}, crypto: globalThis.crypto, InstallEvent }
-  const ctx = vm.createContext({ self, caches: c, Response, Request, FormData, File, Blob, URL, JSON, Date, Math, String, Number, Error, Promise, parseInt, console })
+  // (Blob is watched: the worker must not gather a body into one — U-ST-14)
+  const blobs = []
+  class WatchedBlob extends Blob { constructor(parts, o) { super(parts, o); blobs.push(this.size) } }
+  const ctx = vm.createContext({ self, caches: c, Response, Request, FormData, File, Blob: WatchedBlob, TransformStream, URL, JSON, Date, Math, String, Number, Error, Promise, parseInt, console })
   vm.runInContext(fs.readFileSync(root('public/sw.js'), 'utf8'), ctx)
   // a fetch event as Chrome hands it: respondWith(promise) or nothing (the network)
   const fetchEvent = async (request) => {
@@ -248,7 +251,7 @@ function worker(scope = 'https://acme.process-gpt.io/lite/', { routes = true, fa
     for (const h of handlers.fetch || []) h({ request, respondWith: (p) => { answered = p } })
     return answered ? await answered : null
   }
-  return { handlers, caches: c, fetchEvent, scope, ctx }
+  return { handlers, caches: c, fetchEvent, scope, ctx, blobs }
 }
 const sharePost = (scope, fill) => { const fd = new FormData(); fill(fd); return new Request(`${scope}share-target`, { method: 'POST', body: fd }) }
 
@@ -367,4 +370,25 @@ test('U-ST-13 서비스 워커 — fetch 처리기는 정적 라우팅이 있는
   const s = worker('https://acme.process-gpt.io/lite/', { routes: false })
   assert.equal(s.handlers.fetch, undefined)
   assert.ok(s.handlers.push?.length && s.handlers.notificationclick?.length && s.handlers.install?.length)
+})
+
+test('U-ST-14 서비스 워커 — 길이를 알리지 않는 본문도 한 번만 흘려 읽는다(조각을 모아 Blob 으로 만들지 않는다), 받는 것은 그대로', async () => {
+  const w = worker()
+  const fd = new FormData()
+  fd.append('title', '현장 보고')
+  fd.append('files', new File([new Uint8Array(3 * 1048576).fill(7)], '현장 영상.mp4', { type: 'video/mp4' }))
+  fd.append('files', new File(['메모'], '메모.txt', { type: 'text/plain' }))
+  // the form as a stream with no length (as a navigation's body can come)
+  const made = new Request(`${w.scope}share-target`, { method: 'POST', body: fd })
+  const req = new Request(`${w.scope}share-target`, { method: 'POST', body: made.body, duplex: 'half', headers: { 'Content-Type': made.headers.get('content-type') } })
+  assert.equal(req.headers.get('content-length'), null)
+  const res = await w.fetchEvent(req)
+  const id = new URL(res.headers.get('location')).searchParams.get('share')
+  assert.match(id, ID_RE)
+  const cache = w.caches.stores.get('pgl-share-v1')
+  const meta = JSON.parse(cache.m.get(`${w.scope}share-target/${id}/meta`).body.toString())
+  assert.deepEqual(meta.files.map((f) => [f.name, f.size]), [['현장 영상.mp4', 3 * 1048576], ['메모.txt', 6]])
+  assert.equal(meta.title, '현장 보고')
+  // no copy of the whole body made in the worker (the parts, then a Blob of them, then the form: three times its size before)
+  assert.deepEqual(w.blobs.filter((n) => n >= 1048576), [])
 })

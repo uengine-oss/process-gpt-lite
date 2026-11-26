@@ -67,21 +67,22 @@ const pglShareId = () => `${Date.now().toString(36)}-${(self.crypto?.randomUUID?
 const pglShareStr = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '')
 const pglShareBig = () => new Error('big')
 
-// the form, read only while it stays under the total: a phone's memory is not spent on a body that would be refused anyway
+// the form, read only while it stays under the total: a phone's memory is not spent on a body that would be refused anyway. The body flows
+// once through a byte count into the form reader — never gathered first (the pieces, then a Blob of them, then the form: three copies).
 async function pglShareForm(req) {
   const max = PGL_SHARE.totalBytes + PGL_SHARE.marginBytes
   if (Number(req.headers.get('content-length') || 0) > max) throw pglShareBig()
-  if (!req.body?.getReader) return req.formData()
-  const reader = req.body.getReader(), parts = []
-  let n = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    n += value.byteLength
-    if (n > max) { await reader.cancel().catch(() => {}); throw pglShareBig() }
-    parts.push(value)
-  }
-  return new Response(new Blob(parts), { headers: { 'Content-Type': req.headers.get('content-type') || '' } }).formData()
+  if (!req.body?.pipeThrough || typeof TransformStream !== 'function') return req.formData()
+  let n = 0, over = false
+  const counter = new TransformStream({
+    transform(chunk, c) {
+      n += chunk.byteLength
+      if (n > max) { over = true; c.error(pglShareBig()) } else c.enqueue(chunk)
+    },
+  })
+  try {
+    return await new Response(req.body.pipeThrough(counter), { headers: { 'Content-Type': req.headers.get('content-type') || '' } }).formData()
+  } catch (err) { throw over ? pglShareBig() : err }
 }
 
 async function pglTakeShare(req, scope) {

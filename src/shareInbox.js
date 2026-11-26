@@ -1,8 +1,8 @@
 // 다른 앱의 「공유」로 온 것, the browser side (2026-11-26 — rules: src/shareTarget.js, screens: components/ShareArrival.vue).
 // The service worker (public/sw.js, its share block) kept what was shared in Cache Storage and opened <base>/chat?share=<id>.
-//   stashShare()  main.js, before the router: the id leaves the address (and is kept in localStorage while the person signs in),
-//                 with who was signed in and the place this device had open before the share came — the page it lands on must not
-//                 count as that place
+//   stashShare()  main.js, before the router: the id leaves the address (and is kept in this window's sessionStorage while the
+//                 person signs in — never for a later sign-in in another window), with who was signed in and the place this device had
+//                 open before the share came — the page it lands on must not count as that place
 //   readShare(id) the files (File objects, as a file picker gives them — their type from the extension) and the words, then the
 //                 cache entry goes
 // `inbox` is what the composers and the folder take from ShareArrival, after the person said 「넣기」 (or picked a place):
@@ -39,28 +39,34 @@ export function stashShare(win = window) {
   try { win.history.replaceState(win.history.state, '', u.pathname + u.search + u.hash) } catch { /* the address keeps it: harmless */ }
   const who = whoNow(win)
   const kept = { id: ID_RE.test(id) ? id : 'failed', why: id === 'failed:big' ? 'big' : '', at: Date.now(), uid: who.uid, t: who.t, last: readLast(store(win), who) }
-  try { store(win)?.setItem(PENDING_KEY, JSON.stringify(kept)) } catch { /* private window: taken from memory below */ }
+  try { store(win, 'sessionStorage')?.setItem(PENDING_KEY, JSON.stringify(kept)) } catch { /* private window: taken from memory below */ }
   stashed = kept
   return kept
 }
 let stashed = null
 
 /**
- * The share waiting to be put somewhere (and no longer waiting after this), or null: one older than an hour, or one that came while
- * another person was signed in here, is dropped. A share that came signed out goes to whoever signs in — without a place (they choose).
+ * The share waiting to be put somewhere (and no longer waiting after this), or null. It is this window's only: a share that came signed
+ * out goes to whoever signs in in that same window (without a place — they choose), not to a later sign-in elsewhere. One older than an
+ * hour, or one that came while another person was signed in here, is dropped — and its files with it (the worker's cache).
  */
 export function takePending(win = window, now = Date.now()) {
-  const s = store(win)
+  const s = store(win, 'sessionStorage')
   let v = stashed
   try { v = JSON.parse(s?.getItem(PENDING_KEY) || 'null') || v } catch { /* keep the one in memory */ }
   try { s?.removeItem(PENDING_KEY) } catch { /* nothing kept */ }
+  // (a share kept by an earlier version in localStorage: any window would have offered it — it goes)
+  try { store(win)?.removeItem(PENDING_KEY) } catch { /* nothing kept */ }
   stashed = null
-  if (!v || typeof v.id !== 'string' || !(now - Number(v.at || 0) < 3600_000)) return null
+  if (!v || typeof v.id !== 'string') return null
   const who = whoNow(win)
-  if (v.uid && (v.uid !== who.uid || (v.t || '') !== who.t)) return null
+  if (!(now - Number(v.at || 0) < 3600_000) || (v.uid && (v.uid !== who.uid || (v.t || '') !== who.t))) {
+    if (ID_RE.test(v.id)) sweep(win, v.id).catch(() => {})
+    return null
+  }
   return v.uid ? v : { ...v, last: null }
 }
-export const hasPending = (win = window) => { if (stashed) return true; try { return !!store(win)?.getItem(PENDING_KEY) } catch { return false } }
+export const hasPending = (win = window) => { if (stashed) return true; try { return !!store(win, 'sessionStorage')?.getItem(PENDING_KEY) } catch { return false } }
 
 const scopeOf = (win) => `${win.location.origin}${BASE}/`
 

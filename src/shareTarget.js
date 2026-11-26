@@ -15,6 +15,7 @@ export const LIMITS = { files: 10, fileBytes: 50 * 1024 * 1024, totalBytes: 200 
 export const IDLE_MS = 30 * 60 * 1000
 export const LAST_KEY = 'pgl-last-place'
 export const FOLDERS_KEY = 'pgl-recent-folders'
+// a share waiting for its person to sign in: this window's sessionStorage only (src/shareInbox.js)
 export const PENDING_KEY = 'pgl-share-pending'
 // the messenger's unsent words per room (sessionStorage: this window only — a share reloads it): `${DRAFT_PREFIX}<user>:<room>`
 export const DRAFT_PREFIX = 'pgl-msg-draft:'
@@ -164,6 +165,7 @@ export function rememberFolder(storage, slug, who) {
 /** Signed out (or another person's session taken over): this device forgets the places, the waiting share and the unsent words. */
 export function forgetPlaces(local, session) {
   for (const k of [LAST_KEY, FOLDERS_KEY, PENDING_KEY]) { try { local?.removeItem(k) } catch { /* nothing kept */ } }
+  try { session?.removeItem(PENDING_KEY) } catch { /* nothing kept */ }
   try {
     const keys = []
     for (let i = 0; i < (session?.length || 0); i++) { const k = session.key(i); if (k?.startsWith(DRAFT_PREFIX)) keys.push(k) }

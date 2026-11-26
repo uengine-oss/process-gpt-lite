@@ -211,10 +211,12 @@ const branchLine = (b) => {
 const openBranch = (b, path) => opening(`b${b.room}${path}`, () => team.openBranchFile(b.room, path))
 const reply = (m) => { team.tab = 'threads'; team.openThread(m.threadId, m.id) }
 async function send() {
+  // (the room this is sent to, kept: the person may move to another room while it goes)
+  const room = team.active
   let text = draft.value.trim()
   // 「@AI 」 typed out in full (not picked from the list) addresses the AI the same way as its chip
   if (!aiOn.value && /^@AI\s/i.test(`${text} `)) { aiOn.value = true; text = text.replace(/^@AI\s*/i, '') }
-  if ((!text && !attach.value.length && !ups.value.length && !refs.value.length && !aiOn.value) || !team.active) return
+  if ((!text && !attach.value.length && !ups.value.length && !refs.value.length && !aiOn.value) || !room) return
   await run('send', async () => {
     // files still going up are waited for; one that could not go stops the send (its chip says why)
     await Promise.allSettled(ups.value.map((u) => u.job).filter(Boolean))
@@ -223,10 +225,15 @@ async function send() {
     if (refs.value.some((r) => r.error)) throw new Error('보낼 수 없는 파일이 있어요. 빼고 다시 보내 주세요.')
     const ai = aiOn.value
     const named = mentioned.value.filter((p) => text.includes(`@${p.name}`)).map((p) => p.id)
-    await team.send(team.active, ai ? `@AI ${text}`.trim() : text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)],
+    await team.send(room, ai ? `@AI ${text}`.trim() : text, [...attach.value.map((m) => m.id), ...ups.value.map((u) => u.card.id)],
       { refs: refs.value.map((r) => (r.mail ? { type: 'mail', actionId: r.mail.actionId, body: !!r.body }
         : r.att ? { type: 'mailatt', actionId: r.att.actionId, i: r.att.i, name: r.att.name, share: !!r.share } : r.ref)), ai, mentions: named })
-    draft.value = ''; attach.value = []; ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = []
+    // sent: that room keeps no words (moving away mid-send kept them as its draft — sent text must not come back to be sent twice) …
+    saveDraft(room, '')
+    attach.value = []
+    // … and the box is emptied only if that room is still the one open (another room's words, chips and @ stay as they are)
+    if (team.active !== room) return
+    draft.value = ''; ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = []
   })
 }
 

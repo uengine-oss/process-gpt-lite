@@ -1515,8 +1515,8 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/local
 사용자(11-26 휴대폰 녹화): 「우리가 파일을 공유할 때 여기 앱으로 process GPT가 들어가면 좋겠어.」 「그러면은 내가 이렇게 따로 올리지 않아도 이 내용을 곧바로 공유할 수 있겠지」 「현재 열려있는 공간의 첨부를 바로 할 수 있겠지.」 「예를 들면 지금 현재 대화창이 열려 있다고 치면 팀 메시지에 여기에 곧바로 첨부를 할 수 있을 거야.」 이제 홈 화면에 추가한 Lite는 매니페스트의 `share_target`을 통해 Android 공유 목록에 나타난다. 공유한 파일과 글은 서비스 워커(`public/sw.js` 끝의 독립 블록)가 이 기기의 Cache Storage에 잠시 보관했다가 `…/chat?share=<id>`로 넘긴다. 앱(`src/shareInbox.js` · `src/shareTarget.js` · `src/components/ShareArrival.vue`)은 받은 내용을 보여 주며 한 번 묻고(「넣기」 · 「다른 곳에」), 「넣기」를 누른 뒤에야 직전까지 열어 둔 곳(대화방 · 채팅 · 프로젝트 · 루틴 · 폴더 — 종류 · id · 소유 정보 · 시각만 저장)의 입력창에 칩과 글로 넣는다. 보내지는 않는다. 같은 날 검토(#1~#8)를 통해 다른 사이트의 폼 제출, 종류, 계정, 크기, nginx, 쓰던 말, 정적 라우팅, 「다른 곳에」의 업로드 중단 처리를 보강했다. 시험에서는 Chromium에서 실제 서비스 워커를 실행하고, Android와 같은 방식으로 multipart `POST`를 내비게이션(폼 제출)과 `fetch`(303 따라가기)로 보내며, 다른 출처의 사이트에서도 보낸다. 자체 스택(회사 `share-target-ui`, BFF 8974 · Vite 5374부터)을 실행하고, 모델은 호출하지 않는다. 증거는 `openspec/specs/share-target/e2e/README.md`에 있다.
 
 ```bash
-cd server && node --test test/shareTarget.test.js                                     # U-ST-01~13
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/share-target.spec.js   # F-ST-01~11
+cd server && node --test test/shareTarget.test.js                                     # U-ST-01~14
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/share-target.spec.js   # F-ST-01~15
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1539,6 +1539,10 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/share
 | 받지 못한 공유(`?share=failed` · `failed:big` · 없는 id) 알림, 폴더의 `?share=`(권한 요청)는 공유로 보지 않음, 서비스 워커 없이 웹 서버에 도달한 공유는 150MB 본문도 413 대신 `chat?share=failed`로 전달(상대 주소, `/lite` 유지) | 검토 #5 | F-ST-06 · `results/nginx.txt` | feature | ✅ |
 | 설치 안내: Android 설정 › 앱 설치(밝은 테마 · 밤 테마)에 「휴대폰 홈 화면에 추가하면 다른 앱의 「공유」에 Process GPT 가 나타나요.」 표시, iPhone에는 표시하지 않음 | 사용자 11-26 | F-ST-06 · F-IN-01~09 | feature | ✅ |
 | 영어 화면: 확인 창 · 「어디에 넣을까요?」 · 넣은 뒤의 막대 · 50MB 알림 · 설치 안내에 한글이 남지 않음(사람이 지은 이름 · 파일 이름은 그대로) | — | F-ST-07 | feature | ✅ |
+| 재검토(6a25084) #1: 전송 중 다른 방으로 이동해도 보낸 메시지가 이전 방의 작성 중인 메시지로 남지 않고, 이동한 방의 작성 중인 메시지도 유지됨(전송한 방을 기억해 해당 방에 저장된 메시지만 지우고, 입력칸은 해당 방이 열려 있을 때만 비움) | 재검토 #1 | F-ST-12 | feature | ✅ |
+| 재검토 #2: 길이가 명시되지 않은 본문을 조각으로 모으지 않고 바이트를 세는 흐름에 한 번 통과시켜 바로 폼으로 읽음(Blob을 별도로 만들지 않음), 수신 내용은 그대로 유지 | 재검토 #2 | U-ST-14 · U-ST-12 | 단위 | ✅ |
+| 재검토 #3: 로그인하지 않은 상태에서 받은 공유는 해당 창(sessionStorage)에만 유지 — 같은 브라우저의 다른 창에서 나중에 로그인한 김서연에게는 묻지 않고, 공유를 받은 창에서 로그인하면 「어디에 넣을까요?」 표시 / 다른 사람의 세션으로 바뀐 공유는 저장소의 파일도 삭제 | 재검토 #3 | F-ST-13 · F-ST-14 | feature | ✅ |
+| 재검토 #4: 확인 창 · 「어디에 넣을까요?」는 표시 후 0.5초 동안 클릭을 받지 않음(단추가 흐림), 키보드 초점은 창 안에서만 이동(Tab · Shift+Tab), Esc는 넣지 않고 닫기 | 재검토 #4 | F-ST-15 | feature | ✅ |
 | 공유로 창이 새로 열릴 때 끊기는 것: 진행 중인 회의, 보내기 전의 칩, 채팅 입력창에 쓰던 말(메신저 대화방의 쓰던 말만 남김) — 스펙의 알려진 한계 | 검토 #6 | — | — | ✗ |
 | 실제 Android 휴대폰의 공유 목록(WebAPK를 새로 받은 뒤), PDF · 사진 · 동영상 · 링크의 앱별 표시 여부, 이미 설치한 앱의 매니페스트 갱신 시점 | — | — (배포 뒤 휴대폰에서) | — | ◐ |
 | iOS Safari(Web Share Target 없음 — 지원하는 것처럼 표시하지 않음), 데스크톱 앱(변경 사항 없음) | — | — | — | — |
