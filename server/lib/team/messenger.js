@@ -22,7 +22,9 @@ import { decorate, publicRef } from '../fileRefs.js'
 // a mail mention keeps its summary only — the body is the owner's until they share it (lib/mailMention.js)
 import { publicMailRef } from '../mailMention.js'
 import { publicAttRef } from '../mailAttachments.js'
-import { josa } from '../josa.js'
+import { josa, ro } from '../josa.js'
+// reactions on a message (lib/team/reactions.js — their own rows; 2026-11-26)
+import * as RX from './reactions.js'
 // who a person is on every screen: one name, one picture (lib/people.js) — not users.username, which Process GPT may hold as the
 // address's local part (2026-11-25: a room's header listed the user by their address's local part where everything else used their name).
 // Only for what the screens show: what is stored in Process GPT's rows (a room's participants, a message's mentionedUsers — its
@@ -145,6 +147,56 @@ async function notifyInvited(me, t, row, invited) {
   }
 }
 
+// A group room's name (2026-11-26 사용자 「대화방 설정으로 대화방 명칭 바꿀 수 있게」): any of its people may set it, as in Process GPT's own
+// room settings (ChatRoomPage 「채팅방 이름 변경」 — any participant, no owner check; its field chat_rooms.name, at most 50 characters), so
+// both UIs show the same name. Empty takes the name off: the room is called by its people again (Process GPT ignores an empty name; here it
+// is the way back). A 1:1 room is not renamed: it is called by the other person, which differs for each of the two — one shared name
+// would replace both, so only group rooms take a name. Process GPT's AI room naming is told to leave the room alone (auto_name_pending).
+// A system line says who named it (role 'system', Process GPT shows it as a notice), every open messenger of the room hears of it at once
+// ('room' + the line). Quiet: Process GPT's chat trigger makes a 'chat' notice of the line for the others — checked in the same
+// transaction, so no Home card, bell or push comes of a rename; the line does not count as unread either.
+export const NAME_MAX = 50
+// what a typed name becomes: control characters and line breaks are spaces, runs of spaces one, trimmed; '' → null. Too long → throws.
+export function cleanName(v) {
+  const s = String(v ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if ([...s].length > NAME_MAX) throw new TeamError(400, L(`대화방 이름은 ${NAME_MAX}자까지예요.`, `A conversation's name has at most ${NAME_MAX} characters.`))
+  return s || null
+}
+export async function rename(me, roomId, value) {
+  const t = await memberThread(me, roomId)
+  if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
+  if (t.kind !== 'group') throw new TeamError(400, L('1:1 대화는 상대의 이름으로 보여요. 이름은 단체방에서 바꿀 수 있어요.', 'A one-to-one conversation is called by the other person. Only a group conversation takes a name.'))
+  const name = cleanName(value)
+  const was = t.name ? String(t.name) : null
+  if (name === was) return { threadId: t.id, name, changed: false }
+  const uuid = crypto.randomUUID()
+  const content = name ? L(`${me.name}님이 대화방 이름을 「${name}」${ro(name)} 바꿨어요`, `${me.name} renamed the conversation to “${name}”`)
+    : L(`${me.name}님이 대화방 이름을 지웠어요`, `${me.name} removed the conversation's name`)
+  const msg = { uuid, clientUuid: uuid, role: 'system', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
+    pgpt: { kind: 'rename', by: me.id, byName: me.name, name, was } }
+  const members0 = await membersOf(t.id)
+  let row
+  const c = await pool.connect()
+  try {
+    await c.query('begin')
+    await c.query(`update chat_rooms set name=$3, message=$4, context = coalesce(context, '{}'::jsonb) || '{"auto_name_pending": false}'::jsonb
+                   where id=$1 and tenant_id=$2`, [t.id, T(), name, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
+    ;({ rows: [row] } = await c.query('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages', [uuid, t.id, msg, T()]))
+    // (Process GPT's trigger wrote a 'chat' notice of the line for each of the others: checked before anyone can read it unchecked)
+    await c.query(`update notifications set is_checked=true where type='chat' and url=$1 and title=$2 and coalesce(is_checked,false)=false and user_id = any($3)`,
+      [`/chats?id=${t.id}`, content, members0.flatMap((m) => [m.email, m.id]).filter(Boolean)])
+    await c.query(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=greatest(pro_chat_reads.last_read_at, excluded.last_read_at)`, [t.id, me.id, msg.timeStamp])
+    await c.query('commit')
+  } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
+  const members = await membersOf(t.id)
+  await pushRow(row, members)
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, name, members: members.map(({ id, name: n, email }) => ({ id, name: n, email })) })
+  return { threadId: t.id, name, changed: true }
+}
+
+// Put or take off one of my reactions on a message (lib/team/reactions.js): the room check is this module's
+export const react = (me, messageId, key, on) => RX.react(me, messageId, key, on, { memberThread, membersOf })
+
 function roomRow(r) {
   const { humans } = split(r.participants)
   const kind = r.context?.pgpt?.kind || (humans.length > 2 ? 'group' : 'direct')
@@ -194,6 +246,15 @@ export function view(viewerId, row, byEmail = {}) {
       sender: { id: g.by || null, name: by, agent: false }, invited: g.invited.map((p) => ({ id: p.id, name: memberOf(byEmail, p.id)?.name || p.name })),
       body: L(`${by}님이 ${who.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${by} invited ${who.join(', ')}`), artifacts: [], context: null }
   }
+  // the room was named or its name taken off (rename above): said in the viewer's language, by the name every screen uses
+  if (g.kind === 'rename') {
+    const by = memberOf(byEmail, g.by)?.name || g.byName || L('팀원', 'Teammate')
+    const nm = g.name ? String(g.name) : null
+    return { id: row.uuid, threadId: row.id, kind: 'rename', at: m.timeStamp ? iso(m.timeStamp) : null, mine: g.by === viewerId,
+      sender: { id: g.by || null, name: by, agent: false }, name: nm,
+      body: nm ? L(`${by}님이 대화방 이름을 「${nm}」${ro(nm)} 바꿨어요`, `${by} renamed the conversation to “${nm}”`) : L(`${by}님이 대화방 이름을 지웠어요`, `${by} removed the conversation's name`),
+      artifacts: [], context: null }
+  }
   // a meeting's record in the room (lib/meetings/record.js) is written by the meeting assistant
   const kind = agent ? (String(g.kind || '').startsWith('meeting') ? g.kind : 'agent') : g.kind && g.kind !== 'assist' ? g.kind : 'text'
   return {
@@ -229,7 +290,9 @@ export async function listThreads(me) {
   for (const r0 of rows) {
     const r = roomRow(r0)
     const [last] = await q(`select uuid, messages from chats where id=$1 order by ${ORDER} desc limit 1`, [r.id])
-    const [{ n }] = await q(`select count(*)::int n from chats where id=$1 and ${ORDER} > $2 and coalesce(messages->>'email','') <> $3`, [r.id, r0.last_read_at, me.email])
+    // (a rename's line is not news: it does not count — rename above)
+    const [{ n }] = await q(`select count(*)::int n from chats where id=$1 and ${ORDER} > $2 and coalesce(messages->>'email','') <> $3
+                             and coalesce(messages->'pgpt'->>'kind','') <> 'rename'`, [r.id, r0.last_read_at, me.email])
     const { humans } = split(r.participants)
     const others = humans.filter((p) => p.id !== me.id)
     const lm = last?.messages
@@ -238,7 +301,9 @@ export async function listThreads(me) {
       // (members with their address: the screens tell same-named people apart by it — src/sameNames.js)
       id: r.id, kind: r.kind, title: r.name || others.map(nm).join(', ') || L('나', 'Me'), members: humans.map((p) => ({ id: p.id, name: nm(p), email: p.email || null })),
       agents: split(r.participants).agents.map((a) => ({ id: a.id, name: a.username })), unread: n, updatedAt: at,
-      last: lm ? { kind: lm.pgpt?.kind || (lm.role === 'assistant' ? 'agent' : 'text'), body: String(lm.content || '').slice(0, 80), mine: lm.email === me.email, at, files: (lm.pgpt?.artifacts || []).length } : null,
+      // (a rename's line in the reader's language, as the room shows it)
+      last: lm ? { kind: lm.pgpt?.kind || (lm.role === 'assistant' ? 'agent' : 'text'), body: String(lm.pgpt?.kind === 'rename' ? view(me.id, last, Object.fromEntries(humans.map((p) => [p.email, { id: p.id, name: nm(p) }]))).body : lm.content || '').slice(0, 80),
+        mine: lm.email === me.email, at, files: (lm.pgpt?.artifacts || []).length } : null,
     })
   }
   return out.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)).slice(0, 100)
@@ -256,8 +321,13 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
                         and ($2::timestamptz is null or ${ORDER} < $2) order by ${ORDER} desc limit $3`, [t.id, before || null, Math.min(Number(limit) || 80, 200)])
   const members = await membersOf(t.id)
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
+  const list = await Promise.all(rows.reverse().map((r) => viewFor(me, r, by)))
+  // each message's reactions as I see them (lib/team/reactions.js) — [] when none: a copy that comes live carries no reactions (the
+  // screen keeps the ones it has), this one says what they are now
+  const rx = await RX.forMessages(me.id, t.id, list.map((m) => m.id))
+  for (const m of list) m.reactions = rx.get(m.id) || []
   return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
-    messages: await Promise.all(rows.reverse().map((r) => viewFor(me, r, by))) }
+    messages: list }
 }
 
 // Write a message into a room I am in, as process-gpt's frontend would. Every other person must still be
