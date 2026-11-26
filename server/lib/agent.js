@@ -442,7 +442,7 @@ const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 
 // again: the words of a message already in the chat, run once more as a request of its own (onceTurn) — not posted again, and not read
 // as an answer, as words for a browser task or as the room's rule
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false, clientId = null }) {
   const userId = user.id
   // (only a conversation of this person's — an id from the page is never taken on its word: review 11-25 #1)
   const mine = conversation?.id ? await ownsConversation(userId, conversation.id).catch(() => null) : null
@@ -474,7 +474,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const topicConv = th?.kind === 'project' && await PT.isTopic(userId, th, conversation.id).catch(() => false) ? String(conversation.id) : null
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
   const said = again ? ((await q(`select id from pro_messages where thread_id=$1 and role='user' and content->>'text'=$2 order by created_at desc limit 1`, [threadId, text]))[0] || { id: null })
-    : await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}) })
+    : await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}),
+      // (the page's id for it — lib/sendOnce.js: the same message sent again is taken once)
+      ...(clientId ? { clientId: String(clientId) } : {}) })
   const store = turnCtx.getStore()
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path

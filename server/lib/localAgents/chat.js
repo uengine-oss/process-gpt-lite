@@ -210,7 +210,7 @@ function wordsOf(text, files = []) {
 // The composer sent a message to a local agent: the message in the chat (tagged with its agent), then — into the chat's running CLI as
 // its owner's input, onto the run that waits for the desktop, or a new run (the same CLI session when there was one). The server agent is
 // not called. → {jobId, steered, queued, delivered}
-export async function send({ user, thread, text, agent, conversation = null, files = [], refs = [] }) {
+export async function send({ user, thread, text, agent, conversation = null, files = [], refs = [], clientId = null }) {
   if (!isAgent(agent)) throw err(400, L('고를 수 있는 에이전트가 아니에요.', 'That is not an agent you can pick.'))
   if (!['chat', 'project'].includes(thread.kind)) throw err(400, L('이 대화에서는 기본 에이전트만 쓸 수 있어요.', 'Only the default agent answers here.'))
   // files dragged onto the composer (lib/fileRefs.js — read with the person's own access): by their addresses, since the CLI on the PC has
@@ -225,7 +225,9 @@ export async function send({ user, thread, text, agent, conversation = null, fil
   // (the message is in the chat first, whatever happens next: a refusal — a project folder the person may not edit — is said under it)
   const tag = { id: agent, label: LABEL(agent), where: HERE() }
   const msg = await addMessage(user.id, thread.id, 'user', 'text', { text: String(text || '').trim().slice(0, 8000) || (pointed?.shown?.length ? L('첨부한 파일을 확인해 줘', 'Please look at the attached files') : ''), agent: tag,
-    ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(conv ? { conv } : {}) })
+    ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(conv ? { conv } : {}),
+    // (the page's id for it — lib/sendOnce.js: the same message sent again is taken once)
+    ...(clientId ? { clientId: String(clientId) } : {}) })
   for (const f of (Array.isArray(files) ? files : []).slice(0, 10)) if (f?.url || f?.name) await addMessage(user.id, thread.id, 'user', 'file', { name: f.name, url: f.url, ...(conv ? { conv } : {}) })
   const open = await openJob(user, thread.id, key, agent)
   const where = open ? null : await folderFor(user, thread)

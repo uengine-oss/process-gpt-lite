@@ -55,7 +55,8 @@ const loadErr = ref('')
 const find = ref('')
 const pick = ref(null)          // {room} | {person}
 const note = ref('')
-const body = ref(false)
+// 「본문도 공유」 is on unless turned off (2026-11-27 사용자 「메일 본문 내용 공유는 기본값임」); the files stay off
+const body = ref(true)
 const files = ref(false)
 const follow = ref(false)
 const by = ref('')
@@ -91,7 +92,7 @@ const says = computed(() => [
 ].filter(Boolean))
 function choose(p) { pick.value = p; err.value = '' }
 function back() { pick.value = null; err.value = '' }
-function reset() { pick.value = null; note.value = ''; body.value = false; files.value = false; follow.value = false; find.value = '' }
+function reset() { pick.value = null; note.value = ''; body.value = true; files.value = false; follow.value = false; find.value = '' }
 function cancel() { reset(); emit('picked', false) }
 async function send() {
   if (busy.value || !pick.value) return

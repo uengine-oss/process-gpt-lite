@@ -3174,6 +3174,14 @@
   "그 메일의 본문도 함께 보여요.": "Their bodies show too.",
   "지금은 꺼 둔 약속이에요": "This rule is off now",
   "메일 자동 공유": "Mail shared automatically",
+  "입력창에 다시 넣어 두었어요": "Put back in the box",
+  "끌어 놓은 파일은 다시 놓아 주세요": "Drop the dragged files again",
+  "앞의 메시지를 보낸 뒤 보내요": "Sends after the message before it",
+  "다시 보내기": "Send again",
+  "입력창에 넣기": "Put in the box",
+  "서버에 연결하지 못했어요": "Couldn't reach the server",
+  "서버 대신 다른 페이지가 응답했어요": "Another page answered instead of the server",
+  "로그인이 끝났어요": "Your sign-in ended",
   "보관 중": "Put away",
   "서버 에이전트가 작업 중": "A server agent is working",
   "서버 작업실에서": "In the server workroom",
@@ -6663,10 +6671,6 @@
    "{0} asked: \"{1}\" · routing model {2}%"
   ],
   [
-   "그룹 대화는 {0}명까지예요.",
-   "A group conversation has at most {0} people."
-  ],
-  [
    "{0}님은 더 이상 팀원이 아니에요.",
    "{0} is no longer a teammate."
   ],
@@ -7269,6 +7273,42 @@
   [
    "첨부 파일 {0}개도 열 수 있어요.",
    "They can open the {0} attachments too."
+  ],
+  [
+   "한 번에 {0}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.",
+   "Up to {0} people at a time. Invite the rest once the room is made."
+  ],
+  [
+   "한 번에 {0}명까지 초대할 수 있어요.",
+   "Up to {0} people can be invited at a time."
+  ],
+  [
+   "서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {0}번째 · 「{1}」",
+   "The server isn't answering for a moment — sending again · try {0} · “{1}”"
+  ],
+  [
+   "보내지 못했어요 — {0}",
+   "Couldn't send — {0}"
+  ],
+  [
+   "서버가 응답하지 못했어요 ({0}).",
+   "The server didn't answer ({0})."
+  ],
+  [
+   "서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {0}번째",
+   "The server isn't answering for a moment — sending again · try {0}"
+  ],
+  [
+   "{0} · 입력창에 다시 넣어 두었어요",
+   "{0} · Put back in the box"
+  ],
+  [
+   "서버가 잠시 응답하지 않았어요 ({0})",
+   "The server didn't answer for a moment ({0})"
+  ],
+  [
+   "「{0}」",
+   "“{0}”"
   ],
   [
    "{0}의 PC 에서",
