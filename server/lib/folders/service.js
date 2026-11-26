@@ -94,6 +94,20 @@ const GITATTRIBUTES = `# documents and media cannot be merged line by line: a co
 *.mp3 binary
 `
 
+// A champion folder's own attributes (its repository's info/attributes, above any .gitattributes the uploaded folder carries — git reads
+// that file first): every file is taken byte for byte (no line-ending change, no filter, no keyword or encoding rewrite) and merged by
+// git's own line merge (no merge driver the folder names, like union, which would combine both sides without a conflict); documents and
+// media stay binary as in every folder.
+export const CHAMPION_ATTRIBUTES = `# a champion folder: what the uploaded folder's own .gitattributes says does not change how this server checks out or merges
+* -text -filter -ident -working-tree-encoding !eol !merge
+${GITATTRIBUTES}`
+export async function championAttributes(dir) {
+  const f = path.join(dir, '.git', 'info', 'attributes')
+  if ((await fs.readFile(f, 'utf8').catch(() => '')) === CHAMPION_ATTRIBUTES) return false
+  await fs.mkdir(path.dirname(f), { recursive: true })
+  await fs.writeFile(f, CHAMPION_ATTRIBUTES)
+  return true
+}
 // champion: a folder a person's computer uploads (champion folders — folders/sources.js): its first commit has no file at all (the
 // attributes go to the repository's own info/attributes), so the first snapshot from that computer, made on top of it, deletes nothing
 export async function createFolder(user, { name, description = '', slug, champion = false }) {
@@ -105,8 +119,7 @@ export async function createFolder(user, { name, description = '', slug, champio
   await fs.mkdir(dir, { recursive: true })
   await G.git(dir, ['init', '-q', '-b', 'main'])
   if (champion) {
-    await fs.mkdir(path.join(dir, '.git', 'info'), { recursive: true })
-    await fs.writeFile(path.join(dir, '.git', 'info', 'attributes'), GITATTRIBUTES)
+    await championAttributes(dir)
     await G.git(dir, [...G.who(user.name, user.email), 'commit', '-q', '--allow-empty', '-m', L('폴더 만들기', 'Create folder')])
   } else {
     await fs.writeFile(path.join(dir, '.gitattributes'), GITATTRIBUTES)

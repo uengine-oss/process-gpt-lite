@@ -24,6 +24,7 @@ const server = require('./server')
 const policy = require('./policy')
 const menu = require('./menu')
 const { createLocalRunner } = require('./runner')
+const { uploadQuestion } = require('./runner/sync')
 const CLIS = require('./runner/clis')
 const { createBrowserHost } = require('./browser/host')
 const { createTrayBadge } = require('./tray')
@@ -538,30 +539,17 @@ async function pickFolder() {
   })
   return r.canceled ? null : r.filePaths[0] || null
 }
-const sizeText = (b) => (b >= 100 * 1024 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
-// 로 / 으로 after the folder's name (a final consonant other than ㄹ takes 으로)
-function ro(name) {
-  const c = String(name || '').trim().slice(-1).charCodeAt(0)
-  const jong = c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0
-  return jong && jong !== 8 ? '으로' : '로'
-}
-// the person's yes before the first upload: what goes up, where — in a system dialog
-async function confirmUpload({ files, bytes, folderName, report }) {
-  const ko = folderWords()
+// the person's yes before the first upload: what goes up, where (and how many flagged files go with it) — in a system dialog
+async function confirmUpload({ files, bytes, folderName, report, flaggedIn }) {
   let host = ''
   try { host = new URL(serverUrl()).host } catch { /* none */ }
-  const name = String(folderName || '').slice(0, 80)
-  const message = ko ? `파일 ${files}개(${sizeText(bytes)})를 ${host} 의 폴더 '${name}'${ro(name)} 올립니다`
-    : `Upload ${files} files (${sizeText(bytes)}) to the folder '${name}' on ${host}?`
-  const left = (report?.excluded?.secret || 0) + (report?.excluded?.personal || 0)
-  const detail = ko
-    ? `이 컴퓨터의 폴더는 읽기만 하고 아무것도 쓰지 않아요.${left ? ` 비밀 · 개인 설정으로 보이는 ${left}개는 올리지 않아요.` : ''}${report?.flagged ? ` 확인이 필요한 파일 ${report.flagged}개는 빼고 올려요.` : ''}`
-    : `The folder on this computer is only read, nothing is written to it.${left ? ` ${left} files that look secret or personal stay here.` : ''}${report?.flagged ? ` ${report.flagged} files to check stay here.` : ''}`
+  const ko = folderWords()
+  const { message, detail } = uploadQuestion({ files, bytes, folderName, host, report, flaggedIn, lang: ko ? 'ko' : 'en' })
   const t = testDialogs()
   if (t) { (global.__pglFolderDialogs ||= []).push({ message, detail }); return t.confirm === 'yes' }
   if (win) { if (win.isMinimized()) win.restore(); win.show() }
   const r = await dialog.showMessageBox(win || undefined, {
-    type: 'question', buttons: ko ? ['올리기', '취소'] : ['Upload', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true, message, detail,
+    type: flaggedIn ? 'warning' : 'question', buttons: ko ? ['올리기', '취소'] : ['Upload', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true, message, detail,
   })
   return r.response === 0
 }

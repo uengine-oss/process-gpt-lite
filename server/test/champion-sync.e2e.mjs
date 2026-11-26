@@ -7,7 +7,11 @@
 //      sync:pushed → main moves to it, the files and the agent assets are on the folder screen, his PC is listed as its source
 //   2. refused: main and other branches with that token · a pushed file shaped like a private key (put back at once, main unchanged,
 //      the value nowhere — not in the replies, not in the server's log) · no token · a token for another folder · another company's folder
-//   3. 김동료 as editor binds from her PC; made a viewer, her push is refused while her fetch still works · her device revoked → refused
+//   3. refused and put back right after the push: a link · a gitlink · .gitmodules · 21 new commits · a file over 50 MB; the folder's own
+//      .gitattributes (eol=crlf · union) does not change the server's main; the sync branches are hidden from every other token, and the
+//      cluster path takes no desktop token
+//   4. 김동료 cannot bind a folder that already has files (not_empty); on an empty one she binds and does not see 박챔피언's branch; made a
+//      viewer, her push is refused while her fetch still works · her device revoked → refused
 //   4. 박챔피언's source removed on the web → his token and sync:token are refused, his PC hears it at once
 //   5. an empty champion folder (an upload that did not happen) is removed again; one with files is not; not by someone else
 //   node test/champion-sync.e2e.mjs   (BFF on 8963 — CH_PORT to change; tenant "champion-e2e", folders in a temporary directory; no model)
@@ -257,36 +261,113 @@ await step('CH-E-04 열쇠처럼 생긴 파일이 든 올리기: 가지는 바�
   return `거절 경로 deploy/서버 열쇠.txt:2 private_key · 다시 올리니 main ${good.slice(0, 8)}`
 })
 
+await step('CH-E-05 구조 · 한도 · 속성: 링크 · gitlink · .gitmodules · 새 커밋 21개 · 50 MB 넘는 파일은 push 직후 되돌아가고 거절, 폴더 자신의 .gitattributes(eol=crlf · union)는 서버의 main 을 바꾸지 못한다', async () => {
+  const [{ repo_path: repo }] = await q('select repo_path from pro_folders where id=$1', [folder.id])
+  const said = []
+  // one round as the desktop makes it (commits on top of the last taken head) → pushed → put back → refused, the clone back where it was
+  async function refused(make, why, reason) {
+    await git(work, ['reset', '-q', '--hard', first])
+    await make()
+    const head = (await git(work, ['rev-parse', 'HEAD'])).out
+    const push = await git(work, ['push', '-q', '-f', 'origin', `HEAD:refs/heads/${tok.branch}`], tok.token)
+    assert.equal(push.code, 0, `${why}: git 의 push 자체는 받아들여진다 — ${push.err}`)
+    assert.equal((await git(ROOT, ['ls-remote', remote(folder.id), `refs/heads/${tok.branch}`], tok.token)).out.split(/\s+/)[0], first, `${why}: 가지는 push 직후 되돌아가 있다`)
+    const no = await pcLink.ask({ type: 'sync:pushed', folderId: folder.id, head, report: {} }, ['sync:taken', 'sync:behind', 'sync:refused'])
+    assert.deepEqual([no.type, no.why], ['sync:refused', why], JSON.stringify(no))
+    if (reason) assert.equal(no.paths?.[0]?.reason, reason, JSON.stringify(no))
+    assert.equal((await api(PC.token, `/folders/${folder.slug}`)).history[0].sha, first, `${why}: main 그대로`)
+    said.push(reason || no.limit?.kind)
+    await git(work, ['reset', '-q', '--hard', first])
+    return no
+  }
+  const commit = async (m = '동기화 · 박챔피언의 맥') => { await git(work, ['add', '-A']); await git(work, ['commit', '-q', '-m', m]) }
+  await refused(async () => { await fs.mkdir(path.join(work, 'docs'), { recursive: true }); await fs.symlink('/etc/passwd', path.join(work, 'docs', '링크')); await commit() }, 'structure', 'symlink')
+  await refused(async () => { await git(work, ['update-index', '--add', '--cacheinfo', `160000,${first},vendor/lib`]); await git(work, ['commit', '-q', '-m', 'gitlink']) }, 'structure', 'submodule')
+  await refused(async () => { await write(work, { '.gitmodules': '[submodule "x"]\n\tpath = x\n\turl = https://example.test/x.git\n' }); await commit() }, 'structure', 'gitmodules')
+  const many = await refused(async () => { for (let i = 0; i < 21; i++) { await write(work, { [`라운드/${i}.md`]: `${i}\n` }); await commit(`동기화 ${i}`) } }, 'too_big')
+  assert.deepEqual(many.limit, { kind: 'commits', value: 21, max: 20 })
+  const big = await refused(async () => { await fs.writeFile(path.join(work, '녹화.bin'), Buffer.alloc(50 * 1024 * 1024 + 1)); await commit() }, 'too_big', 'large')
+  assert.equal(big.limit.kind, 'file')
+  // the folder's own .gitattributes: taken as a file, but the server's checkout of main keeps the pushed bytes (no CRLF)
+  await git(work, ['reset', '-q', '--hard', first])
+  await write(work, { '.gitattributes': '* text eol=crlf\n*.md merge=union\n', '메모.md': '첫 줄\n둘째 줄\n' })
+  await commit()
+  const head = (await git(work, ['rev-parse', 'HEAD'])).out
+  assert.equal((await git(work, ['push', '-q', 'origin', `HEAD:refs/heads/${tok.branch}`], tok.token)).code, 0)
+  const ok = await pcLink.ask({ type: 'sync:pushed', folderId: folder.id, head, report: {} }, ['sync:taken', 'sync:behind', 'sync:refused'])
+  assert.deepEqual([ok.type, ok.main], ['sync:taken', head])
+  const onDisk = await fs.readFile(path.join(repo, '메모.md'))
+  assert.equal(onDisk.includes(13), false, '서버의 main 작업 파일에 CR 이 생기지 않는다')
+  assert.match(await fs.readFile(path.join(repo, '.git', 'info', 'attributes'), 'utf8'), /^\* -text -filter -ident -working-tree-encoding !eol !merge$/m)
+  first = head
+  return `거절: ${said.join(' · ')} · .gitattributes(eol=crlf) 올림 → main ${head.slice(0, 8)}, 작업 파일은 LF 그대로`
+})
+
+await step('CH-E-06 동기화 가지는 다른 토큰에 보이지 않고 닿지 않는다 · 클러스터 경로(/api/git)는 데스크톱 토큰을 받지 않는다', async () => {
+  const { mintToken } = await import('../lib/folders/gitHttp.js')
+  const cluster = mintToken({ tenant: TENANT, folderId: folder.id })
+  const clusterUrl = `${BASE}/api/git/${folder.id}.git`
+  const seen = await git(ROOT, ['ls-remote', clusterUrl], cluster)
+  assert.equal(seen.code, 0, seen.err)
+  assert.match(seen.out, /refs\/heads\/main/)
+  assert.doesNotMatch(seen.out, /pgpt-agent\/sync-/, '클러스터 토큰에는 동기화 가지가 없다')
+  assert.match((await git(ROOT, ['ls-remote', remote(folder.id)], tok.token)).out, new RegExp(tok.branch), '자기 기기의 가지는 보인다')
+  const desk = await git(ROOT, ['ls-remote', clusterUrl], tok.token)
+  assert.notEqual(desk.code, 0)
+  assert.match(desk.err, /403/)
+  const onto = await git(work, ['push', clusterUrl, `HEAD:refs/heads/${tok.branch.replace(/main$/, 'x')}`], cluster)
+  assert.notEqual(onto.code, 0)
+  assert.match(onto.err, /remote rejected|sync branch/)
+  return '클러스터 토큰: main 만 보이고 동기화 가지 없음 · 동기화 가지로 push 거절 · 데스크톱 토큰은 /api/git 에서 403'
+})
+
 let kimLink, kimDevice, kimTok
-await step('CH-E-05 김동료(편집자)가 묶고 → 보기 권한이 되면 올리기는 막히고 받기는 된다 → 기기를 끊으면 다 막힌다', async () => {
+await step('CH-E-07 김동료: 파일이 있는 폴더는 묶지 못하고(not_empty) · 빈 폴더에서는 다른 기기의 가지가 안 보이며 · 보기 권한이 되면 올리기만 막히고 · 기기를 끊으면 다 막힌다', async () => {
   await api(PC.token, `/folders/${folder.slug}/members`, { method: 'POST', body: { type: 'user', id: KIM.id, role: 'editor' } })
   kimDevice = await api(KIM.token, '/local-agents/devices', { method: 'POST', body: { name: '김동료의 PC', platform: 'win32', appVersion: 'e2e' } })
   kimLink = await openLink(kimDevice.token, '김동료의 PC')
-  assert.equal((await kimLink.ask({ type: 'sync:bind', folderId: folder.id, label: '영업 키트' }, ['sync:bound', 'sync:refused'])).type, 'sync:bound')
-  kimTok = await kimLink.ask({ type: 'sync:token', folderId: folder.id }, ['sync:token', 'sync:refused'])
+  // (until a second computer can join: a folder that already has files is bound only by the computer that first uploaded it)
+  const full = await kimLink.ask({ type: 'sync:bind', folderId: folder.id, label: '영업 키트' }, ['sync:bound', 'sync:refused'])
+  assert.deepEqual([full.type, full.why], ['sync:refused', 'not_empty'])
+  // an empty champion folder both of them bind; 박챔피언's PC pushes to its branch first — her token does not see it
+  const two = await api(PC.token, '/folders', { method: 'POST', body: { name: '둘이 쓰는 키트', champion: true } })
+  await api(PC.token, `/folders/${two.slug}/members`, { method: 'POST', body: { type: 'user', id: KIM.id, role: 'editor' } })
+  assert.equal((await kimLink.ask({ type: 'sync:bind', folderId: two.id, label: '영업 키트' }, ['sync:bound', 'sync:refused'])).type, 'sync:bound')
+  assert.equal((await pcLink.ask({ type: 'sync:bind', folderId: two.id, label: '둘이 쓰는 키트' }, ['sync:bound', 'sync:refused'])).type, 'sync:bound')
+  const pcTwo = await pcLink.ask({ type: 'sync:token', folderId: two.id }, ['sync:token', 'sync:refused'])
+  const pw = path.join(ROOT, 'pc-two')
+  assert.equal((await git(ROOT, ['clone', '-q', remote(two.id), pw], pcTwo.token)).code, 0)
+  await write(pw, { '박챔피언.md': '# 아직 main 이 아님\n' })
+  await git(pw, ['add', '-A'])
+  await git(pw, ['commit', '-q', '-m', '동기화 · 박챔피언의 맥'])
+  assert.equal((await git(pw, ['push', '-q', 'origin', `HEAD:refs/heads/${pcTwo.branch}`], pcTwo.token)).code, 0)
+  kimTok = await kimLink.ask({ type: 'sync:token', folderId: two.id }, ['sync:token', 'sync:refused'])
   assert.equal(kimTok.type, 'sync:token')
+  const herView = await git(ROOT, ['ls-remote', remote(two.id)], kimTok.token)
+  assert.equal(herView.code, 0, herView.err)
+  assert.doesNotMatch(herView.out, new RegExp(pcTwo.branch), '다른 기기의 동기화 가지는 보이지 않는다')
   const kw = path.join(ROOT, 'kim')
-  assert.equal((await git(ROOT, ['clone', '-q', remote(folder.id), kw], kimTok.token)).code, 0)
+  assert.equal((await git(ROOT, ['clone', '-q', remote(two.id), kw], kimTok.token)).code, 0)
   await write(kw, { '견적/김동료 메모.md': '# 메모\n' })
   await git(kw, ['add', '-A'])
   await git(kw, ['commit', '-q', '-m', '동기화 · 김동료의 PC'])
-  await api(PC.token, `/folders/${folder.slug}/members`, { method: 'POST', body: { type: 'user', id: KIM.id, role: 'viewer' } })
+  await api(PC.token, `/folders/${two.slug}/members`, { method: 'POST', body: { type: 'user', id: KIM.id, role: 'viewer' } })
   const push = await git(kw, ['push', 'origin', `HEAD:refs/heads/${kimTok.branch}`], kimTok.token)
   assert.notEqual(push.code, 0)
   assert.match(push.err, /403|editor/)
-  assert.equal((await git(ROOT, ['ls-remote', remote(folder.id), 'refs/heads/main'], kimTok.token)).code, 0, '보기 권한으로 받기')
-  const t2 = await kimLink.ask({ type: 'sync:token', folderId: folder.id }, ['sync:token', 'sync:refused'])
+  assert.equal((await git(ROOT, ['ls-remote', remote(two.id), 'refs/heads/main'], kimTok.token)).code, 0, '보기 권한으로 받기')
+  const t2 = await kimLink.ask({ type: 'sync:token', folderId: two.id }, ['sync:token', 'sync:refused'])
   assert.deepEqual([t2.type, t2.why], ['sync:refused', 'not_editor'])
   // her device revoked on the web: the link goes, the token stops at once
   await api(KIM.token, `/local-agents/devices/${kimDevice.device.id}`, { method: 'DELETE' })
   await waitFor(() => kimLink.closed, 10000, 'her link closed')
-  const after = await git(ROOT, ['ls-remote', remote(folder.id)], kimTok.token)
+  const after = await git(ROOT, ['ls-remote', remote(two.id)], kimTok.token)
   assert.notEqual(after.code, 0)
   assert.match(after.err, /403/)
-  return `보기 권한 push → 403 · ls-remote 0 · 끊은 기기 → 링크 닫힘(${kimLink.closed}) · 403`
+  return `파일 있는 폴더 → not_empty · 다른 기기의 가지 안 보임 · 보기 권한 push → 403 · ls-remote 0 · 끊은 기기 → 링크 닫힘(${kimLink.closed}) · 403`
 })
 
-await step('CH-E-06 웹에서 원본 PC 를 빼면: 그 PC 가 바로 듣고, 토큰 · sync:token 이 막힌다 · 다시 묶을 수 있다', async () => {
+await step('CH-E-08 웹에서 원본 PC 를 빼면: 그 PC 가 바로 듣고, 토큰 · sync:token 이 막힌다 · 다시 묶을 수 있다', async () => {
   const [mine] = (await api(PC.token, `/folders/${folder.slug}/sources`)).filter((s) => s.mine)
   assert.equal(await status(KIM.token, `/folders/${folder.slug}/sources/${mine.id}`, { method: 'DELETE' }), 403, '남의 PC 는 못 뺀다')
   const at = pcLink.got.length
@@ -308,7 +389,7 @@ await step('CH-E-06 웹에서 원본 PC 를 빼면: 그 PC 가 바로 듣고, �
   return '멈춤 → refused paused · 403 · 다시 켬 → 0 · 뺌 → refused source_removed · 403 · 다시 묶기 · 풀기'
 })
 
-await step('CH-E-07 올리지 못한 빈 챔피언 폴더는 다시 지워지고, 파일이 있으면 · 남이면 안 지워진다', async () => {
+await step('CH-E-09 올리지 못한 빈 챔피언 폴더는 다시 지워지고, 파일이 있으면 · 남이면 안 지워진다', async () => {
   const empty = await api(PC.token, '/folders', { method: 'POST', body: { name: '취소한 올리기', champion: true } })
   await api(PC.token, `/folders/${empty.slug}/members`, { method: 'POST', body: { type: 'user', id: KIM.id, role: 'editor' } })
   assert.equal(await status(KIM.token, `/folders/${empty.slug}`, { method: 'DELETE' }), 403)

@@ -3051,7 +3051,13 @@
   "폴더가 아니에요": "That isn't a folder",
   "그 폴더를 읽을 수 없어요": "That folder can't be read",
   "그 폴더를 고를 수 없어요": "That folder can't be chosen",
-  "데스크톱 앱을 새 판으로 바꾸면 내 PC 폴더를 올릴 수 있어요": "Update the desktop app to upload a folder from your PC"
+  "데스크톱 앱을 새 판으로 바꾸면 내 PC 폴더를 올릴 수 있어요": "Update the desktop app to upload a folder from your PC",
+  "안에 든 다른 저장소": "Another repository inside",
+  "큰 파일": "Large file",
+  "이미 파일이 있는 폴더예요 — 다른 PC 에서 이어 올리기는 다음 단계에서 돼요": "This folder already has files — uploading to it from another PC comes in the next stage",
+  "링크 · 안에 든 다른 저장소 · .gitmodules · .lfsconfig 는 올릴 수 없어요": "Links, repositories inside, .gitmodules and .lfsconfig can't be uploaded",
+  "서버가 올린 것을 확인하지 못해 받지 않았어요 — 잠시 뒤 다시 올려 주세요": "The server couldn't check the upload, so it didn't take it — please upload again in a moment",
+  "너무 자주 올렸어요 — 잠시 뒤 다시 해 주세요": "Too many uploads at once — please try again in a moment"
  },
  "patterns": [
   [
@@ -7104,5 +7110,7 @@
    "감사",
    "Thanks"
   ]
- ]
+ ],
+ "따로 관리되는 폴더 · 링크 · git 제어 파일": "Folders managed on their own · links · git control files",
+ "파일이 너무 많아요(2만 개) — 큰 폴더는 빼 주세요": "Too many files (20,000) — leave out large folders"
 }

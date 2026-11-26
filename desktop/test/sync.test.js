@@ -15,6 +15,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const S = require('../src/runner/sync')
+const G = require('../src/runner/git')
 const settings = require('../src/settings')
 const { gitServer } = require('./helpers/gitServer')
 
@@ -67,6 +68,11 @@ function makeChampion() {
   put('openspec/specs/quote/spec.md', '# quote\n')
   put('openspec/changes/add-x/proposal.md', '# add x\n')
   put('node_modules/pkg/index.js', 'module.exports = 1\n')
+  put('node_modules/pkg/.env', 'X=1\n')
+  put('.aws/config', '[default]\n')
+  // git's own control files: a submodule list, LFS's settings (its lfs.url would name where requests go)
+  put('.gitmodules', '[submodule "x"]\n\tpath = x\n\turl = https://example.test/x.git\n')
+  put('.lfsconfig', '[lfs]\n\turl = https://example.test/lfs\n')
   put('.DS_Store', '\0\0\0\u0001Bud1')
   put('config/app.txt', `server: example.test\ntoken: ${FAKE.github}\n`)
   put('config/settings.sh', `export SERVICE_TOKEN="${FAKE.env}"\n`)
@@ -228,17 +234,18 @@ test('F-CH-01 미리 보기: 올릴 것 · 뺀 것(갈래와 까닭) · 확인�
   const p = r.preview
   const ex = Object.fromEntries(p.excluded.map((e) => [e.group, e]))
   assert.deepEqual(ex.gitignore.samples.sort(), ['dist/', 'notes.txt'])
-  assert.deepEqual(ex.secret.samples.sort(), ['.env', 'certs/server.pem'], '폴더의 .gitignore 가 「!.env」 라고 해도 .env 는 빠진다')
+  assert.deepEqual(ex.secret.samples.sort(), ['.aws/', '.env', 'certs/server.pem'], '폴더의 .gitignore 가 「!.env」 라고 해도 .env 는 빠진다')
   assert.deepEqual(ex.personal.samples.sort(), ['.claude/projects/', '.claude/settings.local.json'])
   assert.deepEqual(ex.rebuildable.samples.sort(), ['.DS_Store', 'node_modules/'])
   assert.deepEqual(ex.large.samples, ['big.bin'])
-  assert.deepEqual(ex.structure.samples.sort(), symlinks ? ['outside-link', 'vendor/lib/'] : ['vendor/lib/'])
-  assert.deepEqual(p.flagged.map((x) => [x.path, x.line, x.reason]), [
-    ['.mcp.json', 0, 'runs_config'], ['config/app.txt', 2, 'github_token'], ['config/settings.sh', 1, 'env_assignment'], ['notes-keys/key.txt', 1, 'private_key']])
+  // only plain files go up: every link (to inside the folder too), another repository, git's control files
+  assert.deepEqual(ex.structure.samples.sort(), ['.gitmodules', '.lfsconfig', ...(symlinks ? ['inside-link', 'outside-link'] : []), 'vendor/lib/'])
+  assert.deepEqual(p.flagged.map((x) => [x.path, x.line, x.reason, x.includable]), [
+    ['.mcp.json', 0, 'runs_config', true], ['config/app.txt', 2, 'github_token', false], ['config/settings.sh', 1, 'env_assignment', true], ['notes-keys/key.txt', 1, 'private_key', false]])
+  assert.equal(p.flaggedIncluded, 0)
   // what goes up
   const up = ['.claude/agents/reviewer.md', '.claude/commands/opsx/apply.md', '.claude/settings.json', '.claude/skills/견적-정리/SKILL.md', '.codex/skills/요약/SKILL.md',
-    '.cursor/rules/style.mdc', '.env.example', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'docs/가이드.md', 'openspec/changes/add-x/proposal.md', 'openspec/specs/quote/spec.md',
-    ...(symlinks ? ['inside-link'] : [])]
+    '.cursor/rules/style.mdc', '.env.example', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'docs/가이드.md', 'openspec/changes/add-x/proposal.md', 'openspec/specs/quote/spec.md']
   assert.equal(p.files, up.length)
   assert.ok(p.top.some((t) => t.path === '.claude/' && t.files === 4) && p.top.some((t) => t.path === 'README.md'))
   assert.ok(p.warnings.includes('own_git'), '이미 git 인 폴더: 지난 이력은 올라가지 않는다')
@@ -252,12 +259,27 @@ test('F-CH-01 미리 보기: 올릴 것 · 뺀 것(갈래와 까닭) · 확인�
   const all = JSON.stringify(r)
   for (const v of Object.values(FAKE)) assert.ok(!all.includes(v), 'a matched value is not in the preview')
   assert.ok(!all.includes(PICKED), 'the path is not in what the page gets')
-  // the person's choices: a folder left out, a flagged file brought in
-  const q = await f.preview(r.pickId, { exclude: ['openspec'], include: ['config/settings.sh', 'node_modules', '../escape', '/abs', '.git/config'] })
+  // the person's choices: a folder left out; files to check (level 'check') and a rebuildable folder brought back in — but never a secret
+  // (by name, or a folder of them, or one inside a folder brought back), a sure key shape ('block'), a link, git's control files, or
+  // anything outside the folder — whatever the page sends
+  const q = await f.preview(r.pickId, { exclude: ['openspec'], include: ['config/settings.sh', '.mcp.json', 'node_modules', 'config/app.txt', 'notes-keys/key.txt', '.env', '.aws',
+    'node_modules/pkg/.env', 'inside-link', 'outside-link', '.gitmodules', '.lfsconfig', 'vendor/lib', '../escape', '/abs', '.git/config'] })
   assert.ok(!q.kit.some((k) => k.platform === 'spec'))
   assert.ok(q.flagged.some((x) => x.path === 'config/settings.sh'), '넣어도 확인이 필요한 파일로 보인다')
-  assert.equal(q.files, up.length - 2 + 1 + 1, '스펙 두 파일 빼고, 확인 파일 하나와 node_modules 의 파일 하나를 넣음 — 폴더 밖 · .git 은 넣을 수 없다')
-  assert.equal(q.excluded.find((e) => e.group === 'rebuildable').samples.includes('node_modules/'), false)
+  assert.equal(q.files, up.length - 2 + 3, '스펙 두 파일 빼고, 확인 파일 둘(settings.sh · .mcp.json)과 node_modules 의 파일 하나')
+  assert.equal(q.flaggedIncluded, 2)
+  const qx = Object.fromEntries(q.excluded.map((e) => [e.group, e]))
+  assert.equal(qx.rebuildable.samples.includes('node_modules/'), false)
+  assert.deepEqual(qx.secret.samples.sort(), ['.aws/', '.env', 'certs/server.pem', 'node_modules/pkg/.env'])
+  assert.deepEqual(qx.structure.samples.sort(), ['.gitmodules', '.lfsconfig', ...(symlinks ? ['inside-link', 'outside-link'] : []), 'vendor/lib/'])
+  const sx = await S.scan(PICKED, { gitDir: path.join(DATA, 'x-scan.git'), include: ['config/app.txt', 'notes-keys/key.txt', 'config/settings.sh', '.env', '.aws'] })
+  assert.ok(!sx.files.includes('config/app.txt') && !sx.files.includes('notes-keys/key.txt') && !sx.files.includes('.env') && !sx.files.some((x) => x.startsWith('.aws/')))
+  assert.ok(sx.files.includes('config/settings.sh'))
+  assert.deepEqual([sx.flaggedIn, sx.report.flagged, sx.report.flaggedIncluded], [1, 3, 1])
+  // the server's limits on one snapshot (secret-shapes.json): too many files is said before anything goes
+  const raw = require('../src/runner/secret-shapes.json')
+  const tight = await S.scan(PICKED, { gitDir: path.join(DATA, 'x-scan.git'), rules: S.compileRules({ ...raw, limits: { ...raw.limits, headMaxFiles: 3 } }) })
+  assert.ok(tight.preview.warnings.includes('too_many'))
   assert.deepEqual(treeOf(PICKED), before, '미리 보기는 폴더를 읽기만 한다')
 })
 
@@ -275,7 +297,14 @@ test('동의하지 않으면(시스템 창 「취소」) 서버에 아무것도 
   const f = makeSync()
   const r = await f.pick(PICKED)
   const n = sent.length
-  assert.deepEqual(await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트' }, { confirm: async () => false }), { ok: false, why: 'cancelled' })
+  // (the person brought back a file to check: the dialog is told how many go with it)
+  const asked = []
+  assert.deepEqual(await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트', include: ['config/settings.sh', 'config/app.txt'] }, { confirm: async (x) => { asked.push(x); return false } }),
+    { ok: false, why: 'cancelled' })
+  assert.equal(asked[0].flaggedIn, 1, '확실한 열쇠 모양(app.txt)은 넣을 수 없고, 확인 수준(settings.sh)만 함께')
+  const words = S.uploadQuestion({ ...asked[0], host: 'acme.example.test' })
+  assert.equal(words.message, `파일 ${asked[0].files}개(${asked[0].bytes >= 102400 ? `${(asked[0].bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(asked[0].bytes / 1024))} KB`})를 acme.example.test 의 폴더 '영업 제안 키트'로 올립니다 — 확인이 필요한 파일 1개도 함께 올라가요`)
+  assert.match(words.detail, /함께 올리기로 고른 확인 파일 1개/)
   assert.deepEqual(await f.bind({ pickId: r.pickId, folderId: FOLDER, folderName: '영업 제안 키트' }), { ok: false, why: 'cancelled' }, '물을 곳이 없으면 올리지 않는다')
   assert.equal(sent.length, n)
   assert.deepEqual(f.list(), [])
@@ -304,19 +333,25 @@ test('F-CH-02 · F-CH-03 올리기: 동의 → 원본 등록 → 첫 올리기 �
   assert.equal(mine.at(-3).label, '영업 제안 키트')
   const rep = mine.at(-1).report
   assert.deepEqual(Object.keys(rep.excluded).sort(), [...S.GROUPS].sort())
-  assert.equal(rep.excluded.secret, 2)
+  assert.equal(rep.excluded.secret, 3)
   assert.equal(rep.flagged, 4)
+  assert.equal(rep.flaggedIncluded, 0)
+  assert.equal(asked[0].flaggedIn, 0)
   assert.ok(!JSON.stringify(sent).includes(PICKED), '경로는 서버로 가지 않는다')
   // the server's main: the files, the agent assets — not .env, not the person's settings.local.json, not what was flagged
   const main = filesAt('refs/heads/main')
   for (const x of ['README.md', 'CLAUDE.md', '.claude/skills/견적-정리/SKILL.md', '.claude/settings.json', '.env.example', 'docs/가이드.md']) assert.ok(main.includes(x), x)
-  for (const x of ['.env', '.claude/settings.local.json', 'certs/server.pem', 'config/app.txt', 'config/settings.sh', '.mcp.json', 'big.bin', 'notes.txt', 'node_modules/pkg/index.js', 'vendor/lib/a.txt', '.claude/projects/session.jsonl']) {
+  for (const x of ['.env', '.claude/settings.local.json', 'certs/server.pem', 'config/app.txt', 'config/settings.sh', '.mcp.json', 'big.bin', 'notes.txt', 'node_modules/pkg/index.js', 'vendor/lib/a.txt',
+    '.claude/projects/session.jsonl', '.aws/config', '.gitmodules', '.lfsconfig', 'inside-link', 'outside-link']) {
     assert.ok(!main.includes(x), `${x} 는 올라가지 않는다`)
   }
+  // only plain files: no link (120000) or submodule (160000) entry anywhere in what went up
+  assert.ok(git(BARE, 'ls-tree', '-r', 'refs/heads/main').trim().split('\n').every((l) => l.startsWith('100644 ') || l.startsWith('100755 ')))
   assert.ok(!main.some((x) => x.startsWith('.git/') || x.includes('/.git/')))
   assert.equal(at('refs/heads/main', 'docs/가이드.md'), '# 가이드\nAPI 키는 이 폴더에 두지 않아요.\n')
   const head = bare('rev-parse', 'refs/heads/main')
-  assert.equal(git(BARE, 'log', '-1', '--format=%an <%ae>|%s', head).trim(), '박챔피언 <champion@example.test>|동기화 · 테스트 맥')
+  assert.equal(git(BARE, 'log', '-1', '--format=%an <%ae>|%s', head).trim(), '박챔피언 <champion@example.test>|동기화', '컴퓨터 이름은 메시지에 없다')
+  assert.ok(!git(BARE, 'log', '--format=%B', head).includes(os.hostname()))
   assert.equal(git(BARE, 'rev-list', '--count', head).trim(), '2', '스냅숏 하나 — 그 사람의 지난 이력은 올라가지 않는다')
   // the picked folder: the same, byte for byte and time for time — its own .git too; no .git, no file made in it
   assert.deepEqual(treeOf(PICKED), before)
@@ -324,6 +359,8 @@ test('F-CH-02 · F-CH-03 올리기: 동의 → 원본 등록 → 첫 올리기 �
   // the token: only as the request header — not in the shadow's config, not in a log, not on any git command line
   const shadow = f.gitDirOf(FOLDER)
   assert.ok(fs.existsSync(path.join(shadow, 'HEAD')) && shadow.startsWith(DATA))
+  assert.equal(path.basename(path.dirname(path.dirname(path.dirname(shadow)))), 'sync', '<data>/sync/<서버>/<사람>/<폴더>.git')
+  assert.equal(fs.readFileSync(path.join(shadow, 'info', 'attributes'), 'utf8'), G.NEUTRAL)
   assert.ok(!fs.readFileSync(path.join(shadow, 'config'), 'utf8').includes(TOKEN))
   assert.ok(srv.seen.length > 0 && srv.seen.every((h) => h === `Bearer ${TOKEN}`))
   assert.ok(!logs.join('\n').includes(TOKEN))
@@ -431,6 +468,21 @@ test('다른 사람이 이 앱에 로그인하면 앞 사람의 폴더는 멈춘
   assert.deepEqual(settings.folderStore('https://other.example.test', USER).all(), [], '서버마다 따로')
 })
 
+test('한 PC 의 두 사람: 그림자 저장소가 사람마다 따로 — 한 사람이 끊어도 다른 사람의 것은 그대로', async () => {
+  const f = makeSync()
+  const OTHER = crypto.randomUUID()
+  const g = new S.FolderSync({ dataDir: DATA, server: srv.base, userId: OTHER, store: settings.folderStore(srv.base, OTHER), send: () => true })
+  assert.notEqual(g.gitDirOf(FOLDER), f.gitDirOf(FOLDER))
+  assert.equal(path.dirname(path.dirname(g.gitDirOf(FOLDER))), path.dirname(path.dirname(f.gitDirOf(FOLDER))), '같은 서버 아래')
+  // the other person's record of the same folder id (as if they had connected it too), and its shadow
+  settings.folderStore(srv.base, OTHER).put({ folderId: FOLDER, path: PICKED, label: 'x', state: 'synced' })
+  fs.mkdirSync(g.gitDirOf(FOLDER), { recursive: true })
+  g.handle({ type: 'sync:unbound', folderId: FOLDER })
+  assert.ok(!fs.existsSync(g.gitDirOf(FOLDER)))
+  assert.ok(fs.existsSync(path.join(f.gitDirOf(FOLDER), 'HEAD')), '앞 사람의 그림자 저장소는 남는다')
+  assert.equal(settings.folderStore(srv.base, USER).all().length, 1)
+})
+
 test('연결 끊기: 그림자 저장소와 이 PC 의 기록만 지운다 — 고른 폴더 · 서버 폴더는 그대로', async () => {
   const f = makeSync()
   const before = treeOf(PICKED)
@@ -458,6 +510,7 @@ test('고른 폴더에는 쓰지 않는다: 동기화가 부르는 git 은 정�
     assert.ok(path.resolve(c.gitDir).startsWith(path.resolve(DATA)), `GIT_DIR ${c.gitDir}`)
     if (c.sub !== 'init') assert.equal(c.args[0], `--git-dir=${c.gitDir}`)
     if (c.workTree) assert.ok(['ls-files', 'check-ignore', 'update-index'].includes(c.sub), `${c.sub} 는 작업 트리를 쓰지 않는다`)
+    if (c.sub === 'fetch' || c.sub === 'push') assert.ok(c.args.some((a) => a.startsWith(srv.base)), '토큰은 그 폴더의 주소로만')
   }
   // the module refuses anything else, and never reaches for the runner's helpers that reset or check out a folder
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'runner', 'sync.js'), 'utf8')

@@ -17,6 +17,12 @@ const GROUPS = Object.fromEntries(Object.entries(SHAPES.groups || {}).map(([g, r
 const ORDER = ['secret', 'personal', 'rebuildable'].filter((g) => GROUPS[g])
 const BLOCK = (SHAPES.shapes || []).filter((s) => s.level === 'block' && s.pattern).map((s) => ({ id: s.id, re: new RegExp(s.pattern, s.flags || '') }))
 export const TEXT_MAX = Number(SHAPES.limits?.textMaxBytes) || 1024 * 1024
+// what one sync push may carry (secret-shapes.json limits): new commits (the desktop makes one a round), one file's size, and the pushed
+// head's whole tree — files and bytes before compression. Over one of them the push is refused as too big. (tests change them here)
+export const LIMITS = {
+  pushMaxCommits: 20, largeFileBytes: 50 * 1024 * 1024, headMaxFiles: 20000, headMaxBytes: 1024 * 1024 * 1024,
+  ...Object.fromEntries(Object.entries(SHAPES.limits || {}).filter(([, v]) => Number.isFinite(Number(v))).map(([k, v]) => [k, Number(v)])),
+}
 
 // the group a file's path falls in by its names (any case — a computer's folder may not tell cases apart): every part of the path is
 // looked at, the way git reads a pattern without a slash (a folder named .ssh leaves out all that is in it) → 'secret' | 'personal' |
@@ -53,17 +59,34 @@ export function blockIn(buf) {
   return null
 }
 
-// What the server refuses among pushed files [{path, size}]: a secret's file name, or a key of a sure shape in it.
-// read(file): its bytes (called only for a text-sized file) → [{path, line, reason}] (empty: fine)
-export async function refusedIn(files, read) {
+// What a folder's tree must not hold, whatever it says: a link (mode 120000), another repository (a gitlink, 160000), and the files that
+// make git fetch or run something else (.gitmodules, .lfsconfig) → the reason, or null
+export function structureOf({ path: rel, mode }) {
+  if (mode === '120000') return 'symlink'
+  if (mode === '160000') return 'submodule'
+  const base = String(rel).split('/').pop().toLowerCase()
+  if (base === '.gitmodules') return 'gitmodules'
+  if (base === '.lfsconfig') return 'lfsconfig'
+  return null
+}
+
+// What the server refuses among pushed files [{path, size, sha}]: a secret's file name, or a key of a sure shape in it. Only text up to
+// TEXT_MAX is read (a larger file or one with a NUL byte is not — this is a safety net behind the desktop's own check, not a boundary).
+// contents(files, onBlob): the bytes of those files, all from one reader, each handed to onBlob(sha, buffer); it rejects when it cannot
+// give them all — and so does this (nothing that could not be looked at goes through). → [{path, line, reason}] (empty: fine)
+export async function refusedIn(files, contents) {
   const out = []
+  const scan = []
   for (const f of files) {
-    if (groupOf(f.path) === 'secret') { out.push({ path: f.path, line: null, reason: 'name' }); continue }
-    if (Number(f.size) > TEXT_MAX) continue
-    const buf = await read(f)
-    const hit = buf ? blockIn(buf) : null
-    if (hit) out.push({ path: f.path, ...hit })
-    if (out.length >= 50) break
+    if (groupOf(f.path) === 'secret') out.push({ path: f.path, line: null, reason: 'name' })
+    else if (Number(f.size) <= TEXT_MAX) scan.push(f)
   }
-  return out
+  if (scan.length) {
+    const bySha = new Map()
+    for (const f of scan) { if (!bySha.has(f.sha)) bySha.set(f.sha, []); bySha.get(f.sha).push(f.path) }
+    const hits = new Map()
+    await contents([...bySha.keys()], (sha, buf) => { const hit = blockIn(buf); if (hit) hits.set(sha, hit) })
+    for (const [sha, paths] of bySha) if (hits.has(sha)) for (const p of paths) out.push({ path: p, ...hits.get(sha) })
+  }
+  return out.slice(0, 50)
 }

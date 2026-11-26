@@ -9,7 +9,8 @@
 //                                        head (line.js intoMainNow — a fast-forward, else a merge, else main stays) → the index and the
 //                                        folder's agent assets (kit.js) → sync:taken {folderId, main} | sync:behind | sync:refused
 //   sync:unbind {folderId}            → sync:unbound {folderId}
-// why: not_editor · no_folder · not_managed · device_revoked · source_removed · paused · secret · too_big · conflict
+// why: not_editor · no_folder · not_managed · not_empty · device_revoked · source_removed · paused · secret · structure · too_big ·
+//      unchecked (what came in could not be looked at — refused all the same) · conflict · rate_limited
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { emit } from '../bus.js'
@@ -19,7 +20,7 @@ import * as G from './git.js'
 import * as S from './service.js'
 import { intoMainNow } from './line.js'
 import { mintToken } from './gitHttp.js'
-import { refusedIn } from './secrets.js'
+import { refusedIn, structureOf, LIMITS } from './secrets.js'
 
 const T = () => config.tenantId
 export const TOKEN_HOURS = 1
@@ -58,9 +59,20 @@ const sourceOf = async (folderId, deviceId) => (await q('select * from pro_folde
 const stateWhy = (s) => (!s ? 'no_folder' : s.state === 'removed' ? 'source_removed' : s.state === 'paused' ? 'paused' : null)
 
 // ---------- the link's messages ----------
+// a link may ask this often (a round is a token, a push and its sync:pushed — a person presses 「지금 올리기」, the app's own rounds are
+// minutes apart): past it the link is told so and nothing is done
+export const RATE = { perMinute: 60 }
+const asked = new WeakMap() // link → [times]
+function tooOften(link, now = Date.now()) {
+  const list = (asked.get(link) || []).filter((t) => now - t < 60_000)
+  list.push(now)
+  asked.set(link, list)
+  return list.length > RATE.perMinute
+}
 export async function receive(link, msg) {
   const folderId = String(msg.folderId || '')
   const refuse = (why, extra = {}) => link.send({ type: 'sync:refused', folderId, why, ...extra })
+  if (tooOften(link)) return refuse('rate_limited')
   try {
     if (msg.type === 'sync:bind') return await bind(link, folderId, msg.label, refuse)
     if (msg.type === 'sync:token') return await token(link, folderId, refuse)
@@ -75,6 +87,11 @@ export async function receive(link, msg) {
 async function bind(link, folderId, label, refuse) {
   const ok = await allowed(link, folderId)
   if (ok.why) return refuse(ok.why)
+  // Until a second computer can join a folder (its first snapshot is taken in as a variation, not as main — the next stage), only the
+  // computer that first uploaded the folder binds it again: another one's first snapshot would delete everyone else's files from main.
+  const had = await sourceOf(folderId, link.id)
+  // (asked strictly: a git that cannot answer refuses the bind — receive() says conflict — rather than taking the folder for empty)
+  if (!had && (await G.git(ok.folder.repo_path, ['ls-tree', '--name-only', ok.folder.default_branch])).trim()) return refuse('not_empty')
   const [s] = await q(`insert into pro_folder_sources (tenant_id, folder_id, user_id, device_id, label, branch) values ($1,$2,$3,$4,$5,$6)
                        on conflict (folder_id, device_id) do update set user_id=$3, label=$5, state='active', why=null, updated_at=now() returning *`,
   [link.tenant, folderId, link.userId, link.id, labelOf(label), branchOf(link.id)])
@@ -101,37 +118,83 @@ async function token(link, folderId, refuse) {
 async function unbind(link, folderId) {
   if (UUID.test(folderId)) await q(`update pro_folder_sources set state='removed', updated_at=now() where folder_id=$1 and device_id=$2 and tenant_id=$3`, [folderId, link.id, link.tenant])
   link.send({ type: 'sync:unbound', folderId })
-  const [f] = UUID.test(folderId) ? await q('select slug from pro_folders where id=$1', [folderId]) : []
+  const [f] = UUID.test(folderId) ? await q('select slug from pro_folders where id=$1 and tenant_id=$2', [folderId, link.tenant]) : []
   if (f) emit(link.userId, 'folders', { slug: f.slug })
 }
 
 // ---------- what a push brought in ----------
-// the files the commits base..head added or changed, each once (a merge commit: only what differs from every parent) → [{path, sha, size}]
+// The files the commits base..head added or changed (or changed in kind), each once — a merge commit: only what differs from every
+// parent → [{path, sha, mode, size}]. Every git call here must answer in full: an error, a time-out or a missing object throws (the caller
+// refuses the push — what could not be looked at does not go through).
 export async function broughtIn(repo, base, head) {
-  const commits = (await G.git(repo, ['rev-list', '--max-count=500', head, ...(base ? [`^${base}`] : [])], { check: false })).split('\n').filter(Boolean)
+  const commits = (await G.git(repo, ['rev-list', head, ...(base ? [`^${base}`] : [])])).split('\n').filter(Boolean)
   const seen = new Map()
   for (const c of commits) {
-    const parents = (await G.git(repo, ['rev-list', '--parents', '-n1', c], { check: false })).trim().split(' ').slice(1)
+    const parents = (await G.git(repo, ['rev-list', '--parents', '-n1', c])).trim().split(' ').slice(1)
     const diffs = []
     for (const p of parents.length ? parents : [EMPTY_TREE]) {
-      const out = await G.git(repo, ['diff-tree', '-r', '-z', '--no-renames', '--diff-filter=AM', p, c], { check: false })
+      const out = await G.git(repo, ['diff-tree', '-r', '-z', '--no-renames', '--diff-filter=AMT', p, c])
       const parts = out.split('\0').filter(Boolean)
+      if (parts.length % 2) throw new Error('git diff-tree: output cut short')
       const m = new Map()
-      for (let i = 0; i + 1 < parts.length; i += 2) { const meta = parts[i].split(' '); m.set(parts[i + 1], meta[3]) }
+      for (let i = 0; i < parts.length; i += 2) {
+        const meta = parts[i].split(' ')
+        if (meta.length < 5 || !OID.test(meta[3] || '')) throw new Error('git diff-tree: output not understood')
+        m.set(parts[i + 1], { sha: meta[3], mode: meta[1] })
+      }
       diffs.push(m)
     }
-    for (const [p, sha] of diffs[0]) if (diffs.every((d) => d.has(p)) && !seen.has(`${p}\0${sha}`)) seen.set(`${p}\0${sha}`, { path: p, sha })
+    for (const [p, e] of diffs[0]) if (diffs.every((d) => d.has(p)) && !seen.has(`${p}\0${e.sha}`)) seen.set(`${p}\0${e.sha}`, { path: p, ...e })
   }
   const files = [...seen.values()]
-  if (!files.length) return files
-  const sizes = new Map((await G.git(repo, ['cat-file', '--batch-check'], { check: false, input: files.map((f) => f.sha).join('\n') + '\n' }))
-    .split('\n').filter(Boolean).map((l) => { const [sha, , size] = l.split(' '); return [sha, Number(size) || 0] }))
+  // (a gitlink names a commit of another repository — not an object here: it has no size, and it is refused anyway)
+  const blobs = [...new Set(files.filter((f) => f.mode !== '160000').map((f) => f.sha))]
+  const sizes = new Map()
+  if (blobs.length) {
+    for (const l of (await G.git(repo, ['cat-file', '--batch-check'], { input: blobs.join('\n') + '\n' })).split('\n').filter(Boolean)) {
+      const [sha, type, size] = l.split(' ')
+      if (type !== 'blob' || !/^\d+$/.test(size || '')) throw new Error(`git cat-file: ${sha} is ${type || 'missing'}`)
+      sizes.set(sha, Number(size))
+    }
+    if (blobs.some((b) => !sizes.has(b))) throw new Error('git cat-file: output cut short')
+  }
   return files.map((f) => ({ ...f, size: sizes.get(f.sha) ?? 0 }))
 }
-// what must not go up, among what base..head brought in → [{path, line, reason}]
-export async function refusedBetween(folder, base, head) {
-  const files = await broughtIn(folder.repo_path, base, head)
-  return refusedIn(files, (f) => G.git(folder.repo_path, ['cat-file', 'blob', f.sha], { buffer: true }).catch(() => null))
+// the pushed snapshot as a whole: its files and their size before compression → {files, bytes}
+async function treeSize(repo, head) {
+  let files = 0, bytes = 0
+  for (const line of (await G.git(repo, ['ls-tree', '-r', '-l', '-z', '--full-tree', head])).split('\0').filter(Boolean)) {
+    const [meta] = line.split('\t')
+    const [, type, , size] = meta.split(/\s+/)
+    files++
+    if (type === 'blob') bytes += Number(size) || 0
+  }
+  return { files, bytes }
+}
+// Everything the server looks at in what a sync push brought in (base..head), before anything takes it → null (fine) or the refusal
+// {why, paths?, limit?}: too many new commits · a link, another repository, .gitmodules, .lfsconfig (structure) · a file or the
+// whole snapshot over its limit (too_big) · a secret's file name or a key of a sure shape (secret) · unchecked (git could not answer)
+export async function inspect(folder, base, head) {
+  const repo = folder.repo_path
+  try {
+    const count = Number((await G.git(repo, ['rev-list', '--count', head, ...(base ? [`^${base}`] : [])])).trim())
+    if (!Number.isInteger(count)) throw new Error('git rev-list --count: not a number')
+    if (count > LIMITS.pushMaxCommits) return { why: 'too_big', limit: { kind: 'commits', value: count, max: LIMITS.pushMaxCommits } }
+    const files = await broughtIn(repo, base, head)
+    const odd = files.map((f) => ({ path: f.path, line: null, reason: structureOf(f) })).filter((x) => x.reason)
+    if (odd.length) return { why: 'structure', paths: odd.slice(0, 50) }
+    const big = files.filter((f) => f.size > LIMITS.largeFileBytes)
+    if (big.length) return { why: 'too_big', limit: { kind: 'file', max: LIMITS.largeFileBytes }, paths: big.slice(0, 50).map((f) => ({ path: f.path, line: null, reason: 'large' })) }
+    const all = await treeSize(repo, head)
+    if (all.files > LIMITS.headMaxFiles) return { why: 'too_big', limit: { kind: 'files', value: all.files, max: LIMITS.headMaxFiles } }
+    if (all.bytes > LIMITS.headMaxBytes) return { why: 'too_big', limit: { kind: 'bytes', value: all.bytes, max: LIMITS.headMaxBytes } }
+    const secret = await refusedIn(files, (shas, each) => G.catBatch(repo, shas, each))
+    if (secret.length) return { why: 'secret', paths: secret }
+    return null
+  } catch (e) {
+    console.warn(`[champion] ${folder.slug}: what a push brought in could not be looked at — refused (${e.message.slice(0, 160)})`)
+    return { why: 'unchecked' }
+  }
 }
 // where the check starts: the head this source last had accepted (when head grew from it), else where head left main
 async function baseFor(folder, source, head) {
@@ -139,15 +202,17 @@ async function baseFor(folder, source, head) {
   return G.mergeBase(folder.repo_path, folder.default_branch, head)
 }
 // the branch back where it was (or gone, when it had not been there), the refusal kept on the source for its sync:pushed
-async function putBack(folder, source, from, to, hits, ref = `refs/heads/${source.branch}`) {
+async function putBack(folder, source, from, to, no, ref = `refs/heads/${source.branch}`) {
   if (to && !ZERO.test(to)) await G.git(folder.repo_path, ['update-ref', ref, to, from], { check: false })
   else await G.git(folder.repo_path, ['update-ref', '-d', ref, from], { check: false })
-  await q(`update pro_folder_sources set why='secret', report = report || $2::jsonb, updated_at=now() where id=$1`, [source.id, JSON.stringify({ refused: hits, refusedHead: from })])
-  console.warn(`[champion] ${folder.slug}: a push from ${String(source.device_id).slice(0, 8)} carried ${hits.length} file(s) that must not go up — its branch is put back`)
+  await q(`update pro_folder_sources set why=$3, report = report || $2::jsonb, updated_at=now() where id=$1`,
+    [source.id, JSON.stringify({ refused: no.paths || [], refusedHead: from, refusedWhy: no.why, refusedLimit: no.limit || null }), no.why])
+  console.warn(`[champion] ${folder.slug}: a push from ${String(source.device_id).slice(0, 8)} was refused (${no.why}${no.paths ? `, ${no.paths.length} file(s)` : ''}) — its branch is put back`)
 }
+const refusal = (no) => ({ why: no.why, ...(no.paths ? { paths: no.paths } : {}), ...(no.limit ? { limit: no.limit } : {}) })
 
-// gitHttp after(): right after a sync token's push, still inside the folder's lock — a file that must not be there never stays reachable,
-// on the device's sync branch or on any other branch under its prefix (the token may push there too)
+// gitHttp after(): right after a sync token's push, still inside the folder's lock — what must not be there never stays reachable, on the
+// device's sync branch or on any other branch under its prefix (the token may push there too)
 export async function afterPush(claims, folder, commands) {
   if (claims?.scope !== 'sync') return
   const source = await sourceOf(folder.id, claims.device)
@@ -155,8 +220,8 @@ export async function afterPush(claims, folder, commands) {
   for (const c of commands) {
     if (!c.ref.startsWith(`refs/heads/${prefixOf(claims.device)}`) || ZERO.test(c.new)) continue
     const base = !ZERO.test(c.old) && await isAncestor(folder.repo_path, c.old, c.new) ? c.old : await baseFor(folder, source, c.new)
-    const hits = await refusedBetween(folder, base, c.new)
-    if (hits.length) await putBack(folder, source, c.new, ZERO.test(c.old) ? null : c.old, hits, c.ref)
+    const no = await inspect(folder, base, c.new)
+    if (no) await putBack(folder, source, c.new, ZERO.test(c.old) ? null : c.old, no, c.ref)
   }
 }
 
@@ -175,25 +240,34 @@ async function pushed(link, folderId, msg, refuse) {
     if (why) return { why }
     const tip = await G.head(folder.repo_path, `refs/heads/${source.branch}`)
     // (put back right after the push — gitHttp after(): the same answer)
-    if (tip !== head) return source.why === 'secret' && source.report?.refusedHead === head ? { why: 'secret', paths: source.report.refused || [] } : { why: 'conflict' }
-    const hits = await refusedBetween(folder, await baseFor(folder, source, head), head)
-    if (hits.length) {
-      const prev = source.last_head && await isAncestor(folder.repo_path, source.last_head, head) ? source.last_head : null
-      await putBack(folder, source, head, prev, hits)
-      return { why: 'secret', paths: hits }
+    if (tip !== head) {
+      const r = source.report || {}
+      return r.refusedHead === head && r.refusedWhy ? refusal({ why: r.refusedWhy, paths: r.refused, limit: r.refusedLimit }) : { why: 'conflict' }
     }
+    const main = await G.head(folder.repo_path, `refs/heads/${folder.default_branch}`)
+    // (said again — an answer that did not reach the desktop: taken already, nothing to do)
+    if (source.last_head === head && !source.why && await isAncestor(folder.repo_path, head, main)) return { taken: true, main, again: true }
+    const no = await inspect(folder, await baseFor(folder, source, head), head)
+    if (no) {
+      const prev = source.last_head && await isAncestor(folder.repo_path, source.last_head, head) ? source.last_head : null
+      await putBack(folder, source, head, prev, no)
+      return refusal(no)
+    }
+    // (a folder made before its attributes were neutralized gets them now — its own .gitattributes never changes the merge or checkout)
+    await S.championAttributes(folder.repo_path)
     const r = await intoMainNow(folder, head, { who: author, message: L(`${source.label} 에서 올림`, `Uploaded from ${source.label}`) })
     const taken = await isAncestor(folder.repo_path, head, r.main)
     await q(`update pro_folder_sources set last_head=$2, last_pushed_at=now(), report=$3, why=$4, seen_main=case when $4::text is null then $5 else seen_main end, updated_at=now() where id=$1`,
       [source.id, head, report, taken ? null : 'conflict', r.main])
     return { taken, main: r.main }
   })
-  if (out.why) return refuse(out.why, out.paths ? { paths: out.paths } : {})
+  if (out.why) { const { why, ...extra } = out; return refuse(why, extra) }
+  if (out.again) return link.send({ type: 'sync:taken', folderId, main: out.main })
   await S.touch(folder)
   if (out.taken) {
-    // (the file list and the agent assets now — the documents' cards come a little later)
+    // (the file list and the agent assets now — the documents' cards come a little later; one index pass of a folder at a time)
     const { reindex, cardsSoon } = await import('./indexer.js')
-    await reindex(folder, { cards: false }).catch((e) => console.warn('[champion] index', e.message))
+    await S.serial(`${folder.id}:index`, () => reindex(folder, { cards: false })).catch((e) => console.warn('[champion] index', e.message))
     cardsSoon(folder, 5_000)
     link.send({ type: 'sync:taken', folderId, main: out.main })
   } else link.send({ type: 'sync:behind', folderId, main: out.main })

@@ -132,10 +132,23 @@ test('CH-U-06 확실한 열쇠의 생김새(block)만 서버가 본다 — 줄 �
 })
 
 test('CH-U-07 서버가 거절하는 것: 비밀 이름의 파일, 확실한 생김새가 든 파일 — 경로 · 줄 · 까닭만', async () => {
-  const files = [{ path: 'docs/deploy.md', size: 10, body: `memo\n${pem()}` }, { path: '.env', size: 3, body: 'A=1' }, { path: 'CLAUDE.md', size: 5, body: '# hi' },
-    { path: 'notes.txt', size: 5, body: `x = "${crypto.randomBytes(24).toString('hex')}Ab"` }]
-  const out = await SEC.refusedIn(files, async (f) => Buffer.from(f.body))
-  assert.deepEqual(out, [{ path: 'docs/deploy.md', line: 2, reason: 'private_key' }, { path: '.env', line: null, reason: 'name' }])
+  const files = [{ path: 'docs/deploy.md', sha: 'a1', size: 10, body: `memo\n${pem()}` }, { path: '.env', sha: 'b2', size: 3, body: 'A=1' }, { path: 'CLAUDE.md', sha: 'c3', size: 5, body: '# hi' },
+    { path: 'notes.txt', sha: 'd4', size: 5, body: `x = "${crypto.randomBytes(24).toString('hex')}Ab"` }, { path: 'big.txt', sha: 'e5', size: SEC.TEXT_MAX + 1, body: pem() }]
+  const asked = []
+  // (all the contents from one reader — and a file over the text limit is not asked for)
+  const contents = async (shas, each) => { asked.push(shas); for (const sha of shas) each(sha, Buffer.from(files.find((f) => f.sha === sha).body)) }
+  const out = await SEC.refusedIn(files, contents)
+  assert.deepEqual(out, [{ path: '.env', line: null, reason: 'name' }, { path: 'docs/deploy.md', line: 2, reason: 'private_key' }])
+  assert.deepEqual(asked, [['a1', 'c3', 'd4']])
+  // a reader that cannot give everything: refused, not passed
+  await assert.rejects(SEC.refusedIn(files, async () => { throw new Error('cut short') }), /cut short/)
+  // the tree's structure: links, other repositories, .gitmodules, .lfsconfig
+  assert.equal(SEC.structureOf({ path: 'a/link', mode: '120000' }), 'symlink')
+  assert.equal(SEC.structureOf({ path: 'vendor/x', mode: '160000' }), 'submodule')
+  assert.equal(SEC.structureOf({ path: '.gitmodules', mode: '100644' }), 'gitmodules')
+  assert.equal(SEC.structureOf({ path: 'sub/.LFSCONFIG', mode: '100644' }), 'lfsconfig')
+  assert.equal(SEC.structureOf({ path: '.gitattributes', mode: '100644' }), null)
+  assert.equal(SEC.structureOf({ path: 'run.sh', mode: '100755' }), null)
 })
 
 test('CH-U-08 데이터 파일 두 개는 고쳐 쓸 수 있는 JSON 이고, 데스크톱에도 같은 사본(있을 때)', async () => {
@@ -177,18 +190,28 @@ async function device(user, name = '맥북') {
 // a link as the hub hands it to a message handler, its replies kept
 const linkOf = (d) => { const sent = []; return { id: d.id, tenant: TENANT, userId: String(d.user_id), name: d.name, sent, send: (m) => { sent.push(m); return true }, last: (t) => sent.filter((m) => m.type === t).at(-1) } }
 // a snapshot like the desktop's: files on top of `parent`, pushed to the branch (directly — the HTTP path is the e2e's)
-async function snapshot(folder, branch, files, { parent = null } = {}) {
+async function snapshot(folder, branch, files, { parent = null, commits = 1 } = {}) {
   const dir = await fs.mkdtemp(path.join(ROOT, 'pc-'))
   await gitc(dir, ['init', '-q', '-b', 'work'])
   await gitc(dir, ['fetch', '-q', folder.repo_path, `+refs/heads/*:refs/remotes/origin/*`])
   await gitc(dir, ['reset', '-q', '--hard', parent || 'origin/main'])
+  const gitlinks = []
   for (const [p, body] of Object.entries(files)) {
     await fs.mkdir(path.dirname(path.join(dir, p)), { recursive: true })
     if (body == null) await fs.rm(path.join(dir, p), { force: true })
+    // (a string has a .link method of its own: only a plain object names a link or a gitlink)
+    else if (body.constructor === Object && body.link) await fs.symlink(body.link, path.join(dir, p))
+    else if (body.constructor === Object && body.gitlink) gitlinks.push([p, body.gitlink])
     else await fs.writeFile(path.join(dir, p), body)
   }
   await gitc(dir, ['add', '-A'])
+  for (const [p, sha] of gitlinks) await gitc(dir, ['update-index', '--add', '--cacheinfo', `160000,${sha},${p}`])
   await gitc(dir, ['commit', '-q', '--allow-empty', '-m', '동기화 · 맥북'])
+  for (let i = 1; i < commits; i++) {
+    await fs.writeFile(path.join(dir, `round-${i}.txt`), `${i}\n`)
+    await gitc(dir, ['add', '-A'])
+    await gitc(dir, ['commit', '-q', '-m', `동기화 · 맥북 ${i}`])
+  }
   const head = await gitc(dir, ['rev-parse', 'HEAD'])
   const old = await G.head(folder.repo_path, `refs/heads/${branch}`)
   await gitc(dir, ['push', '-q', '--force', folder.repo_path, `HEAD:refs/heads/${branch}`])
@@ -207,7 +230,9 @@ test('CH-U-09 챔피언 폴더는 첫 커밋에 파일이 없고(속성은 저�
   const f = await S.createFolder(owner, { name: `영업 제안 키트 ${crypto.randomBytes(2).toString('hex')}`, champion: true })
   made.push(f)
   assert.deepEqual(await G.lsTree(f.repo_path, 'main'), [])
-  assert.match(await fs.readFile(path.join(f.repo_path, '.git', 'info', 'attributes'), 'utf8'), /\*\.docx binary/)
+  const attrs = await fs.readFile(path.join(f.repo_path, '.git', 'info', 'attributes'), 'utf8')
+  assert.match(attrs, /^\* -text -filter -ident -working-tree-encoding !eol !merge$/m, '폴더 자신의 .gitattributes 가 서버의 체크아웃 · 병합을 바꾸지 못한다')
+  assert.match(attrs, /\*\.docx binary/)
   await assert.rejects(fs.stat(path.join(f.repo_path, '.gitattributes')))
   assert.equal(f.settings.champion.by, owner.id)
   assert.equal(await S.roleOf(f, owner), 'owner')
@@ -410,3 +435,187 @@ test('CH-U-12 원본의 한 바퀴: 묶기 → 토큰 → 올린 머리가 main 
   await SRC.receive(L, { type: 'sync:bind', folderId: f.id, label: 'x' })
   assert.equal(L.last('sync:refused').why, 'device_revoked')
 })
+
+// a champion folder with the first upload from its first computer taken → {f, d, L, branch, c (the sync token's claims), one}
+async function uploaded(label = '검사') {
+  const f = await S.createFolder(owner, { name: `${label} ${crypto.randomBytes(2).toString('hex')}`, champion: true })
+  made.push(f)
+  const d = await device(owner)
+  const L = linkOf(d)
+  await SRC.receive(L, { type: 'sync:bind', folderId: f.id, label })
+  const { branch } = L.last('sync:bound')
+  await SRC.receive(L, { type: 'sync:token', folderId: f.id })
+  const c = verifyToken(L.last('sync:token').token)
+  const one = await snapshot(f, branch, { 'CLAUDE.md': '# 검사\n', '견적/양식.md': '# 양식\n' })
+  await SRC.receive(L, { type: 'sync:pushed', folderId: f.id, head: one.head, report: {} })
+  assert.equal(L.last('sync:taken').main, one.head)
+  return { f, d, L, branch, c, one }
+}
+// a push like the desktop's, checked right after it (gitHttp after()) and then reported → the reply to sync:pushed
+async function push(u, files, opts = {}) {
+  const s = await snapshot(u.f, u.branch, files, { parent: u.one.head, ...opts })
+  await SRC.afterPush(u.c, u.f, [{ old: s.old, new: s.head, ref: `refs/heads/${u.branch}` }])
+  const at = u.L.sent.length
+  await SRC.receive(u.L, { type: 'sync:pushed', folderId: u.f.id, head: s.head, report: {} })
+  return { ...s, reply: u.L.sent.slice(at).find((m) => ['sync:taken', 'sync:behind', 'sync:refused'].includes(m.type)) }
+}
+
+test('CH-U-13 구조: 링크 · 다른 저장소(gitlink) · .gitmodules · .lfsconfig 가 든 올리기는 「structure」로 거절, 가지는 되돌아가고 main 그대로', { skip: !db && 'no database' }, async () => {
+  const u = await uploaded('구조')
+  for (const [files, reason] of [[{ 'docs/link': { link: '/etc/passwd' } }, 'symlink'], [{ 'vendor/lib': { gitlink: u.one.head } }, 'submodule'],
+    [{ '.gitmodules': '[submodule "x"]\n\tpath = x\n\turl = https://example.test/x.git\n' }, 'gitmodules'], [{ 'sub/.lfsconfig': '[lfs]\n\turl = https://example.test\n' }, 'lfsconfig']]) {
+    const r = await push(u, files)
+    assert.equal(r.reply.type, 'sync:refused', reason)
+    assert.equal(r.reply.why, 'structure', reason)
+    assert.deepEqual(r.reply.paths.map((p) => p.reason), [reason])
+    assert.equal(await G.head(u.f.repo_path, `refs/heads/${u.branch}`), u.one.head, `${reason}: 가지는 직전 머리로`)
+    assert.equal(await G.head(u.f.repo_path, 'refs/heads/main'), u.one.head, `${reason}: main 그대로`)
+  }
+  assert.equal((await SRC.list(u.f, owner))[0].why, 'structure')
+})
+
+test('CH-U-14 한도: 새 커밋이 너무 많으면(그 안에 열쇠가 묻혀 있어도) · 큰 파일 · 전체 파일 수 · 전체 크기를 넘으면 「too_big」', { skip: !db && 'no database' }, async () => {
+  const u = await uploaded('한도')
+  const many = await push(u, { 'a.pem': pem() }, { commits: SEC.LIMITS.pushMaxCommits + 1 })
+  assert.deepEqual([many.reply.why, many.reply.limit.kind, many.reply.limit.value], ['too_big', 'commits', SEC.LIMITS.pushMaxCommits + 1])
+  assert.equal(await G.head(u.f.repo_path, `refs/heads/${u.branch}`), u.one.head)
+  const was = { ...SEC.LIMITS }
+  try {
+    SEC.LIMITS.largeFileBytes = 1000
+    const big = await push(u, { '녹화/큰 파일.bin': Buffer.alloc(1001, 7) })
+    assert.deepEqual([big.reply.why, big.reply.limit.kind], ['too_big', 'file'])
+    assert.deepEqual(big.reply.paths, [{ path: '녹화/큰 파일.bin', line: null, reason: 'large' }])
+    SEC.LIMITS.largeFileBytes = was.largeFileBytes
+    SEC.LIMITS.headMaxFiles = 3
+    const files = await push(u, { 'x/1.md': '1', 'x/2.md': '2' })
+    assert.deepEqual([files.reply.why, files.reply.limit.kind, files.reply.limit.value], ['too_big', 'files', 4])
+    SEC.LIMITS.headMaxFiles = was.headMaxFiles
+    SEC.LIMITS.headMaxBytes = 30
+    const bytes = await push(u, { 'x/3.md': 'x'.repeat(20) })
+    assert.deepEqual([bytes.reply.why, bytes.reply.limit.kind], ['too_big', 'bytes'])
+  } finally { Object.assign(SEC.LIMITS, was) }
+  assert.equal(await G.head(u.f.repo_path, 'refs/heads/main'), u.one.head, 'main 그대로')
+  // within the limits it goes in
+  const ok = await push(u, { 'x/3.md': 'x'.repeat(20) })
+  assert.equal(ok.reply.type, 'sync:taken')
+})
+
+test('CH-U-15 확인하지 못하면 거절(fail closed): 없는 개체 · 잘린 답 · 알 수 없는 머리 — 「unchecked」', { skip: !db && 'no database' }, async () => {
+  const u = await uploaded('못 봄')
+  await assert.rejects(G.catBatch(u.f.repo_path, ['0'.repeat(40)], () => {}), /missing/)
+  const tree = (await G.git(u.f.repo_path, ['rev-parse', `${u.one.head}^{tree}`])).trim()
+  await assert.rejects(G.catBatch(u.f.repo_path, [tree], () => {}), /tree/)
+  // every blob comes from one reader, in order, whole
+  const blobs = (await G.lsTree(u.f.repo_path, u.one.head))
+  const got = []
+  assert.equal(await G.catBatch(u.f.repo_path, blobs.map((b) => b.sha), (sha, buf) => got.push([sha, buf.length])), blobs.length)
+  assert.deepEqual(got, blobs.map((b) => [b.sha, b.size]))
+  // a head the repository does not have: refused, not passed
+  assert.deepEqual(await SRC.inspect(u.f, u.one.head, 'f'.repeat(40)), { why: 'unchecked' })
+  // a file whose content git cannot hand over (its object is gone) is not let through
+  const s = await snapshot(u.f, `${SRC.prefixOf(u.d.id)}gone`, { 'gone.md': 'will be lost\n' }, { parent: u.one.head })
+  const lost = (await G.git(u.f.repo_path, ['rev-parse', `${s.head}:gone.md`])).trim()
+  const obj = path.join(u.f.repo_path, '.git', 'objects', lost.slice(0, 2), lost.slice(2))
+  await fs.rm(obj, { force: true })
+  assert.deepEqual(await SRC.inspect(u.f, u.one.head, s.head), { why: 'unchecked' })
+})
+
+test('CH-U-16 폴더 자신의 .gitattributes 는 서버의 체크아웃 · 병합을 바꾸지 못한다(줄 끝 · 필터 · union 병합)', { skip: !db && 'no database' }, async () => {
+  const u = await uploaded('속성')
+  const zip = Buffer.from('PK\u0003\u0004 line one\nline two\r\nthree\n', 'latin1')
+  const r = await push(u, { '.gitattributes': '* text eol=crlf\n*.md merge=union\n*.zip filter=lfs\n', 'data.zip': zip, 'notes.md': '첫 줄\n둘째 줄\n' })
+  assert.equal(r.reply.type, 'sync:taken')
+  // main's working tree has the bytes of what was pushed (the blobs) — eol=crlf would have checked out CRLF, filter=lfs would have run a filter
+  for (const f of ['data.zip', 'notes.md', '.gitattributes']) {
+    const blob = await G.git(u.f.repo_path, ['cat-file', 'blob', `main:${f}`], { buffer: true })
+    assert.deepEqual(await fs.readFile(path.join(u.f.repo_path, f)), blob, f)
+  }
+  assert.ok(!(await fs.readFile(path.join(u.f.repo_path, 'notes.md'))).includes(13), 'CR 이 생기지 않는다')
+  assert.equal(await fs.readFile(path.join(u.f.repo_path, '.gitattributes'), 'utf8'), '* text eol=crlf\n*.md merge=union\n*.zip filter=lfs\n')
+  // the same line changed on the web and on the computer: a conflict (main stays), not both lines combined by union
+  await fs.writeFile(path.join(u.f.repo_path, 'notes.md'), '첫 줄 — 웹\n둘째 줄\n')
+  await S.commitMain(u.f, owner, '웹 고침')
+  const web = await G.head(u.f.repo_path, 'refs/heads/main')
+  const s = await snapshot(u.f, u.branch, { 'notes.md': '첫 줄 — PC\n둘째 줄\n' }, { parent: r.head })
+  await SRC.receive(u.L, { type: 'sync:pushed', folderId: u.f.id, head: s.head, report: {} })
+  assert.equal(u.L.last('sync:behind').main, web)
+  assert.equal(await fs.readFile(path.join(u.f.repo_path, 'notes.md'), 'utf8'), '첫 줄 — 웹\n둘째 줄\n')
+})
+
+test('CH-U-17 다음 단계 전까지: 파일이 있는 챔피언 폴더는 처음 올린 PC 만 묶는다(다른 PC · 동료는 「not_empty」) · 같은 머리를 또 알리면 바로 · 너무 잦으면 「rate_limited」 · 다른 회사 링크의 풀기는 닿지 않는다', { skip: !db && 'no database' }, async () => {
+  const u = await uploaded('하나만')
+  await S.setMember(u.f, owner, { type: 'user', id: mate.id, role: 'editor' })
+  const other = linkOf(await device(mate, '김동료의 PC'))
+  await SRC.receive(other, { type: 'sync:bind', folderId: u.f.id, label: '키트' })
+  assert.equal(other.last('sync:refused').why, 'not_empty')
+  const second = linkOf(await device(owner, '박챔피언의 두 번째 PC'))
+  await SRC.receive(second, { type: 'sync:bind', folderId: u.f.id, label: '키트' })
+  assert.equal(second.last('sync:refused').why, 'not_empty')
+  assert.equal((await SRC.list(u.f, owner)).length, 1)
+  // the first computer binds it again (after 「연결 끊기」)
+  await SRC.receive(u.L, { type: 'sync:unbind', folderId: u.f.id })
+  await SRC.receive(u.L, { type: 'sync:bind', folderId: u.f.id, label: '다시' })
+  assert.ok(u.L.last('sync:bound'))
+  // a sync:pushed said again for a head already taken: answered at once, main as it is
+  const main = await G.head(u.f.repo_path, 'refs/heads/main')
+  const at = u.L.sent.length
+  await SRC.receive(u.L, { type: 'sync:pushed', folderId: u.f.id, head: u.one.head, report: {} })
+  assert.deepEqual(u.L.sent.slice(at), [{ type: 'sync:taken', folderId: u.f.id, main }])
+  // another company's link (the same device id there) cannot unbind this one
+  await SRC.receive({ ...linkOf(u.d), tenant: 'champion-other' }, { type: 'sync:unbind', folderId: u.f.id })
+  assert.equal((await q('select state from pro_folder_sources where folder_id=$1 and device_id=$2', [u.f.id, u.d.id]))[0].state, 'active')
+  // too often
+  const was = SRC.RATE.perMinute
+  try {
+    SRC.RATE.perMinute = 3
+    const busy = linkOf(u.d)
+    for (let i = 0; i < 4; i++) await SRC.receive(busy, { type: 'sync:token', folderId: u.f.id })
+    assert.equal(busy.sent.filter((m) => m.type === 'sync:token').length, 3)
+    assert.equal(busy.last('sync:refused').why, 'rate_limited')
+  } finally { SRC.RATE.perMinute = was }
+})
+
+test('CH-U-18 다른 토큰에는 동기화 가지가 보이지 않고 닿지 않는다 · 클러스터 경로는 데스크톱 토큰을 받지 않는다', { skip: !db && 'no database' }, async () => {
+  const u = await uploaded('숨김')
+  const H = await import('../lib/folders/gitHttp.js')
+  const express = (await import('express')).default
+  const app = express()
+  app.use('/api/git', H.gitRoutes())
+  app.use('/api/local-git', H.gitRoutes({ device: true, check: (cl, o) => D.gitAccess(cl, o), after: SRC.afterPush }))
+  const server = await new Promise((r) => { const sv = app.listen(0, '127.0.0.1', () => r(sv)) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const lsRemote = (url, token) => new Promise((resolve) => execFile('git', ['-c', 'credential.helper=', '-c', `http.extraHeader=Authorization: Bearer ${token}`, 'ls-remote', url],
+    { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (e, out, errOut) => resolve({ code: e ? 1 : 0, out: String(out), err: String(errOut) })))
+  try {
+    const cluster = mintToken({ tenant: TENANT, folderId: u.f.id })
+    const a = await lsRemote(`${base}/api/git/${u.f.id}.git`, cluster)
+    assert.equal(a.code, 0, a.err)
+    assert.match(a.out, /refs\/heads\/main/)
+    assert.doesNotMatch(a.out, /pgpt-agent\/sync-/, '클러스터 토큰에는 동기화 가지가 없다')
+    const own = await lsRemote(`${base}/api/local-git/${u.f.id}.git`, L_TOKEN(u))
+    assert.match(own.out, new RegExp(`refs/heads/${u.branch}`), '자기 기기의 가지는 보인다')
+    // another device's sync token (bound to another, empty folder of the same person — it may not even see this folder's branch name)
+    const other = await device(owner, '다른 PC')
+    await q(`insert into pro_folder_sources (tenant_id, folder_id, user_id, device_id, label, branch) values ($1,$2,$3,$4,'x',$5)`, [TENANT, u.f.id, owner.id, other.id, SRC.branchOf(other.id)])
+    const theirs = await lsRemote(`${base}/api/local-git/${u.f.id}.git`, mintToken({ tenant: TENANT, folderId: u.f.id, push: SRC.prefixOf(other.id), scope: 'sync', device: other.id, hours: 1 }))
+    assert.equal(theirs.code, 0, theirs.err)
+    assert.doesNotMatch(theirs.out, new RegExp(SRC.prefixOf(u.d.id)), '다른 기기의 동기화 가지는 보이지 않는다')
+    // the cluster's token may not push to a desktop's sync branch (it would be taken in unchecked on that desktop's next round)
+    const dir = await fs.mkdtemp(path.join(ROOT, 'agent-'))
+    await gitc(dir, ['init', '-q', '-b', 'main'])
+    await fs.writeFile(path.join(dir, 'x.md'), 'x')
+    await gitc(dir, ['add', '-A'])
+    await gitc(dir, ['commit', '-qm', 'agent'])
+    const pushed = await new Promise((resolve) => execFile('git', ['-c', 'credential.helper=', '-c', `http.extraHeader=Authorization: Bearer ${cluster}`, 'push', `${base}/api/git/${u.f.id}.git`, `HEAD:refs/heads/${SRC.prefixOf(u.d.id)}x`],
+      { cwd: dir, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (e, out, errOut) => resolve({ code: e ? 1 : 0, err: String(errOut) })))
+    assert.notEqual(pushed.code, 0)
+    assert.match(pushed.err, /remote rejected|sync branch/)
+    assert.equal(await G.head(u.f.repo_path, `refs/heads/${SRC.prefixOf(u.d.id)}x`), null)
+    // a desktop's token on the cluster path: refused
+    const b = await lsRemote(`${base}/api/git/${u.f.id}.git`, L_TOKEN(u))
+    assert.notEqual(b.code, 0)
+    assert.match(b.err, /403/)
+  } finally { server.close() }
+})
+const L_TOKEN = (u) => mintToken({ tenant: TENANT, folderId: u.f.id, push: SRC.prefixOf(u.d.id), scope: 'sync', device: u.d.id, hours: 1 })
+

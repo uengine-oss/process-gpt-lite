@@ -8,10 +8,14 @@
 // the snapshots. Nothing is created in the picked folder (no .git, no file), and the git commands this module runs are a fixed list
 // none of which writes into a work tree (no reset · clean · checkout · restore · stash · merge — `shadowGit` refuses anything else).
 // What is left out: the folder's own .gitignore (git applies it), and the app's groups (secret-shapes.json — names and paths only):
-// secret · personal · rebuildable, files over 50 MB, and structure (another repository inside, a link that points outside). Text files
-// that stay (1 MB or less) are looked at for the shapes of known keys (secret-shapes.json: token formats only — no meaning is read);
-// a hit is reported as file + line + reason code, never the value, and the file stays out unless the person includes it.
-// The token for the server comes over the link for each round (1 h) and reaches git only as a request header in GIT_CONFIG_* (git.js).
+// secret · personal · rebuildable, files over 50 MB, and structure (another repository inside, every link — inside the folder or not —
+// and git's own control files .gitmodules · .lfsconfig): only plain files go up, never a link or a submodule entry. Text files that
+// stay (1 MB or less) are looked at for the shapes of known keys (secret-shapes.json: token formats only — no meaning is read); a hit
+// is reported as file + line + reason code, never the value, and the file stays out. What the person may bring back in the preview
+// (include): a file or folder of the gitignore · personal · rebuildable · large groups, and a file whose hits are all of level 'check'
+// — never a secret, never a 'block' shape, never a structure entry (enforced here, whatever the page sends).
+// The token for the server comes over the link for each round (1 h) and reaches git only as a request header in GIT_CONFIG_*, for the
+// folder's own address only (git.js authEnv).
 const fs = require('node:fs')
 const fsp = require('node:fs/promises')
 const os = require('node:os')
@@ -38,6 +42,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const CASELESS = process.platform === 'darwin' || process.platform === 'win32'
 
 const serverKey = (server) => crypto.createHash('sha1').update(String(server || '').replace(/\/+$/, '')).digest('hex').slice(0, 10)
+// one person's shadow repositories apart from another's on the same computer and server (two people, one PC: neither shares nor removes
+// the other's)
+const personKey = (userId) => `u-${crypto.createHash('sha1').update(String(userId || '')).digest('hex').slice(0, 12)}`
+// the snapshot's message: no machine name (a host name is the computer's, not something the folder's people need to see)
+const SNAPSHOT_MESSAGE = '동기화'
 const isInside = (child, parent) => { const r = path.relative(parent, child); return r === '' || (!!r && !r.startsWith('..') && !path.isAbsolute(r)) }
 const samePath = (a, b) => (CASELESS ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b))
 const split0 = (s) => String(s || '').split('\0').filter(Boolean)
@@ -65,14 +74,14 @@ function quietPairs(gitDir) {
     ['core.precomposeUnicode', 'true'], ['commit.gpgSign', 'false'], ['push.gpgSign', 'false'], ['gc.auto', '0'], ['maintenance.auto', 'false'],
     ['submodule.recurse', 'false'], ['safe.directory', '*'], ['init.defaultBranch', 'main']]
 }
-function shadowGit(gitDir, workTree, args, { token = '', input = null, env = {}, timeout = LOCAL_MS, check = true } = {}) {
+function shadowGit(gitDir, workTree, args, { token = '', url = '', input = null, env = {}, timeout = LOCAL_MS, check = true } = {}) {
   const sub = args[0]
   if (!ALLOWED.has(sub)) return Promise.reject(new G.GitError(`git ${sub} is not used by the folder sync`))
   // (names as they are — `*` in a file name is no pattern; check-ignore takes plain paths and refuses the flag)
   const pre = sub === 'init' ? [] : [`--git-dir=${gitDir}`, ...(workTree ? [`--work-tree=${workTree}`] : []), ...(sub === 'check-ignore' ? [] : ['--literal-pathspecs'])]
   const full = [...pre, ...args]
   try { tap?.({ sub, args: full, gitDir, workTree }) } catch { /* tests */ }
-  const e = { ...baseEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C', ...G.authEnv(token, quietPairs(gitDir)), ...env }
+  const e = { ...baseEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C', ...G.authEnv(token, quietPairs(gitDir), url), ...env }
   // (run from the app's own folder: nothing relative ever lands in the picked one)
   const cwd = path.dirname(gitDir)
   return new Promise((resolve, reject) => {
@@ -110,7 +119,7 @@ function compileRules(raw = SHAPES) {
   }
   const shapes = (raw.shapes || []).map((s) => (s.kind === 'assignment' ? { ...s } : { ...s, re: new RegExp(s.pattern, s.flags || '') }))
   const check = (raw.check?.paths || []).map((c) => ({ path: String(c.path).toLowerCase(), reason: c.reason || 'check' }))
-  const limits = { textMaxBytes: 1048576, largeFileBytes: 52428800, pushMaxBytes: 209715200, ...(raw.limits || {}) }
+  const limits = { textMaxBytes: 1048576, largeFileBytes: 52428800, pushMaxBytes: 209715200, headMaxFiles: 20000, headMaxBytes: 1073741824, ...(raw.limits || {}) }
   const rules = { groups, shapes, check, limits, order: ['secret', 'personal', 'rebuildable'].filter((g) => groups[g]) }
   rules.patterns = patternsOf(rules)
   return rules
@@ -285,7 +294,7 @@ async function ensureShadow(gitDir, rules) {
   }
   fs.mkdirSync(path.join(gitDir, 'info'), { recursive: true })
   fs.writeFileSync(path.join(gitDir, 'info', 'exclude'), `# Process GPT Lite — what a champion folder never uploads (secret-shapes.json)\n${rules.patterns.join('\n')}\n`)
-  fs.writeFileSync(path.join(gitDir, 'info', 'attributes'), '* -text -filter -ident -working-tree-encoding\n')
+  fs.writeFileSync(path.join(gitDir, 'info', 'attributes'), G.NEUTRAL)
 }
 
 // what the person chose in the preview: folder-relative paths ('/' between names), nothing outside the folder
@@ -317,13 +326,9 @@ async function pool(items, n, fn) {
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) { const k = i++; await fn(items[k], k) } }))
 }
 
-// a link inside the folder that points outside it (or through another link to outside)
-async function pointsOutside(root, abs) {
-  let t
-  try { t = await fsp.readlink(abs) } catch { return true }
-  if (!isInside(path.resolve(path.dirname(abs), t), root)) return true
-  try { return !isInside(await fsp.realpath(abs), root) } catch { return false }
-}
+// git's own control files a folder may carry: a submodule list, LFS's settings (its lfs.url would name where git sends requests)
+const CONTROL = new Set(['.gitmodules', '.lfsconfig'])
+const baseName = (rel) => String(rel).split('/').pop().toLowerCase()
 
 // the files under a folder the person brought back in (one the folder's .gitignore or the app's rebuildable group had left out as a whole)
 async function walk(root, relDir, cb, depth = 0) {
@@ -360,15 +365,22 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
   const excluded = Object.fromEntries(GROUPS.map((g) => [g, { count: 0, samples: [] }]))
   const leave = (g, rel) => { const e = excluded[g]; e.count++; if (e.samples.length < SAMPLES) e.samples.push(rel) }
   const files = new Map() // rel → size
+  const decided = new Set() // (a path the person named and a folder of theirs may both bring the same file: it is judged once)
   const consider = async (rel, { lifted = '' } = {}) => {
-    if (out(rel) || files.has(rel)) return
-    // (inside a folder the person brought back: the app's groups judged from there down — a .env in it still stays out)
-    const g = groupOf(rules, lifted ? rel.slice(lifted.length + 1) : rel)
+    if (out(rel) || decided.has(rel)) return
+    decided.add(rel)
+    if (CONTROL.has(baseName(rel))) return leave('structure', rel)
+    // (inside a folder the person brought back: the app's groups judged from there down — a .env in it still stays out; and a secret
+    // is a secret wherever it is, whatever the person asked)
+    const whole = groupOf(rules, rel)
+    const g = lifted ? groupOf(rules, rel.slice(lifted.length + 1)) : whole
+    if (whole === 'secret' || g === 'secret') return leave('secret', rel)
     if (g && !asked(rel)) return leave(g, rel)
     const abs = path.join(root, ...rel.split('/'))
     let st
     try { st = await fsp.lstat(abs) } catch { return }
-    if (st.isSymbolicLink()) { if (await pointsOutside(root, abs)) return leave('structure', rel); files.set(rel, 0); return }
+    // (a link — to inside the folder or out of it — never goes up: only plain files do)
+    if (st.isSymbolicLink()) return leave('structure', rel)
     if (!st.isFile()) return
     if (st.size > rules.limits.largeFileBytes && !asked(rel)) return leave('large', rel)
     files.set(rel, st.size)
@@ -391,9 +403,10 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
   for (const e of ignored) {
     const dir = e.endsWith('/')
     const r = dir ? e.slice(0, -1) : e
-    const back = inc.filter((x) => x === r || x.startsWith(`${r}/`))
+    const own = groupOf(rules, r, dir)
+    const back = own === 'secret' ? [] : inc.filter((x) => x === r || x.startsWith(`${r}/`))
     if (!back.length) {
-      const g = groupOf(rules, r, dir)
+      const g = own
       if (!g && dir && !named.has(r)) await lookInto(r)
       else leave(g || 'gitignore', e)
       continue
@@ -418,6 +431,7 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
   // the shapes of keys in the text files that stay, and the files that go only when the person says so
   const flagged = []
   const flaggedFiles = new Set()
+  const sure = new Set() // a file with a 'block' hit: it never goes up
   const sorted = [...files.keys()].sort()
   await pool(sorted, READERS, async (rel) => {
     const size = files.get(rel)
@@ -430,10 +444,17 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
     const hits = shapeHits(rules, buf.toString('utf8'))
     if (!hits.length) return
     flaggedFiles.add(rel)
+    if (hits.some((h) => h.level === 'block')) sure.add(rel)
     for (const h of hits) if (flagged.length < MAX_FLAGGED) flagged.push({ path: rel, ...h })
   })
   flagged.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line))
-  for (const rel of flaggedFiles) if (!asked(rel)) files.delete(rel)
+  // what is flagged stays out — unless the person brought it back and none of its hits is a sure key ('block')
+  let flaggedIn = 0
+  for (const rel of flaggedFiles) {
+    if (sure.has(rel) || !asked(rel)) files.delete(rel)
+    else flaggedIn++
+  }
+  for (const f of flagged) f.includable = !sure.has(f.path)
 
   const kept = [...files.keys()].sort()
   const bytes = kept.reduce((n, r) => n + files.get(r), 0)
@@ -448,16 +469,26 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
   const warnings = []
   if (fs.existsSync(path.join(root, '.git'))) warnings.push('own_git')
   if (!kept.length) warnings.push('empty')
-  if (bytes > rules.limits.pushMaxBytes) warnings.push('too_big')
+  const big = tooBig(rules, { files: kept.length, bytes })
+  if (big) warnings.push(big)
   const kit = await kitOf(root, kept, places)
   const preview = {
     files: kept.length, bytes,
     top: [...tops.values()].sort((a, b) => (a.path < b.path ? -1 : 1)).slice(0, TOP),
     excluded: GROUPS.filter((g) => excluded[g].count).map((g) => ({ group: g, count: excluded[g].count, samples: excluded[g].samples })),
-    flagged, kit, warnings,
+    flagged, flaggedIncluded: flaggedIn, kit, warnings,
   }
-  const report = { files: kept.length, bytes, excluded: Object.fromEntries(GROUPS.map((g) => [g, excluded[g].count])), flagged: flaggedFiles.size }
-  return { preview, files: kept, report }
+  const report = { files: kept.length, bytes, excluded: Object.fromEntries(GROUPS.map((g) => [g, excluded[g].count])), flagged: flaggedFiles.size - flaggedIn, flaggedIncluded: flaggedIn }
+  return { preview, files: kept, report, flaggedIn }
+}
+
+// what the server would refuse for its size (secret-shapes.json limits: one push · the snapshot's whole tree) → 'too_big' | 'too_many' | null
+// (the raw size against the push's limit: the first push carries every file)
+function tooBig(rules, { files, bytes }) {
+  const l = rules.limits
+  if (bytes > l.pushMaxBytes || bytes > l.headMaxBytes) return 'too_big'
+  if (files > l.headMaxFiles) return 'too_many'
+  return null
 }
 
 // ---------- the snapshot ----------
@@ -469,6 +500,9 @@ async function snapshot(root, gitDir, { files, parent = null, author = {}, messa
   const gone = cached.filter((p) => !keep.has(p))
   if (gone.length) await shadowGit(gitDir, root, ['update-index', '-z', '--force-remove', '--stdin'], { input: `${gone.join('\0')}\0` })
   if (files.length) await shadowGit(gitDir, root, ['update-index', '-z', '--add', '--remove', '--replace', '--stdin'], { input: `${files.join('\0')}\0` })
+  // only plain files go up: a file that became a link (or a repository) since the scan is dropped here, never recorded as one
+  const odd = split0(await shadowGit(gitDir, null, ['ls-files', '-z', '-s'])).filter((l) => l.startsWith('120000 ') || l.startsWith('160000 ')).map((l) => nfc(l.slice(l.indexOf('\t') + 1)))
+  if (odd.length) await shadowGit(gitDir, root, ['update-index', '-z', '--force-remove', '--stdin'], { input: `${odd.join('\0')}\0` })
   const tree = (await shadowGit(gitDir, null, ['write-tree'])).trim()
   const before = parent ? (await shadowGit(gitDir, null, ['rev-parse', `${parent}^{tree}`])).trim() : null
   if (parent ? tree === before : !files.length) return { commit: parent, tree, changed: false }
@@ -485,12 +519,38 @@ async function fetchServer(gitDir, { url, token, branch, main }) {
   const cut = branch.lastIndexOf('/') + 1
   const specs = [`+refs/heads/${branch.slice(0, cut)}*:refs/remotes/lite/sync/*`]
   if (main) specs.unshift('+refs/heads/main:refs/remotes/lite/main')
-  await shadowGit(gitDir, null, ['fetch', '-q', '--no-tags', '--no-recurse-submodules', '--prune', url, ...specs], { token, timeout: NETWORK_MS })
+  await shadowGit(gitDir, null, ['fetch', '-q', '--no-tags', '--no-recurse-submodules', '--prune', url, ...specs], { token, url, timeout: NETWORK_MS })
   const at = async (ref) => (await shadowGit(gitDir, null, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { check: false })).trim() || null
   return { main: main ? await at('refs/remotes/lite/main') : null, tip: await at(`refs/remotes/lite/sync/${branch.slice(cut)}`) }
 }
 async function pushHead(gitDir, { url, token, branch, commit }) {
-  await shadowGit(gitDir, null, ['push', '--porcelain', '--no-verify', url, `${commit}:refs/heads/${branch}`], { token, timeout: NETWORK_MS })
+  await shadowGit(gitDir, null, ['push', '--porcelain', '--no-verify', url, `${commit}:refs/heads/${branch}`], { token, url, timeout: NETWORK_MS })
+}
+
+// ---------- the system dialog before the first upload (main.js shows it) ----------
+const sizeText = (b) => (b >= 100 * 1024 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
+// 로 / 으로 after the folder's name (a final consonant other than ㄹ takes 으로)
+function ro(name) {
+  const c = String(name || '').trim().slice(-1).charCodeAt(0)
+  const jong = c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0
+  return jong && jong !== 8 ? '으로' : '로'
+}
+// what goes up and where — and, when the person brought back files the preview flagged (only 'check' ones can be), how many of them
+// go with it → {message, detail}
+function uploadQuestion({ files = 0, bytes = 0, folderName = '', host = '', report = {}, flaggedIn = 0, lang = 'ko' } = {}) {
+  const ko = lang !== 'en'
+  const name = String(folderName || '').slice(0, 80)
+  const message = ko
+    ? `파일 ${files}개(${sizeText(bytes)})를 ${host} 의 폴더 '${name}'${ro(name)} 올립니다${flaggedIn ? ` — 확인이 필요한 파일 ${flaggedIn}개도 함께 올라가요` : ''}`
+    : `Upload ${files} files (${sizeText(bytes)}) to the folder '${name}' on ${host}?${flaggedIn ? ` ${flaggedIn} of them were flagged to check.` : ''}`
+  const left = (report.excluded?.secret || 0) + (report.excluded?.personal || 0)
+  const out = report.flagged || 0
+  const detail = ko
+    ? [`이 컴퓨터의 폴더는 읽기만 하고 아무것도 쓰지 않아요.`, left ? `비밀 · 개인 설정으로 보이는 ${left}개는 올리지 않아요.` : '', out ? `확인이 필요한 파일 ${out}개는 빼고 올려요.` : '',
+      flaggedIn ? `함께 올리기로 고른 확인 파일 ${flaggedIn}개는 그 안의 글 그대로 서버에 남아요.` : ''].filter(Boolean).join(' ')
+    : [`The folder on this computer is only read, nothing is written to it.`, left ? `${left} files that look secret or personal stay here.` : '', out ? `${out} files to check stay here.` : '',
+      flaggedIn ? `The ${flaggedIn} flagged files you chose to include go to the server as they are.` : ''].filter(Boolean).join(' ')
+  return { message, detail }
 }
 
 // ---------- the folders of one person on one server ----------
@@ -506,10 +566,11 @@ class FolderSync extends EventEmitter {
     this.server = String(server || '').replace(/\/+$/, '')
     this.userId = String(userId || '')
     this.dataDir = path.resolve(dataDir)
-    this.root = path.join(this.dataDir, 'sync', serverKey(this.server))
+    // <data>/sync/<server10>/<person>/<folderId>.git — and that person's own scratch repository for previews
+    this.root = path.join(this.dataDir, 'sync', serverKey(this.server), personKey(this.userId))
     this.store = store
     this.sendFn = send
-    this.device = device
+    void device
     this.userFn = user
     this.logFn = log
     this.rules = rules
@@ -650,9 +711,10 @@ class FolderSync extends EventEmitter {
     return this.locked(folderId, async () => {
       const s = await this.scanOf(p.dir, this.scratch(), inc, exc)
       if (!s.report.files) return { ok: false, why: 'empty' }
-      if (s.report.bytes > this.rules.limits.pushMaxBytes) return { ok: false, why: 'too_big' }
+      const big = tooBig(this.rules, s.report)
+      if (big) return { ok: false, why: big }
       let yes = false
-      try { yes = typeof confirm === 'function' && (await confirm({ files: s.report.files, bytes: s.report.bytes, folderName: String(folderName || p.label).slice(0, 120), label: p.label, report: s.report })) === true } catch { yes = false }
+      try { yes = typeof confirm === 'function' && (await confirm({ files: s.report.files, bytes: s.report.bytes, folderName: String(folderName || p.label).slice(0, 120), label: p.label, report: s.report, flaggedIn: s.flaggedIn })) === true } catch { yes = false }
       if (!yes) return { ok: false, why: 'cancelled' }
       const b = await this.ask({ type: 'sync:bind', folderId, label: p.label }, ['sync:bound'])
       if (b.type !== 'sync:bound') return { ok: false, why: String(b.why || 'refused') }
@@ -691,7 +753,8 @@ class FolderSync extends EventEmitter {
       if (!st?.isDirectory()) { this.mark(folderId, { state: 'missing', why: 'folder_missing' }); return { ok: false, why: 'folder_missing' } }
       const gitDir = this.gitDirOf(folderId)
       const s = await this.scanOf(e.path, gitDir, e.include, e.exclude)
-      if (s.report.bytes > this.rules.limits.pushMaxBytes) { this.mark(folderId, { state: 'blocked', why: 'too_big' }); return { ok: false, why: 'too_big' } }
+      const big = tooBig(this.rules, s.report)
+      if (big) { this.mark(folderId, { state: 'blocked', why: big }); return { ok: false, why: big } }
       const t = await this.ask({ type: 'sync:token', folderId }, ['sync:token'])
       if (t.type !== 'sync:token' || !t.token) {
         const why = String(t.why || 'refused')
@@ -707,7 +770,7 @@ class FolderSync extends EventEmitter {
       const parent = tip || main || null
       const person = this.userFn() || {}
       const author = { name: t.person?.name || person.name || 'Process GPT Lite', email: t.person?.email || `${this.userId || 'desktop'}@users.pgpt-lite.local` }
-      const snap = await snapshot(e.path, gitDir, { files: s.files, parent, author, message: `동기화 · ${this.device.name || os.hostname()}` })
+      const snap = await snapshot(e.path, gitDir, { files: s.files, parent, author, message: SNAPSHOT_MESSAGE })
       const pushed = { files: s.report.files, bytes: s.report.bytes }
       // nothing new, and the server already took what is on the branch
       if (!snap.changed && (!tip || tip === e.taken)) {
@@ -759,5 +822,5 @@ class FolderSync extends EventEmitter {
   }
 }
 
-module.exports = { FolderSync, scan, snapshot, fetchServer, pushHead, ensureShadow, shadowGit, compileRules, groupOf, shapeHits, assignmentHit, frontMatter, globMatch, kitOf,
+module.exports = { FolderSync, scan, snapshot, fetchServer, pushHead, ensureShadow, shadowGit, compileRules, groupOf, shapeHits, assignmentHit, frontMatter, globMatch, kitOf, uploadQuestion,
   patternsOf, serverKey, setTap, ALLOWED, GROUPS }

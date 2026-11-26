@@ -35,7 +35,7 @@ export const GROUP = {
   personal: '내 PC 에만 두는 설정',
   rebuildable: '다시 만들 수 있는 것',
   large: '큰 파일 — 올리지 않음',
-  structure: '따로 관리되는 폴더 · 폴더 밖을 가리키는 링크',
+  structure: '따로 관리되는 폴더 · 링크 · git 제어 파일',
 }
 // groups whose files the person may still put back in (never a secret: the server refuses those anyway)
 export const INCLUDABLE = new Set(['gitignore', 'personal'])
@@ -63,6 +63,12 @@ export const REASON = {
   url_credentials: '주소에 든 아이디 · 비밀번호',
   env_assignment: '길고 무작위인 값',
   runs_config: '실행되는 설정(MCP 서버)',
+  // (what the server refuses in the folder's structure and size)
+  symlink: '링크',
+  submodule: '안에 든 다른 저장소',
+  gitmodules: '.gitmodules',
+  lfsconfig: '.lfsconfig',
+  large: '큰 파일',
 }
 export const reasonText = (r) => REASON[r] || '확인이 필요해요'
 // the preview's warnings
@@ -70,6 +76,7 @@ export const WARNING = {
   own_git: '이 폴더의 git 이력은 올리지 않아요 — 지금 파일만 올라가요',
   empty: '올릴 파일이 없어요',
   too_big: '한 번에 올릴 수 있는 크기(200 MB)를 넘어요 — 큰 폴더는 빼 주세요',
+  too_many: '파일이 너무 많아요(2만 개) — 큰 폴더는 빼 주세요',
 }
 // why an upload did not happen, or stopped (bind · syncNow · list().why — the app's and the server's codes)
 export const WHY = {
@@ -77,6 +84,7 @@ export const WHY = {
   not_editor: '이 폴더에 올릴 권한이 없어요',
   secret: '비밀로 보이는 파일이 있어 서버가 받지 않았어요',
   too_big: '한 번에 올릴 수 있는 크기(200 MB)를 넘었어요',
+  too_many: '파일이 너무 많아요(2만 개) — 큰 폴더는 빼 주세요',
   conflict: '서버 쪽이 바뀌어 맞추지 못했어요',
   behind: '서버 쪽에도 바뀐 것이 있어요',
   paused: '멈춰 두었어요',
@@ -91,6 +99,10 @@ export const WHY = {
   already_bound: '이미 올리고 있는 폴더예요',
   other_user: '이 PC 에 다른 사람이 로그인해 있어요',
   failed: '올리지 못했어요',
+  not_empty: '이미 파일이 있는 폴더예요 — 다른 PC 에서 이어 올리기는 다음 단계에서 돼요',
+  structure: '링크 · 안에 든 다른 저장소 · .gitmodules · .lfsconfig 는 올릴 수 없어요',
+  unchecked: '서버가 올린 것을 확인하지 못해 받지 않았어요 — 잠시 뒤 다시 올려 주세요',
+  rate_limited: '너무 자주 올렸어요 — 잠시 뒤 다시 해 주세요',
 }
 export const whyText = (w) => (w ? WHY[w] || '올리지 못했어요' : '')
 // why a folder could not be picked (pick() → {error})

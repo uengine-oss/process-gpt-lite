@@ -164,7 +164,7 @@ function readBody(req, limit) {
 // git http-backend as a CGI program: its header block (Status:, Content-Type: …) becomes the response's,
 // the rest streams through. `body`: a Buffer already read, else the request streams into it. hold: the response is not ended here
 // (the caller ends it — after() has looked at the push first, so the client's push is over only then)
-function backend(req, res, folder, pathInfo, body, { hold = false } = {}) {
+function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } = {}) {
   return new Promise((resolve) => {
     const cfg = [
       ['http.receivepack', 'true'], // the token stands for REMOTE_USER: pushing is allowed, within refusals() above
@@ -173,6 +173,9 @@ function backend(req, res, folder, pathInfo, body, { hold = false } = {}) {
       ['receive.autogc', 'false'], // no gc after a push either: the nightly pass packs (gc.js)
       ['gc.auto', '0'],
       ['core.hooksPath', '/dev/null'],
+      // every desktop's sync branches are hidden from every other token — not listed, not fetched, not pushed to (transfer.hideRefs: both
+      // upload-pack and receive-pack; syncHidden below); a sync token sees its own device's (what it pushed and what the server put back)
+      ...hide.map((r) => ['transfer.hideRefs', r]),
     ]
     const env = {
       ...G.gitEnv(),
@@ -244,6 +247,30 @@ function backend(req, res, folder, pathInfo, body, { hold = false } = {}) {
 // one folder, no job; check() looks again at the device, the folder's source row and the person's role in the folder on every request
 // (devices.js syncAccess), and after() looks at what such a push brought in, still inside the folder's lock (a file that must not be
 // there puts the branch back at once).
+// The desktops' sync branches of a folder (refs/heads/pgpt-agent/sync-<device 8>/…), as git's hidden-ref entries: git hides whole ref
+// path parts, so each device's part is named — those there now and those of every computer bound to the folder (bound before its first
+// push: a branch is never there unhidden). A sync token's own device's part is left out. → ['refs/heads/pgpt-agent/sync-…', …]
+export const SYNC_PART = `${PUSH_PREFIX}sync-`
+const ownPart = (claims) => (claims?.scope === 'sync' && String(claims.push || '').startsWith(SYNC_PART) ? `refs/heads/${String(claims.push).replace(/\/+$/, '')}` : null)
+export async function syncHidden(folder, claims) {
+  const parts = new Set()
+  for (const r of (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', `refs/heads/${PUSH_PREFIX}`])).split('\n')) {
+    const m = /^(refs\/heads\/pgpt-agent\/sync-[^/]+)(\/|$)/.exec(r.trim())
+    if (m) parts.add(m[1])
+  }
+  // (before sql/059 there is no such table: no computer is bound anywhere)
+  const bound = await q('select device_id::text as d from pro_folder_sources where folder_id=$1', [folder.id]).catch((e) => { if (e.code === '42P01') return []; throw e })
+  for (const r of bound) parts.add(`refs/heads/${SYNC_PART}${r.d.slice(0, 8)}`)
+  parts.delete(ownPart(claims))
+  return [...parts]
+}
+// a push that names another desktop's sync branch (any token but that desktop's own sync token): refused like any other foreign ref
+export const syncRefusals = (commands, claims) => {
+  const own = ownPart(claims)
+  const out = commands.filter((c) => c.ref.startsWith(`refs/heads/${SYNC_PART}`) && !(own && (c.ref === own || c.ref.startsWith(`${own}/`))))
+    .map((c) => ({ ref: c.ref, why: 'a desktop\'s sync branch may be pushed only by that desktop' }))
+  return out.length ? out : null
+}
 const DEVICE_RATE = 120
 const hits = new Map() // device → [times]
 function overRate(device, now = Date.now()) {
@@ -266,6 +293,8 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
     if (claims.folder !== folderId) return deny(res, 403, 'this token is for another folder')
     if (!servesTenant(claims.tenant)) return deny(res, 403, 'this server does not serve the token\'s tenant')
     if (device && !(claims.device && ((claims.scope === 'device' && claims.job) || claims.scope === 'sync'))) return deny(res, 403, 'only a linked desktop\'s job or sync token is served here')
+    // (a desktop's token — job or sync — only on its own path, where its device, folder and role are checked on every request)
+    if (!device && claims.scope) return deny(res, 403, 'a desktop\'s token is not served here')
     if (device && overRate(claims.device)) return deny(res, 429, 'too many requests from this desktop — try again in a minute')
     return withTenant(claims.tenant, async () => {
       try {
@@ -276,13 +305,14 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
         const [folder] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [folderId, claims.tenant])
         if (!folder) return deny(res, 404, 'no such folder')
         if (folder.kind === 'linked') return deny(res, 403, 'a linked folder is not served over git')
-        if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo)
+        const hide = await syncHidden(folder, claims)
+        if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo, null, { hide })
         // a push: what it would change is decided here, before git sees it
         const body = await readBody(req, maxPush)
         if (!body) return deny(res, 413, `a push may carry at most ${Math.round(maxPush / 1024 / 1024)} MB`)
         let parsed
         try { parsed = parseCommands(body) } catch (e) { return deny(res, 400, e.message) }
-        const refused = refusals(parsed.commands, claims.push)
+        const refused = refusals(parsed.commands, claims.push) || syncRefusals(parsed.commands, claims)
         if (refused) {
           console.warn(`[folders git] ${folder.slug} push refused: ${refused.map((r) => `${r.ref} (${r.why})`).join(', ')}`)
           // (a client that asked for no status report gets a plain 403)
@@ -290,7 +320,7 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
           return res.status(200).set({ 'Content-Type': 'application/x-git-receive-pack-result', 'Cache-Control': 'no-cache' }).end(rejectionReport(parsed.commands, refused, parsed.caps))
         }
         await S.serial(folder.id, async () => {
-          await backend(req, res, folder, pathInfo, body, { hold: !!after })
+          await backend(req, res, folder, pathInfo, body, { hold: !!after, hide })
           if (after) {
             await after(claims, folder, parsed.commands).catch((e) => console.warn('[folders git] after push', e.message))
             if (!res.writableEnded) res.end()

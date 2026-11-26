@@ -72,6 +72,9 @@ function makeChampion() {
   put('AGENTS.md', '# Agents\n견적은 부가세 포함\n')
   put('node_modules/pkg/index.js', 'module.exports = 1\n')
   put('config/app.txt', `server: example.test\ntoken: ${FAKE_TOKEN}\n`)
+  // what never goes up as such: a link (even one inside the folder) and git's control files
+  put('.lfsconfig', '[lfs]\n\turl = https://example.test/lfs\n')
+  fs.symlinkSync('README.md', path.join(PICKED, 'guide-link'))
 }
 function treeOf(dir) {
   const out = {}
@@ -80,7 +83,8 @@ function treeOf(dir) {
       const abs = path.join(d, e.name)
       const r = rel ? `${rel}/${e.name}` : e.name
       const st = fs.lstatSync(abs)
-      if (st.isDirectory()) { out[`${r}/`] = `dir ${st.mtimeMs}`; walk(abs, r) } else out[r] = `${st.size} ${st.mtimeMs} ${crypto.createHash('sha1').update(fs.readFileSync(abs)).digest('hex')}`
+      if (st.isSymbolicLink()) out[r] = `link ${fs.readlinkSync(abs)} ${st.mtimeMs}`
+      else if (st.isDirectory()) { out[`${r}/`] = `dir ${st.mtimeMs}`; walk(abs, r) } else out[r] = `${st.size} ${st.mtimeMs} ${crypto.createHash('sha1').update(fs.readFileSync(abs)).digest('hex')}`
     }
   }
   walk(dir, '')
@@ -154,6 +158,7 @@ test('F-CH-01 미리 보기에 뺀 것(갈래와 까닭) · 확인이 필요한 
   await expect(sheet.locator('[data-test=source-excluded][data-group=personal]')).toContainText('내 PC 에만 두는 설정')
   await expect(sheet.locator('[data-test=source-excluded][data-group=rebuildable]')).toContainText('다시 만들 수 있는 것')
   await expect(sheet.locator('[data-test=source-excluded][data-group=gitignore]')).toBeVisible()
+  await expect(sheet.locator('[data-test=source-excluded][data-group=structure]')).toBeVisible()
   const flag = sheet.locator('[data-test=source-flagged]')
   await expect(flag).toContainText('config/app.txt')
   await expect(flag).toContainText('GitHub 토큰')
@@ -204,13 +209,17 @@ test('F-CH-02 올리면 시스템 창이 한 번 더 묻고, 새 폴더에 파�
 test('F-CH-03 .env 와 .claude/settings.local.json 은 서버에 없다 — 고른 폴더는 그대로', async () => {
   const main = execFileSync('git', ['ls-tree', '-r', '--name-only', '-z', 'main'], { cwd: folder.repo_path }).toString().split('\0').filter(Boolean)
   for (const x of ['README.md', 'CLAUDE.md', 'AGENTS.md', '.env.example', '.claude/settings.json', '.claude/skills/견적-정리/SKILL.md', 'docs/제안서 쓰는 법.md']) expect(main, x).toContain(x)
-  for (const x of ['.env', '.claude/settings.local.json', 'config/app.txt', 'node_modules/pkg/index.js', 'dist/out.js']) expect(main, x).not.toContain(x)
+  for (const x of ['.env', '.claude/settings.local.json', 'config/app.txt', 'node_modules/pkg/index.js', 'dist/out.js', '.lfsconfig', 'guide-link']) expect(main, x).not.toContain(x)
+  // only plain files: no link (120000) or submodule (160000) entry
+  const modes = execFileSync('git', ['ls-tree', '-r', 'main'], { cwd: folder.repo_path }).toString().trim().split('\n').map((l) => l.split(' ')[0])
+  expect([...new Set(modes)].every((m) => m === '100644' || m === '100755')).toBe(true)
   const files = (await api(`/folders/${encodeURIComponent(folder.slug)}/tree`)).map((f) => f.path)
   expect(files).toContain('README.md')
   expect(files).not.toContain('.env')
   expect(files).not.toContain('.claude/settings.local.json')
-  // the snapshot only — the person's name on it, the device's name in its message
-  expect(execFileSync('git', ['log', '-1', '--format=%an|%s', 'main'], { cwd: folder.repo_path }).toString().trim()).toBe('박챔피언|동기화 · 박챔피언의 맥')
+  // the snapshot only — the person's name on it, no computer's name in its message
+  expect(execFileSync('git', ['log', '-1', '--format=%an|%s', 'main'], { cwd: folder.repo_path }).toString().trim()).toBe('박챔피언|동기화')
+  expect(execFileSync('git', ['log', '--format=%B', 'main'], { cwd: folder.repo_path }).toString()).not.toContain(os.hostname())
   // the picked folder: the same files, bytes and times — no .git, no file made in it
   expect(treeOf(PICKED)).toEqual(before)
   expect(fs.existsSync(path.join(PICKED, '.git'))).toBe(false)
