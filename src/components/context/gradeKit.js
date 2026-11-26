@@ -1,5 +1,6 @@
 // 공개 등급 화면(등급 고르기 · 공유와 허락 · 맥락 보기)이 함께 쓰는 이름표와 도우미. 서버의 lib/context/visibility.js 와 같은 말을 쓴다.
 import { Marked } from 'marked'
+import { cleanHtml } from '../../safeMarkdown.js'
 
 export const GRADES = ['private', 'listed', 'summary', 'open']
 export const GRADE = { private: '비공개', listed: '제목 공개', summary: '요약 공개', open: '전체 공개' }
@@ -46,4 +47,5 @@ safe.use({ renderer: {
   link(t) { return /^(https?:|mailto:|\/)/i.test(t.href || '') ? false : esc(t.text) },
   image(t) { return esc(t.text || '') },
 } })
-export const md = (t) => safe.parse(String(t || ''))
+// (and what it made through the app's one allow-list too — src/safeMarkdown.js)
+export const md = (t) => cleanHtml(safe.parse(String(t || '')))

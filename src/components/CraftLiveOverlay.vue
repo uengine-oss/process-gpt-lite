@@ -4,7 +4,7 @@
 // status pill above — the same input as the chat. What is sent goes to the chat thread with the
 // open app as its context (server/lib/craftLive.js), so the agent's edits land in the app below.
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { marked } from 'marked'
+import { safeMarkdown } from '../safeMarkdown.js'
 import { hidePaths } from '../paths.js'
 import Composer from './Composer.vue'
 import { useApp } from '../stores/app.js'
@@ -22,7 +22,8 @@ const working = computed(() => status.value || (draft.value === '' ? '생각하�
 // the agent's answer, shown for a moment over the app
 const answer = ref('')
 let answerTimer = null
-const md = (t) => marked.parse(hidePaths(t || '').replace(/</g, '&lt;'), { breaks: true })
+// (raw HTML in it reads as text; only plain document elements reach the page — src/safeMarkdown.js)
+const md = (t) => safeMarkdown(hidePaths(t || ''), { html: 'text' })
 const lastAgent = computed(() => [...(app.thread || [])].reverse().find((m) => m.role === 'agent' && (m.kind === 'text' || m.kind === 'doc')))
 watch(() => lastAgent.value?.id, (id, was) => {
   if (!id || !was) return

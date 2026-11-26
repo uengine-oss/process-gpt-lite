@@ -6,6 +6,7 @@ import { officeDocOf } from './stores/app.js'
 // the decision itself, without a browser (src/openPlan.js)
 import { openPlan, isDrive, loose } from './openPlan.js'
 import { mediaKindOf } from './mediaKind.js'
+import { safeHref } from './safeMarkdown.js'
 export { isDrive, mediaKindOf }
 
 export const kindOf = (n) => ({ hwp: 'hwp', hwpx: 'hwp', docx: 'doc', odt: 'doc', xlsx: 'xls', xlsm: 'xls', xls: 'xls', csv: 'xls', pptx: 'ppt', pdf: 'pdf', md: 'md', markdown: 'md', txt: 'txt', html: 'web', htm: 'web', xmind: 'map', dxf: 'cad', dwg: 'cad', svg: 'vec', vectorcraft: 'vec', psd: 'img', psb: 'img', pcraft: 'img', png: 'img', jpg: 'img', jpeg: 'img', webp: 'img', gif: 'img', avif: 'img', bmp: 'img', tif: 'img', tiff: 'img', wav: 'snd', mp3: 'snd', m4a: 'snd', aac: 'snd', opus: 'snd', oga: 'snd', flac: 'snd', ogg: 'snd', weba: 'snd', soundcraft: 'snd', scraftz: 'snd', mp4: 'vid', m4v: 'vid', mov: 'vid', webm: 'vid', fcproj: 'vid' })[String(n || '').split('.').pop().toLowerCase()] || 'etc'
@@ -84,6 +85,8 @@ export async function openArtifact(app, router, msg, { link = true, edit = false
     return { ...plan, opened: opened !== false, reason: opened === false ? '열린 문서를 아직 저장하지 못해 그대로 두었어요. 한 번 더 누르면 바꿔요.' : '' }
   }
   if (plan.how === 'link') {
+    // (a card's address comes from a tool's answer: only a web address opens — src/safeMarkdown.js)
+    if (!safeHref(plan.url)) return { how: 'none', opened: false, reason: '파일을 열지 못했어요.' }
     if (link) window.open(plan.url, '_blank', 'noopener')
     return { ...plan, opened: link }
   }
