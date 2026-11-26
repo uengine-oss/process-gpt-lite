@@ -79,7 +79,7 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 | `src/preload.js` | 페이지 표시(`html.pgl-desktop`, `--pgl-tb-left/right`), 테마 알림, `window.pglDesktop`(읽기 전용 · 알림 수 `setBadge` · `onOpenHome`), 로컬 화면에만 `window.pglLocal` |
 | `src/pages/` | 서버 고르기 · 연결 실패 화면 (웹 앱과 같은 하늘 배경) |
 | `src/browser/` | 이 PC 의 브라우저(0.2.3): 서버의 브라우저 에이전트가 링크로 움직인다 — `host.js`(숨은 창 · 탭 · 스크린캐스트 · 동작), `cdp.js`(`webContents.debugger` 위의 프레임 · 페이지 문맥 · 다른 사이트 iframe), `protocol.js`(이름 붙은 동작 · 그 사람만 · 조각), `pageScripts.js`(페이지 안에서 도는 서버와 같은 읽기 스크립트 · 가리기) |
-| `src/runner/` | 로컬 에이전트: 이 컴퓨터의 Claude Code · Codex 로 그 사람의 프로세스 단계를 돌린다 — `link.js`(서버로 나가는 WebSocket), `session.js`(그 사람의 대화형 CLI 를 PTY 에서 — 훅 · 기록 · 지켜보는 파일), `pty.js`(node-pty), `clis.js`(CLI 찾기 · 헤드리스 고정 명령 · 출력 읽기), `git.js`(작업 폴더 맞추기 · 커밋 · 올리기), `runner.js`(일 하나 · 입력 · 보고함 · 중계되는 세션 · 다시 켜졌을 때 이어서), `index.js` |
+| `src/runner/` | 로컬 에이전트: 이 컴퓨터의 Claude Code · Codex 로 그 사람의 프로세스 단계를 돌린다 — `link.js`(서버로 나가는 WebSocket), `session.js`(그 사람의 대화형 CLI 를 PTY 에서 — 훅 · 기록 · 지켜보는 파일), `pty.js`(node-pty), `clis.js`(CLI 찾기 · 헤드리스 고정 명령 · 출력 읽기), `git.js`(작업 폴더 맞추기 · 커밋 · 올리기), `runner.js`(일 하나 · 입력 · 보고함 · 중계되는 세션 · 다시 켜졌을 때 이어서), `sync.js`(0.2.5 챔피언 폴더 — 고른 폴더의 그림자 저장소 · 훑기 · 비밀 검사 · 올리기, 규칙은 `secret-shapes.json` · `kit-places.json`), `index.js` |
 
 웹 앱 쪽에서 바뀐 곳은 다음과 같습니다. 화면에 관한 것은 모두 `html.pgl-desktop` 아래에서만 동작해서 브라우저에서는 아무것도 바뀌지 않습니다.
 
@@ -133,6 +133,19 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 - **그림**: `resources/tray/tray.png` · `tray@2x.png`(Windows · Linux, 앱 아이콘 16 · 32px), `trayTemplate.png` · `@2x`(macOS 템플릿 — 몸통에서 종이비행기를 뺀 검정 이미지). `npm run icon`이 `build/icon.png`에서 다시 생성합니다(`scripts/make-tray.py`). 배지는 실행 중에 `src/badge.js`가 비트맵(`nativeImage.toBitmap` · `createFromBitmap`)에 그립니다. 새 네이티브 모듈과 숨겨진 창은 없습니다.
 - 시험: `npm test`의 `test/badge.test.js`(Electron 없이, 가짜 Electron으로 세 시스템), e2e D-12 · D-13. 아직 실제 Windows · Linux에서 확인하지 않았습니다.
 
+## 내 PC 폴더 올리기 — 챔피언 폴더 (0.2.5)
+
+에이전트를 잘 쓰는 사람이 자기 PC 에서 쓰던 폴더(스킬 · 명령 · 지침 · 스펙이 든 폴더)를 골라 Lite 의 관리형 공유 폴더로 올린다(스펙 `openspec/specs/champion-folders`). 웹 앱의 폴더 목록 「내 PC 폴더 올리기」가 `pglDesktop.folders` 로 부른다.
+
+- **고르기**: 운영체제의 폴더 고르기 창(`dialog.showOpenDialog`)에서만. 페이지는 경로를 보내지도 받지도 않는다 — 고른 폴더의 id(`pickId`) · 이름 · 미리 보기만 받는다. 디스크 전체 · 홈 폴더 · 앱 데이터를 품은 폴더는 고를 수 없다.
+- **미리 보기**: 올라갈 파일 수 · 크기 · 위 단계 묶음, 뺀 것과 까닭(폴더의 `.gitignore` · 비밀 · 개인 설정 · 다시 만들 수 있는 것 · 50MB 넘는 파일 · 안의 다른 git 저장소 · 폴더 밖을 가리키는 링크), 확인이 필요한 파일(1MB 이하 글 파일에서 열쇠 생김새를 찾음 — 파일 · 줄 · 까닭 코드만, 값은 화면 · 로그 · 서버 어디에도 없음, 기본은 빼고 올림), 찾은 에이전트 자산(Claude Code · Codex · Cursor · Gemini · Copilot · 스펙). 이름 · 경로 규칙과 열쇠 생김새는 `src/runner/secret-shapes.json`, 자산 자리는 `src/runner/kit-places.json` — 서버 `server/lib/folders/` 의 같은 파일의 사본이다(`test/sync.test.js` 가 같은지 본다). 폴더의 `.gitignore` 가 `!.env` 라고 해도 앱의 제외가 먼저다.
+- **동의**: 첫 올리기 전에 시스템 창이 한 번 더 묻는다 — 「파일 N개(X MB)를 <서버> 의 폴더 '<이름>'(으)로 올립니다」. 페이지의 단추만으로는 올라가지 않는다.
+- **그림자 저장소**: `<userData>/local-agents/sync/<서버10>/<폴더 id>.git`(bare) 에 색인과 스냅숏을 두고, 고른 폴더는 부를 때마다 작업 트리로만 이름 붙인다. 고른 폴더에는 아무것도 만들지 않고(`.git` · 파일 없음), 그 사람의 `.git`(이력 · 원격 · 설정)은 열지 않는다 — 지난 이력이 아니라 지금 상태의 스냅숏이 올라간다. 이 모듈이 부르는 git 은 정해진 목록(`init` · `ls-files` · `check-ignore` · `update-index` · `write-tree` · `commit-tree` · `update-ref` · `rev-parse` · `fetch` · `push`)뿐이고 어느 것도 작업 트리에 쓰지 않는다 — `reset` · `clean` · `checkout` 은 코드에 없다(시험이 고정). 훅 · 서명 · fsmonitor · 그 사람의 전역 제외 · LFS 같은 필터는 끈다(`info/attributes` 의 `* -text -filter`: 바이트 그대로).
+- **올리기 한 바퀴**: 훑기 → 링크로 동기화 토큰(`sync:token`, 1시간 — git 요청 머리글로만) → 서버 main 과 이 기기의 가지 받기 → 스냅숏 커밋(작성자 = 그 사람, 메시지 「동기화 · <기기 이름>」, 부모 = 이 기기 가지의 끝, 처음엔 서버 main) → `pgpt-agent/sync-<기기8>/main` 에 push → `sync:pushed`(수만) → 서버가 main 으로 앞감기 · 병합(`sync:taken`) 또는 그대로(`sync:behind`) 또는 거절(`sync:refused` — 까닭 · 파일). 바뀐 것이 없으면 올리지 않는다. 0.2.5 는 「지금 올리기」로만 올리고 받기는 없다(서버에서 바뀐 것이 이 PC 의 폴더에 들어오지 않음).
+- **등록부**: `desktop-settings.json` 의 `folders[<서버>]` — 사람별(다른 사람이 이 앱에 로그인하면 앞 사람의 폴더는 멈추고, 로그아웃하면 멈춤). 고른 폴더의 경로는 여기에만 있다. 「연결 끊기」는 그림자 저장소와 이 기록만 지운다(고른 폴더 · 서버 폴더는 그대로). 「폴더 열기」는 Finder · 탐색기에서 연다.
+- 상태: `synced`(올려 둠) · `pushing` · `behind`(서버 main 이 앞서 이번 것을 넣지 못함) · `paused`(웹에서 멈춤) · `blocked`(까닭 — `secret` · `not_editor` · `source_removed` · `too_big` · `failed` …) · `missing`(폴더를 찾을 수 없음).
+- 시험: `npm test` 의 `test/sync.test.js`(가짜 링크 + 진짜 git 서버, 고른 폴더의 파일 · 시각 · 그 사람의 `.git` 이 바이트까지 그대로인지), `cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js`(진짜 앱 · 서버). 시험에서는 묶지 않은 앱에서만 main 의 `global.__pglTestFolders = {pick, confirm}` 이 두 시스템 창을 대신한다(묶은 앱은 읽지 않음).
+
 ## 보안
 
 - `contextIsolation`, `sandbox`를 켜고 `nodeIntegration`은 끕니다. `<webview>`를 쓰지 않고 remote 모듈도 없습니다. preload는 읽기 전용 정보와 로컬 화면 버튼만 제공합니다. 로컬 화면의 IPC는 요청을 보낸 곳이 `src/pages/`인지 확인합니다.
@@ -157,3 +170,4 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 - Windows 에서 실제 Claude Code · Codex 로 단계를 끝까지 돌려 보는 일(로그인한 사람이 필요하다 — CI 는 가짜 CLI 와 ConPTY 까지). 특히 ConPTY 가 붙여 넣기(bracketed paste) 표시를 대화형 CLI 에 그대로 넘기는지.
 - Google이 내장 창의 로그인을 다시 막으면 다른 방법이 필요합니다. 시스템 브라우저에서 로그인하고 `processgptlite://` 같은 주소로 돌아오는 방식이며, Supabase 「Redirect URLs」에 그 주소를 추가해야 합니다.
 - 웹 푸시는 앱이 꺼져 있을 때 오지 않습니다(Electron에는 푸시 서비스가 없습니다). 알림은 앱이 켜져 있고 창이 뒤에 있을 때만 옵니다.
+- 챔피언 폴더 1단계 이후(0.2.5 는 「지금 올리기」뿐): 바뀌면 저절로 올리기(폴더 지켜보기 · 쉬었다가), 서버에서 바뀐 것 받기(겹친 파일 고르기 · 휴지통 · 되돌리기), 오프라인 동안 쌓기, 둘째 PC, 이미 있는 폴더에 합류, 트레이의 폴더 상태. 큰 폴더에서 바퀴마다 모든 파일을 다시 읽지 않게(지금은 색인의 시각 정보를 쓰는 `update-index` 에 맡김) 그리고 Windows 실기에서 확인.

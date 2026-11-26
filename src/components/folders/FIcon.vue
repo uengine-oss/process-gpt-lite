@@ -15,6 +15,10 @@ const P = {
   open: 'M14 4h6v6M20 4l-9 9M18 14v5H5V6h5',
   chat: 'M5 5h14v10H9l-4 4z',
   people: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM3 19a6 6 0 0 1 12 0M16 5.5a3 3 0 0 1 0 5.5M18 14a6 6 0 0 1 3 5',
+  // a computer (champion folders: 「내 PC 폴더 올리기」, a folder this PC uploads)
+  pc: 'M4.5 6h15v9.5h-15zM2.5 19h19M10 15.5v3.5M14 15.5v3.5',
+  // the agent assets (스킬 · 명령 · 지침)
+  kit: 'M5 7h14v12H5zM9 7V5h6v2M5 12h14M11 12v2h2v-2',
 }
 </script>
 <template>

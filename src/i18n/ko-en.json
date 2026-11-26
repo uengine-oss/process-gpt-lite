@@ -2941,9 +2941,123 @@
   "1:1 대화는 상대의 이름으로 보여요. 이름은 단체방에서 붙일 수 있어요.": "A one-to-one conversation shows the other person's name. Only a group conversation takes a name.",
   "반응 남기기": "React",
   "복사하지 못했어요.": "Couldn't copy.",
-  "반응을 남기지 못했어요.": "Couldn't add the reaction."
+  "반응을 남기지 못했어요.": "Couldn't add the reaction.",
+  "내 PC 폴더 올리기": "Upload a folder from my PC",
+  "고르는 중…": "Choosing…",
+  "데스크톱 앱에서 내 PC 폴더를 올릴 수 있어요": "You can upload a folder from your PC in the desktop app",
+  "내 PC 에서 올림": "Uploaded from a PC",
+  "에이전트 자산": "Agent assets",
+  "지금 올리기": "Upload now",
+  "올렸어요": "Uploaded",
+  "폴더 열기": "Open folder",
+  "이 폴더를 올리는 PC": "Computers that upload this folder",
+  "아직 올리지 않음": "not uploaded yet",
+  "다시 켜기": "Turn back on",
+  "연결 빼기": "Unlink",
+  "실행되는 설정": "Runs on your computer",
+  "이 폴더에서 찾은 에이전트 자산이 없어요.": "No agent assets were found in this folder.",
+  "같은 자리에 있는 파일을 보여 줘요.": "are shown here.",
+  "올리지 않았어요 — 폴더도 만들지 않았어요.": "Not uploaded — no folder was made either.",
+  "다시 훑는 중…": "Looking again…",
+  "올릴 것": "What goes up",
+  "빼기로 함": "Left out",
+  "올릴 파일이 없어요.": "There are no files to upload.",
+  "확인이 필요해요": "Needs a look",
+  "열쇠나 토큰처럼 생긴 글이 든 파일이에요. 값은 보여 주지 않아요 — 어느 줄인지와 까닭만 보여요. 기본은 빼고 올려요.": "These files hold text shaped like a key or token. The value is never shown — only the line and the reason. They are left out unless you say otherwise.",
+  "서버가 받지 않아요": "The server will not take it",
+  "그래도 올리기": "Upload anyway",
+  "그래도 올림 · 되돌리기": "Uploading anyway · undo",
+  "뺀 것": "Left out",
+  "넣기": "Put back",
+  "다시 넣음": "put back",
+  "찾은 에이전트 자산": "Agent assets found",
+  "폴더 안의 스킬 · 명령 · 지침은 그대로 함께 올라가고, 폴더 화면의 「에이전트 자산」에 보여요.": "The skills, commands and instructions in the folder go up with it as they are, and show in the folder's 「Agent assets」.",
+  "예: 영업 제안 키트": "e.g. Sales proposal kit",
+  "설명(선택) — 예: 견적 · 제안서를 쓸 때 쓰는 스킬과 양식": "Description (optional) — e.g. skills and templates for quotes and proposals",
+  "처음에는 나만 보는 폴더예요. 동료와 나누려면 올린 뒤 폴더의 「공유」에서 초대해요. 올린 뒤에도 내 PC 의 폴더는 그대로이고, 바뀐 것은 「지금 올리기」로 올려요.": "At first only you see the folder. To share it, invite teammates from the folder's 「Share」 after the upload. The folder on your PC stays as it is; upload what changed with 「Upload now」.",
+  "올리기를 누르면 이 컴퓨터가 한 번 더 물어요": "This computer asks once more when you press Upload",
+  "이 폴더가 빼 둔 것(.gitignore)": "Left out by the folder itself (.gitignore)",
+  "비밀로 보여 뺐어요": "Left out — looks like a secret",
+  "내 PC 에만 두는 설정": "Settings that stay on my PC",
+  "다시 만들 수 있는 것": "Things that can be rebuilt",
+  "큰 파일 — 올리지 않음": "Large files — not uploaded",
+  "따로 관리되는 폴더 · 폴더 밖을 가리키는 링크": "Folders managed on their own · links pointing outside the folder",
+  "비밀 파일의 이름": "A secret's file name",
+  "개인 열쇠(PEM)": "Private key (PEM)",
+  "AWS 접근 키 ID": "AWS access key ID",
+  "GitHub 토큰": "GitHub token",
+  "GitLab 토큰": "GitLab token",
+  "Slack 토큰": "Slack token",
+  "Slack 웹훅 주소": "Slack webhook URL",
+  "Anthropic API 키": "Anthropic API key",
+  "OpenAI API 키": "OpenAI API key",
+  "Google API 키": "Google API key",
+  "Google OAuth 비밀": "Google OAuth secret",
+  "Stripe 키": "Stripe key",
+  "npm 토큰": "npm token",
+  "PyPI 토큰": "PyPI token",
+  "Hugging Face 토큰": "Hugging Face token",
+  "Process GPT Lite 폴더 토큰": "Process GPT Lite folder token",
+  "Process GPT Lite 기기 토큰": "Process GPT Lite device token",
+  "서명된 토큰(JWT)": "Signed token (JWT)",
+  "주소에 든 아이디 · 비밀번호": "User name and password in a URL",
+  "길고 무작위인 값": "Long random value",
+  "실행되는 설정(MCP 서버)": "Settings that run (MCP servers)",
+  "이 폴더의 git 이력은 올리지 않아요 — 지금 파일만 올라가요": "This folder's git history is not uploaded — only the files as they are now",
+  "올릴 파일이 없어요": "There are no files to upload",
+  "한 번에 올릴 수 있는 크기(200 MB)를 넘어요 — 큰 폴더는 빼 주세요": "Over what one upload can carry (200 MB) — leave out large folders",
+  "올리지 않았어요": "Not uploaded",
+  "이 폴더에 올릴 권한이 없어요": "You may not upload to this folder",
+  "비밀로 보이는 파일이 있어 서버가 받지 않았어요": "The server refused it: a file looks like a secret",
+  "한 번에 올릴 수 있는 크기(200 MB)를 넘었어요": "Over what one upload can carry (200 MB)",
+  "서버 쪽이 바뀌어 맞추지 못했어요": "The server's copy changed and could not be matched",
+  "서버 쪽에도 바뀐 것이 있어요": "The server's copy changed too",
+  "멈춰 두었어요": "Paused",
+  "웹에서 연결을 뺐어요": "Unlinked on the web",
+  "이 PC 의 연결이 끊겼어요": "This PC was disconnected",
+  "폴더를 찾지 못했어요": "Folder not found",
+  "이 폴더는 PC 에서 올릴 수 없어요": "This folder can't be uploaded from a PC",
+  "PC 에서 폴더를 찾을 수 없어요": "The folder is not on this PC any more",
+  "서버와 연결되어 있지 않아요": "Not connected to the server",
+  "서버가 제때 답하지 않았어요": "The server did not answer in time",
+  "이미 올리고 있는 폴더예요": "This folder is already being uploaded",
+  "이 PC 에 다른 사람이 로그인해 있어요": "Someone else is signed in on this PC",
+  "올리지 못했어요": "Couldn't upload",
+  "서버 쪽이 앞서 있어요": "The server is ahead",
+  "올려 둠": "Up to date",
+  "올리는 중": "Uploading",
+  "폴더 없음": "Folder missing",
+  "훑는 중": "Looking",
+  "스펙": "Specs",
+  "이 폴더에서 일하면 Claude Code 가 저절로 읽어요": "Claude Code reads these on its own when it works in this folder",
+  "이 폴더에서 일하면 Codex 가 저절로 읽어요": "Codex reads these on its own when it works in this folder",
+  "이 폴더를 Cursor 로 열면 규칙이 적용돼요": "The rules apply when this folder is opened in Cursor",
+  "이 폴더에서 일하면 Gemini CLI 가 저절로 읽어요": "Gemini CLI reads these on its own when it works in this folder",
+  "이 폴더에서 GitHub Copilot 이 읽는 지침이에요": "Instructions GitHub Copilot reads in this folder",
+  "이 폴더에서 일할 때 따를 스펙이에요": "Specs to follow when working in this folder",
+  "명령": "Command",
+  "하위 에이전트": "Subagent",
+  "지침": "Instructions",
+  "실행 설정": "Run settings",
+  "MCP 서버": "MCP servers",
+  "진행 중 변경": "Change in progress",
+  "연결된 PC 를 찾지 못했어요.": "I couldn't find that computer.",
+  "바뀐 것이 없어요": "Nothing changed",
+  "이 PC 가 아직 Lite 와 연결되지 않았어요 — 설정 › 계정 › 「내 컴퓨터의 에이전트」에서 연결해 주세요": "This PC is not linked to Lite yet — link it in Settings › Accounts › 「Agents on my computer」",
+  "디스크 전체나 시스템 폴더는 고를 수 없어요": "A whole disk or a system folder can't be chosen",
+  "홈 폴더 전체는 고를 수 없어요 — 그 안의 폴더를 골라 주세요": "Your whole home folder can't be chosen — choose a folder in it",
+  "이 앱의 데이터가 든 폴더는 고를 수 없어요": "A folder holding this app's data can't be chosen",
+  "그 폴더를 찾을 수 없어요": "That folder can't be found",
+  "폴더가 아니에요": "That isn't a folder",
+  "그 폴더를 읽을 수 없어요": "That folder can't be read",
+  "그 폴더를 고를 수 없어요": "That folder can't be chosen",
+  "데스크톱 앱을 새 판으로 바꾸면 내 PC 폴더를 올릴 수 있어요": "Update the desktop app to upload a folder from your PC"
  },
  "patterns": [
+  [
+   "이 폴더에는 실행되는 설정이 있어요: {0} — 이 폴더에서 일하는 사람의 컴퓨터에서 훅 · MCP 서버 · 허용 목록이 돌아요",
+   "This folder has settings that run: {0} — hooks, MCP servers and allow lists run on the computer of whoever works in this folder"
+  ],
   [
    "지금 쓰는 PC 앱은 {0} 버전이에요",
    "This desktop app is version {0}"
@@ -2989,6 +3103,10 @@
    "Couldn't get the file to preview · {0}"
   ],
   [
+   "이 PC 의 「{0}」 폴더와 연결됨",
+   "Linked to the folder 「{0}」 on this PC"
+  ],
+  [
    "「{0}」와 맞는 산출물이 없어요.",
    "No output matches “{0}”."
   ],
@@ -2999,6 +3117,10 @@
   [
    "이 프로젝트의 산출물 {0}개 {1}",
    "{0} outputs of this project {1}"
+  ],
+  [
+   "내 PC 폴더 올리기 — {0}",
+   "Upload a folder from my PC — {0}"
   ],
   [
    "루틴 · {0}에 기록했어요.",
@@ -3015,6 +3137,10 @@
   [
    "진행 중인 ‘{0}’에 잇기",
    "Link to the running ‘{0}’"
+  ],
+  [
+   "올렸어요 — 파일 {0}개",
+   "Uploaded — {0} files"
   ],
   [
    "채팅의 산출물 {0}개 {1}",
@@ -3043,6 +3169,18 @@
   [
    "반응 사랑해 {0}개",
    "Love · {0}"
+  ],
+  [
+   "확인할 파일 {0}개",
+   "{0} files to check"
+  ],
+  [
+   "하위 에이전트 {0}",
+   "Subagents {0}"
+  ],
+  [
+   "진행 중 변경 {0}",
+   "Changes in progress {0}"
   ],
   [
    "{0}에 저장했어요",
@@ -3505,6 +3643,10 @@
    "Thanks · {0}"
   ],
   [
+   "MCP 서버 {0}",
+   "MCP servers {0}"
+  ],
+  [
    "유휴 {0} ({1})",
    "Idle {0} ({1})"
   ],
@@ -3585,6 +3727,10 @@
    "View {0} larger"
   ],
   [
+   "실행 설정 {0}",
+   "Run settings {0}"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -3631,6 +3777,18 @@
   [
    "{0} 로 편집",
    "Edit in {0}"
+  ],
+  [
+   "멈춤 · {0}",
+   "Paused · {0}"
+  ],
+  [
+   "뺀 것 {0}개",
+   "{0} left out"
+  ],
+  [
+   "프롬프트 {0}",
+   "Prompts {0}"
   ],
   [
    "{0}(소유)",
@@ -3721,6 +3879,10 @@
    " and {0} more"
   ],
   [
+   "파일 {0}개",
+   "{0} files"
+  ],
+  [
    "나: {0}",
    "Me: {0}"
   ],
@@ -3767,6 +3929,26 @@
   [
    "확신 {0}",
    "{0} sure"
+  ],
+  [
+   "{0} 올림",
+   "uploaded {0}"
+  ],
+  [
+   "{0}째 줄",
+   "line {0}"
+  ],
+  [
+   "명령 {0}",
+   "Commands {0}"
+  ],
+  [
+   "지침 {0}",
+   "Instructions {0}"
+  ],
+  [
+   "스펙 {0}",
+   "Specs {0}"
   ],
   [
    "시작{0}",

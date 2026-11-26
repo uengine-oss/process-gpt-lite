@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "about": "Where each agent platform keeps its skills, commands, instructions and specs inside a folder (design §4.1) — paths only, the contents' meaning is not read. glob: '/'-separated, '*' within one name, '**' any number of folders. name: how an item is named when its file has no front matter name — 'dir' (the folder holding the file), 'file' (the file name), 'command' (the path under the commands folder, ':' between folders, no extension). frontMatter: the file may start with YAML front matter (name · description). runs: the file holds settings that run on the computer of whoever works in the folder (hooks, MCP servers, permissions). The server (server/lib/folders/kit.js) and the desktop preview (desktop/src/runner/sync.js) use the same file; desktop/src/runner/kit-places.json is a copy of server/lib/folders/kit-places.json. runsKeys (optional): for a JSON settings file, the keys (dotted) of which at least one must be there and not empty for it to count as runs — without runsKeys, runs is as given. The single source is server/lib/folders/kit-places.json.",
+  "platforms": {
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "gemini": "Gemini CLI",
+    "copilot": "GitHub Copilot",
+    "spec": "Specs"
+  },
+  "places": [
+    {"platform": "claude", "type": "skill", "glob": ".claude/skills/*/SKILL.md", "name": "dir", "frontMatter": true},
+    {"platform": "claude", "type": "command", "glob": ".claude/commands/**/*.md", "name": "command", "base": ".claude/commands", "frontMatter": true},
+    {"platform": "claude", "type": "agent", "glob": ".claude/agents/*.md", "name": "file", "frontMatter": true},
+    {"platform": "claude", "type": "instructions", "glob": "**/CLAUDE.md", "name": "file"},
+    {"platform": "claude", "type": "settings", "glob": ".claude/settings.json", "name": "file", "runs": true, "runsKeys": ["hooks", "permissions.allow", "mcpServers", "enabledMcpjsonServers", "statusLine", "env"]},
+    {"platform": "claude", "type": "mcp", "glob": ".mcp.json", "name": "file", "runs": true, "runsKeys": ["mcpServers"]},
+    {"platform": "codex", "type": "instructions", "glob": "**/AGENTS.md", "name": "file"},
+    {"platform": "codex", "type": "skill", "glob": ".codex/skills/*/SKILL.md", "name": "dir", "frontMatter": true},
+    {"platform": "codex", "type": "prompt", "glob": ".codex/prompts/*.md", "name": "file", "frontMatter": true},
+    {"platform": "codex", "type": "skill", "glob": ".agents/skills/*/SKILL.md", "name": "dir", "frontMatter": true},
+    {"platform": "codex", "type": "settings", "glob": ".codex/config.toml", "name": "file", "runs": true},
+    {"platform": "cursor", "type": "rules", "glob": ".cursor/rules/**/*.mdc", "name": "file", "frontMatter": true},
+    {"platform": "cursor", "type": "rules", "glob": ".cursorrules", "name": "file"},
+    {"platform": "gemini", "type": "instructions", "glob": "**/GEMINI.md", "name": "file"},
+    {"platform": "gemini", "type": "command", "glob": ".gemini/commands/**/*.toml", "name": "command", "base": ".gemini/commands"},
+    {"platform": "copilot", "type": "instructions", "glob": ".github/copilot-instructions.md", "name": "file"},
+    {"platform": "copilot", "type": "instructions", "glob": ".github/instructions/*.instructions.md", "name": "file", "frontMatter": true},
+    {"platform": "copilot", "type": "prompt", "glob": ".github/prompts/*.prompt.md", "name": "file", "frontMatter": true},
+    {"platform": "spec", "type": "spec", "glob": "openspec/specs/*/spec.md", "name": "dir"},
+    {"platform": "spec", "type": "change", "glob": "openspec/changes/*/proposal.md", "name": "dir"},
+    {"platform": "spec", "type": "spec", "glob": "specs/*/spec.md", "name": "dir"},
+    {"platform": "spec", "type": "spec", "glob": ".kiro/specs/*/requirements.md", "name": "dir"},
+    {"platform": "spec", "type": "spec", "glob": "aidlc-docs/**/*.md", "name": "file"}
+  ]
+}

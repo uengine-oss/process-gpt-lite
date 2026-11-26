@@ -10,6 +10,9 @@ import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
+// 에이전트 자산 · the computers that upload this folder (champion folders — src/desktopFolders.js, server lib/folders/kit.js · sources.js)
+import KitTab from './KitTab.vue'
+import { bridge as pcBridge, pcFolders, refreshPcFolders, pcFolderOf, stateText, stopped, whyText, reasonText } from '../../desktopFolders.js'
 import { folders as F, whoOf, holderName, roleLabel, statusLabel, sourceLabel, indexLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
 
@@ -38,10 +41,18 @@ const fileInput = ref(null)
 const say = (t) => { toast.value = t; setTimeout(() => { if (toast.value === t) toast.value = '' }, 2800) }
 
 const can = (need) => ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[folder.value?.role] >= ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[need]
+const kit = ref([])
+const sources = ref([])
+const champion = computed(() => !!folder.value?.settings?.champion)
+// this computer's upload of this folder (only in the desktop app — its bridge's list(); no path)
+const mine = computed(() => (folder.value && pcFolders.ready ? pcFolderOf(folder.value.id) : null))
+const syncing = ref('')
 async function load() {
   try {
-    const [f, t] = await Promise.all([F.get(props.slug), F.tree(props.slug)])
-    folder.value = f; files.value = t
+    const [f, t, k] = await Promise.all([F.get(props.slug), F.tree(props.slug), F.kit(props.slug).catch(() => [])])
+    folder.value = f; files.value = t; kit.value = k
+    sources.value = f.settings?.champion ? await F.sources(props.slug).catch(() => []) : []
+    if (pcBridge()?.list) refreshPcFolders()
     if (f.kind === 'skill') skill.value = await F.skillInfo(props.slug).catch(() => null)
     picked.value = picked.value.filter((id) => f.variations.some((v) => v.id === id && v.status === 'ready'))
     if (f.kind === 'linked' && !cand.value) cand.value = await F.candidates(props.slug).catch(() => null)
@@ -191,6 +202,30 @@ async function shareSkill() {
 }
 async function keepPrivate() { await F.keepPrivate(props.slug).catch(() => {}); skill.value = { ...skill.value, askShare: false } }
 async function beBoss(a) { try { await F.setBoss(a.id); await load(); say(`${a.name} 의 담당자가 됐어요`) } catch (e) { say(e.message) } }
+// a kit item opens like any file of main
+function openKit(path) {
+  const f = files.value.find((x) => x.path === path)
+  if (f) preview(f)
+  else emit('preview', { folder: folder.value, file: { path }, ref: 'main' })
+}
+async function onSource(a) {
+  syncing.value = 'source'
+  try { sources.value = a.remove ? await F.removeSource(props.slug, a.id) : await F.setSource(props.slug, a.id, a.state) } catch (e) { say(e.message) } finally { syncing.value = '' }
+  refreshPcFolders()
+}
+// 「지금 올리기」: the app looks at the folder again and uploads what changed (its own rules, its own confirmation)
+async function syncNow() {
+  if (syncing.value) return
+  syncing.value = 'push'
+  try {
+    const r = await pcBridge().syncNow(folder.value.id)
+    syncing.value = ''
+    if (r?.ok && r.changed === false) say('바뀐 것이 없어요')
+    else if (r?.ok) { say(r.behind ? whyText('behind') : r.pushed?.files != null ? `올렸어요 — 파일 ${r.pushed.files.toLocaleString()}개` : '올렸어요'); await load() }
+    else say(r?.paths?.length ? `${whyText(r.why)} — ${r.paths.map((p) => `${p.path}${p.line ? `:${p.line}` : ''} (${reasonText(p.reason)})`).join(', ')}` : whyText(r?.why))
+  } catch (e) { say(e.message) } finally { syncing.value = ''; refreshPcFolders() }
+}
+const revealPc = () => pcBridge()?.reveal?.(folder.value.id)
 const CTYPE = { CREATED: '만듦', MODIFIED: '고침', PROPOSAL_APPROVED: '제안 반영' }
 const cardOf = (f) => f.card?.abstract
 const indexLines = computed(() => files.value.map((f) => `${f.path}  ·  ${fmtSize(Number(f.size))}${cardOf(f) ? '\n    └ ' + cardOf(f) : ''}`).join('\n'))
@@ -219,6 +254,12 @@ const ix = computed(() => folder.value?.index_state || {})
         <button v-if="can('editor') && folder.kind === 'managed'" class="pill-btn hbtn" title="main 을 작업실(파일·셸)에서 열기" @click="router.push(`/workroom/folder/${folder.slug}`)"><FIcon name="terminal" :size="16" /> 작업실</button>
       </div>
 
+      <div v-if="mine" class="pcbar glass" data-test="folder-pc-sync" :class="{ stop: stopped(mine.state) || mine.why }">
+        <FIcon name="pc" :size="17" />
+        <span class="pt"><b>이 PC 의 「{{ mine.label }}」 폴더와 연결됨</b><small class="meta"><span>{{ mine.why ? `멈춤 · ${whyText(mine.why)}` : stateText(mine.state) }}</span><span v-if="mine.lastPushedAt">{{ ago(mine.lastPushedAt) }} 올림</span></small></span>
+        <button v-if="pcBridge()?.reveal" class="tb press" @click="revealPc">폴더 열기</button>
+        <button class="tb press dk" data-test="folder-pc-sync-now" :disabled="!!syncing || mine.state === 'pushing'" @click="syncNow">{{ syncing === 'push' || mine.state === 'pushing' ? '올리는 중…' : '지금 올리기' }}</button>
+      </div>
       <div v-if="isSkill && skill?.visibility === 'private' && skill?.mine" class="banner ask glass">
         <FIcon name="people" :size="18" />
         <span><b>이 스킬을 전사에 공유하시겠어요?</b> 지금은 나와 내 에이전트만 써요. 공유하면 누구나 쓰고 고칠 점을 변형으로 제안할 수 있고, 반영은 나(작성자)와 이 스킬을 쓰는 에이전트의 담당자만 해요.</span>
@@ -241,6 +282,7 @@ const ix = computed(() => folder.value?.index_state || {})
               <button :class="{ on: tab === 'history' }" @click="tab = 'history'">이력</button>
               <button :class="{ on: tab === 'index' }" @click="tab = 'index'">색인</button>
               <button v-if="isSkill" :class="{ on: tab === 'skill' }" @click="tab = 'skill'">스킬</button>
+              <button v-if="champion || kit.length" :class="{ on: tab === 'kit' }" data-test="folder-kit-tab" @click="tab = 'kit'">에이전트 자산<span v-if="kit.length" class="tc">{{ kit.length }}</span></button>
             </div>
             <span class="ref"><FIcon name="branch" :size="14" /> {{ folder.default_branch }} · <code>{{ folder.history[0]?.short }}</code></span>
             <span class="sp" />
@@ -279,6 +321,8 @@ const ix = computed(() => folder.value?.index_state || {})
               <code>{{ h.short }}</code><span class="hm">{{ h.msg }}</span><span class="by"><Avatar :who="whoOf({ name: h.name, id: h.name })" :size="20" /> {{ h.name }} · {{ ago(h.at) }}</span>
             </div>
           </div>
+
+          <KitTab v-else-if="tab === 'kit'" :kit="kit" :sources="sources" :owner="folder.role === 'owner'" :busy="syncing" @open="openKit" @source="onSource" />
 
           <div v-else-if="tab === 'skill'" class="idx scroll">
             <dl class="sk">
@@ -411,6 +455,15 @@ dl.sk { display: grid; grid-template-columns: 90px 1fr; gap: 8px 12px; margin: 8
 .bn { font-size: 12.5px; color: var(--text-secondary); }
 .prb { align-self: flex-start; height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; display: inline-flex; align-items: center; background: rgba(123 92 214 / .2); color: #9b7cf0; }
 .banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 16px; font-size: 13.5px; margin-bottom: 12px; }
+.pcbar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-radius: 16px; margin-bottom: 12px; color: #2a78d6; flex-wrap: wrap; }
+.pcbar.stop { color: #e08a2c; }
+.pt { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; color: var(--text-primary); }
+.pt b { font-size: 13.5px; font-weight: 500; } .pt small { font-size: 12.5px; color: var(--text-secondary); }
+.pt .meta span + span::before { content: ' · '; }
+.pcbar .tb.dk { background: var(--ink); color: var(--ink-inverse); }
+.tc { margin-left: 6px; font-size: 11px; opacity: .75; }
+:root[data-theme="dark"] .pcbar { color: #8cc1ff; }
+:root[data-theme="dark"] .pcbar.stop { color: #ffb870; }
 .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 14px; }
 .pane, .vars { border-radius: 22px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .ph, .vh { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--hairline); flex: none; }
@@ -506,6 +559,8 @@ section.pane { position: relative; }
   .mem { margin-right: auto; }
   .hbtn { height: 36px; font-size: 13.5px; }
   .banner { flex-wrap: wrap; padding: 10px 12px; }
+  .pcbar { padding: 8px 10px; }
+  .pcbar .tb { flex: 1; }
   .banner > span:not(.sp) { flex: 1 1 220px; word-break: keep-all; }
   .pane, .vars { border-radius: 18px; }
   .ph { gap: 8px; padding: 0 10px; overflow-x: auto; scrollbar-width: none; }

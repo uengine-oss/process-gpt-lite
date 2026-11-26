@@ -413,7 +413,7 @@ const localBrowser = () => {
 const runnerLog = (s) => { if (DEV || process.env.PGL_RUNNER_LOG === '1') console.log(s) }
 // (PGL_RUNNER_DEVICE_NAME: a name of one's own — the tests' screenshots carry no machine name)
 const deviceName = () => (process.env.PGL_RUNNER_DEVICE_NAME || require('node:os').hostname().replace(/\.local$/i, '')).slice(0, 60) || 'Desktop'
-function stopRunner() { if (runner) { try { runner.stop() } catch { /* gone */ } runner = null } }
+function stopRunner() { if (runner) { try { runner.stop() } catch { /* gone */ } runner = null; sendFolderState() } }
 function startRunner() {
   stopRunner()
   const s = serverUrl()
@@ -423,10 +423,13 @@ function startRunner() {
     server: s, token: p.token, dataDir: path.join(app.getPath('userData'), 'local-agents'),
     device: { name: deviceName(), platform: process.platform, appVersion: app.getVersion() },
     prefs: () => settings.runnerPrefs(), ask: askRun, log: runnerLog, browser: localBrowser(),
+    // (the folders of this computer kept as Lite folders: this person's on this server — another person signed in here has their own)
+    folders: settings.folderStore(s, p.userId), userId: p.userId,
     // tests: the fake CLIs' folder first (PGL_RUNNER_PATH)
     ...(process.env.PGL_RUNNER_PATH ? { searchPath: `${process.env.PGL_RUNNER_PATH}${path.delimiter}${CLIS.augmentedPath()}` } : {}),
   })
   runner.ev.on('state', sendRunnerState)
+  runner.ev.on('folders', sendFolderState)
   // someone suggested a prompt for a run of this computer: a system notification (tests: global.__pglNotices)
   runner.ev.on('notice', (n) => {
     const ko = settings.get().lang !== 'en'
@@ -508,6 +511,100 @@ ipcMain.handle('pgl:runner:detect', async (e) => {
   else cliCache = await CLIS.detect().catch(() => ({}))
   sendRunnerState()
   return runnerStatus()
+})
+
+// ---------- 챔피언 폴더: a folder of this computer kept as a Lite folder (runner/sync.js — desktop 0.2.5) ----------
+// The page asks (pglDesktop.folders); main picks the folder in the system's own dialog, and asks the person once more in a system dialog
+// before the first upload — the page's click alone uploads nothing. The page never sends or receives a path: it gets a pick id, a label
+// (the folder's name) and what would go up. The folders are the paired person's on this server (the runner's — runner/index.js): when
+// another person signs in here, or on sign-out, theirs stop with the runner.
+const folderSync = () => runner?.folders || null
+// tests only — an app that is not packaged (`electron .` under Playwright): main's own global stands in for the two system dialogs
+// ({pick: <folder> | null, confirm: 'yes' | 'no'}); a packaged app never reads it
+const testDialogs = () => (!app.isPackaged && global.__pglTestFolders) || null
+const relList = (a) => (Array.isArray(a) ? a.slice(0, 500).map((x) => String(x || '').slice(0, 1000)) : [])
+const folderWords = () => settings.get().lang !== 'en'
+function sendFolderState() {
+  const wc = win?.webContents
+  if (wc && !wc.isDestroyed() && isServerPage(wc.getURL())) wc.send('pgl:folders:state', folderSync()?.list() || [])
+}
+async function pickFolder() {
+  const t = testDialogs()
+  if (t && 'pick' in t) return t.pick ? String(t.pick) : null
+  const ko = folderWords()
+  if (win) { if (win.isMinimized()) win.restore(); win.show() }
+  const r = await dialog.showOpenDialog(win || undefined, {
+    title: ko ? '올릴 폴더 고르기' : 'Choose a folder to upload', buttonLabel: ko ? '이 폴더 고르기' : 'Choose', properties: ['openDirectory', 'dontAddToRecent'],
+  })
+  return r.canceled ? null : r.filePaths[0] || null
+}
+const sizeText = (b) => (b >= 100 * 1024 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
+// 로 / 으로 after the folder's name (a final consonant other than ㄹ takes 으로)
+function ro(name) {
+  const c = String(name || '').trim().slice(-1).charCodeAt(0)
+  const jong = c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0
+  return jong && jong !== 8 ? '으로' : '로'
+}
+// the person's yes before the first upload: what goes up, where — in a system dialog
+async function confirmUpload({ files, bytes, folderName, report }) {
+  const ko = folderWords()
+  let host = ''
+  try { host = new URL(serverUrl()).host } catch { /* none */ }
+  const name = String(folderName || '').slice(0, 80)
+  const message = ko ? `파일 ${files}개(${sizeText(bytes)})를 ${host} 의 폴더 '${name}'${ro(name)} 올립니다`
+    : `Upload ${files} files (${sizeText(bytes)}) to the folder '${name}' on ${host}?`
+  const left = (report?.excluded?.secret || 0) + (report?.excluded?.personal || 0)
+  const detail = ko
+    ? `이 컴퓨터의 폴더는 읽기만 하고 아무것도 쓰지 않아요.${left ? ` 비밀 · 개인 설정으로 보이는 ${left}개는 올리지 않아요.` : ''}${report?.flagged ? ` 확인이 필요한 파일 ${report.flagged}개는 빼고 올려요.` : ''}`
+    : `The folder on this computer is only read, nothing is written to it.${left ? ` ${left} files that look secret or personal stay here.` : ''}${report?.flagged ? ` ${report.flagged} files to check stay here.` : ''}`
+  const t = testDialogs()
+  if (t) { (global.__pglFolderDialogs ||= []).push({ message, detail }); return t.confirm === 'yes' }
+  if (win) { if (win.isMinimized()) win.restore(); win.show() }
+  const r = await dialog.showMessageBox(win || undefined, {
+    type: 'question', buttons: ko ? ['올리기', '취소'] : ['Upload', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true, message, detail,
+  })
+  return r.response === 0
+}
+ipcMain.handle('pgl:folders:pick', async (e) => {
+  if (!fromServerPage(e)) return null
+  const f = folderSync()
+  if (!f) return { error: 'not_linked' }
+  const dir = await pickFolder()
+  if (!dir) return null
+  return f.pick(dir)
+})
+ipcMain.handle('pgl:folders:preview', async (e, pickId, v) => {
+  if (!fromServerPage(e)) return null
+  const f = folderSync()
+  if (!f) return { error: 'not_linked' }
+  return f.preview(String(pickId || ''), { include: relList(v?.include), exclude: relList(v?.exclude) })
+})
+ipcMain.handle('pgl:folders:bind', async (e, v) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const f = folderSync()
+  if (!f) return { ok: false, why: 'not_linked' }
+  return f.bind({ pickId: String(v?.pickId || ''), folderId: String(v?.folderId || ''), folderName: String(v?.folderName || '').slice(0, 120),
+    include: relList(v?.include), exclude: relList(v?.exclude) }, { confirm: confirmUpload })
+})
+ipcMain.handle('pgl:folders:list', (e) => (fromServerPage(e) ? folderSync()?.list() || [] : []))
+ipcMain.handle('pgl:folders:sync-now', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const f = folderSync()
+  return f ? f.syncNow(String(id || '')) : { ok: false, why: 'not_linked' }
+})
+ipcMain.handle('pgl:folders:unbind', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const f = folderSync()
+  return f ? f.unbind(String(id || '')) : { ok: false, why: 'not_linked' }
+})
+// the picked folder in Finder · Explorer (main opens it; the page never learns where it is)
+ipcMain.handle('pgl:folders:reveal', async (e, id) => {
+  if (!fromServerPage(e)) return { ok: false, why: 'denied' }
+  const dir = folderSync()?.pathOf(String(id || ''))
+  if (!dir) return { ok: false, why: 'not_bound' }
+  if (process.env.PGL_DESKTOP_EXTERNAL === 'log') { (global.__pglRevealed ||= []).push(dir); return { ok: true } }
+  const err = await shell.openPath(dir).catch((x) => x.message)
+  return err ? { ok: false, why: 'folder_missing' } : { ok: true }
 })
 
 // ---------- the tray icon and the count of Home cards waiting (tray.js · badge.js) ----------

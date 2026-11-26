@@ -9,6 +9,10 @@ import { folders as F, whoOf, indexLabel, ago } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName } from './fileKind.js'
 // a file of the app (a chat card, a received file, another folder's file — src/fileDrag.js) dropped on a folder's row goes into it
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords } from '../../fileDrag.js'
+// 「내 PC 폴더 올리기」: only in the desktop app (its bridge picks a folder of this computer — src/desktopFolders.js); a browser says where
+import SourceSheet from './SourceSheet.vue'
+import { available as pcAvailable, bridge as pcBridge, kitLine, pickErrorText } from '../../desktopFolders.js'
+import { desktopApp } from '../../localRunner.js'
 
 const emit = defineEmits(['preview'])
 const router = useRouter()
@@ -36,7 +40,20 @@ const formErr = ref('')
 async function load() {
   try { list.value = await F.list() } catch (e) { err.value = e.message }
 }
-onMounted(load)
+const pc = ref(null)        // true: the desktop app can pick a folder here · false: a browser (or an app from before 0.2.5: oldApp)
+const oldApp = !!desktopApp()
+const picked = ref(null)    // {pickId, label, preview} — the sheet is open
+const picking = ref(false)
+onMounted(async () => { load(); pc.value = await pcAvailable() })
+async function pickPcFolder() {
+  if (picking.value) return
+  picking.value = true
+  try {
+    const r = await pcBridge()?.pick()
+    if (r?.pickId) picked.value = r
+    else if (r?.error) { dropNote.value = { text: pickErrorText(r.error) }; setTimeout(() => { dropNote.value = null }, 9000) }
+  } catch (e) { dropNote.value = { text: e.message } } finally { picking.value = false }
+}
 // 「저장소 연결」 (a repository on this server's own disk): only where the server offers it to this person —
 // an install for one company, its administrators (server: folders/service.js mayLink)
 const canLink = ref(false)
@@ -109,8 +126,10 @@ const openDropped = () => { const n = dropNote.value; dropNote.value = null; if 
       <h1>폴더</h1>
       <span class="sub">여럿이 함께 쓰고, 에이전트가 변형을 만들어 일하는 파일 공간이에요</span>
       <span class="sp" />
+      <button v-if="pc" class="pill-btn hbtn" data-test="folder-pc-upload" :disabled="picking" @click="pickPcFolder"><FIcon name="pc" :size="16" /> {{ picking ? '고르는 중…' : '내 PC 폴더 올리기' }}</button>
       <button v-if="canLink" class="pill-btn hbtn" data-testid="folder-link" @click="open('link')"><FIcon name="link" :size="16" /> 저장소 연결</button>
       <button class="dark-btn hbtn" @click="open('new')">새 폴더</button>
+      <span v-if="pc === false" class="pchint" data-test="folder-pc-hint"><FIcon name="pc" :size="15" /> {{ oldApp ? '데스크톱 앱을 새 판으로 바꾸면 내 PC 폴더를 올릴 수 있어요' : '데스크톱 앱에서 내 PC 폴더를 올릴 수 있어요' }}</span>
     </div>
 
     <div class="tabs">
@@ -180,7 +199,7 @@ const openDropped = () => { const n = dropNote.value; dropNote.value = null; if 
         <span v-if="over?.slug === f.slug" class="dropword" data-test="folder-row-drop">{{ over.words }}</span>
         <span class="name">
           <span class="fic folder" :class="{ linked: f.kind === 'linked' }"><FIcon :name="f.kind === 'linked' ? 'link' : 'folder'" :size="20" /></span>
-          <span class="nm"><b>{{ f.name }}<span v-if="f.settings?.work" class="wb" data-test="folder-work-badge">작업 폴더</span></b><small>{{ f.description }}</small></span>
+          <span class="nm"><b>{{ f.name }}<span v-if="f.settings?.work" class="wb" data-test="folder-work-badge">작업 폴더</span><span v-if="f.settings?.champion" class="wb pcb" data-test="folder-pc-badge">내 PC 에서 올림</span></b><small>{{ f.description }}</small><small v-if="kitLine(f.kit)" class="kl" data-test="folder-kit-line">{{ kitLine(f.kit) }}</small></span>
         </span>
         <span class="mem">
           <span class="stack"><Avatar v-for="m in f.members.slice(0, 4)" :key="m.type + m.id" :who="whoOf(m)" :size="28" /></span>
@@ -204,6 +223,8 @@ const openDropped = () => { const n = dropNote.value; dropNote.value = null; if 
         <FIcon name="folder" :size="16" /><span>{{ dropNote.text }}</span><button v-if="dropNote.slug" class="press" data-test="folder-filed-open" @click="openDropped">열기</button>
       </div>
     </Transition>
+
+    <SourceSheet v-if="picked" :pick="picked" @close="picked = null" @done="picked = null" />
 
     <div v-if="sheet" class="veil" @click.self="sheet = null">
       <form class="box glass" @submit.prevent="submit">
@@ -291,6 +312,11 @@ button.row:hover { background: var(--regular-solid-bg); }
 .dark-btn { background: var(--ink); color: var(--ink-inverse); }
 @media (max-width: 900px) { .row { grid-template-columns: 1fr auto; } .row > :nth-child(2), .row > :nth-child(3), .row > :nth-child(4) { display: none; } }
 .tabs { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.pchint { flex-basis: 100%; display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; font-size: 12.5px; color: var(--text-secondary); margin-top: -8px; }
+.wb.pcb { background: rgba(42 120 214 / .14); color: #2a78d6; }
+.nm small.kl { color: var(--text-tertiary); }
+:root[data-theme="dark"] .wb.pcb { color: #8cc1ff; }
+@media (max-width: 760px) { .pchint { justify-content: flex-start; margin-top: 0; } }
 .seg { display: flex; padding: 3px; border-radius: 9999px; }
 .seg button { height: 38px; padding: 0 18px; border-radius: 9999px; font-size: 14.5px; font-weight: 500; color: var(--text-secondary); }
 .seg.sm button { height: 32px; padding: 0 14px; font-size: 13.5px; }

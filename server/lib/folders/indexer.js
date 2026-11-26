@@ -15,6 +15,7 @@ import { L, isEn } from '../lang.js'
 import * as G from './git.js'
 import { readableFolderIds } from './service.js'
 import { withTenant, tenants } from '../tenant.js'
+import { discover as discoverKit } from './kit.js'
 
 const DOC = /\.(md|markdown|txt|csv|docx|xlsx|pptx|hwpx|pdf)$/i
 export const kindOf = (p) => (String(p).split('.').pop() || '').toLowerCase()
@@ -101,9 +102,11 @@ export function cardsSoon(folder, ms = 60_000) {
   cardTimers.set(folder.id, t)
 }
 
+let kitMissing = 0
 export async function reindex(folder, { cards = true } = {}) {
   const ref = folder.default_branch
-  const files = (await G.lsTree(folder.repo_path, ref)).filter((f) => f.path !== '.gitattributes')
+  // (the .gitattributes this server writes is not a file of the folder — a champion folder's own one is: its attributes live elsewhere)
+  const files = (await G.lsTree(folder.repo_path, ref)).filter((f) => f.path !== '.gitattributes' || folder.settings?.champion)
   const touched = await G.lastTouch(folder.repo_path, ref)
   const old = new Map((await q('select path, sha, card_sha from pro_folder_files where folder_id=$1', [folder.id])).map((r) => [r.path, r]))
   const keep = new Set()
@@ -115,6 +118,9 @@ export async function reindex(folder, { cards = true } = {}) {
     [folder.id, f.path, kindOf(f.path), f.size, f.sha, t?.at || null, t?.name || null])
   }
   for (const p of old.keys()) if (!keep.has(p)) await q('delete from pro_folder_files where folder_id=$1 and path=$2', [folder.id, p])
+  // the agent platforms' files in main (skills, instructions, rules, specs — kit.js, by where they are)
+  // (before sql/059 is applied the table is missing: said once)
+  await discoverKit(folder, files).catch((e) => { if (e.code !== '42P01' || !kitMissing++) console.warn('[folders] kit', folder.slug, e.message) })
   await updateState(folder)
   if (cards && folder.kind !== 'linked') cardQueue(folder)
   else if (cards && folder.kind === 'linked') cardQueue(folder, { only: (p) => /(^|\/)(README|readme)\.md$|^docs\/[^/]+\.md$/.test(p) })
@@ -210,7 +216,8 @@ async function makeCard(folder, row) {
     // a failed card leaves the file in the list (tier 0); it is tried again on its next change
     await q('update pro_folder_files set card_sha=$3, card_error=$4, body=$5 where folder_id=$1 and path=$2', [folder.id, row.path, row.sha, e.message.slice(0, 200), body])
   }
-  if (body && TO_MEMENTO) mementoUpload(folder, row.path, buf).catch(() => {})
+  // (a champion folder's documents stay out of the company-wide knowledge base: they are a person's folder until it is opened up)
+  if (body && TO_MEMENTO && !folder.settings?.champion) mementoUpload(folder, row.path, buf).catch(() => {})
 }
 
 // tier 2 with memento (best effort: the folder search falls back to the text kept here)

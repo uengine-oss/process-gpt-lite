@@ -28,7 +28,8 @@ const OID = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/
 
 // ---------- token ----------
 // "pgf1.<payload>.<signature>", both base64url; payload {tenant, folder, push, exp (seconds)} — and for a desktop's local agent
-// (lib/localAgents) {scope: 'device', device, job}: the token of one job on one linked desktop, the only kind the public path takes
+// (lib/localAgents) {scope: 'device', device, job}: the token of one job on one linked desktop — or {scope: 'sync', device} (job ''): the
+// token of one folder a linked desktop uploads (champion folders, lib/folders/sources.js); the only two kinds the public path takes
 const key = () => {
   if (!config.serviceKey) throw new Error('folder git tokens need SERVICE_ROLE_KEY')
   return crypto.createHmac('sha256', String(config.serviceKey)).update('folder-git:v1').digest()
@@ -161,8 +162,9 @@ function readBody(req, limit) {
 }
 
 // git http-backend as a CGI program: its header block (Status:, Content-Type: …) becomes the response's,
-// the rest streams through. `body`: a Buffer already read, else the request streams into it.
-function backend(req, res, folder, pathInfo, body) {
+// the rest streams through. `body`: a Buffer already read, else the request streams into it. hold: the response is not ended here
+// (the caller ends it — after() has looked at the push first, so the client's push is over only then)
+function backend(req, res, folder, pathInfo, body, { hold = false } = {}) {
   return new Promise((resolve) => {
     const cfg = [
       ['http.receivepack', 'true'], // the token stands for REMOTE_USER: pushing is allowed, within refusals() above
@@ -195,7 +197,7 @@ function backend(req, res, folder, pathInfo, body) {
     let head = Buffer.alloc(0)
     let started = false
     let err = ''
-    const finish = () => { if (!started) deny(res, 502, 'git did not answer'); else res.end(); resolve() }
+    const finish = () => { if (!started) deny(res, 502, 'git did not answer'); else if (!hold) res.end(); resolve() }
     child.stderr.on('data', (d) => { if (err.length < 4000) err += d })
     child.stdout.on('data', (d) => {
       if (started) { res.write(d); return }
@@ -238,6 +240,10 @@ function backend(req, res, folder, pathInfo, body) {
 // stays inside the cluster): only a token minted for one job on one linked desktop (scope 'device'), and only while that device is
 // linked (not revoked) and the job is its own — check(claims, {push}) says so (lib/localAgents/devices.js gitAccess) — at most
 // DEVICE_RATE requests a minute per device. Reads its folder; pushes only to the job's own branch prefix (the token's push).
+// The same path takes a desktop's sync token (scope 'sync' — a champion folder its computer uploads, lib/folders/sources.js): one device,
+// one folder, no job; check() looks again at the device, the folder's source row and the person's role in the folder on every request
+// (devices.js syncAccess), and after() looks at what such a push brought in, still inside the folder's lock (a file that must not be
+// there puts the branch back at once).
 const DEVICE_RATE = 120
 const hits = new Map() // device → [times]
 function overRate(device, now = Date.now()) {
@@ -247,7 +253,7 @@ function overRate(device, now = Date.now()) {
   if (hits.size > 5000) for (const [k, v] of hits) if (!v.some((t) => now - t < 60_000)) hits.delete(k)
   return list.length > DEVICE_RATE
 }
-export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null } = {}) {
+export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, after = null } = {}) {
   return async (req, res) => {
     const m = /^\/([0-9a-f-]{36})\.git(\/info\/refs|\/git-upload-pack|\/git-receive-pack)$/.exec(req.path)
     if (!m) return deny(res, 404, 'not found')
@@ -259,7 +265,7 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null } =
     if (!claims) return deny(res, 401, 'a folder token is needed', { 'WWW-Authenticate': `Basic realm="${REALM}"` })
     if (claims.folder !== folderId) return deny(res, 403, 'this token is for another folder')
     if (!servesTenant(claims.tenant)) return deny(res, 403, 'this server does not serve the token\'s tenant')
-    if (device && (claims.scope !== 'device' || !claims.device || !claims.job)) return deny(res, 403, 'only a linked desktop\'s job token is served here')
+    if (device && !(claims.device && ((claims.scope === 'device' && claims.job) || claims.scope === 'sync'))) return deny(res, 403, 'only a linked desktop\'s job or sync token is served here')
     if (device && overRate(claims.device)) return deny(res, 429, 'too many requests from this desktop — try again in a minute')
     return withTenant(claims.tenant, async () => {
       try {
@@ -283,7 +289,13 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null } =
           if (!parsed.caps.has('report-status') && !parsed.caps.has('report-status-v2')) return deny(res, 403, refused[0].why)
           return res.status(200).set({ 'Content-Type': 'application/x-git-receive-pack-result', 'Cache-Control': 'no-cache' }).end(rejectionReport(parsed.commands, refused, parsed.caps))
         }
-        await S.serial(folder.id, () => backend(req, res, folder, pathInfo, body))
+        await S.serial(folder.id, async () => {
+          await backend(req, res, folder, pathInfo, body, { hold: !!after })
+          if (after) {
+            await after(claims, folder, parsed.commands).catch((e) => console.warn('[folders git] after push', e.message))
+            if (!res.writableEnded) res.end()
+          }
+        })
         console.log(`[folders git] ${folder.slug} pushed ${parsed.commands.map((c) => c.ref.replace('refs/heads/', '')).join(', ')}`)
       } catch (e) {
         console.warn('[folders git]', e.message)

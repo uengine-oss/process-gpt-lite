@@ -12,6 +12,9 @@
 //   runnerPrefs  — {enabled, ask, finishMinutes, browser}: local runs on or off, asking before each run, and how long a step waits after its CLI's
 //                  turn ended for the people on the instance before it ends by itself (runner/settle.js — default 5)
 //   runnerOptOut — { [server]: [userId…] }: people who disconnected this computer here (it is not paired again by itself)
+//   folders      — { [server]: [{folderId, userId, path, label, include, exclude, sourceId, branch, state, why, paths, head, taken, files, bytes,
+//                  lastPushedAt, boundAt}] }: the folders of this computer kept as Lite folders (챔피언 폴더 — runner/sync.js), per server and
+//                  person. The picked folder's path is kept here only (the server and the page know its label — the folder's name)
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -95,4 +98,25 @@ const browserPrefOf = (v) => (BROWSER_PREFS.includes(v) ? v : 'own')
 const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true, finishMinutes: finishMinutesOf(data.runnerPrefs?.finishMinutes),
   browser: browserPrefOf(data.runnerPrefs?.browser) })
 
-module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS }
+// ---------- the folders of this computer kept as Lite folders (runner/sync.js) — one person's on one server ----------
+// put(entry) adds or replaces that person's entry for entry.folderId; another person's entries on the same server are never seen or changed
+function folderStore(server, userId) {
+  const uid = String(userId || '')
+  const listOf = () => ((data.folders || {})[server] || []).filter((e) => e && typeof e === 'object')
+  const mine = () => listOf().filter((e) => e.userId === uid)
+  const write = (list) => set({ folders: { ...(data.folders || {}), [server]: list } })
+  return {
+    all: () => mine().map((e) => ({ ...e })),
+    get: (folderId) => { const e = mine().find((x) => x.folderId === folderId); return e ? { ...e } : null },
+    // (in its place: the list keeps the order the folders were connected in)
+    put: (entry) => {
+      const list = listOf()
+      const at = list.findIndex((e) => e.userId === uid && e.folderId === entry.folderId)
+      const next = { ...entry, userId: uid }
+      write(at < 0 ? [...list, next] : list.map((e, i) => (i === at ? next : e)))
+    },
+    drop: (folderId) => write(listOf().filter((e) => !(e.userId === uid && e.folderId === folderId))),
+  }
+}
+
+module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS, folderStore }

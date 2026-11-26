@@ -18,10 +18,11 @@ const NETWORK = 600_000
 
 // The folder is the server's byte for byte: no line-ending conversion here, whatever the person's git says (Git for Windows installs
 // core.autocrlf=true, which would turn every file CRLF on checkout and could show files the run never touched as changed); deep paths
-// under %APPDATA% work on Windows (core.longpaths)
-function authEnv(token) {
+// under %APPDATA% work on Windows (core.longpaths). extra: more [key, value] pairs for this call (the folder sync's shadow repository —
+// sync.js — turns off hooks, signing and the person's own excludes this way)
+function authEnv(token, extra = []) {
   const pairs = [['credential.helper', ''], ['core.quotepath', 'false'], ['core.autocrlf', 'false'], ['core.longpaths', 'true'],
-    ['protocol.allow', 'never'], ['protocol.https.allow', 'always'], ['protocol.http.allow', 'always']]
+    ['protocol.allow', 'never'], ['protocol.https.allow', 'always'], ['protocol.http.allow', 'always'], ...extra]
   if (token) pairs.push(['http.extraHeader', `Authorization: Bearer ${token}`])
   const env = { GIT_CONFIG_COUNT: String(pairs.length) }
   pairs.forEach(([k, v], i) => { env[`GIT_CONFIG_KEY_${i}`] = k; env[`GIT_CONFIG_VALUE_${i}`] = v })

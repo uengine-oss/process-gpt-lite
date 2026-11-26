@@ -331,16 +331,9 @@ async function bringIn(job, branch) {
   const who = { name: person.name || 'Process GPT Lite', email: person.email || undefined }
   const msg = L(`${A.LABEL[job.agent] || job.agent} (내 PC) — ${c.title || '채팅'}`, `${A.LABEL_EN[job.agent] || job.agent} (my PC) — ${c.title || 'chat'}`)
   if (c.mode !== 'project') {
-    let ok = true
-    await S.serial(folder.id, async () => {
-      // (an edit made in main meanwhile — the folder screen, the editor — is kept first)
-      await S.commitMainNow(folder, who, L('main 의 편집 저장', 'Save edits on main'))
-      await G.git(folder.repo_path, ['merge', '--ff-only', '-q', head], { check: false })
-      const now = await G.head(folder.repo_path, folder.default_branch)
-      if (now === head || await isAncestor(G, folder.repo_path, head, now)) return
-      await G.git(folder.repo_path, [...G.who(who.name, who.email), 'merge', '--no-edit', '-q', '-m', msg, head], { check: false })
-      if ((await G.git(folder.repo_path, ['diff', '--name-only', '--diff-filter=U'], { check: false })).trim()) { await G.git(folder.repo_path, ['merge', '--abort'], { check: false }); ok = false }
-    })
+    // (an edit made in main meanwhile — the folder screen, the editor — is kept first; folders/line.js, shared with champion folders' sync)
+    const { intoMain } = await import('../folders/line.js')
+    const ok = !(await intoMain(folder, head, { who, message: msg })).conflicted
     await S.touch(folder)
     import('../folders/indexer.js').then((x) => x.reindex(folder, { cards: false }).then(() => x.cardsSoon(folder))).catch(() => {})
     if (!ok) console.warn(`[local-agents] chat: ${branch} conflicts with main of '${folder.slug}' — left on its branch`)

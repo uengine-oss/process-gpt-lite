@@ -48,6 +48,7 @@ export async function revoke(user, id) {
 // Whether a desktop's job token may use the public git path now (folders/gitHttp.js device): its device is linked (not revoked), the job
 // is that device's, of that folder — and for a push, still running there (offered · running). → null when it may, else why not.
 export async function gitAccess(claims, { push = false } = {}) {
+  if (claims?.scope === 'sync') return syncAccess(claims, { push })
   if (!/^[0-9a-f-]{36}$/i.test(String(claims?.device || '')) || !/^[0-9a-f-]{36}$/i.test(String(claims?.job || ''))) return 'not a desktop job token'
   const [d] = await q('select revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
   if (!d || d.revoked_at) return 'this desktop is not linked any more'
@@ -58,6 +59,26 @@ export async function gitAccess(claims, { push = false } = {}) {
   if (String(j.folder_id || '') !== claims.folder && !skill) return 'this job does not use that folder'
   if (push && !(['offered', 'running'].includes(j.state) && !skill)) return 'this job is not running on this desktop'
   if (!['offered', 'running', 'done', 'failed'].includes(j.state)) return 'this job is over'
+  return null
+}
+
+// The same for a desktop's sync token (champion folders — folders/sources.js: a folder the person's computer uploads, no job): checked on
+// every request, so a token that is still valid stops working the moment any of these changes — its device is linked (not revoked), the
+// folder is still synced from that device (its source row is there and on), the folder is a managed one of the token's company, and the
+// device's person now holds at least viewer (fetch) / editor (push) in it. → null when it may, else why not.
+export async function syncAccess(claims, { push = false } = {}) {
+  if (claims?.scope !== 'sync' || !/^[0-9a-f-]{36}$/i.test(String(claims?.device || ''))) return 'not a desktop sync token'
+  const [d] = await q('select user_id, revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
+  if (!d || d.revoked_at) return 'this desktop is not linked any more'
+  const [s] = await q('select state, user_id from pro_folder_sources where folder_id=$1 and device_id=$2 and tenant_id=$3', [claims.folder, claims.device, claims.tenant])
+  if (!s || s.state === 'removed') return 'this folder is not synced from this desktop any more'
+  if (s.state === 'paused') return 'syncing this folder from this desktop is paused'
+  if (String(s.user_id) !== String(d.user_id)) return 'this folder is synced by someone else on this desktop'
+  const [f] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [claims.folder, claims.tenant])
+  if (!f || f.kind !== 'managed') return 'this folder is not synced over git'
+  const { roleOf, RANK } = await import('../folders/service.js')
+  const role = await roleOf(f, { id: String(d.user_id) })
+  if (!role || RANK[role] < RANK[push ? 'editor' : 'viewer']) return push ? 'uploading to this folder needs the editor role' : 'this folder is not shared with you'
   return null
 }
 
@@ -72,8 +93,9 @@ export function capsOf(raw = {}) {
   }
   // (chat: it runs chat messages for its person's CLI — desktop 0.2.2, the composer's agent picker · browser: it has a browser the
   // server's browser agent can drive — desktop 0.2.3, lib/browserRemote.js)
+  // (folders: it uploads folders its person picked — champion folders, desktop 0.2.5)
   return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true, conversation: raw?.conversation === true, chat: raw?.chat === true,
-    browser: raw?.browser === true }
+    browser: raw?.browser === true, folders: raw?.folders === true }
 }
 // browser: 「브라우저 작업은 내 PC에서」 — this PC's own setting (desktop 0.2.3): 'own' (the person's own tasks, the default) · 'all' (also tasks
 // nobody watches) · 'off' (lib/browserRemote.js routeOf)
