@@ -181,6 +181,25 @@ test('데스크톱이 일을 받자마자 「accept」 해도 카드는 하나: 
   } finally { J.setHooks({ note: async () => {} }) }
 })
 
+test('보내기가 실패해도, 그 사이 다른 곳으로 옮겨진 일(취소 · 넘김)은 대기로 되돌리지 않는다 — 두 번 돌지 않게(#96 검토)', { skip: !db }, async () => {
+  H.reset()
+  // while the card is written, the job is cancelled elsewhere (the person, the instance) — then the link turns out to be gone
+  J.setHooks({ note: async (job, what) => {
+    if (what === 'offered') await q(`update pro_local_jobs set state='cancelled', updated_at=now() where id=$1`, [job.id])
+  } })
+  try {
+    const { token } = await D.issue(userA, { name: `${userA.name}의 맥`, platform: 'darwin' })
+    const transport = { send: () => { throw new Error('closed') }, close() {} }
+    const link = await H.open(transport, { type: 'hello', token, device: { name: `${userA.name}의 맥` }, caps: { clis: { 'claude-code': { installed: true, version: '2.1.330' } }, maxJobs: 2 }, prefs: { enabled: true }, active: [] })
+    assert.ok(!link.error, link.error)
+    link.send = () => false
+    const j = await J.enqueue(spec(userA))
+    await tick()
+    assert.equal((await J.byId(j.id)).state, 'cancelled', '취소된 일은 대기로 돌아가지 않는다')
+    await H.gone(link)
+  } finally { J.setHooks({ note: async () => {} }) }
+})
+
 test('꺼져 있고 「기다리기」면 대기, 데스크톱이 켜지면 오래된 것부터 보낸다(동시 실행 한도)', { skip: !db }, async () => {
   H.reset()
   const j1 = await J.enqueue(spec(userA))

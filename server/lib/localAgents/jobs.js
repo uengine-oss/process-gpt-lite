@@ -119,8 +119,11 @@ async function offer(job, link) {
   // card — sent first, the accept could come back before the card was kept and make a second one, 2026-11-26)
   await hk(j).note(j, 'offered').catch((e) => console.warn('[local-agents] offered', e.message))
   if (!link.send({ type: 'job', job: { id: j.id, ...payload } })) {
-    // (the link went meanwhile: back in the queue, and the card says so)
-    const back = await set(j, { state: 'queued', device_id: null })
+    // (the link went meanwhile: back in the queue, and the card says so — only while it is still this offer: a job the desktop going offline,
+    // a cancel or a hand-over has moved since is left as it is, so it is never queued twice or run again — review of #96)
+    const [back] = await q(`update pro_local_jobs set state='queued', device_id=null, updated_at=now()
+                            where id=$1 and state='offered' and device_id=$2 returning *`, [j.id, link.id])
+    if (!back) return (await q('select * from pro_local_jobs where id=$1', [j.id]))[0] || j
     await hk(back).note(back, 'queued').catch((e) => console.warn('[local-agents] queued', e.message))
     return back
   }
