@@ -2,7 +2,8 @@
 // The count of Home cards waiting, as each system shows such a count (src/tray.js puts it there). The web app counts them
 // (src/browserNotify.js setBadge — the same number an installed web app shows on its icon) and hands it over the preload's
 // bridge (pglDesktop.setBadge). Nothing of Electron here: the words, and the badge drawn on raw pixels — test/badge.test.js.
-//   macOS:   the Dock's number (app.setBadgeCount) · the menu bar icon (a template image) with the number beside it (setTitle)
+//   macOS:   the Dock's number (app.setBadgeCount) · the menu bar icon with the number beside it (setTitle) — the template
+//            image at 0, from 1 on the icon with a red dot in its corner (menuBarDot, drawn for a light or a dark bar)
 //   Windows: the taskbar button's overlay (a red badge, 「알림 3개」 for screen readers) · the tray icon with a red badge
 //   Linux:   the launcher's number where there is one (Unity — app.setBadgeCount) · the tray icon with a red badge
 // A bitmap here is what nativeImage.toBitmap() gives: BGRA, 4 bytes a pixel, row after row, alpha premultiplied.
@@ -164,4 +165,33 @@ function overlayBadge(size, n) {
   return drawBadge(Buffer.alloc(size * size * 4), size, size, { x: off, y: off, ...g }, label, 0)
 }
 
-module.exports = { MAX, clampCount, badgeLabel, words, trayTitle, tooltip, overlayText, menuItems, composeBadge, overlayBadge, GLYPHS, RED, geometry }
+// ---------- macOS: the menu bar icon with a red dot (2026-11-26 사용자: 「상단바에 표시되는 카카오톡에 알람이 들어오듯이」) ----------
+// The menu bar icon is a template image (black + alpha): macOS tints it for a light or a dark bar, and it can hold no colour.
+// With something waiting the menu bar shows a plain image instead, drawn here from the template for the bar's look: the glyph
+// in the colour macOS gives a template there (its label colour — black or white at 85%), and a red dot in the top right
+// corner with a clear ring around it, so the dot stands off the glyph (no number in it — the number is beside the icon).
+const INK = { light: [0x00, 0x00, 0x00], dark: [0xff, 0xff, 0xff], alpha: 0.85 }
+
+// the dot's diameter and its clear ring on a size×size icon: 6 and 1 px at 16 (1×), 12 and 2 at 32 (2×)
+function dotGeometry(size) {
+  return { d: Math.max(3, Math.round(size * 0.375)), ring: Math.max(1, Math.round(size / 16)) }
+}
+
+// the template's bitmap (width × height, BGRA premultiplied) → the menu bar icon with the dot, for a dark bar or a light one
+// (a copy — the template is left alone)
+function menuBarDot(template, width, height, dark) {
+  const [r, g, b] = dark ? INK.dark : INK.light
+  const out = Buffer.alloc(width * height * 4)
+  for (let i = 0; i < out.length; i += 4) {
+    // only the template's alpha counts (its colour is black, or whatever — macOS ignores it too)
+    const a = (template[i + 3] || 0) * INK.alpha
+    out[i] = Math.round((b * a) / 255)
+    out[i + 1] = Math.round((g * a) / 255)
+    out[i + 2] = Math.round((r * a) / 255)
+    out[i + 3] = Math.round(a)
+  }
+  const { d, ring } = dotGeometry(Math.min(width, height))
+  return drawBadge(out, width, height, { x: width - d, y: 0, d, s: 1, tw: 0, th: 0 }, '', ring)
+}
+
+module.exports = { MAX, clampCount, badgeLabel, words, trayTitle, tooltip, overlayText, menuItems, composeBadge, overlayBadge, menuBarDot, dotGeometry, INK, GLYPHS, RED, geometry }

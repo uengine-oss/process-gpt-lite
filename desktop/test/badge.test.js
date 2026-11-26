@@ -4,7 +4,9 @@
 //   · the count (clamped), the words of each system (the menu bar's number, the tooltip, the overlay's description, the menu)
 //   · the badge drawn on raw pixels (BGRA premultiplied — what nativeImage.toBitmap gives): sizes, red where the badge is, the icon
 //     left alone at 0 and outside the badge, 「9+」 from 10 on
-//   · tray.js as macOS, Windows and Linux with a fake app · Tray · Menu · nativeImage · window
+//   · tray.js as macOS, Windows and Linux with a fake app · Tray · Menu · nativeImage · nativeTheme · window
+//   · macOS (2026-11-26 사용자: 「상단바에 표시되는 카카오톡에 알람이 들어오듯이」): the menu bar icon with a red dot from 1 on — not
+//     a template, drawn for a light or a dark bar and again when it changes — the template at 0; the Dock bounces once a rise
 //   · the tray PNGs are there, at their sizes, and packed
 // The real app (Electron) is e2e D-12 (e2e/tests/desktop/desktop.spec.js).
 // Run: cd desktop && node --test test/badge.test.js
@@ -34,6 +36,13 @@ function count(buf, size, pred, box = { x0: 0, y0: 0, x1: size, y1: size }) {
   return n
 }
 const cells = (ch) => B.GLYPHS[ch].join('').split('').filter((c) => c === '1').length
+// a template image (black + alpha, like resources/tray/trayTemplate.png): a black square with a clear margin of 1 px a 16
+function template(size) {
+  const buf = Buffer.alloc(size * size * 4)
+  const m = size / 16
+  for (let y = m; y < size - m; y++) for (let x = m; x < size - m; x++) buf[(y * size + x) * 4 + 3] = 255
+  return buf
+}
 
 test('the count: a whole number 0…9999 — whatever comes over IPC', () => {
   assert.deepEqual([3, 0, -1, 2.9, '7', '', 'x', null, undefined, NaN, true, Infinity, 1e9].map(B.clampCount), [3, 0, 0, 2, 7, 0, 0, 0, 0, 0, 1, 9999, 9999])
@@ -152,7 +161,10 @@ function fakeElectron({ trayFails = false } = {}) {
     return img
   }
   const nativeImage = {
-    createFromPath: (p) => image({ path: p, reps: { 1: { width: 16, height: 16, buf: icon(16) }, 2: { width: 32, height: 32, buf: icon(32) } } }),
+    createFromPath: (p) => {
+      const px = /Template/.test(p) ? template : icon
+      return image({ path: p, reps: { 1: { width: 16, height: 16, buf: px(16) }, 2: { width: 32, height: 32, buf: px(32) } } })
+    },
     createFromBitmap: (buf, { width, height, scaleFactor = 1 }) => {
       assert.equal(buf.length, width * height * 4, 'a bitmap of its size')
       return image({ reps: { [scaleFactor]: { width, height, buf } } })
@@ -180,17 +192,24 @@ function fakeElectron({ trayFails = false } = {}) {
     badge: 0, dockText: '',
     setBadgeCount(n) { app.badge = n; app.dockText = n ? String(n) : ''; log.push(['app.badge', n]); return true },
     getBadgeCount: () => app.badge,
-    dock: { setBadge(t) { app.dockText = t; log.push(['dock', t]) } },
+    dock: { setBadge(t) { app.dockText = t; log.push(['dock', t]) }, bounce(type) { log.push(['dock.bounce', type]); return 1 } },
   }
-  const win = { overlays: [], dead: false, setOverlayIcon(img, d) { win.overlays.push([img, d]) }, isDestroyed: () => win.dead }
-  return { electron: { app, Tray, Menu, nativeImage }, app, Tray, win, log }
+  // the system's appearance (the menu bar's light or dark): 'updated' when it changes
+  const nativeTheme = {
+    shouldUseDarkColors: false, handlers: [],
+    on(ev, fn) { if (ev === 'updated') nativeTheme.handlers.push(fn) },
+    removeListener(ev, fn) { nativeTheme.handlers = nativeTheme.handlers.filter((h) => h !== fn) },
+    turn(dark) { nativeTheme.shouldUseDarkColors = dark; nativeTheme.handlers.forEach((h) => h()) },
+  }
+  const win = { overlays: [], dead: false, focused: false, setOverlayIcon(img, d) { win.overlays.push([img, d]) }, isDestroyed: () => win.dead, isFocused: () => win.focused }
+  return { electron: { app, Tray, Menu, nativeImage, nativeTheme }, app, Tray, nativeTheme, win, log }
 }
 function make(platform, { lang = 'ko', mark = '', trayFails = false } = {}) {
   const f = fakeElectron({ trayFails })
   const did = []
   const ctl = { mark }
   const t = createTrayBadge({
-    electron: f.electron, platform, iconDir: TRAY_DIR, lang: () => lang, mainWindow: () => f.win, dockMark: () => ctl.mark,
+    electron: f.electron, platform, iconDir: TRAY_DIR, lang: () => lang, mainWindow: () => (ctl.noWindow ? null : f.win), dockMark: () => ctl.mark,
     show: () => did.push('show'), openHome: () => did.push('home'), quit: () => did.push('quit'),
   })
   return { ...f, t, did, ctl, tray: f.Tray.last }
@@ -199,16 +218,19 @@ const item = (t, id) => t.menu().items[{ open: 0, home: 1, quit: 3 }[id]]
 
 test('macOS: the menu bar icon is the template image, the number beside it, the Dock\'s number; click → the window, right click → the menu', () => {
   const m = make('darwin')
-  assert.match(m.tray.image.path, /trayTemplate\.png$/)
-  assert.equal(m.tray.image.template, true, 'a template image (macOS tints it for the bar)')
-  assert.deepEqual(m.t.state(), { count: 0, title: '', tooltip: 'Process GPT Lite', overlay: '', menu: ['열기', '알림 없음', '-', '종료'] })
+  const base = m.tray.image
+  assert.match(base.path, /trayTemplate\.png$/)
+  assert.equal(base.template, true, 'a template image (macOS tints it for the bar)')
+  assert.deepEqual(m.t.state(), { count: 0, title: '', tooltip: 'Process GPT Lite', overlay: '', menu: ['열기', '알림 없음', '-', '종료'], icon: 'template' })
   assert.equal(m.t.set(3), 3)
   assert.equal(m.app.getBadgeCount(), 3)
   assert.equal(m.app.dockText, '3')
-  assert.deepEqual(m.t.state(), { count: 3, title: ' 3', tooltip: 'Process GPT Lite — 알림 3개', overlay: '', menu: ['열기', '알림 3개 — 열기', '-', '종료'] })
+  assert.deepEqual(m.t.state(), { count: 3, title: ' 3', tooltip: 'Process GPT Lite — 알림 3개', overlay: '', menu: ['열기', '알림 3개 — 열기', '-', '종료'], icon: 'dot-light' })
   assert.ok(m.log.some((l) => l[0] === 'tray.title' && l[1] === ' 3' && l[2] === 'monospacedDigit'))
-  // no icon of its own with a badge (the template image stays), no context menu of its own (a click is the window)
-  assert.ok(!m.log.some((l) => l[0] === 'tray.image' || l[0] === 'tray.menu'))
+  // the icon with the red dot (not a badge with the number — that is beside it), set once; no context menu of its own (a click is the window)
+  assert.notEqual(m.tray.image, base)
+  assert.equal(m.log.filter((l) => l[0] === 'tray.image').length, 1)
+  assert.ok(!m.log.some((l) => l[0] === 'tray.menu'))
   assert.equal(m.win.overlays.length, 0)
   m.tray.emit('click')
   m.tray.emit('right-click')
@@ -219,11 +241,139 @@ test('macOS: the menu bar icon is the template image, the number beside it, the 
   item(m.t, 'open').click()
   item(m.t, 'quit').click()
   assert.deepEqual(m.did, ['show', 'home', 'show', 'quit'])
-  // back to 0: nothing beside the icon, the Dock's number gone
+  // back to 0: the template image again, nothing beside it, the Dock's number gone
   m.t.set(0)
   assert.equal(m.app.getBadgeCount(), 0)
   assert.equal(m.t.state().title, '')
   assert.equal(m.app.dockText, '')
+  assert.equal(m.tray.image, base)
+  assert.equal(m.tray.image.template, true)
+  assert.equal(m.t.state().icon, 'template')
+})
+
+// the dot on a menu bar icon of size px: the box of its top right corner, and a pixel in its middle
+const dotBox = (size) => { const { d } = B.dotGeometry(size); return { x0: size - d, y0: 0, x1: size, y1: d } }
+const dotMiddle = (buf, size) => { const { d } = B.dotGeometry(size); return px(buf, size, size - d / 2, d / 2 - 1) }
+// the template's glyph as macOS draws it on a bar: black (light) or white (dark) at 85% — premultiplied
+const ink = (dark) => { const a = Math.round(255 * B.INK.alpha); return dark ? { b: a, g: a, r: a, a } : { b: 0, g: 0, r: 0, a } }
+
+test('the menu bar dot (macOS): the template recoloured for a light or a dark bar, a red dot in the top right corner with a clear ring', () => {
+  assert.deepEqual([16, 32].map(B.dotGeometry), [{ d: 6, ring: 1 }, { d: 12, ring: 2 }])
+  for (const size of [16, 32]) {
+    const t = template(size)
+    const before = Buffer.from(t)
+    for (const dark of [false, true]) {
+      const out = B.menuBarDot(t, size, size, dark)
+      assert.equal(out.length, size * size * 4, `${size}px: same dimensions`)
+      assert.ok(t.equals(before), 'the template handed in is left alone')
+      const box = dotBox(size)
+      const { d } = B.dotGeometry(size)
+      assert.ok(isRed(dotMiddle(out, size)), `${size}px ${dark ? 'dark' : 'light'}: red in the middle of the dot`)
+      const red = count(out, size, isRed, box)
+      assert.ok(red > d * d * 0.4, `${size}px: a red disc in the top right (${red} red pixels)`)
+      assert.equal(count(out, size, isRed), red, 'no red outside its corner')
+      // the glyph, in the bar's ink: its bottom left corner (far from the dot) and the margin around it, see-through
+      const m = size / 16
+      assert.deepEqual(px(out, size, m + 1, size - m - 2), ink(dark), `${size}px: the glyph in ${dark ? 'white' : 'black'} at 85%`)
+      assert.equal(px(out, size, 0, size - 1).a, 0, 'the margin stays see-through')
+      // a clear ring between the dot and the glyph (some of the glyph's pixels around the dot are see-through now)
+      assert.ok(count(out, size, (p) => p.a === 0, { x0: m, y0: m, x1: size - m, y1: size - m }) > 0, `${size}px: a clear ring`)
+    }
+    assert.ok(!B.menuBarDot(t, size, size, false).equals(B.menuBarDot(t, size, size, true)), 'a light bar and a dark one differ')
+  }
+})
+
+test('macOS: from 1 on the menu bar icon has the red dot — drawn for the bar\'s look, again when it changes; the template at 0', () => {
+  const m = make('darwin')
+  const base = m.tray.image
+  m.t.set(2)
+  const light = m.tray.image
+  assert.equal(light.template, false, 'not a template — macOS would tint the dot')
+  assert.deepEqual(light.getScaleFactors(), [1, 2], '16 and 32 px (@2x)')
+  assert.ok(light.reps[1].buf.equals(B.menuBarDot(template(16), 16, 16, false)))
+  assert.ok(light.reps[2].buf.equals(B.menuBarDot(template(32), 32, 32, false)))
+  assert.ok(isRed(dotMiddle(light.reps[2].buf, 32)))
+  assert.equal(m.t.state().icon, 'dot-light')
+  // more, or a refresh: the same image, not set again
+  const sets = () => m.log.filter((l) => l[0] === 'tray.image').length
+  m.t.set(7)
+  m.t.refresh()
+  assert.equal(m.tray.image, light)
+  assert.equal(sets(), 1)
+  // the bar turns dark: the dot drawn for it, a white glyph
+  m.nativeTheme.turn(true)
+  const dark = m.tray.image
+  assert.notEqual(dark, light)
+  assert.equal(dark.template, false)
+  assert.deepEqual(px(dark.reps[1].buf, 16, 2, 13), ink(true))
+  assert.ok(isRed(dotMiddle(dark.reps[1].buf, 16)) && isRed(dotMiddle(dark.reps[2].buf, 32)))
+  assert.equal(m.t.state().icon, 'dot-dark')
+  assert.equal(m.t.state().title, ' 7', 'the number stays beside it')
+  // light again: the image made before (once per look)
+  m.nativeTheme.turn(false)
+  assert.equal(m.tray.image, light)
+  assert.equal(sets(), 3)
+  // 0: the template, whatever the bar; a change of look then sets nothing
+  m.t.set(0)
+  assert.equal(m.tray.image, base)
+  m.nativeTheme.turn(true)
+  assert.equal(m.tray.image, base)
+  assert.equal(sets(), 4)
+  // dark from the start: the dark dot at once
+  const d = make('darwin')
+  d.nativeTheme.turn(true)
+  d.t.set(1)
+  assert.equal(d.t.state().icon, 'dot-dark')
+  // gone with the tray: no listener left
+  d.t.destroy()
+  assert.equal(d.nativeTheme.handlers.length, 0)
+  // Windows · Linux: as before — the badge with the number, no listener
+  for (const p of ['win32', 'linux']) {
+    const w = make(p)
+    assert.equal(w.nativeTheme.handlers.length, 0)
+    w.t.set(3)
+    assert.equal(w.t.state().icon, 'badge')
+    w.t.set(0)
+    assert.equal(w.t.state().icon, 'plain')
+  }
+})
+
+test('macOS: the Dock icon bounces once when the count goes up while the window is not in front — not on a refresh, not going down', () => {
+  const m = make('darwin')
+  const bounces = () => m.log.filter((l) => l[0] === 'dock.bounce')
+  m.win.focused = false
+  m.t.set(1)
+  assert.deepEqual(bounces(), [['dock.bounce', 'informational']], 'once, informational (not until the app is active)')
+  m.t.set(1)
+  m.t.refresh()
+  m.t.dock()
+  assert.equal(bounces().length, 1, 'the same count or a refresh: no bounce')
+  m.t.set(3)
+  assert.equal(bounces().length, 2, 'up again: once more')
+  m.t.set(2)
+  m.t.set(0)
+  assert.equal(bounces().length, 2, 'going down: none')
+  // the window in front: the person sees it already
+  m.win.focused = true
+  m.t.set(4)
+  assert.equal(bounces().length, 2)
+  // no window (closed — the app keeps running on macOS) or a destroyed one: it bounces
+  m.ctl.noWindow = true
+  m.t.set(6)
+  assert.equal(bounces().length, 3)
+  m.ctl.noWindow = false
+  m.win.dead = true
+  m.t.set(8)
+  assert.equal(bounces().length, 4)
+  m.t.destroy()
+  m.t.set(9)
+  assert.equal(bounces().length, 4)
+  // Windows · Linux: no Dock to bounce (as before)
+  for (const p of ['win32', 'linux']) {
+    const w = make(p)
+    w.t.set(5)
+    assert.ok(!w.log.some((l) => l[0] === 'dock.bounce'))
+  }
 })
 
 test('macOS: with no count the Dock still shows ● while a local agent runs; a count comes first', () => {
