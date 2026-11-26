@@ -216,7 +216,12 @@ async function askedBy(user, ids) {
 // (counted here, with the same comparison as every slot match — a path a Mac wrote in NFD counts under its NFC slot)
 async function hiddenOf(folder, slots) {
   if (!slots.length) return new Map()
-  const rows = await q('select path from pro_folder_files where folder_id=$1', [folder.id]).catch(() => [])
+  // only the paths at or under a slot, in either form (NFC · NFD) — a large folder's whole index is not read for this (review of #97);
+  // the count itself stays the same NFC comparison every slot match uses (inside)
+  const forms = [...new Set(slots.flatMap((s) => [String(s).normalize('NFC'), String(s).normalize('NFD')]))]
+  const like = (s) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
+  const rows = await q(`select path from pro_folder_files where folder_id=$1 and (path = any($2::text[]) or path like any($3::text[]))`,
+    [folder.id, forms, forms.map((s) => `${like(s)}/%`)]).catch(() => [])
   const out = new Map()
   for (const { path: p } of rows) {
     const s = slots.find((x) => inside(x, p))
