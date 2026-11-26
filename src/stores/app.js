@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { runner as localRunner, startDesktopRunner, disconnectThis } from '../localRunner.js'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
-import { newId, retryable, backoff, why, retryWindow, loadUnsent, saveUnsent } from '../sendQueue.js'
+import { newId, retryable, backoff, why, retryWindow, loadUnsent, saveUnsent, forgetAllUnsent, ATTEMPT_MS } from '../sendQueue.js'
 import { BASE } from '../base.js'
 import { forgetPlaces } from '../shareTarget.js'
 import { syncLang, isEnglish } from '../i18n/lang.js'
@@ -22,9 +22,11 @@ let draftJob = Promise.resolve(null)
 const inFlight = new Map()
 const working = new Set()
 const tookChips = new Map()
-// words taken back from a line (그만두기 · 입력창에 넣기): sent again unchanged, they keep their name — the server may have the first one
-// already (it was on its way when it was taken back) and takes a name once (room + words → id)
+// words taken back from a line (그만두기 · 입력창에 넣기): sent again unchanged — in the same conversation, within ten minutes — they keep their
+// name: the server may have the first one already (it was on its way when it was taken back) and takes a name once. Later, the same
+// words ("네", "계속") are a new message. (conversation key + words → {id, at})
 const takenBack = new Map()
+const TAKEN_BACK_MS = 10 * 60_000
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms))
 
 // turns this page saw end (turnId → when): a snapshot or a late event does not bring their cards back (src/turnState.js)
@@ -480,8 +482,9 @@ export const useApp = defineStore('app', {
       const agent = opts.agent || (picked && picked.key === key ? picked.agent : 'default')
       // Each message is named (src/sendQueue.js newId — the server takes a name once, lib/sendOnce.js) and kept until the server takes it:
       // a server away for a moment (a deploy's restart — 2026-11-27 recording) is asked again, anything else is kept for the person.
-      const again = takenBack.get(`${threadId}\n${text}`)
-      takenBack.delete(`${threadId}\n${text}`)
+      const back = takenBack.get(`${key}\n${text}`)
+      takenBack.delete(`${key}\n${text}`)
+      const again = back && Date.now() - back.at < TAKEN_BACK_MS ? back.id : null
       const entry = { id: again || newId(), threadId, key, conv: conversation || null, text, context, files, refs, openDoc, agent, fresh: !!opts.fresh, at: Date.now(), tries: 0 }
       tookChips.set(entry.id, pending)
       // behind a message of this room not taken yet: it waits its turn (the server answers them in the order they reach it)
@@ -507,6 +510,9 @@ export const useApp = defineStore('app', {
       const { threadId } = entry
       const ctl = typeof AbortController === 'function' ? new AbortController() : null
       inFlight.set(entry.id, ctl)
+      // (no answer at all for a while — a gateway that has not given up: given up here and asked again under the same name)
+      let timedOut = false
+      const timer = setTimeout(() => { timedOut = true; ctl?.abort() }, ATTEMPT_MS)
       this.drafts[threadId] = ''
       const asked = this.askedAt[threadId] = Date.now()
       let ended = false, accepted = false, took
@@ -518,8 +524,8 @@ export const useApp = defineStore('app', {
         if (ev === 'retract' && this.drafts[threadId] != null) this.drafts[threadId] = ''
         if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
         extra?.(ev, data)
-      }, { signal: ctl?.signal, onAccepted: () => { accepted = true; inFlight.delete(entry.id); this.dropUnsent(entry.id); took() } })
-      const outcome = run.then(() => null, (e) => e)
+      }, { signal: ctl?.signal, onAccepted: () => { accepted = true; clearTimeout(timer); inFlight.delete(entry.id); this.dropUnsent(entry.id); took() } })
+      const outcome = run.then(() => null, (e) => (timedOut && !accepted ? Object.assign(e, { timedOut: true }) : e))
       const finished = outcome.then((e) => {
         if (!accepted) return
         if (e) console.warn('[send]', e.message)
@@ -532,6 +538,7 @@ export const useApp = defineStore('app', {
         else if (this.projects.some((p) => p.id === threadId)) this.loadTopics(threadId)
       })
       const first = await Promise.race([tookIt.then(() => null), outcome])
+      clearTimeout(timer)
       if (accepted) return { accepted: true, finished }
       inFlight.delete(entry.id)
       this.drafts[threadId] = null
@@ -590,7 +597,7 @@ export const useApp = defineStore('app', {
       this.unsent = this.unsent.filter((x) => x.id !== id)
       this.saveUnsent()
       this.dropLocalCopy(u)
-      takenBack.set(`${u.threadId}\n${u.text}`, u.id)
+      takenBack.set(`${u.key}\n${u.text}`, { id: u.id, at: Date.now() })
       const chips = tookChips.get(id) || (u.files || []).map((f) => ({ id: newId(), name: f.name || '파일', size: f.size || 0, state: 'ready', result: f, error: '', job: Promise.resolve(f) }))
       tookChips.delete(id)
       if (chips.length) this.attachments = [...this.attachments, ...chips.filter((a) => !this.attachments.some((b) => b.id === a.id))]
@@ -775,8 +782,12 @@ export const useApp = defineStore('app', {
       if (localRunner.desktop) await disconnectThis({ optOut: false }).catch(() => {})
       // (this device forgets the places kept for sharing, a share still waiting and the messenger's unsent words — src/shareTarget.js)
       try { forgetPlaces(window.localStorage, window.sessionStorage) } catch { /* nothing kept */ }
-      // (and the messages kept before the server took them — src/sendQueue.js: their words, context, files)
-      saveUnsent(this.me?.user?.id, [])
+      // (and the messages kept before the server took them — src/sendQueue.js: their words, context, files): the tries stop first, so
+      // none writes the list back while the page leaves
+      for (const c of inFlight.values()) c?.abort()
+      inFlight.clear()
+      this.unsent = []
+      forgetAllUnsent(window.localStorage)
       auth.clear(); location.href = BASE + '/login'
     },
   },

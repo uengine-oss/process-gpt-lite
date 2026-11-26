@@ -21,7 +21,8 @@ test('다시 보낼 실패: 받지 않았고(accepted false) 서버가 잠시 �
   for (const status of [400, 401, 403, 404, 409, 413, 500]) assert.ok(!Q.retryable({ accepted: false, status }), String(status))
   assert.ok(!Q.retryable({ accepted: true }), '받은 뒤 끊긴 것은 다시 보내지 않는다')
   assert.ok(!Q.retryable({ accepted: false, unauthorized: true }))
-  assert.ok(!Q.retryable({ accepted: false, aborted: true }))
+  assert.ok(!Q.retryable({ accepted: false, aborted: true }), '그만두기로 멈춘 것은 아님')
+  assert.ok(Q.retryable({ accepted: false, aborted: true, timedOut: true }), '답이 없어 화면이 그만둔 것은 다시')
   assert.ok(!Q.retryable(null))
 })
 
@@ -48,6 +49,12 @@ test('이 브라우저에 남기기: 모양이 맞는 것만 읽고, 비면 지�
   assert.deepEqual(Q.loadUnsent('other', storage).map((x) => x.text), ['ok'])
   Q.saveUnsent('me', [], storage)
   assert.equal(box.has('pgl-unsent:me'), false)
+  // sign-out · another person's session: every kept list goes, nothing else
+  box.set('pgl-unsent:a', '[]'); box.set('pgl-unsent:b', '[]'); box.set('pgl-lang', 'ko')
+  const store = { get length() { return box.size }, key: (i) => [...box.keys()][i], getItem: (k) => box.get(k) ?? null, removeItem: (k) => box.delete(k) }
+  Q.forgetAllUnsent(store)
+  assert.deepEqual([...box.keys()].filter((k) => k.startsWith('pgl-unsent:')), [])
+  assert.equal(box.get('pgl-lang'), 'ko')
   const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('full') }, removeItem: () => {} }
   assert.deepEqual(Q.loadUnsent('me', broken), [])
   assert.doesNotThrow(() => Q.saveUnsent('me', [u], broken))

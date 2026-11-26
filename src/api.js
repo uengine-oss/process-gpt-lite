@@ -1,4 +1,5 @@
 // Thin client for the pgpt-pro server (proxied at /api by Vite).
+import { forgetAllUnsent } from './sendQueue.js'
 import { BASE } from './base.js'
 import { forgetPlaces } from './shareTarget.js'
 
@@ -28,7 +29,7 @@ export function adoptHostSession() {
   const mine = auth.get()?.session?.access_token
   if (mine && sub(mine) === sub(access_token)) return false
   // (another person's session from here on: this device forgets the last one's places, waiting share and unsent words)
-  if (mine) forgetPlaces(storeOf('localStorage'), storeOf('sessionStorage'))
+  if (mine) { forgetPlaces(storeOf('localStorage'), storeOf('sessionStorage')); forgetAllUnsent(storeOf('localStorage')) }
   auth.set({ session: { access_token, refresh_token }, host: true })
   return true
 }

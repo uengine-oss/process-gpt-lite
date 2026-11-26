@@ -214,6 +214,30 @@ test.describe('보낸 말이 사라지지 않는다 — 서버가 받지 못한 
     expect(page.errors).toEqual([])
   })
 
+  test('F-SR-10 첫 시도에 아무 답이 없으면(20초) 화면이 그만두고 같은 이름으로 다시 보낸다 — 뒤의 말은 그동안 기다린다', async ({ pageAs, db }) => {
+    test.setTimeout(90_000)
+    const page = await pageAs('sr-hang')
+    await db.clearMain(page.user.id)
+    const sent = []
+    await page.route('**/api/threads/*/messages', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      sent.push(route.request().postDataJSON())
+      // the very first try hangs (no answer ever); every later one is taken
+      if (sent.length === 1) return
+      await route.fulfill(ok)
+    })
+    await page.goto('/chat')
+    await send(page, '답 없는 첫 시도')
+    await send(page, '뒤에 보낸 말')
+    await expect(page.locator('[data-test="send-issue"][data-state="waiting"]')).toContainText('「뒤에 보낸 말」')
+    await expect(line(page)).toHaveCount(0, { timeout: 45_000 })
+    const first = sent.filter((x) => x.text === '답 없는 첫 시도')
+    expect(first.length).toBe(2)
+    expect(first[0].clientId).toBe(first[1].clientId)
+    expect(sent.map((x) => x.text).indexOf('뒤에 보낸 말')).toBeGreaterThan(sent.map((x) => x.text).lastIndexOf('답 없는 첫 시도'))
+    expect(page.errors).toEqual([])
+  })
+
   test('F-SR-08 실제 서버: 같은 이름으로 두 번(이어서 · 동시에) 보내도 메시지는 하나', async ({ as, db }) => {
     const u = await as('sr-server')
     const main = await db.clearMain(u.id)

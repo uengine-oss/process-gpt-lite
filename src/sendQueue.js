@@ -9,7 +9,10 @@ export const retryWindow = () => Number(globalThis.__PGL_SEND_RETRY_MS__) || 4 *
 // a gateway's answer while the server is away (Cloudflare's 520 – 524 too)
 const AWAY = new Set([502, 503, 504, 520, 521, 522, 523, 524])
 // a failure that means the server is away for a moment — not taken, asked again. A refusal, or a sign-in that is gone, is not.
-export const retryable = (e) => !!e && e.accepted === false && !e.unauthorized && !e.aborted && (!e.status || AWAY.has(e.status))
+// (a try the page gave up on — no answer at all within a while, timedOut — is asked again; one taken back is not)
+export const retryable = (e) => !!e && e.accepted === false && !e.unauthorized && (!e.aborted || e.timedOut) && (!e.status || AWAY.has(e.status))
+// a try with no answer at all this long is given up and asked again (the server takes a name once — no second message)
+export const ATTEMPT_MS = 20_000
 // the wait before asking again: 2 s, 4 s, … up to 15 s
 export const backoff = (tries) => Math.min(15_000, 2_000 * Math.max(1, Number(tries) || 1))
 // why, in the person's words (not the browser's 「Failed to fetch」)
@@ -30,6 +33,15 @@ export function newId() {
 export function clip(t, n = 40) {
   const s = String(t || '').replace(/\s+/g, ' ').trim()
   return s.length > n ? `${s.slice(0, n)}…` : s
+}
+
+// every kept list on this device (sign-out, another person's session: none of it stays)
+export function forgetAllUnsent(storage = globalThis.localStorage) {
+  try {
+    const keys = []
+    for (let i = 0; i < (storage?.length || 0); i++) { const k = storage.key(i); if (k && k.startsWith('pgl-unsent:')) keys.push(k) }
+    for (const k of keys) storage.removeItem(k)
+  } catch { /* storage blocked */ }
 }
 
 // ---------- kept in this browser ----------
