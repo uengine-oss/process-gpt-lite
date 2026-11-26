@@ -479,7 +479,7 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
     flagged, flaggedIncluded: flaggedIn, kit, warnings,
   }
   const report = { files: kept.length, bytes, excluded: Object.fromEntries(GROUPS.map((g) => [g, excluded[g].count])), flagged: flaggedFiles.size - flaggedIn, flaggedIncluded: flaggedIn }
-  return { preview, files: kept, report, flaggedIn }
+  return { preview, files: kept, report, flaggedIn, flaggedPaths: [...flaggedFiles] }
 }
 
 // what the server would refuse for its size (secret-shapes.json limits: one push · the snapshot's whole tree) → 'too_big' | 'too_many' | null
@@ -535,21 +535,28 @@ function ro(name) {
   const jong = c >= 0xac00 && c <= 0xd7a3 ? (c - 0xac00) % 28 : 0
   return jong && jong !== 8 ? '으로' : '로'
 }
-// what goes up and where — and, when the person brought back files the preview flagged (only 'check' ones can be), how many of them
-// go with it → {message, detail}
-function uploadQuestion({ files = 0, bytes = 0, folderName = '', host = '', report = {}, flaggedIn = 0, lang = 'ko' } = {}) {
+// what goes up and where, and the files the preview flagged (「확인이 필요한」): how many stay here (flaggedOut — bind counts them, the
+// report alone misses those the page left out by name) and how many the person brought back go with it (flaggedIn — only 'check' ones
+// can be) → {message, detail}
+function uploadQuestion({ files = 0, bytes = 0, folderName = '', host = '', report = {}, flaggedIn = 0, flaggedOut = null, lang = 'ko' } = {}) {
   const ko = lang !== 'en'
   const name = String(folderName || '').slice(0, 80)
   const message = ko
     ? `파일 ${files}개(${sizeText(bytes)})를 ${host} 의 폴더 '${name}'${ro(name)} 올립니다${flaggedIn ? ` — 확인이 필요한 파일 ${flaggedIn}개도 함께 올라가요` : ''}`
     : `Upload ${files} files (${sizeText(bytes)}) to the folder '${name}' on ${host}?${flaggedIn ? ` ${flaggedIn} of them were flagged to check.` : ''}`
   const left = (report.excluded?.secret || 0) + (report.excluded?.personal || 0)
-  const out = report.flagged || 0
+  const out = Math.max(0, Number(flaggedOut ?? report.flagged) || 0)
+  const many = (k, one, more) => `${k} ${k === 1 ? one : more}`
+  const flaggedKo = out && flaggedIn ? `확인이 필요한 파일 ${out}개는 빼고, 함께 올리기로 고른 ${flaggedIn}개는 내용 그대로 서버에 남아요.`
+    : out ? `확인이 필요한 파일 ${out}개는 빼고 올려요.`
+      : flaggedIn ? `함께 올리기로 고른 확인 파일 ${flaggedIn}개는 내용 그대로 서버에 남아요.` : ''
+  const chosenEn = (k) => `${many(k, 'flagged file you chose goes', 'flagged files you chose go')} to the server as ${k === 1 ? 'it is' : 'they are'}.`
+  const flaggedEn = out && flaggedIn ? `${many(out, 'flagged file stays', 'flagged files stay')} here; ${chosenEn(flaggedIn)}`
+    : out ? `${many(out, 'flagged file stays', 'flagged files stay')} here.`
+      : flaggedIn ? chosenEn(flaggedIn).replace(/^./, (c) => c.toUpperCase()) : ''
   const detail = ko
-    ? [`이 컴퓨터의 폴더는 읽기만 하고 아무것도 쓰지 않아요.`, left ? `비밀 · 개인 설정으로 보이는 ${left}개는 올리지 않아요.` : '', out ? `확인이 필요한 파일 ${out}개는 빼고 올려요.` : '',
-      flaggedIn ? `함께 올리기로 고른 확인 파일 ${flaggedIn}개는 그 안의 글 그대로 서버에 남아요.` : ''].filter(Boolean).join(' ')
-    : [`The folder on this computer is only read, nothing is written to it.`, left ? `${left} files that look secret or personal stay here.` : '', out ? `${out} files to check stay here.` : '',
-      flaggedIn ? `The ${flaggedIn} flagged files you chose to include go to the server as they are.` : ''].filter(Boolean).join(' ')
+    ? [`이 컴퓨터의 폴더는 읽기만 하고 아무것도 쓰지 않아요.`, left ? `비밀 · 개인 설정으로 보이는 ${left}개는 올리지 않아요.` : '', flaggedKo].filter(Boolean).join(' ')
+    : [`The folder on this computer is only read, nothing is written to it.`, left ? `${many(left, 'file that looks secret or personal stays', 'files that look secret or personal stay')} here.` : '', flaggedEn].filter(Boolean).join(' ')
   return { message, detail }
 }
 
@@ -662,8 +669,12 @@ class FolderSync extends EventEmitter {
     if (this.picks.size >= 20) this.picks.delete(this.picks.keys().next().value)
     const pickId = crypto.randomUUID()
     const label = path.basename(real) || real
-    this.picks.set(pickId, { dir: real, label, at: Date.now() })
+    const p = { dir: real, label, at: Date.now(), flagged: [] }
+    this.picks.set(pickId, p)
     const s = await this.scanOf(real, this.scratch(), [], [])
+    // (what this first look flagged: the page may later send those files as left out by name — then no scan reads them again, and the
+    // dialog before the upload still counts them — bind)
+    p.flagged = s.flaggedPaths
     return { pickId, label, preview: s.preview }
   }
   async preview(pickId, { include = [], exclude = [] } = {}) {
@@ -713,8 +724,12 @@ class FolderSync extends EventEmitter {
       if (!s.report.files) return { ok: false, why: 'empty' }
       const big = tooBig(this.rules, s.report)
       if (big) return { ok: false, why: big }
+      // the flagged files that stay here: this scan's, and the first look's that the page then left out by name (the sheet does that with
+      // every flagged file it keeps out — this scan never read them, its report has 0) — the dialog says how many go and how many stay
+      const going = new Set(s.files)
+      const flaggedOut = new Set([...(p.flagged || []), ...s.flaggedPaths].filter((r) => !going.has(r))).size
       let yes = false
-      try { yes = typeof confirm === 'function' && (await confirm({ files: s.report.files, bytes: s.report.bytes, folderName: String(folderName || p.label).slice(0, 120), label: p.label, report: s.report, flaggedIn: s.flaggedIn })) === true } catch { yes = false }
+      try { yes = typeof confirm === 'function' && (await confirm({ files: s.report.files, bytes: s.report.bytes, folderName: String(folderName || p.label).slice(0, 120), label: p.label, report: s.report, flaggedIn: s.flaggedIn, flaggedOut })) === true } catch { yes = false }
       if (!yes) return { ok: false, why: 'cancelled' }
       const b = await this.ask({ type: 'sync:bind', folderId, label: p.label }, ['sync:bound'])
       if (b.type !== 'sync:bound') return { ok: false, why: String(b.why || 'refused') }

@@ -23,8 +23,9 @@ function clean(node) {
   }
 }
 
-export function safeMarkdown(text) {
-  const html = marked.parse(String(text || ''), { breaks: true, gfm: true, async: false })
+// breaks: a single line break is a <br> (chat text, the default) or not (documents: FileView)
+export function safeMarkdown(text, { breaks = true } = {}) {
+  const html = marked.parse(String(text || ''), { breaks, gfm: true, async: false })
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html')
   clean(doc.body)
   return doc.body.innerHTML

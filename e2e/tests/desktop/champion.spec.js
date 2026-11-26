@@ -180,6 +180,8 @@ test('F-CH-02 올리면 시스템 창이 한 번 더 묻고, 새 폴더에 파�
   const asked = await app.evaluate(() => global.__pglFolderDialogs || [])
   expect(asked).toHaveLength(1)
   expect(asked[0].message).toMatch(new RegExp(`^파일 \\d+개\\([0-9.]+ (KB|MB)\\)를 127\\.0\\.0\\.1:${WEB_PORT} 의 폴더 '영업 제안 키트'로 올립니다$`))
+  // (and what stays here: the flagged config/app.txt, which the sheet sends as left out by name — F-CH-09)
+  expect(asked[0].detail).toContain('확인이 필요한 파일 1개는 빼고 올려요.')
   const slug = decodeURIComponent(new URL(page.url()).pathname.split('/').pop())
   ;[folder] = await q('select id, slug, repo_path, settings from pro_folders where tenant_id=$1 and slug=$2', [TENANT, slug])
   expect(folder?.settings?.champion).toBeTruthy()

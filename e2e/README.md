@@ -1420,8 +1420,9 @@ cd server && API_URL=http://127.0.0.1:8966 node test/room-rename-reactions.e2e.m
 사용자(11-26): 「에이전트를 잘 쓰는 그런 에이전트 챔피언들의 노하우를 공유하기 위한 기능을 좀 만들면 좋을 것 같아요 그래서 이 사람이 폴더를 선택을 하면 그 폴더가 Git의 우리 폴더 서버에 있는 폴더로 동기화 될 수 있는 기능을 만들어주고 이 사람이 가고 있는 스킬이라든지 폴더 안에 .claude … 그 각 플랫폼별 스킬이 포함된 폴더가 있다면 이런 것들이 같이 동반해서」. 데스크톱 앱에서 폴더를 고르면 미리 보기(올릴 것 · 뺀 것과 까닭 · 확인할 파일 · 찾은 자산) → 이름 입력 → 시스템 창에서 동의를 거쳐 챔피언 폴더의 main이 해당 스냅숏이 된다. 서버는 동기화 push로 들어온 파일을 다시 검사한다(비밀이 있으면 가지를 되돌리고 main에 넣지 않음). 공개 git 경로에서는 동기화 토큰의 기기 · 원본 · 역할을 요청마다 확인한다. 폴더 화면의 「에이전트 자산」 탭은 main의 경로를 기준으로 플랫폼별 자산을 찾아 보여 준다. 화면 시험은 자체 스택(`lib/localStack.js` — 회사 `champion-web`, BFF 8963 · Vite 5363, 두 포트 중 하나라도 사용 중이면 중단)을 띄워 진행한다. F-CH-07은 데스크톱 연결 인터페이스(`window.pglDesktop.folders`)를 흉내 낸 페이지로 시트의 흐름을 확인한다. 실제 앱이 폴더를 훑고 올리는 동작(F-CH-01 ~ 03)은 데스크톱 시험에서 확인한다. 증거는 `openspec/specs/champion-folders/e2e/README.md`에 있다.
 
 ```bash
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/champion-folders.spec.js
-cd server && node --test test/championFolders.test.js && node test/champion-sync.e2e.mjs
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/champion-folders.spec.js   # 포트: RT_CH_API_PORT · RT_CH_WEB_PORT
+cd server && node --test test/championFolders.test.js test/frontMatter.test.js && node test/champion-sync.e2e.mjs
+cd desktop && node --test test/sync.test.js
 cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js   # 데스크톱 앱(Electron), BFF 8964 · Vite 5364
 ```
 
@@ -1451,6 +1452,9 @@ cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js  
 | 폴더의 `.gitattributes`(`eol=crlf` · `merge=union` · `filter`)는 서버의 main 작업 트리 파일과 병합 동작에 영향을 주지 못한다. | 스펙 요구 5 | CH-U-16 · CH-E-05 | 단위 · e2e | ✅ |
 | 파일이 있는 챔피언 폴더는 최초 업로드 기기만 다시 연결할 수 있다(`not_empty`). 동일한 HEAD를 다시 알리면 즉시 응답한다. 링크별 요청은 분당 60회로 제한한다(`rate_limited`). 다른 회사 링크에 대한 연결 해제 요청은 영향을 주지 않는다. | 스펙 요구 1 · 5 | CH-U-17 · CH-E-07 | 단위 · e2e | ✅ |
 | 동기화 브랜치는 해당 기기의 토큰을 제외한 모든 토큰에 숨긴다(클러스터 · 다른 기기). 클러스터 토큰으로는 동기화 브랜치에 push할 수 없으며, `/api/git`은 데스크톱 토큰에 403을 반환한다. | `folder-git-remote` | CH-U-18 · CH-E-06 · CH-E-07 | 단위 · e2e | ✅ |
+| SKILL.md 등 마크다운 파일의 YAML 머리말을 파일 미리 보기 맨 위에 작은 표(키 · 값)로 표시하고, 가로줄이나 굵은 제목으로 표시하지 않음. 머리말이 아니면 원문 그대로 표시(1280 · 390) | 녹화 결함(11-26) · 스펙 요구 6 | F-CH-08 · FM-01 ~ 03 | feature · 단위 | ✅ |
+| 첫 올리기 전 운영체제 확인 창의 설명에 확인이 필요한 파일 중 제외하는 수와 함께 올리는 수를 표시함. 시트가 해당 파일을 「뺄 것」으로 전달해도 수에 포함함 | 녹화 결함(11-26) · 스펙 요구 2 | F-CH-09 | 단위(데스크톱) | ✅ |
+| 데스크톱 앱의 「내 PC 폴더 올리기」는 앱이 이 서버에 현재 사용자로 연결된 뒤에만 표시함. 폴더 화면을 먼저 열어도 페이지가 자동으로 연결하며, 연결을 해제해 둔 PC 에는 안내와 「이 PC 연결하기」를 표시함(1280 · 390) | 녹화 결함(11-26) · 스펙 요구 1 | F-CH-10 | feature | ✅ |
 | 자동 올리기 · 받기 · 회사 공개 · 넘기기 | 설계 P1 ~ P3 | — | — | 다음 단계 |
 
 ### 61. 파일이 열리는 모든 곳에 같은 「내려받기」 — 화면에 보이는 이름 그대로, 수정한 내용은 먼저 저장 (스펙 `file-download`)

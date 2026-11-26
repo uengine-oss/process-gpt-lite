@@ -4,12 +4,26 @@
 // sends or receives a path — only the folder's name on this computer (label). In a browser there is no bridge: the screen says where
 // this can be done instead.
 import { reactive } from 'vue'
+import { runner } from './localRunner.js'
 
 export const bridge = () => (typeof window !== 'undefined' ? window.pglDesktop?.folders || null : null)
 export async function available() {
   const b = bridge()
   if (!b || typeof b.available !== 'function') return false
   try { return !!(await b.available()) } catch { return false }
+}
+// The app keeps a person's folders with its pairing with this server (desktop main.js folderSync — before it a pick only says
+// not_linked), so in the app 「내 PC 폴더 올리기」 waits for that pairing, for the signed-in person (uid):
+//   ready    — paired for this person
+//   linking  — on its way: the page pairs this computer by itself after sign-in (localRunner.js startDesktopRunner — App.vue), or has
+//              not heard from the app yet
+//   unpaired — not paired for this person and not on its way: they disconnected this computer here, the pairing failed, or the server
+//              closed this computer's link — the screen offers 「이 PC 연결하기」
+export function pcLink(uid) {
+  const st = runner.status
+  if (st?.paired && uid && String(st.userId) === String(uid) && !st.refused) return 'ready'
+  if (!uid || !runner.desktop || runner.starting) return 'linking'
+  return 'unpaired'
 }
 
 // what this computer uploads (list() — {folderId, label, state, lastPushedAt, why}), kept fresh while a screen shows it
