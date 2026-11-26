@@ -312,6 +312,19 @@ await step('CH-E-06 동기화 가지는 다른 토큰에 보이지 않고 닿지
   assert.match(seen.out, /refs\/heads\/main/)
   assert.doesNotMatch(seen.out, /pgpt-agent\/sync-/, '클러스터 토큰에는 동기화 가지가 없다')
   assert.match((await git(ROOT, ['ls-remote', remote(folder.id)], tok.token)).out, new RegExp(tok.branch), '자기 기기의 가지는 보인다')
+  // a commit only on the device's (hidden) branch is not handed out by id either — also when the client asks for protocol v2
+  await fs.writeFile(path.join(work, 'hidden-only.md'), '가지에만 있는 글\n')
+  await git(work, ['add', '-A'])
+  await git(work, ['commit', '-q', '-m', '가지에만'])
+  const onlyHere = (await git(work, ['rev-parse', 'HEAD'])).out.trim()
+  assert.equal((await git(work, ['push', '-q', 'origin', `HEAD:refs/heads/${tok.branch}`], tok.token)).code, 0)
+  const probe = path.join(ROOT, 'v2-probe')
+  await fs.mkdir(probe, { recursive: true })
+  await git(probe, ['init', '-q'])
+  for (const v of ['2', '0']) {
+    const byId = await git(probe, ['-c', `protocol.version=${v}`, 'fetch', '-q', clusterUrl, onlyHere], cluster)
+    assert.notEqual(byId.code, 0, `protocol v${v}: a hidden commit fetched by id`)
+  }
   const desk = await git(ROOT, ['ls-remote', clusterUrl], tok.token)
   assert.notEqual(desk.code, 0)
   assert.match(desk.err, /403/)

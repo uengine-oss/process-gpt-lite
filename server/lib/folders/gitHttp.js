@@ -195,7 +195,9 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
       if (req.headers['content-encoding']) env.HTTP_CONTENT_ENCODING = String(req.headers['content-encoding'])
       if (req.headers['content-length'] && !req.headers['transfer-encoding']) env.CONTENT_LENGTH = String(req.headers['content-length'])
     }
-    if (req.headers['git-protocol']) env.GIT_PROTOCOL = String(req.headers['git-protocol'])
+    // protocol v0 only (the client's Git-Protocol header is not passed on): under v2 upload-pack hands out any object it holds
+    // by id, so hidden sync branches and rolled-back pushes could be fetched by a token that knows an id; v0 serves only the
+    // tips it advertises
     const child = spawn('git', ['http-backend'], { env, stdio: ['pipe', 'pipe', 'pipe'] })
     let head = Buffer.alloc(0)
     let started = false
