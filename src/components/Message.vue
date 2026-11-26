@@ -38,7 +38,7 @@ import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { topicPath } from '../projectTopics.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
-import { kindOf, kindLabel, cardKind, openArtifact, openHint, viewHint, mediaKindOf } from '../artifacts.js'
+import { kindOf, kindLabel, cardKind, openArtifact, openHint, viewHint, mediaKindOf, sawShare } from '../artifacts.js'
 import { parseReplies } from '../replies.js'
 // a file card is dragged like any file of the app (src/fileDrag.js): a messenger conversation (a link or a share), a folder, the composer
 import { startDrag, cardItem } from '../fileDrag.js'
@@ -307,7 +307,7 @@ onMounted(async () => {
         <ShareButton v-if="!c.private" :msg="msg" compact />
       </div>
       <!-- a picture to look at, a sound or a video that plays right here (on the phone too) -->
-      <MediaPreview v-if="media && mediaUrl" :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" />
+      <MediaPreview v-if="media && mediaUrl" :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" @play="sawShare(c.shared?.shareId)" />
       <small v-else-if="media && mediaErr" class="playerr">{{ mediaErr }}</small>
       <!-- 폴더에 정리: a document that came in (attached, or made by the agent, or sent by a teammate) — not one opened from a folder -->
       <FolderSuggest v-if="(c.url || c.path) && !c.folder" :message-id="msg.id" :filing="c.filing" />
