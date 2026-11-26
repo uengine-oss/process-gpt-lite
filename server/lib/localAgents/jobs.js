@@ -115,9 +115,16 @@ async function offer(job, link) {
   const sent = (payload.skills || []).filter((k) => k?.folder?.id).map((k) => ({ name: String(k.name || ''), folderId: String(k.folder.id) }))
   const j = await set(claimed, { folder_id: payload.git?.folder?.id || null, line: payload.git?.line || null, run_branch: payload.git?.branch || null, prompt: payload.prompt || null,
     sent_skills: sent })
-  if (!link.send({ type: 'job', job: { id: j.id, ...payload } })) { await set(j, { state: 'queued', device_id: null }); return j }
+  // (its card first, its message ids kept on the job: a desktop may accept the moment the job reaches it, and that answer then finds the
+  // card — sent first, the accept could come back before the card was kept and make a second one, 2026-11-26)
+  await hk(j).note(j, 'offered').catch((e) => console.warn('[local-agents] offered', e.message))
+  if (!link.send({ type: 'job', job: { id: j.id, ...payload } })) {
+    // (the link went meanwhile: back in the queue, and the card says so)
+    const back = await set(j, { state: 'queued', device_id: null })
+    await hk(back).note(back, 'queued').catch((e) => console.warn('[local-agents] queued', e.message))
+    return back
+  }
   console.log(`[local-agents] ${j.activity_name} → ${link.name} (${j.agent})`)
-  await hk(j).note(j, 'offered')
   return j
 }
 

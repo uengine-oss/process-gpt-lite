@@ -733,6 +733,7 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | 지도의 일 패널 「에이전트」 화면, 지도(Ontological)의 일 정의에 배운 것 반영 | — | — (Ontological 이 필요해 자동 시험 없음, front matter 읽기 · 쓰기와 프로세스 정의 쪽 반영은 시험) | — | ◐ |
 | 공개 git 경로 `/api/local-git/`: 링크된 기기의 그 일 토큰만(없음 401 · 클러스터 토큰 403 · 끊은 기기 403), 그 일의 작업 폴더 · 보낸 스킬 폴더만, 올리기는 도는 동안 그 일의 가지로만 | 검토 11-24 | `localAgents.e2e.mjs` 6 · `localAgents.test.js` | e2e · 단위 | ✅ |
 | 검토 수정: 서버가 받기를 확인해야 시작 · 거둔 제안 취소 · 기기 설정을 바꿔도 실행 유지 · 다시 시도 · 관문 먼저 · 에이전트 되돌리기 · 같은 폴더는 차례로 · 폴더 자신의 AGENTS.md 그대로 · 세션 지우기 · 보낸 스킬만 | 검토 11-24 | `localAgents.test.js` · `runner.test.js` | 단위 | ✅ |
+| 데스크톱이 작업을 받자마자 시작해도 실행 카드 한 장 유지(카드 생성 후 작업 전송, 전송 실패 시 대기열 복귀 및 카드 상태 변경) | 고침 11-26 | `localAgents.test.js` · `localAgents.e2e.mjs` 1 | 단위 · e2e | ✅ |
 | 운영 주소에서 git 경로 · 링크 · 터미널 WebSocket 에 닿기, OpenHands 실행, 실제 대화형 Codex, Windows(ConPTY) | — | — (운영 설정 · 실측 필요) | — | ◐ |
 
 ### 31. 사람 단계의 입력 화면 — 에이전트가 만든 A2UI 화면 (스펙 `step-ui-a2ui`, 설계 `docs/a2ui-step-ui/design.md`)

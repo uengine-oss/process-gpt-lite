@@ -211,9 +211,9 @@ await step('1. A 의 단계(Claude Code): A 의 데스크톱이 작업 폴더를
   assert.match(lineFile(f, '산출물/01_견적서 작성/결과.md'), /Claude Code/)
   const t = await todo(t1)
   assert.ok(['SUBMITTED', 'DONE'].includes(t.status), t.status)
-  // the instance's conversation of A has the run's card
-  const [card] = await q(`select m.content from pro_messages m join pro_threads th on th.id=m.thread_id where th.user_id=$1 and th.ref=$2 and m.kind='local_run'`, [uidA, INST])
-  assert.equal(card.content.state, 'done')
+  // the instance's conversation of A has the run's card — one, oldest first (a desktop that accepts at once does not make a second, 11-26)
+  const cards = await q(`select m.content from pro_messages m join pro_threads th on th.id=m.thread_id where th.user_id=$1 and th.ref=$2 and m.kind='local_run' order by m.created_at`, [uidA, INST])
+  assert.deepEqual(cards.map((c) => c.content.state), ['done'])
   // the token was never in the clone's config
   const clone = (await fs.readdir(path.join(ROOT, 'desktop', 'A', 'work'), { recursive: true })).find((p) => p.endsWith(path.join('.git', 'config')))
   assert.ok(!(await fs.readFile(path.join(ROOT, 'desktop', 'A', 'work', clone), 'utf8')).includes('pgf1.'))

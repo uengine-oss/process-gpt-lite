@@ -149,6 +149,38 @@ test('켜져 있으면 그 사람의 데스크톱으로, 다른 사람의 데스
   await H.gone(a.link); await H.gone(b.link)
 })
 
+// (2026-11-26: under load the instance's conversation got two cards of one run — 「offered」 and 「done」. The job went to the desktop
+// before its card was written; the desktop's accept came back meanwhile, found no card on the job and made a second one.)
+test('데스크톱이 일을 받자마자 「accept」 해도 카드는 하나: 카드(message_ids)를 먼저 쓰고 보낸다', { skip: !db }, async () => {
+  H.reset()
+  const made = []
+  // the card as steps.js note keeps it: a new one when the job has none for its person yet (message_ids), else that one is updated —
+  // and it takes a while (the instance's thread, rights, the language)
+  J.setHooks({ note: async (job, what) => {
+    const ids = { ...(job.message_ids || {}) }
+    await new Promise((r) => setTimeout(r, 60))
+    if (ids[String(job.user_id)]) return
+    ids[String(job.user_id)] = crypto.randomUUID()
+    made.push(what)
+    await q('update pro_local_jobs set message_ids=$2 where id=$1', [job.id, JSON.stringify(ids)])
+  } })
+  try {
+    const { token } = await D.issue(userA, { name: `${userA.name}의 맥`, platform: 'darwin' })
+    let link = null
+    const accepts = []
+    // a desktop that answers the moment the job reaches it (its person need not say yes): the accept runs alongside the offer
+    const transport = { send: (t) => { const m = JSON.parse(t); if (m.type === 'job') accepts.push(H.receive(link, { type: 'accept', jobId: m.job.id })) }, close() {} }
+    link = await H.open(transport, { type: 'hello', token, device: { name: `${userA.name}의 맥` }, caps: { clis: { 'claude-code': { installed: true, version: '2.1.330' } }, maxJobs: 2 }, prefs: { enabled: true }, active: [] })
+    assert.ok(!link.error, link.error)
+    const j = await J.enqueue(spec(userA))
+    await Promise.all(accepts)
+    assert.equal(accepts.length, 1)
+    assert.equal((await J.byId(j.id)).state, 'running')
+    assert.deepEqual(made, ['offered'], '카드는 하나 — accept 뒤의 「running」은 같은 카드를 고친다')
+    await H.gone(link)
+  } finally { J.setHooks({ note: async () => {} }) }
+})
+
 test('꺼져 있고 「기다리기」면 대기, 데스크톱이 켜지면 오래된 것부터 보낸다(동시 실행 한도)', { skip: !db }, async () => {
   H.reset()
   const j1 = await J.enqueue(spec(userA))
