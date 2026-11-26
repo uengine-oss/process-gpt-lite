@@ -1,0 +1,20 @@
+{
+  "timezone": "Asia/Seoul",
+  "rooms": true,
+  "mail": true,
+  "gateMin": 0.3,
+  "timeoutMs": 8000,
+  "readTimeoutMs": 60000,
+  "quietMs": 90000,
+  "newMessages": 30,
+  "contextMessages": 8,
+  "textChars": 4000,
+  "mailChars": 6000,
+  "defaultDurationMin": 60,
+  "horizonDays": 366,
+  "calendarDays": 21,
+  "upcomingDays": 7,
+  "leadMin": 60,
+  "dayAt": "08:00",
+  "leadChoices": [15, 30, 60, 120, 180]
+}

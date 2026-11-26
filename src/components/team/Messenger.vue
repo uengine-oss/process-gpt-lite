@@ -687,6 +687,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <!-- the reactions under it: emoji · count, mine marked; who reacted on a long press · the pointer resting on one -->
             <ReactionChips v-if="m.reactions?.length && !['invite', 'rename'].includes(m.kind) && !String(m.kind).startsWith('meeting')" :chips="m.reactions"
               :can="canReact(m)" :mine="m.mine" :data-for="m.id" @toggle="(k) => react(m, k)" />
+            <!-- a plan of mine this message made or changed (server lib/agenda/store.js markMessages): a small mark under it -->
+            <p v-for="a in m.agenda || []" :key="'ag' + a.id" class="agmark" :class="{ mine: m.mine }" data-test="agenda-mark" title="다가오는 약속에 있어요">
+              <Icon name="clock" :size="12" /><span data-no-i18n>{{ a.title }} · {{ a.when }}<template v-if="a.location"> · {{ a.location }}</template></span>
+            </p>
             <LinkPreviews v-if="m.body && m.kind !== 'invite' && m.kind !== 'rename' && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
             <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
             </template>
@@ -1008,6 +1012,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .br .rs.opened { color: #0f7a52; }
 :root:not([data-theme="light"]) .br .rs.opened { color: #5fd3a2; }
 .art.sm { height: 26px; padding: 0 9px; font-size: 12px; gap: 4px; }
+.agmark { display: flex; align-items: flex-start; gap: 5px; max-width: min(78%, 420px); margin: 3px 0 0 42px; font-size: 12px; line-height: 1.4; color: #0b6f66; min-width: 0; }
+.agmark svg { flex: none; margin-top: 2px; }
+.agmark span { min-width: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.agmark.mine { margin-left: auto; margin-right: 4px; justify-content: flex-end; }
+:root[data-theme="dark"] .agmark { color: #7ee8da; }
 </style>
 
 <style>

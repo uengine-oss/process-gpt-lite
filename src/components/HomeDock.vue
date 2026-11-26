@@ -2,6 +2,8 @@
 import ActionCard from './ActionCard.vue'
 import HomeTodoCard from './HomeTodoCard.vue'
 import NotificationCard from './NotificationCard.vue'
+// 다가오는 약속: plans agreed in my rooms and mail (server lib/agenda)
+import AgendaCard from './AgendaCard.vue'
 import WeatherPanel from './WeatherPanel.vue'
 import PanelFrame from './PanelFrame.vue'
 import PanelAppCard from './panelApps/PanelAppCard.vue'
@@ -83,6 +85,7 @@ async function openTodo(t) {
       </button>
       <NotifyCard v-if="notifyMode" key="notify" place="home" :mode="notifyMode" @changed="notifyChanged" @close="notifyClose" />
       <InstallNudge v-if="installCard" key="install" place="home" />
+      <AgendaCard v-if="app.agenda?.items?.length" key="agenda" />
       <NotificationCard v-for="n in app.notifications.slice(0, 6)" :key="'n' + n.id" :n="n" />
       <HomeTodoCard v-for="t in todos" :key="'t' + t.id" :todo="t" @open="openTodo" />
       <ActionCard v-for="a in actions" :key="a.id" :action="a" />

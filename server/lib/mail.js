@@ -335,6 +335,13 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
     emit(userId, 'action', row)
     if (row.source?.mail_id) cards.push(row)
   }
+  // plans the mail makes, moves or cancels (「다음 주 화요일 3시 회의실 A」): remembered for the mailbox's owner and reminded when it comes
+  // (lib/agenda/mail.js — the reminder opens the mail's Home card); not the demo mailbox's sample mails
+  for (const m of asked) {
+    if (m.fixture) continue
+    const actionId = cards.find((c) => c.source.mail_id === m.id)?.id || null
+    import('./agenda/mail.js').then((A) => A.fromMail(userId, m, { actionId })).catch((e) => console.warn('[mail] agenda', e.message))
+  }
   // a mail of a thread that is already a running instance's goes to that instance, without a model (lib/mailFlow.js)
   const MF = await import('./mailFlow.js')
   const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })

@@ -110,7 +110,7 @@ function show(text, kind = 'done') {
 // app: the useApp() store. Resolves once the Home lists are back (the indicator goes then); the mail
 // fetch, which can take several seconds when new mail is sorted into cards, goes on under the banner.
 export async function refreshHome(app) {
-  const lists = Promise.allSettled([app.loadNotifications(), app.loadProcesses(), app.loadActions(), app.loadPanels(), app.loadPanelApps()])
+  const lists = Promise.allSettled([app.loadNotifications(), app.loadProcesses(), app.loadActions(), app.loadPanels(), app.loadPanelApps(), app.loadAgenda()])
   let mail = app.me?.mail
   if (!mail) {
     // a mailbox connected after this page loaded (the onboarding sheet does not read /me again)

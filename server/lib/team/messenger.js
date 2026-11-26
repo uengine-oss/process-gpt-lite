@@ -361,6 +361,8 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
   await pushRow(row, members)
+  // plans agreed in the room are read once it is quiet (lib/agenda/rooms.js — also for rows written elsewhere, through the room feed)
+  import('../agenda/rooms.js').then((A) => A.mark(t.id)).catch((e) => console.warn('[agenda] mark', e.message))
   // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees)
   const attachment = !!refs?.length && refs.every((r) => r.type === 'mailatt')
   if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id), { attachment })

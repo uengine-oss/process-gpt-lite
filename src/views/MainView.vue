@@ -193,6 +193,9 @@ async function openNotification({ detail: n }) {
   // (the messenger is not on 설정: out of it first — App.vue teamHere)
   if ((msg || room) && settings.value) await router.push('/chat')
   if (msg) return team.openMessenger(msg[1], msg[2], reply)
+  // a plan's reminder from a mail (server lib/agenda): that mail's sheet
+  const mail = /^\/pro\/mail\/(.+)$/.exec(String(n?.url || ''))
+  if (mail) return app.openMailCard({ mailId: decodeURIComponent(mail[1]) }, 'home').catch(() => { app.dockOpen = true })
   if (room) return team.openMessenger(room[1], undefined, reply)
   if (n?.type === 'ai_ask' && /^\/(chat|projects\/|routines\/)/.test(String(n.place || ''))) { if (narrow.value) app.dockOpen = false; return router.push(n.place) }
   if (n?.type === 'workitem' && n.instId) return router.push(`/routines/${encodeURIComponent(n.instId)}`)

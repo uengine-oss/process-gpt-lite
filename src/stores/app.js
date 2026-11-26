@@ -102,6 +102,7 @@ export const useApp = defineStore('app', {
     instances: [],
     todos: [],
     notifications: [],         // process-gpt notifications addressed to me (Home "needs action")
+    agenda: { items: [], calendar: 'none', prefs: null }, // 다가오는 약속 on Home: plans read from my rooms and mail (server lib/agenda)
     handled: [],               // work items just decided from a card (the engine catches up a moment later)
     instance: null,
     localActive: {},           // instId → the card of its local CLI agent run that is on now (Home cards — server lib/localAgents)
@@ -179,7 +180,7 @@ export const useApp = defineStore('app', {
       startDesktopRunner(this.me).catch(() => {})
       ;[this.mainThread] = await api('/threads')
       this.activeId = this.mainThread.id
-      await Promise.all([this.load(this.mainThread.id), this.loadActions(), this.loadPanels(), this.loadPanelApps(), this.loadProjects(), this.loadProcesses(), this.loadNotifications(), this.loadConversations(), this.loadLocalActive()])
+      await Promise.all([this.load(this.mainThread.id), this.loadActions(), this.loadPanels(), this.loadPanelApps(), this.loadProjects(), this.loadProcesses(), this.loadNotifications(), this.loadConversations(), this.loadLocalActive(), this.loadAgenda()])
       events((t, d) => this.onEvent(t, d))
     },
     async load(id) {
@@ -247,6 +248,21 @@ export const useApp = defineStore('app', {
       this.notifications = await api('/notifications')
       // a background tab gets them as browser notifications (src/browserNotify.js); a click opens them (MainView)
       announce(this.notifications, (n) => window.dispatchEvent(new CustomEvent('pgl:open-notification', { detail: n })))
+    },
+    // 다가오는 약속 (server routes/agenda.js): the next days' plans of mine, soonest first; a server without it (older) leaves the list empty
+    async loadAgenda() {
+      try { this.agenda = await api('/agenda') } catch { this.agenda = { items: [], calendar: 'none', prefs: null } }
+    },
+    // 「이건 아니에요」: off my list at once (the server keeps it as feedback and sends me no reminder)
+    async dismissAgenda(item) {
+      this.agenda = { ...this.agenda, items: this.agenda.items.filter((x) => x.id !== item.id) }
+      try { await api(`/agenda/${item.id}/dismiss`, { method: 'POST' }) } finally { this.loadAgenda() }
+    },
+    // 「캘린더에 추가」: in my Google Calendar (a demo mailbox records it only) — the same event already there is not made twice
+    async addAgendaToCalendar(item) {
+      const r = await api(`/agenda/${item.id}/calendar`, { method: 'POST' })
+      if (r?.plan) this.agenda = { ...this.agenda, items: this.agenda.items.map((x) => (x.id === item.id ? r.plan : x)) }
+      return r
     },
     async loadProcesses() {
       ;[this.instances, this.todos] = await Promise.all([api('/instances'), api('/todos')])
@@ -328,6 +344,8 @@ export const useApp = defineStore('app', {
         this.loadPanelApps()
       } else if (type === 'notifications') {
         this.loadNotifications()
+      } else if (type === 'agenda') {
+        this.loadAgenda()
       } else if (type === 'mission') {
         this.missionTick++
       } else if (type === 'process') {

@@ -55,6 +55,9 @@ import { billingRoutes } from './routes/billing.js'
 import { backofficeRoutes } from './routes/backoffice.js'
 import { agenticRoutes } from './routes/agentic.js'
 import { followupRoutes } from './routes/followups.js'
+// 약속 알림: plans agreed in mail and team rooms, reminded when they come (lib/agenda/*)
+import { agendaRoutes } from './routes/agenda.js'
+import { startAgendaTicker } from './lib/agenda/fire.js'
 import { ontologyRoutes } from './routes/ontology.js'
 import { scenarioMailRoutes } from './routes/scenario-mail.js'
 import { scenarioPurchaseRoutes } from './routes/scenario-purchase.js'
@@ -597,6 +600,8 @@ app.use('/api', backofficeRoutes(auth))
 // Agentic BPM PoC (pgpt-pro/docs/agentic-bpm/plan.md): policies·decisions·approvals·strategy, then the three scenarios
 app.use('/api', agenticRoutes(auth))
 app.use('/api', followupRoutes(auth))
+// 다가오는 약속 · 이건 아니에요 · 캘린더에 추가 · 약속 알림 설정 (routes/agenda.js)
+app.use('/api', agendaRoutes(auth))
 // 프로세스 온톨로지: 메일 이력 + 채팅 핸드오버 → Ontological 의 회사 프로세스 지도, 스냅샷 실행, 고정 · 노화 (lib/ontology)
 app.use('/api', ontologyRoutes(auth))
 // the ontology's agent steps (orchestration pgpt-pro-onto) and habit questions run here even with PRO_BACKGROUND=0:
@@ -1302,6 +1307,8 @@ const server = app.listen(config.port, async () => {
   startSelfTest({ repeat: background })
   // (a development or test server with PRO_NOTIFY_FEED=1 sends its own tenant's notices to its subscriptions — e2e push-hitl's fake push service)
   if (!background && process.env.PRO_NOTIFY_FEED === '1') notify.startNotificationFeed()
+  // the reminders of plans (lib/agenda/fire.js): every minute; a test stack with PRO_BACKGROUND=0 runs it with PRO_AGENDA_TICK_MS
+  if (background || process.env.PRO_AGENDA_TICK_MS) startAgendaTicker(forEachTenant)
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb

@@ -1,0 +1,432 @@
+{
+ "at": "2026-11-26T12:11:24.439Z",
+ "model": "configured (PRO_LLM_*)",
+ "oddsModel": null,
+ "skill": "f038d06bb9",
+ "cases": 22,
+ "correct": 21,
+ "accuracy": 0.955,
+ "noPlanCases": 6,
+ "stoppedAtGate": 4,
+ "readMsMedian": 4662,
+ "rows": [
+  {
+   "name": "약속: 다음주 화요일 3시 강남역 스타벅스(받아들임까지)",
+   "ok": true,
+   "why": "",
+   "gate": 0.992,
+   "by": "logprob",
+   "read": true,
+   "ms": 9423,
+   "got": [
+    {
+     "op": "create",
+     "title": "만남",
+     "date": "2026-12-01",
+     "start": "15:00",
+     "allDay": false,
+     "location": "강남역 스타벅스",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "때가 바뀜: 한 시간 늦춰 4시로",
+   "ok": true,
+   "why": "",
+   "gate": 0.958,
+   "by": "logprob",
+   "read": true,
+   "ms": 5508,
+   "got": [
+    {
+     "op": "update",
+     "plan": "p-1",
+     "title": "시니어그룹 모임",
+     "date": "2026-12-01",
+     "start": "16:00",
+     "allDay": false,
+     "location": "강남역 스타벅스",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "곳이 바뀜: 장소 바뀌었어요 역삼역으로",
+   "ok": false,
+   "why": "ops 0≠1 (없음)",
+   "gate": 0.974,
+   "by": "logprob",
+   "read": true,
+   "ms": 2569,
+   "got": [],
+   "skipped": [
+    {
+     "op": "update",
+     "why": "same",
+     "plan": "p-1"
+    }
+   ]
+  },
+  {
+   "name": "취소: 취소됐어요",
+   "ok": true,
+   "why": "",
+   "gate": 0.958,
+   "by": "logprob",
+   "read": true,
+   "ms": 2058,
+   "got": [
+    {
+     "op": "cancel",
+     "plan": "p-1"
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "막연한 말: 언제 한번 보자 → 없음",
+   "ok": true,
+   "why": "",
+   "gate": 0.005,
+   "by": "logprob",
+   "read": false,
+   "ms": 101,
+   "got": [],
+   "skipped": []
+  },
+  {
+   "name": "지난 날짜: 어제 회의 이야기 → 없음",
+   "ok": true,
+   "why": "",
+   "gate": 0.014,
+   "by": "logprob",
+   "read": false,
+   "ms": 101,
+   "got": [],
+   "skipped": []
+  },
+  {
+   "name": "상대적인 날: 내일 오전 10시 3층 회의실 주간 회의",
+   "ok": true,
+   "why": "",
+   "gate": 0.958,
+   "by": "logprob",
+   "read": true,
+   "ms": 4241,
+   "got": [
+    {
+     "op": "create",
+     "title": "주간 회의",
+     "date": "2026-11-27",
+     "start": "10:00",
+     "allDay": false,
+     "location": "3층 회의실",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "상대적인 날: 이번 주 금요일 저녁 7시 회식",
+   "ok": true,
+   "why": "",
+   "gate": 0.971,
+   "by": "logprob",
+   "read": true,
+   "ms": 4662,
+   "got": [
+    {
+     "op": "create",
+     "title": "회식",
+     "date": "2026-11-27",
+     "start": "19:00",
+     "allDay": false,
+     "location": "을지로 노가리골목",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "한 메시지에 약속 둘",
+   "ok": true,
+   "why": "",
+   "gate": 0.881,
+   "by": "logprob",
+   "read": true,
+   "ms": 9088,
+   "got": [
+    {
+     "op": "create",
+     "title": "팀 회의",
+     "date": "2026-11-30",
+     "start": "09:00",
+     "allDay": false,
+     "location": "",
+     "bring": "",
+     "link": ""
+    },
+    {
+     "op": "create",
+     "title": "고객사 방문",
+     "date": "2026-12-02",
+     "start": "14:00",
+     "allDay": false,
+     "location": "고객사",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "두 사람만의 약속",
+   "ok": true,
+   "why": "",
+   "gate": 0.94,
+   "by": "logprob",
+   "read": true,
+   "ms": 5023,
+   "got": [
+    {
+     "op": "create",
+     "title": "견적 검토",
+     "date": "2026-11-27",
+     "start": "16:00",
+     "allDay": false,
+     "location": "판교 사무실",
+     "bring": "",
+     "link": "",
+     "people": [
+      "김서연",
+      "박도윤"
+     ]
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "답이 없는 제안 → 없음",
+   "ok": true,
+   "why": "",
+   "gate": 0.798,
+   "by": "logprob",
+   "read": true,
+   "ms": 1667,
+   "got": [],
+   "skipped": []
+  },
+  {
+   "name": "제안을 받아들임: 12시 반 회사 앞 국수집",
+   "ok": true,
+   "why": "",
+   "gate": 0.915,
+   "by": "logprob",
+   "read": true,
+   "ms": 10004,
+   "got": [
+    {
+     "op": "create",
+     "title": "점심",
+     "date": "2026-12-01",
+     "start": "12:30",
+     "allDay": false,
+     "location": "회사 앞 국수집",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "약속과 관계없는 말 → 없음",
+   "ok": true,
+   "why": "",
+   "gate": 0.011,
+   "by": "logprob",
+   "read": false,
+   "ms": 126,
+   "got": [],
+   "skipped": []
+  },
+  {
+   "name": "종일: 12월 10일 전사 워크숍",
+   "ok": true,
+   "why": "",
+   "gate": 0.893,
+   "by": "logprob",
+   "read": true,
+   "ms": 5202,
+   "got": [
+    {
+     "op": "create",
+     "title": "전사 워크숍",
+     "date": "2026-12-10",
+     "start": null,
+     "allDay": true,
+     "location": "",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "챙길 것: 노트북",
+   "ok": true,
+   "why": "",
+   "gate": 0.953,
+   "by": "logprob",
+   "read": true,
+   "ms": 3869,
+   "got": [
+    {
+     "op": "create",
+     "title": "시연 리허설",
+     "date": "2026-11-27",
+     "start": "14:00",
+     "allDay": false,
+     "location": "회의실 B",
+     "bring": "노트북",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "온라인 회의: 참여 주소",
+   "ok": true,
+   "why": "",
+   "gate": 0.953,
+   "by": "logprob",
+   "read": true,
+   "ms": 9401,
+   "got": [
+    {
+     "op": "create",
+     "title": "온라인 회의",
+     "date": "2026-11-27",
+     "start": "11:00",
+     "allDay": false,
+     "location": "온라인",
+     "bring": "",
+     "link": "https://meet.example.com/abc-defg"
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "메일: 정기 모임 안내",
+   "ok": true,
+   "why": "",
+   "gate": 0.967,
+   "by": "logprob",
+   "read": true,
+   "ms": 7669,
+   "got": [
+    {
+     "op": "create",
+     "title": "12월 정기 모임",
+     "date": "2026-12-03",
+     "start": "18:30",
+     "allDay": false,
+     "location": "강남역 11번 출구 앞 한우정 식당",
+     "bring": "회비 3만 원",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "메일: 광고의 날짜 → 없음",
+   "ok": true,
+   "why": "",
+   "gate": 0.005,
+   "by": "logprob",
+   "read": false,
+   "ms": 158,
+   "got": [],
+   "skipped": []
+  },
+  {
+   "name": "메일: 장소 변경",
+   "ok": true,
+   "why": "",
+   "gate": 0.984,
+   "by": "logprob",
+   "read": true,
+   "ms": 4728,
+   "got": [
+    {
+     "op": "update",
+     "plan": "p-1",
+     "title": "분기 리뷰",
+     "date": "2026-12-02",
+     "start": "10:00",
+     "allDay": false,
+     "location": "본사 7층 대회의실",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "메일: 방문 취소",
+   "ok": true,
+   "why": "",
+   "gate": 0.982,
+   "by": "logprob",
+   "read": true,
+   "ms": 2290,
+   "got": [
+    {
+     "op": "cancel",
+     "plan": "p-1"
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "약속이 둘일 때 바뀐 쪽을 고른다: 저녁만 8시로",
+   "ok": true,
+   "why": "",
+   "gate": 0.924,
+   "by": "logprob",
+   "read": true,
+   "ms": 7603,
+   "got": [
+    {
+     "op": "update",
+     "plan": "p-2",
+     "title": "저녁 식사",
+     "date": "2026-11-27",
+     "start": "20:00",
+     "allDay": false,
+     "location": "을지로",
+     "bring": "",
+     "link": ""
+    }
+   ],
+   "skipped": []
+  },
+  {
+   "name": "같은 약속을 다시 말함 → 없음",
+   "ok": true,
+   "why": "",
+   "gate": 0.777,
+   "by": "logprob",
+   "read": true,
+   "ms": 2088,
+   "got": [],
+   "skipped": []
+  }
+ ]
+}

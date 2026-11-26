@@ -37,9 +37,9 @@ const { down, move, up } = sw
 const teamVerb = (title) => (/나를 언급했어요|\bmentioned you\b/.test(title || '') ? '멘션' : /공유했어요|\sshared\s/.test(title || '') ? '공유' : '멘션')
 // the AI waiting on me (server lib/askPerson.js): what it waits for
 const ASK_VERB = { question: '질문', approval: '승인', login: '로그인', hands: '확인' }
-const verb = computed(() => props.n.type === 'ai_ask' ? ASK_VERB[props.n.kind] || '질문' : props.n.type === 'context_access' ? '참고 요청' : props.n.type === 'context_sensitive' ? '민감 제안' : String(props.n.type || '').startsWith('context_access') ? '공유' : props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : props.n.type === 'meeting_action' ? '할 일' : props.n.type === 'chat' ? '메시지' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => props.n.type === 'agenda' ? '약속' : props.n.type === 'ai_ask' ? ASK_VERB[props.n.kind] || '질문' : props.n.type === 'context_access' ? '참고 요청' : props.n.type === 'context_sensitive' ? '민감 제안' : String(props.n.type || '').startsWith('context_access') ? '공유' : props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : props.n.type === 'meeting_action' ? '할 일' : props.n.type === 'chat' ? '메시지' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
-const kinds = { ai_ask: 'Process GPT', context_access: '팀 맥락 공유', context_access_result: '팀 맥락 공유', context_access_digest: '팀 맥락 공유', context_sensitive: '팀 맥락 공유', agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선', folder_access: '폴더 권한 요청', mail_access: '메일 본문 요청' }
+const kinds = { agenda: '약속 알림', ai_ask: 'Process GPT', context_access: '팀 맥락 공유', context_access_result: '팀 맥락 공유', context_access_digest: '팀 맥락 공유', context_sensitive: '팀 맥락 공유', agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선', folder_access: '폴더 권한 요청', mail_access: '메일 본문 요청' }
 const when = computed(() => {
   const d = new Date(props.n.at)
   const mins = Math.round((Date.now() - d) / 60000)
@@ -52,6 +52,9 @@ async function act(choice) {
   // a teammate's share or mention (components/team): opens our thread at that message
   const m = /^\/pro\/team\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(String(props.n.url || ''))
   if (!choice && m) { app.dismissNotification(props.n); return team.openMessenger(m[1], m[2]) }
+  // a plan's reminder from a mail (server lib/agenda/store.js sourceUrl): that mail's sheet
+  const mail = /^\/pro\/mail\/(.+)$/.exec(String(props.n.url || ''))
+  if (!choice && mail) { app.dismissNotification(props.n); return app.openMailCard({ mailId: decodeURIComponent(mail[1]) }, 'home').catch(() => {}) }
   // a message in a 1:1 or group room (process-gpt's chat trigger: '/chats?id=<room>') opens that room
   const room = /^\/chats\?id=([\w.:-]+)/.exec(String(props.n.url || ''))
   if (!choice && room) { app.dismissNotification(props.n); return team.openMessenger(room[1]) }
@@ -117,6 +120,7 @@ async function act(choice) {
 .context_sensitive .verb { background: #c2410c; }
 .context_access_result .verb, .context_access_digest .verb { background: #2a78d6; }
 .mission .verb { background: #3d3d3a; }
+.agenda .verb { background: #0f8a7e; }
 .agent_failed .verb, .mission_failed .verb { background: var(--color-error); }
 .title { flex: 1; min-width: 0; font-size: 16px; line-height: 1.45; padding-top: 3px; font-weight: 500; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
