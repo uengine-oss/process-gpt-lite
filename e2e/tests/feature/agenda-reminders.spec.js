@@ -4,7 +4,7 @@
 //   F-AG-01 방의 대화 「다음주 화요일 3시에 강남역 스타벅스에서 봐요」 → 방 사람의 Home 「다가오는 약속」(390 밝은 · 밤, 1280), 방 밖의 사람은 없음
 //   F-AG-02 시계를 그날 아침 8시로 → 방 사람에게 알림: Home 카드와 휴대폰 푸시의 글에 곳(강남역 스타벅스), 방 밖의 사람은 없음 →
 //           「열기」 → 그 메시지가 열리고, 메시지 아래 약속 표시
-//   F-AG-03 「장소 바뀌었어요 역삼역으로」 → 약속이 바뀜(「바뀜」) → 1시간 전 알림 · 푸시는 새 곳
+//   F-AG-03 「장소 바뀌었어요 역삼역으로」 → 약속이 바뀜(「바뀜」, 열어 둔 Home 의 카드도 다시 열지 않고) → 1시간 전 알림 · 푸시는 새 곳
 //   F-AG-04 「모레 오전 10시에 회의실 A에서 견적 리뷰해요」 → 「리뷰 취소됐어요」 → 그때가 와도 알림 없음, 목록에서 빠짐
 //   F-AG-05 메일(데모 메일함)의 모임 안내 → 메일함 주인만의 약속 · 알림, 「캘린더에 추가」(데모: 기록), 알림이 그 메일을 연다
 //   F-AG-06 「이건 아니에요」 → 내 목록 · 알림에서만 빠지고 피드백이 남는다, 같은 방의 다른 사람에게는 남는다
@@ -266,16 +266,19 @@ test('F-AG-02 그날 아침 8시: Home 카드와 푸시의 글에 곳, 「열기
   await p.context().close()
 })
 
-test('F-AG-03 「장소 바뀌었어요 역삼역으로」 → 약속이 바뀌고, 1시간 전 알림은 새 곳으로', async ({ browser }) => {
+test('F-AG-03 「장소 바뀌었어요 역삼역으로」 → 약속이 바뀌고(열어 둔 Home 의 카드도 그 자리에서), 1시간 전 알림은 새 곳으로', async ({ browser }) => {
+  // 정하윤's Home is open while the change is read: the card changes in place, without opening Home again (the 'agenda' event —
+  // 11-27, found recording the feature video: the page did not listen for it, so a new · changed plan showed only after a reload)
+  const p = await open(browser, HY)
+  await home(p)
+  const it = p.locator('[data-test="agenda-item"]').filter({ hasText: '시니어그룹 모임' })
+  await expect(it).toContainText('강남역 스타벅스')
   const changed = (await say(SY, '장소 바뀌었어요 역삼역으로')).id
   const item = await waitFor(async () => (await agendaOf(HY)).items.find((x) => x.title === '시니어그룹 모임' && x.location === '역삼역'), 30000, 'the change')
   expect(item.changed).toBe(true)
   expect(item.start).toBe('15:00')
   expect(item.source.messageId).toBe(changed)
-  const p = await open(browser, HY)
-  await home(p)
-  const it = p.locator('[data-test="agenda-item"]').filter({ hasText: '시니어그룹 모임' })
-  await expect(it).toContainText('역삼역')
+  await expect(it).toContainText('역삼역', { timeout: 15_000 })
   await expect(it).toContainText('바뀜')
   await shot(p, 'f-ag-03-changed')
   await p.context().close()
