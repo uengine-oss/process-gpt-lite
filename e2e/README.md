@@ -1628,6 +1628,8 @@ cd server && node --test test/agenda.test.js                                    
 cd server && node --test test/agenda-read.test.js                                              # 사례 22건(test/agenda-cases.json) — 가짜 모델
 cd server && AGENDA_EVAL=1 node --test test/agenda-read.test.js                                # 같은 사례를 .env 의 실제 모델로, 정확도 → 스펙 e2e/results/model-eval.json
 cd server && node --test --test-concurrency=1 test/agenda.integration.test.js                  # AG-I-01~12 (개발 DB, 회사 agenda-it, 모델 대본)
+cd server && node --test test/agenda-review.test.js                                            # RV-U-01~04 검토 반영(모델 · DB 없음)
+cd server && node --test --test-concurrency=1 test/agenda-review.integration.test.js           # RV-I-01~11 검토 반영(개발 DB, 회사 agenda-rv)
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/agenda-reminders.spec.js   # F-AG-01~08 (자기 스택 8983 · 5383부터, 가짜 모델 · 가짜 푸시 · 시험 시계)
 ```
 
@@ -1649,6 +1651,17 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/agend
 | 설정 › 계정 › 연결 › 약속 알림: 끄면 보내지 않은 알림을 거두고 다시 켜면 다시 잡음, 시작 전 알림을 30분 전으로 바꾸면 알림이 30분 늦춰짐 | 스펙 요구 8 | F-AG-08 · AG-I-10 | 통합 | ✅ |
 | 대화방에서 약속을 정한 메시지 아래 작은 표시 | 스펙 요구 9 | F-AG-02 | feature | ✅ |
 | 영어 화면 · 영어 알림(「Upcoming plans」 · 「Not a plan」 · 「in 1 hr · 견적 리뷰」 · 「…is at 회의실 A, as agreed.」) | 스펙 요구 10 | F-AG-07 | feature | ✅ |
+| **검토 #1** 메일 약속은 처음 정한 메일과 같은 보낸 사람 · 같은 스레드의 메일로만 바꾼다. 다른 사람이 보낸 「장소 변경 — https://evil.example/meet · 이번 주 미팅 모두 취소」는 그 약속을 보지 못하고 바꾸거나 취소하지도 못한다(저장 단계에서도 거절). 제목 · 보낸 사람 · 메일 · Home 카드는 변경 메일을 따른다 | 검토 PR #95 | RV-I-01 | 통합 | ✅ |
+| **검토 #1** 메일 약속의 링크는 알림 글(Home · 푸시)에 넣지 않고, 카드에만 「링크 · 도메인 · 보낸 사람」으로 보여 준다(대화방 약속의 링크는 그대로) | 검토 PR #95 | RV-U-01 · 02 · F-AG-05 | 단위 · feature | ✅ |
+| **검토 #2** 같은 약속을 다룬 메일 두 통을 동시에 읽어도 약속은 하나(한 사람의 메일은 차례로) | 검토 PR #95 | RV-I-02 | 통합 | ✅ |
+| **검토 #3** 약속 알림을 끈 사람의 메일은 모델에 보내지 않는다 | 검토 PR #95 | RV-I-03 | 통합 | ✅ |
+| **검토 #4** 시계가 늦은 사람의 메시지(읽은 위치보다 앞선 시각)도 읽는다 — 10분 겹쳐 읽고 이미 읽은 메시지는 건너뜀 | 검토 PR #95 | RV-I-04 | 통합 | ✅ |
+| **검토 #5** 뜻밖의 오류도 세 번이면 해당 메시지를 넘겨 방이 멈추지 않는다 | 검토 PR #95 | RV-I-05 | 통합 | ✅ |
+| **검토 #6** 시험 시계 경로: 환경 변수 + 로그인 + 관리자 + 프록시 · 터널 헤더 없음 | 검토 PR #95 | RV-U-04 · F-AG-02 | 단위 · feature | ✅ |
+| **검토 #7** 5분 넘게 멈춘 「캘린더에 추가」는 다시 누를 수 있다 | 검토 PR #95 | RV-I-06 | 통합 | ✅ |
+| **검토 #8** 시각이 있는 약속의 아침 알림도 시작 시각이 지나면 보내지 않는다 | 검토 PR #95 | RV-I-07 | 통합 | ✅ |
+| **검토 #9** 판정 입력은 마지막 15개 메시지 · 300자 · 메일 1,000자, 방마다 시간당 6번까지, 사람이 둘 이상인 방만 | 검토 PR #95 | RV-U-03 · RV-I-08 · 09 | 단위 · 통합 | ✅ |
+| **검토 #10** 「AI 제안」을 끈 방은 읽은 위치를 현재로, 메일 비서가 실패해도 그 메일의 약속은 읽음, 알림은 최대 한 번(결정 D-AG-21) | 검토 PR #95 | RV-I-10 · 11 | 통합 | ✅ |
 | 열어 둔 대화방은 약속이 생긴 뒤 다시 열어야 메시지 아래 표시가 보인다(실시간 갱신 없음) · 약속 변경을 바로 알리는 알림은 없음(결정 D-AG-06) · 카카오톡 가져오기는 범위 밖 | — | — | — | ◐ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

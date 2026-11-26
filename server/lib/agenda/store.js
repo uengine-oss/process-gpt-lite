@@ -11,6 +11,7 @@ import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { L, isEn } from '../lang.js'
 import { namesOf } from '../people.js'
+import { addrOf } from '../mailSelf.js'
 import * as E from '../calendarEvent.js'
 import { slotsFor, isOver, startOf, leadOf, whenWords } from './remind.js'
 
@@ -42,13 +43,11 @@ export function itemOf(r) {
 const whenCols = (it) => (it.allDay ? [null, it.date] : [E.zonedToUtc(it.date, it.start, it.tz).toISOString(), null])
 const snap = (it) => ({ title: it.title, date: it.date, start: it.start, allDay: !!it.allDay, location: it.location || '', link: it.link || '', bring: it.bring || '', notes: it.notes || '' })
 
-// scope: {kind: 'room', roomId} | {kind: 'mail', owner}
+// scope: {kind: 'room', roomId} | {kind: 'mail', owner, mail: {sender, thread}} — a mail sees only its owner's plans from the same sender or
+// the same thread (review #1: an outsider's mail could move or cancel a plan someone else's mail made, or put its own link on it)
 export async function livePlans(scope, { now = new Date() } = {}) {
-  const rows = scope.kind === 'room'
-    ? await q(`select ${COLS} from pro_agenda_items i where i.tenant_id=$1 and i.source_kind='room' and i.room_id=$2 and i.status in ${LIVE}
-               order by coalesce(i.starts_at, i.all_day_date::timestamptz) limit 40`, [T(), scope.roomId])
-    : await q(`select ${COLS} from pro_agenda_items i where i.tenant_id=$1 and i.source_kind='mail' and i.mail_owner=$2 and i.status in ${LIVE}
-               order by coalesce(i.starts_at, i.all_day_date::timestamptz) limit 40`, [T(), scope.owner])
+  const rows = await q(`select ${COLS} from pro_agenda_items i where i.tenant_id=$1 and ${scopeSql(scope, 2, 3)} and i.status in ${LIVE}
+                        order by coalesce(i.starts_at, i.all_day_date::timestamptz) limit 40`, [T(), scopeKey(scope), ...scopeArgs(scope)])
   return rows.map(itemOf).filter((x) => !isOver(x, now))
 }
 
@@ -100,8 +99,12 @@ export async function applyOps(scope, ops, { now = new Date(), model = {} } = {}
 }
 
 const at = () => new Date().toISOString()
-const scopeSql = (scope, n) => (scope.kind === 'room' ? `source_kind='room' and room_id=$${n}` : `source_kind='mail' and mail_owner=$${n}::uuid`)
+// the plans one reading may see and change (n: the room or owner's parameter, m: a mail's sender · thread): a room's, or a mailbox owner's from
+// the same sender or the same thread — the sender and thread the plan was first read from (never overwritten by a later mail)
+const scopeSql = (scope, n, m) => (scope.kind === 'room' ? `source_kind='room' and room_id=$${n}`
+  : `source_kind='mail' and mail_owner=$${n}::uuid and (source->>'sender' = nullif($${m}::text, '') or (source->>'thread' = nullif($${m + 1}::text, '')))`)
 const scopeKey = (scope) => (scope.kind === 'room' ? scope.roomId : scope.owner)
+const scopeArgs = (scope) => (scope.kind === 'room' ? [] : [String(scope.mail?.sender || '').toLowerCase(), String(scope.mail?.thread || '')])
 
 async function create(scope, o, { now, model }) {
   const room = scope.kind === 'room'
@@ -109,7 +112,10 @@ async function create(scope, o, { now, model }) {
   const people = room && o.people?.length ? o.people.filter((id) => everyone.includes(id)) : everyone
   if (!people.length) return null
   const [startsAt, allDayDate] = whenCols(o.item)
-  const source = room ? { title: scope.roomTitle || null } : { subject: scope.mail?.subject || '', from: scope.mail?.from || '', ...(scope.mail?.actionId ? { actionId: scope.mail.actionId } : {}) }
+  const m = scope.mail || {}
+  const source = room ? { title: scope.roomTitle || null }
+    : { subject: m.subject || '', from: m.from || '', ...(m.sender ? { sender: String(m.sender).toLowerCase() } : {}), ...(m.thread ? { thread: String(m.thread) } : {}),
+      ...(m.actionId ? { actionId: m.actionId } : {}) }
   const history = [{ at: at(), op: 'create', by: 'model', ...(o.message ? { message: o.message } : {}), ...(room ? {} : { mail: scope.mail?.id }), basis: o.basis || '', item: snap(o.item) }]
   const [row] = await q(`insert into pro_agenda_items (tenant_id, source_kind, room_id, message_ids, mail_owner, mail_id, source, title, starts_at, all_day_date, tz,
                            duration_min, location, link, bring, notes, audience, participants, created_by_model, history)
@@ -129,12 +135,14 @@ async function change(scope, o, { now }) {
   const [row] = await q(`update pro_agenda_items i set title=$4, starts_at=$5, all_day_date=$6, tz=$7, duration_min=$8, location=$9, link=$10, bring=$11, notes=$12,
                            participants = coalesce($13::uuid[], participants), audience = case when $13::uuid[] is null then audience else 'people' end,
                            message_ids = case when $14::text is null or $14::text = any(message_ids) then message_ids else message_ids || $14::text end,
-                           mail_id = coalesce($15, mail_id), source = source || $16::jsonb,
+                           mail_id = coalesce($15, mail_id), source = case when source_kind = 'mail' then (source - 'actionId') || $16::jsonb else source end,
                            status='changed', version = version + 1, history = history || $17::jsonb, updated_at = now()
-                         where i.id=$1 and i.tenant_id=$2 and ${scopeSql(scope, 3)} and i.status in ${LIVE} returning ${COLS}`,
+                         where i.id=$1 and i.tenant_id=$2 and ${scopeSql(scope, 3, 18)} and i.status in ${LIVE} returning ${COLS}`,
   [o.id, T(), scopeKey(scope), o.item.title, startsAt, allDayDate, o.item.tz, o.item.durationMin || null, o.item.location || '', o.item.link || '',
     o.item.bring || '', o.item.notes || '', o.people || null, o.message || null, scope.kind === 'mail' ? String(scope.mail?.id || '') || null : null,
-    scope.kind === 'mail' ? { subject: scope.mail?.subject || '', from: scope.mail?.from || '' } : {}, JSON.stringify([entry])])
+    // (a later mail: the plan's subject · sender line · Home card are that mail's — its own card or none; who may change it stays the first's)
+    scope.kind === 'mail' ? { subject: scope.mail?.subject || '', from: scope.mail?.from || '', ...(scope.mail?.actionId ? { actionId: scope.mail.actionId } : {}) } : {},
+    JSON.stringify([entry]), ...scopeArgs(scope)])
   if (!row) return null
   const item = itemOf(row)
   // what was not sent goes; the new time (or place) is reminded on its own version — a slot already past is not
@@ -147,8 +155,8 @@ async function cancel(scope, o) {
   const entry = { at: at(), op: 'cancel', by: 'model', ...(o.message ? { message: o.message } : {}), ...(scope.kind === 'mail' ? { mail: scope.mail?.id } : {}), basis: o.basis || '' }
   const [row] = await q(`update pro_agenda_items i set status='cancelled', history = history || $4::jsonb,
                            message_ids = case when $5::text is null or $5::text = any(message_ids) then message_ids else message_ids || $5::text end, updated_at = now()
-                         where i.id=$1 and i.tenant_id=$2 and ${scopeSql(scope, 3)} and i.status in ${LIVE} returning ${COLS}`,
-  [o.id, T(), scopeKey(scope), JSON.stringify([entry]), o.message || null])
+                         where i.id=$1 and i.tenant_id=$2 and ${scopeSql(scope, 3, 6)} and i.status in ${LIVE} returning ${COLS}`,
+  [o.id, T(), scopeKey(scope), JSON.stringify([entry]), o.message || null, ...scopeArgs(scope)])
   if (!row) return null
   await disarm(row.id, { why: 'cancelled' })
   return itemOf(row)
@@ -177,6 +185,7 @@ export function sourceUrl(item) {
 }
 
 const KO_DAY = '일월화수목금토'
+const hostOf = (u) => { try { return new URL(u).hostname } catch { return '' } }
 const badgeOf = (date) => {
   if (!date) return null
   const [, m, d] = date.split('-').map(Number)
@@ -194,6 +203,8 @@ export async function viewOf(item, viewer, { now = new Date(), titles = null } =
     // the card's day badge 「12/1 · 화」 / 「12/1 · Tue」
     badge: badgeOf(item.date),
     location: item.location, link: item.link, bring: item.bring, notes: item.notes, status: item.status, changed: item.status === 'changed',
+    // a link shown by its domain — a mail's marked with who sent it (review #1: it is the sender's word, not Lite's)
+    ...(item.link ? { linkHost: hostOf(item.link), ...(item.kind === 'mail' ? { linkFrom: item.source.sender || addrOf(item.source.from) || '' } : {}) } : {}),
     audience: item.audience, ...(item.audience === 'people' ? { people: item.participants.map((id) => names[id]).filter(Boolean) } : {}),
     // (the lines the card shows as they are, in the reader's language: 「「시니어그룹」 대화」 · 「메일 · 12월 정기 모임 안내」 · 「함께: 김서연, 박도윤」)
     ...(item.audience === 'people' ? { peopleLine: L(`함께: ${item.participants.map((id) => names[id]).filter(Boolean).join(', ')}`, `With: ${item.participants.map((id) => names[id]).filter(Boolean).join(', ')}`) } : {}),
@@ -247,7 +258,8 @@ export async function addToCalendar(viewer, id, deps = {}) {
   const mode = await MC.calendarMode(viewer.id, acc?.provider)
   if (mode === 'none' || mode === 'scope') throw MC.modeError(mode)
   const [claimed] = await q(`update pro_agenda_items set calendar = calendar || jsonb_build_object($2::text, jsonb_build_object('adding', now()))
-                             where id=$1 and not (calendar ? $2::text) returning id`, [it.id, viewer.id])
+                             where id=$1 and (not (calendar ? $2::text) or (calendar->$2::text->>'via' is null
+                               and coalesce((calendar->$2::text->>'adding')::timestamptz, 'epoch'::timestamptz) < now() - interval '5 minutes')) returning id`, [it.id, viewer.id])
   if (!claimed) throw fail(409, L('이 약속은 캘린더에 넣는 중이거나 이미 넣었어요.', 'This plan is already being added, or was added.'), 'event_busy')
   const ev = { title: it.title, date: it.date, start: it.start, allDay: it.allDay, tz: it.tz, durationMin: it.durationMin || 60, location: it.location, link: it.link,
     description: [it.bring ? L(`챙길 것: ${it.bring}`, `Bring: ${it.bring}`) : '', it.notes].filter(Boolean).join('\n') }

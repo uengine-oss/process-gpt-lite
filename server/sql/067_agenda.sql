@@ -7,7 +7,8 @@
 --                         캘린더에 넣은 사람, 읽은 모델과 판정, 바뀐 기록(history)
 --   pro_agenda_reminders  한 사람에게 보낼 알림 한 번: 그날 아침(day) · 시작 전(before), 보낼 때(due_at), 보낸 때(sent_at), 결과(outcome).
 --                         보내기는 `update … where sent_at is null … returning` 으로 한 서버만 집는다.
---   pro_agenda_rooms      대화방마다 어디까지 읽었나(read_upto)와 지금 읽는 서버(reader · reading_at — 두 서버가 같은 메시지를 두 번 읽지 않게)
+--   pro_agenda_rooms      대화방마다 어디까지 읽었나(read_upto · 최근에 읽은 메시지 seen)와 지금 읽는 서버(reader · reading_at — 두 서버가 같은 메시지를 두 번
+--                         읽지 않게)
 --   pro_agenda_feedback   「이건 아니에요」 — 모델이 잘못 읽은 약속의 기록(그때의 약속 그대로)
 --   pro_profile.agenda    한 사람의 약속 알림 설정 {on, leadMin} — null 이면 기본(켬 · 시작 1시간 전)
 -- 같은 회사 울타리: 알림 · 피드백은 (item_id, tenant_id) 로 약속을 가리켜 다른 회사의 약속에 붙지 못하고, 대화방의 약속과 읽은 자리는 그 방의
@@ -99,6 +100,9 @@ create table if not exists pro_agenda_feedback (
 create index if not exists pro_agenda_feedback_item on pro_agenda_feedback (item_id);
 
 alter table pro_profile add column if not exists agenda jsonb;
+-- 대화방에서 최근에 읽은 메시지(검토 #4): 메시지의 시각은 쓴 사람의 시계라(chats 에는 서버의 순서가 없다) 읽을 때마다 read_upto 10분 앞까지 다시 보고,
+-- 여기 있는 메시지는 건너뛴다
+alter table pro_agenda_rooms add column if not exists seen text[] not null default '{}';
 
 -- 대화방의 약속 · 읽은 자리는 그 방의 회사 것만
 create or replace function public.pro_agenda_same_tenant() returns trigger language plpgsql set search_path = public as $$

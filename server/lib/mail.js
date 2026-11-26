@@ -321,7 +321,21 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
 
   // work that repeats (「앞으로 매주 월요일 오전에 …」): asked as a schedule — a timer event on the company map (lib/ontology/timers.js)
   for (const m of asked) if (!m.fixture) import('./ontology/timers.js').then((o) => o.recurFromMail(userId, m)).catch((e) => console.warn('[mail] recur', e.message))
-  const r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(asked.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name), ...(answered.has(id) ? { answered: true } : {}) }))))
+  // plans the mails make, move or cancel (「다음 주 화요일 3시 회의실 A」): remembered for the mailbox's owner and reminded when they come
+  // (lib/agenda/mail.js — the reminder opens the mail's Home card). One task reads this poll's mails one after another (two at once made
+  // the same plan twice — review #2), also when the triage below fails (the mails are already marked seen — review #10). Not the demo
+  // mailbox's sample mails.
+  let planned = false
+  const readPlans = (cards = []) => {
+    if (planned) return
+    planned = true
+    const list = asked.filter((m) => !m.fixture).map((m) => ({ mail: m, actionId: cards.find((c) => c.source?.mail_id === m.id)?.id || null }))
+    if (list.length) import('./agenda/mail.js').then((A) => A.fromMails(userId, list)).catch((e) => console.warn('[mail] agenda', e.message))
+  }
+  let r
+  try {
+    r = await chatJson(isEn() ? TRIAGE_EN : TRIAGE, JSON.stringify(asked.map(({ id, from, subject, date, text, attachments }) => ({ id, from, subject, date, text: (text || '').slice(0, 2000), files: (attachments || []).map((f) => f.name), ...(answered.has(id) ? { answered: true } : {}) }))))
+  } catch (e) { readPlans(); throw e }
   const actions = (r.actions || []).filter((a) => !(answered.has(a.mail_id) && S.repliesTo(a)))
   const cards = []
   for (const a of actions) {
@@ -335,13 +349,8 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
     emit(userId, 'action', row)
     if (row.source?.mail_id) cards.push(row)
   }
-  // plans the mail makes, moves or cancels (「다음 주 화요일 3시 회의실 A」): remembered for the mailbox's owner and reminded when it comes
-  // (lib/agenda/mail.js — the reminder opens the mail's Home card); not the demo mailbox's sample mails
-  for (const m of asked) {
-    if (m.fixture) continue
-    const actionId = cards.find((c) => c.source.mail_id === m.id)?.id || null
-    import('./agenda/mail.js').then((A) => A.fromMail(userId, m, { actionId })).catch((e) => console.warn('[mail] agenda', e.message))
-  }
+  // (the plans of these mails, with the Home cards they made)
+  readPlans(cards)
   // a mail of a thread that is already a running instance's goes to that instance, without a model (lib/mailFlow.js)
   const MF = await import('./mailFlow.js')
   const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })

@@ -17,7 +17,9 @@ import { startOf } from './remind.js'
 export const SKILL = 'agenda-reminders'
 export const DEFAULTS = { timezone: E.DEFAULT_TZ, rooms: true, mail: true, gateMin: 0.3, timeoutMs: 8000, readTimeoutMs: 60000, quietMs: 90000,
   newMessages: 30, contextMessages: 8, textChars: 4000, mailChars: 6000, defaultDurationMin: 60, horizonDays: 366, calendarDays: 21,
-  upcomingDays: 7, leadMin: 60, dayAt: '08:00', leadChoices: [15, 30, 60, 120, 180] }
+  upcomingDays: 7, leadMin: 60, dayAt: '08:00', leadChoices: [15, 30, 60, 120, 180],
+  // what the gate reads (the last messages, cut short) and how often one room may ask the model in an hour (review #9)
+  gateMessages: 15, gateChars: 300, gateMailChars: 1000, roomHourly: 6 }
 export const MAX_OPS = 6
 
 export async function agendaSkill() {
@@ -76,12 +78,14 @@ export function inputFor({ where, now = new Date(), tz, plans = [], members = []
   return { input, keys }
 }
 
-// the gate's state: the plans there and the new words, short (the first token is all that is read)
-export function gateState(input) {
+// the gate's state: the plans there and the new words, short (the first token is all that is read): the last rules.gateMessages messages,
+// each cut at rules.gateChars, a mail's text at rules.gateMailChars — the reading itself gets the whole window
+export function gateState(input, rules = DEFAULTS) {
+  const n = rules.gateMessages || DEFAULTS.gateMessages, chars = rules.gateChars || DEFAULTS.gateChars
   const plans = input.plans.length ? input.plans.map((p) => `- ${p.key} ${p.title} · ${p.when}${p.location ? ` · ${p.location}` : ''}`).join('\n') : L('- 없음', '- none')
   const words = input.where === 'room'
-    ? input.messages.map((m) => `${m.key}${m.new ? L(' [새]', ' [new]') : ''} ${m.who} (${m.at}): ${String(m.text).slice(0, 600)}`).join('\n')
-    : `${L('보낸 사람', 'From')}: ${input.mail.from}\n${L('받은 때', 'Received')}: ${input.mail.received}\n${L('제목', 'Subject')}: ${input.mail.subject}\n${String(input.mail.text).slice(0, 1500)}`
+    ? input.messages.slice(-n).map((m) => `${m.key}${m.new ? L(' [새]', ' [new]') : ''} ${m.who} (${m.at}): ${String(m.text).slice(0, chars)}`).join('\n')
+    : `${L('보낸 사람', 'From')}: ${input.mail.from}\n${L('받은 때', 'Received')}: ${input.mail.received}\n${L('제목', 'Subject')}: ${input.mail.subject}\n${String(input.mail.text).slice(0, rules.gateMailChars || DEFAULTS.gateMailChars)}`
   return [`${L('오늘', 'Today')}: ${input.today} (${input.timezone})`, L('정해 둔 약속:', 'Plans already made:'), plans,
     input.where === 'room' ? L('대화방의 대화:', 'The conversation:') : L('받은 메일:', 'The mail:'), words].join('\n')
 }
@@ -93,7 +97,7 @@ export const gateOptions = () => [
 // → {pass, p, by, model} or null (the model could not be read)
 export async function gate(input, { skill, decide = choose } = {}) {
   const sk = skill || await agendaSkill()
-  const r = await decide(gateState(input), sk.prompts.gate, gateOptions(), { answerJson: sk.prompts['answer-json'], timeoutMs: sk.rules.timeoutMs })
+  const r = await decide(gateState(input, sk.rules), sk.prompts.gate, gateOptions(), { answerJson: sk.prompts['answer-json'], timeoutMs: sk.rules.timeoutMs })
   if (!r) return null
   const p = r.probabilities?.plan ?? (r.choice === 'plan' ? r.confidence : 1 - (r.confidence ?? 0))
   return { pass: p >= (sk.rules.gateMin ?? 0.3), p: Math.round(p * 1000) / 1000, by: r.strategy, model: r.model || null }

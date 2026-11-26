@@ -98,7 +98,10 @@ test('AG-U-09 알림의 글: 무엇을 언제 어디서 하기로 했는지, 함
   assert.equal(b.text, '오늘 오후 3:00 주간 회의가 있어요.\n함께: 김서연, 박도윤\n챙길 것: 노트북\n「시니어그룹」 대화에서 정했어요.')
   const c = M.reminderText({ ...PLAN, link: 'https://meet.example/abc' }, 'day', { now: kst('2026-12-01', '08:00'), lang: 'en', source: { kind: 'mail', subject: '12월 정기 모임 안내' } })
   assert.equal(c.title, 'Today, 3:00 PM · 시니어그룹 모임')
-  assert.equal(c.text, 'Today, 3:00 PM: 시니어그룹 모임 is at 강남역 스타벅스, as agreed.\nJoin: https://meet.example/abc\nFrom the mail “12월 정기 모임 안내”.')
+  // (a mail's link is the sender's word: not in the notice — review #1; the card shows it with its domain)
+  assert.equal(c.text, 'Today, 3:00 PM: 시니어그룹 모임 is at 강남역 스타벅스, as agreed.\nFrom the mail “12월 정기 모임 안내”.')
+  const d = M.reminderText({ ...PLAN, link: 'https://meet.example/abc' }, 'day', { now: kst('2026-12-01', '08:00'), lang: 'en', source: room })
+  assert.equal(d.text, 'Today, 3:00 PM: 시니어그룹 모임 is at 강남역 스타벅스, as agreed.\nJoin: https://meet.example/abc\nAgreed in the “시니어그룹” conversation.')
   // 받침 없는 제목: 「저녁 식사는」
   assert.match(M.reminderText({ ...PLAN, title: '저녁 식사' }, 'day', { now: NOW, source: room }).text, /^12월 1일 \(화\) 오후 3:00 저녁 식사는 강남역 스타벅스에서 하기로 했어요\./)
 })

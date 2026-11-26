@@ -5,18 +5,23 @@
 //   POST /agenda/:id/dismiss    → {ok, status}
 //   POST /agenda/:id/calendar   → {ok, plan, already?}
 //   GET  /agenda/prefs · PUT /agenda/prefs {on, leadMin} → {on, leadMin, choices}
-//   POST /agenda/test/tick {now} — a test stack's clock (PRO_AGENDA_TEST_CLOCK=1, this machine only; production never sets it): the due
-//        reminders as of that moment are sent now (lib/agenda/fire.js fireDue)
+//   POST /agenda/test/tick {now} — a test stack's clock: the due reminders as of that moment are sent now (lib/agenda/fire.js fireDue).
+//        Only with PRO_AGENDA_TEST_CLOCK=1 (production never sets it; otherwise there is no such path — 404), from this machine with no
+//        proxy or tunnel in between (X-Forwarded-For · Forwarded · CF-Connecting-IP — a tunnel on the same host looks like this machine:
+//        403), signed in (401) as an administrator of the company (403). Review #6.
 import express from 'express'
 import { L } from '../lib/lang.js'
 import { q } from '../lib/supa.js'
 import * as S from '../lib/agenda/store.js'
 import { agendaSkill } from '../lib/agenda/read.js'
 import { fireDue } from '../lib/agenda/fire.js'
+import { isAdmin as teamAdmin } from '../lib/team.js'
 
 const LOCAL = ['127.0.0.1', '::1', '::ffff:127.0.0.1']
+const PROXIED = ['x-forwarded-for', 'forwarded', 'cf-connecting-ip', 'x-real-ip']
 
-export function agendaRoutes(auth) {
+// deps (tests): {isAdmin, fire}
+export function agendaRoutes(auth, { isAdmin = teamAdmin, fire = fireDue } = {}) {
   const r = express.Router()
   const h = (fn) => async (req, res) => {
     try { res.json(await fn(req)) } catch (e) {
@@ -44,11 +49,12 @@ export function agendaRoutes(auth) {
     const p = await S.savePrefs(req.user, { on: req.body?.on, leadMin: req.body?.leadMin }, { choices: sk.rules.leadChoices })
     return { ...p, choices: sk.rules.leadChoices }
   }))
-  r.post('/agenda/test/tick', async (req, res) => {
-    if (process.env.PRO_AGENDA_TEST_CLOCK !== '1' || !LOCAL.includes(req.socket.remoteAddress)) return res.status(404).end()
+  r.post('/agenda/test/tick', (req, res, next) => (process.env.PRO_AGENDA_TEST_CLOCK === '1' ? next() : res.status(404).end()), auth, async (req, res) => {
+    if (!LOCAL.includes(req.socket.remoteAddress) || PROXIED.some((h) => req.headers[h] != null)) return res.status(403).json({ error: 'this machine only' })
+    if (!(await isAdmin(req.user).catch(() => false))) return res.status(403).json({ error: 'administrators only' })
     const now = new Date(req.body?.now || Date.now())
     if (Number.isNaN(now.getTime())) return res.status(400).json({ error: 'now' })
-    res.json({ sent: await fireDue({ now }) })
+    res.json({ sent: await fire({ now }) })
   })
   return r
 }

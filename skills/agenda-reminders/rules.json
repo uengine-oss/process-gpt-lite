@@ -16,5 +16,9 @@
   "upcomingDays": 7,
   "leadMin": 60,
   "dayAt": "08:00",
-  "leadChoices": [15, 30, 60, 120, 180]
+  "leadChoices": [15, 30, 60, 120, 180],
+  "gateMessages": 15,
+  "gateChars": 300,
+  "gateMailChars": 1000,
+  "roomHourly": 6
 }

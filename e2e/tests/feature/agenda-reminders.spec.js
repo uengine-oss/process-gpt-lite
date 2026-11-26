@@ -42,7 +42,7 @@ const MORE = seoulDate(2)
 const MAIL_DATE = seoulDate(6)
 const md = (d) => { const [, m, day] = d.split('-').map(Number); return `${m}월 ${day}일` }
 const MEETUP = { from: '시니어그룹 총무 <secretary@senior-group.example>', subject: '12월 정기 모임 안내',
-  text: `회원 여러분 안녕하세요.\n이번 정기 모임은 ${md(MAIL_DATE)}(${wd(MAIL_DATE)}) 오후 6시 30분, 강남역 11번 출구 앞 한우정 식당에서 열립니다.\n회비 3만 원을 준비해 주세요.\n\n총무 드림` }
+  text: `회원 여러분 안녕하세요.\n이번 정기 모임은 ${md(MAIL_DATE)}(${wd(MAIL_DATE)}) 오후 6시 30분, 강남역 11번 출구 앞 한우정 식당에서 열립니다.\n회비 3만 원을 준비해 주세요.\n온라인으로 함께하실 분은 https://meet.senior-group.example/dec 로 들어오세요.\n\n총무 드림` }
 
 // ---- the fake model ----
 const calls = []
@@ -53,7 +53,7 @@ function readPlans(input) {
   const said = (s) => fresh.find((m) => m.text.includes(s))
   const plan = (pred) => input.plans.find(pred)?.key
   if (input.where === 'mail') {
-    return input.mail.subject.includes('정기 모임') ? [{ op: 'create', title: '12월 정기 모임', date: MAIL_DATE, start: '18:30', allDay: false, location: '강남역 11번 출구 앞 한우정', bring: '회비 3만 원', for: 'all', message: '', basis: '오후 6시 30분' }] : []
+    return input.mail.subject.includes('정기 모임') ? [{ op: 'create', title: '12월 정기 모임', date: MAIL_DATE, start: '18:30', allDay: false, location: '강남역 11번 출구 앞 한우정', bring: '회비 3만 원', link: 'https://meet.senior-group.example/dec', for: 'all', message: '', basis: '오후 6시 30분' }] : []
   }
   const ops = []
   let m
@@ -116,6 +116,8 @@ test.beforeAll(async () => {
   JH = await S.person(`pro-rt-${TENANT}-c@people-mail.test`, '이지후')
   DY = await S.person(`pro-rt-${TENANT}-d@people-mail.test`, '박도윤')
   for (const p of [HY, SY, JH, DY]) await S.join(p)
+  // (the test clock answers an administrator only — routes/agenda.js)
+  await S.q('update users set is_admin=true where id=$1 and tenant_id=$2', [HY.id, TENANT])
   await clean()
   for (const p of [HY, SY, JH, DY]) await S.api(p.token, '/me/lang', { method: 'PUT', body: { lang: 'ko' } })
   const sub = P.subscription('hy')
@@ -139,6 +141,7 @@ test.afterAll(async () => {
     const ids = [HY, SY, JH, DY].filter(Boolean).map((p) => p.id)
     await S.q('delete from pro_messages where thread_id in (select id from pro_threads where user_id = any($1::uuid[]))', [ids]).catch(() => {})
     await S.q('delete from pro_team_members where tenant_id=$1', [TENANT]).catch(() => {})
+    await S.q('update users set is_admin=false where tenant_id=$1', [TENANT]).catch(() => {})
     await S.stop()
   }
   await P?.close(); await M?.close()
@@ -170,8 +173,11 @@ async function home(p, { phone = true } = {}) {
 }
 const say = (who, text) => S.api(who.token, `/team/threads/${ROOM}/messages`, { method: 'POST', body: { text } })
 const agendaOf = (who) => S.api(who.token, '/agenda')
+const tickAs = (who, now) => fetch(`http://127.0.0.1:${S.apiPort}/api/agenda/test/tick`, { method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...(who ? { Authorization: `Bearer ${who.token}` } : {}) }, body: JSON.stringify({ now: now.toISOString() }) })
 const tick = async (now) => {
-  const r = await fetch(`http://127.0.0.1:${S.apiPort}/api/agenda/test/tick`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ now: now.toISOString() }) })
+  const r = await tickAs(HY, now)
+  if (!r.ok) throw new Error(`tick ${r.status} ${await r.text()}`)
   return (await r.json()).sent
 }
 const notices = (who) => S.q(`select title, description, url from notifications where tenant_id=$1 and type='agenda' and user_id=$2 order by time_stamp`, [TENANT, who.id])
@@ -225,6 +231,9 @@ test('F-AG-01 방의 대화에서 정한 약속이 방 사람의 「다가오는
 })
 
 test('F-AG-02 그날 아침 8시: Home 카드와 푸시의 글에 곳, 「열기」는 그 메시지를 연다', async ({ browser }) => {
+  // (the test clock: not without a sign-in, not for someone who is not an administrator — review #6)
+  expect((await tickAs(null, kst(NEXT_TUE, '08:00'))).status).toBe(401)
+  expect((await tickAs(SY, kst(NEXT_TUE, '08:00'))).status).toBe(403)
   const sent = await tick(kst(NEXT_TUE, '08:00'))
   expect(sent.map((x) => x.outcome)).toEqual(['sent', 'sent', 'sent'])
   const [n] = await notices(HY)
@@ -312,6 +321,8 @@ test('F-AG-05 메일의 모임 안내 → 메일함 주인만의 약속 · 알�
   expect(n.description).toContain('챙길 것: 회비 3만 원')
   expect(n.description).toContain('메일 「12월 정기 모임 안내」에서 읽었어요.')
   expect(n.url).toMatch(/^\/pro\/mail\//)
+  // the mail's link is the sender's word: not in the notice (Home · push) — review #1
+  expect(n.description).not.toContain('meet.senior-group.example')
   for (const who of [SY, JH, DY]) expect((await notices(who)).some((x) => x.title.includes('정기 모임'))).toBe(false)
 
   const p = await open(browser, HY)
@@ -319,6 +330,9 @@ test('F-AG-05 메일의 모임 안내 → 메일함 주인만의 약속 · 알�
   const it = p.locator('[data-test="agenda-item"]').filter({ hasText: '12월 정기 모임' })
   await expect(it).toContainText('챙길 것')
   await expect(it.locator('[data-test="agenda-source"]')).toContainText('메일 · 12월 정기 모임 안내')
+  // …but on the card, by its domain and with who sent it
+  await expect(it.locator('[data-test="agenda-link"]')).toContainText('링크 · meet.senior-group.example')
+  await expect(it.locator('[data-test="agenda-link-from"]')).toHaveText('secretary@senior-group.example')
   // a demo mailbox: 「캘린더에 추가」 records it
   await it.locator('[data-test="agenda-calendar"]').click()
   await expect(it.locator('[data-test="agenda-in-calendar"]')).toHaveText('캘린더에 기록했어요')

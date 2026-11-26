@@ -47,6 +47,11 @@ async function add(x) {
           <p class="when" data-no-i18n data-test="agenda-when">{{ x.when }}<template v-if="x.location"> · {{ x.location }}</template></p>
           <p v-if="x.peopleLine" class="sub" data-no-i18n>{{ x.peopleLine }}</p>
           <p v-if="x.bring" class="sub"><span>챙길 것</span> · <span data-no-i18n>{{ x.bring }}</span></p>
+          <!-- a link by its domain; a mail's says who sent it — the sender's word, not Lite's (review #1: it is never in the notice text) -->
+          <p v-if="x.link && x.linkHost" class="sub lnk" data-test="agenda-link">
+            <a :href="x.link" target="_blank" rel="noopener noreferrer nofollow" :title="x.linkFrom ? '메일을 보낸 사람이 준 주소예요' : undefined"><span>링크</span> · <span data-no-i18n>{{ x.linkHost }}</span></a>
+            <template v-if="x.linkFrom"> · <span>보낸 사람</span> <span data-no-i18n data-test="agenda-link-from">{{ x.linkFrom }}</span></template>
+          </p>
           <button class="src press" :title="x.source.kind === 'room' ? '약속을 정한 메시지를 열어요' : '약속 메일을 열어요'" data-test="agenda-source" @click="open(x)">
             <Icon :name="x.source.kind === 'room' ? 'team' : 'mail'" :size="13" />
             <span class="lbl" data-no-i18n>{{ x.source.label }}</span>
@@ -94,6 +99,7 @@ async function add(x) {
 .b.done { background: transparent; color: #0b6f66; padding: 0 4px; }
 .b:disabled { opacity: .55; }
 .err { color: var(--color-error); font-size: 12.5px; overflow-wrap: anywhere; }
+.lnk a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 /* (Lite always says its theme on <html data-theme> — stores/sky.js) */
 :root[data-theme="dark"] .day { background: rgba(45, 212, 191, .14); color: #7ee8da; }
 :root[data-theme="dark"] .n, :root[data-theme="dark"] .src, :root[data-theme="dark"] .b:not(.ghost):not(.done) { background: rgba(255, 255, 255, .1); }

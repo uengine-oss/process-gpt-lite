@@ -7,6 +7,8 @@
 //             where it was agreed. outcome: sent · skipped:<why>
 //   startAgendaTicker — every minute in each tenant (index.js: the background block, or PRO_AGENDA_TICK_MS on a test stack)
 // now: the clock (a test stack's clock override — routes/agenda.js, PRO_AGENDA_TEST_CLOCK=1).
+// At most once: a reminder is marked sent when it is claimed, before it is delivered. A server that stops between the two (or a delivery
+// that fails) loses that one reminder — it is never sent twice (its outcome says error:… or stays empty); the plan's next reminder still goes.
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { langOf, withLang } from '../lang.js'
@@ -41,8 +43,10 @@ async function deliver(r, now, deps) {
   if (!(await member(r.user_id))) return 'skipped:not_member'
   const prefs = await prefsOf(r.user_id)
   if (!prefs.on) return 'skipped:off'
-  // late (the server was down, or the reminder was taken back and forth): what has started is not announced as coming
-  if (r.slot === 'before' ? startOf(item).getTime() <= new Date(now).getTime() : isOver(item, now)) return 'skipped:late'
+  // late (the server was down, or the reminder was taken back and forth): what has started is not announced as coming — a timed plan's
+  // morning reminder neither (review #8); an all-day plan's morning goes while its day lasts
+  const started = startOf(item).getTime() <= new Date(now).getTime()
+  if (item.allDay ? isOver(item, now) : started) return 'skipped:late'
   const lang = await langOf(r.user_id)
   const names = item.audience === 'people' ? await namesOf(item.participants).catch(() => ({})) : {}
   const people = item.audience === 'people' ? item.participants.filter((id) => id !== String(r.user_id)).map((id) => names[id]).filter(Boolean) : []

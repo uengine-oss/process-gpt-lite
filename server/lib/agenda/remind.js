@@ -6,7 +6,8 @@
 //   startOf · endOf · isOver — the instants a plan starts and ends (an all-day plan: its whole day in its time zone)
 //   whenWords    — 「오늘 오후 3:00」 / 「내일 오전 10:30」 / 「12월 1일 (화) 오후 3:00」 · "Today, 3:00 PM" …
 //   leadWords    — 「1시간 뒤」 · 「30분 뒤」 / "in 1 hr" · "in 30 min" (how long until it starts)
-//   reminderText — the notice's title and text: what was agreed (time · place · who · what to bring), and where it was said
+//   reminderText — the notice's title and text: what was agreed (time · place · who · what to bring), and where it was said; a mail's
+//                  link is left out (the card shows it with its domain and sender)
 // An item here: {title, date, start, allDay, tz, durationMin, location, link, bring, notes} — date and start on the plan's own wall clock.
 import { zonedToUtc, localParts, nextDay, whenText, DEFAULT_TZ } from '../calendarEvent.js'
 import { eunNeun, iga } from '../josa.js'
@@ -92,7 +93,10 @@ export function reminderText(item, slot, { now = new Date(), tz = null, lang = '
   const place = clean(item.location, 120)
   const bring = clean(item.bring, 120)
   const notes = clean(item.notes, 200)
-  const link = clean(item.link, 300)
+  // a mail's link is the sender's own word: it is not put in the notice (the phone's push, Home's notice) — the plan's card shows its domain and
+  // who gave it (review #1); a room's link is the team's
+  const fromMail = (source || item.source)?.kind === 'mail'
+  const link = fromMail ? '' : clean(item.link, 300)
   const who = people.map((p) => clean(p, 30)).filter(Boolean).join(', ')
   const head = slot === 'before' && !item.allDay ? leadWords(item, { now, lang }) : when
   const en = lang === 'en'
