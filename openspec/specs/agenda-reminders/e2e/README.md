@@ -54,6 +54,24 @@ cd server && node --test --test-concurrency=1 test/agenda-review.integration.tes
 
 수정 후 다시 돌린 시험: `agenda` 단위 18 · 사례 23 · 통합 12, `mailCard` 단위 8 · 통합 11, `mailSelf` 7 · 1, `mailPollRace` 2, `mailFlow` 12, `roomStore` 6, `i18n-dictionary` 3, Playwright F-AG-01~08(8/8) — 모두 통과. AG-U-09는 메일 약속의 링크가 알림 글에 포함되리라 기대하던 부분을 검토 #1에 맞게 고쳤다(대화방 약속의 링크는 그대로 확인). F-AG-05는 메일에 링크를 넣어 카드에는 「링크 · meet.senior-group.example · 보낸 사람 secretary@senior-group.example」이 보이고 알림 글에는 링크가 없음을 확인한다. F-AG-02는 시험 시계 경로가 로그인 없이는 401, 관리자가 아니면 403을 반환함을 확인한다.
 
+## 재검토(PR #95) 반영
+
+재검토에서 진행을 막을 문제는 없었고, 앞의 열 가지는 모두 확인됐다. 남은 문제를 고쳤으며, 이번에도 시험을 먼저 쓰고 수정 전 코드에서 실패를 확인했다(단위 6건 · 통합 3건 모두 실패). 수정 후에는 모두 통과한다.
+
+```bash
+cd server && node --test test/agenda-review2.test.js                                    # R2-U-01~06 (모델 · DB 없음)
+cd server && node --test --test-concurrency=1 test/agenda-review2.integration.test.js   # R2-I-01~03 (개발 DB, 회사 agenda-rv2, 메일 비서는 가짜 모델 서버)
+```
+
+| 재검토 | 고친 내용 | 시험 | 수정 전 |
+|---|---|---|---|
+| #1 카드가 링크를 준 사람을 잘못 표시함 | 약속을 만들 때와 링크를 바꿀 때마다 그 메일의 보낸 사람을 `source.linkFrom`에 기록하고, 카드에 그 사람을 보여 준다 | R2-U-01 · R2-I-01 | 같은 스레드의 박 과장이 바꾼 링크 옆에 김 대리(처음 정한 사람)가 표시됨 |
+| #2 여러 사람이 함께 쓰는 발신 주소 | 메일 머리(List-Id · List-Unsubscribe · Precedence: bulk · list · junk · 「no」가 아닌 Auto-Submitted · 보낸 사람과 다른 X-Original-Sender)로 판단하고, 그런 메일과 그런 주소에서 처음 정한 약속은 같은 스레드에서만 연결한다. Gmail · IMAP에서 메일을 가져올 때 이 머리도 가져온다. 주소의 낱말은 보지 않는다 | R2-U-02 · 03 · R2-I-02 | `sharedSender` · `headerFields` 없음, 리스트 주소의 다른 스레드 메일도 약속을 봄 |
+| #3 메일 약속의 글 속 주소가 푸시에 실림 | 메일 약속의 제목 · 장소 · 챙길 것 · 메모 속 주소는 알림 글에서 「(링크: 도메인)」으로 바꾼다. 카드에는 그대로 보여 준다 | R2-U-04 | 제목에 `https://evil.example/t?x=1` |
+| #4 기타 | Home 카드 추가에 실패해도 약속은 읽는다(try/finally). 판정에는 새 메시지를 먼저 넣는다(15 × 300자 이내, 많으면 모두 짧게). 한 시간 넘게 쉬는 방은 방별 호출 기록에서 지운다. 시간당 상한과 한 사람의 메일 순차 처리는 서버 프로세스별로 적용한다(결정 D-AG-18 · 20) | R2-I-03 · R2-U-05 · 06 | 약속 없음 · 앞쪽의 새 메시지가 잘림 · `noteReading` 없음 |
+
+검토 당시 RV-U-03(「새 메시지는 마지막 15개만」)은 재검토 #4에 맞게 바꿨다. 새 메시지 40개를 모두 넣고, 메시지마다 112자 이하, 합계는 15 × 300자 이하인지 확인한다. 수정 후 다시 실행한 시험: `agenda` 단위 18 · 사례 23 · 검토 4 · 재검토 6, 통합 12 · 검토 11 · 재검토 3, `mailCard` 8 · 11, `mailSelf` 7 · 1, `mailPollRace` 2, `mailFlow` 12, `roomStore` 6, `i18n-dictionary` 3, Playwright F-AG-01~08(8/8) — 모두 통과.
+
 ## 스펙 시나리오 ↔ 시험
 
 | 스펙 시나리오 | 시험 |

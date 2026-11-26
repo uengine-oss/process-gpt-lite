@@ -101,10 +101,15 @@ export async function applyOps(scope, ops, { now = new Date(), model = {} } = {}
 const at = () => new Date().toISOString()
 // the plans one reading may see and change (n: the room or owner's parameter, m: a mail's sender · thread): a room's, or a mailbox owner's from
 // the same sender or the same thread — the sender and thread the plan was first read from (never overwritten by a later mail)
+// An address many write from (a mailing list, a group that rewrote From, an automatic sender — lib/agenda/mail.js sharedSender) is not one
+// person: a mail from it, or a plan first read from it, matches by the thread only (re-review #2).
 const scopeSql = (scope, n, m) => (scope.kind === 'room' ? `source_kind='room' and room_id=$${n}`
-  : `source_kind='mail' and mail_owner=$${n}::uuid and (source->>'sender' = nullif($${m}::text, '') or (source->>'thread' = nullif($${m + 1}::text, '')))`)
+  : `source_kind='mail' and mail_owner=$${n}::uuid and ((source->>'sender' = nullif($${m}::text, '') and not coalesce((source->>'shared')::boolean, false))
+      or (source->>'thread' = nullif($${m + 1}::text, '')))`)
 const scopeKey = (scope) => (scope.kind === 'room' ? scope.roomId : scope.owner)
-const scopeArgs = (scope) => (scope.kind === 'room' ? [] : [String(scope.mail?.sender || '').toLowerCase(), String(scope.mail?.thread || '')])
+const scopeArgs = (scope) => (scope.kind === 'room' ? [] : [scope.mail?.shared ? '' : String(scope.mail?.sender || '').toLowerCase(), String(scope.mail?.thread || '')])
+// who gave a link: the sender of the mail that set it (a reply in the thread may change it — re-review #1)
+const senderOf = (m = {}) => String(m.sender || addrOf(m.from) || '').toLowerCase()
 
 async function create(scope, o, { now, model }) {
   const room = scope.kind === 'room'
@@ -115,7 +120,7 @@ async function create(scope, o, { now, model }) {
   const m = scope.mail || {}
   const source = room ? { title: scope.roomTitle || null }
     : { subject: m.subject || '', from: m.from || '', ...(m.sender ? { sender: String(m.sender).toLowerCase() } : {}), ...(m.thread ? { thread: String(m.thread) } : {}),
-      ...(m.actionId ? { actionId: m.actionId } : {}) }
+      ...(m.shared ? { shared: true } : {}), ...(o.item.link && senderOf(m) ? { linkFrom: senderOf(m) } : {}), ...(m.actionId ? { actionId: m.actionId } : {}) }
   const history = [{ at: at(), op: 'create', by: 'model', ...(o.message ? { message: o.message } : {}), ...(room ? {} : { mail: scope.mail?.id }), basis: o.basis || '', item: snap(o.item) }]
   const [row] = await q(`insert into pro_agenda_items (tenant_id, source_kind, room_id, message_ids, mail_owner, mail_id, source, title, starts_at, all_day_date, tz,
                            duration_min, location, link, bring, notes, audience, participants, created_by_model, history)
@@ -141,7 +146,8 @@ async function change(scope, o, { now }) {
   [o.id, T(), scopeKey(scope), o.item.title, startsAt, allDayDate, o.item.tz, o.item.durationMin || null, o.item.location || '', o.item.link || '',
     o.item.bring || '', o.item.notes || '', o.people || null, o.message || null, scope.kind === 'mail' ? String(scope.mail?.id || '') || null : null,
     // (a later mail: the plan's subject · sender line · Home card are that mail's — its own card or none; who may change it stays the first's)
-    scope.kind === 'mail' ? { subject: scope.mail?.subject || '', from: scope.mail?.from || '', ...(scope.mail?.actionId ? { actionId: scope.mail.actionId } : {}) } : {},
+    scope.kind === 'mail' ? { subject: scope.mail?.subject || '', from: scope.mail?.from || '', ...(scope.mail?.actionId ? { actionId: scope.mail.actionId } : {}),
+      ...(o.changed?.includes('link') && o.item.link && senderOf(scope.mail) ? { linkFrom: senderOf(scope.mail) } : {}) } : {},
     JSON.stringify([entry]), ...scopeArgs(scope)])
   if (!row) return null
   const item = itemOf(row)
@@ -204,7 +210,7 @@ export async function viewOf(item, viewer, { now = new Date(), titles = null } =
     badge: badgeOf(item.date),
     location: item.location, link: item.link, bring: item.bring, notes: item.notes, status: item.status, changed: item.status === 'changed',
     // a link shown by its domain — a mail's marked with who sent it (review #1: it is the sender's word, not Lite's)
-    ...(item.link ? { linkHost: hostOf(item.link), ...(item.kind === 'mail' ? { linkFrom: item.source.sender || addrOf(item.source.from) || '' } : {}) } : {}),
+    ...(item.link ? { linkHost: hostOf(item.link), ...(item.kind === 'mail' ? { linkFrom: item.source.linkFrom || item.source.sender || addrOf(item.source.from) || '' } : {}) } : {}),
     audience: item.audience, ...(item.audience === 'people' ? { people: item.participants.map((id) => names[id]).filter(Boolean) } : {}),
     // (the lines the card shows as they are, in the reader's language: 「「시니어그룹」 대화」 · 「메일 · 12월 정기 모임 안내」 · 「함께: 김서연, 박도윤」)
     ...(item.audience === 'people' ? { peopleLine: L(`함께: ${item.participants.map((id) => names[id]).filter(Boolean).join(', ')}`, `With: ${item.participants.map((id) => names[id]).filter(Boolean).join(', ')}`) } : {}),

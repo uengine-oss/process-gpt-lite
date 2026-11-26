@@ -81,6 +81,19 @@ export async function googleAccessToken(userId) {
   return tok.access_token
 }
 
+// The headers that tell an address many people write from (lib/agenda/mail.js sharedSender — re-review #2): from Gmail's header map
+// (lower-case names) or IMAP's raw header lines (headerMap). Only those present are returned.
+export function headerFields(h = {}) {
+  const pick = { listId: 'list-id', listUnsubscribe: 'list-unsubscribe', precedence: 'precedence', autoSubmitted: 'auto-submitted', xOriginalSender: 'x-original-sender' }
+  return Object.fromEntries(Object.entries(pick).map(([k, name]) => [k, h[name]]).filter(([, v]) => v != null && String(v).trim() !== '').map(([k, v]) => [k, String(v).trim()]))
+}
+// mailparser's headerLines [{key, line: 'List-Id: <…>'}] → {name: value}
+export function headerMap(lines = []) {
+  const out = {}
+  for (const x of Array.isArray(lines) ? lines : []) if (x?.key && !(x.key in out)) out[x.key] = String(x.line || '').replace(/^[^:]*:\s*/, '').replace(/\r?\n\s+/g, ' ')
+  return out
+}
+
 // ---------- fetchers: each returns [{id, from, subject, date, text}] ----------
 // the whole body (the part its sender wrote now — quoted earlier mails cut off) and the attachments' names, not Gmail's
 // short preview: what the mail asks, in what form and whether it repeats is in there (lib/ontology/mailbody.js)
@@ -98,7 +111,7 @@ async function fetchGmail(userId) {
     const parts = partsOf(full.payload)
     const body = bodyOf(parts)
     // (Reply-To and X-Original-Sender: who a group post rewritten "via" the group came from — lib/mailSelf.js)
-    out.push({ id: m.id, thread: full.threadId, from: h.from, to: h.to, cc: h.cc, replyTo: h['reply-to'], xOriginalSender: h['x-original-sender'], subject: h.subject, date: h.date, body, labels: full.labelIds || [], text: (newPart(body) || full.snippet || '').slice(0, 6000),
+    out.push({ id: m.id, thread: full.threadId, from: h.from, to: h.to, cc: h.cc, replyTo: h['reply-to'], xOriginalSender: h['x-original-sender'], ...headerFields(h), subject: h.subject, date: h.date, body, labels: full.labelIds || [], text: (newPart(body) || full.snippet || '').slice(0, 6000),
       attachments: parts.attachments.map((f) => ({ name: f.name, size: f.size, attachmentId: f.attachmentId })) })
   }
   return out
@@ -115,7 +128,7 @@ async function fetchImap(userId, acc) {
     const since = new Date(Date.now() - 2 * 86400000)
     for await (const msg of client.fetch({ since }, { source: true, uid: true })) {
       const p = await simpleParser(msg.source)
-      out.push({ id: String(msg.uid), from: p.from?.text, to: p.to?.text, cc: p.cc?.text, replyTo: p.replyTo?.text, xOriginalSender: p.headers?.get('x-original-sender'), subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 1500) })
+      out.push({ id: String(msg.uid), from: p.from?.text, to: p.to?.text, cc: p.cc?.text, replyTo: p.replyTo?.text, xOriginalSender: p.headers?.get('x-original-sender'), ...headerFields(headerMap(p.headerLines)), subject: p.subject, date: p.date?.toISOString(), text: (p.text || '').slice(0, 1500) })
     }
   } finally { lock.release(); await client.logout() }
   return out.slice(-20)
@@ -338,19 +351,23 @@ export async function pollUser(userId, { announce, deps = {} } = {}) {
   } catch (e) { readPlans(); throw e }
   const actions = (r.actions || []).filter((a) => !(answered.has(a.mail_id) && S.repliesTo(a)))
   const cards = []
-  for (const a of actions) {
-    const src = asked.find((m) => m.id === a.mail_id)
-    // (a Gmail mail keeps its thread: the next mail of the thread finds the work this one became — lib/mailFlow.js)
-    const [row] = await q(
-      `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
-      [userId, a.verb, a.text, iconDomain(acc.provider, src, a.icon_domain), a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject, ...(src.thread ? { thread_id: src.thread } : {}),
-        // what the card is for, as the triage read it (lib/mailCard.js — the sheet's main action follows it)
-        ...(CARD_KINDS.includes(a.kind) ? { kind: a.kind, kind_read: { by: 'triage', at: new Date().toISOString() } } : {}) } : null])
-    emit(userId, 'action', row)
-    if (row.source?.mail_id) cards.push(row)
+  // (a card the database refuses — the plans of these mails are still read: re-review #4)
+  try {
+    for (const a of actions) {
+      const src = asked.find((m) => m.id === a.mail_id)
+      // (a Gmail mail keeps its thread: the next mail of the thread finds the work this one became — lib/mailFlow.js)
+      const [row] = await q(
+        `insert into pro_actions(user_id,verb,text,icon,due,prompt,source) values ($1,$2,$3,$4,$5,$6,$7) returning *`,
+        [userId, a.verb, a.text, iconDomain(acc.provider, src, a.icon_domain), a.due || null, a.prompt, src ? { mail_id: src.id, from: src.from, subject: src.subject, ...(src.thread ? { thread_id: src.thread } : {}),
+          // what the card is for, as the triage read it (lib/mailCard.js — the sheet's main action follows it)
+          ...(CARD_KINDS.includes(a.kind) ? { kind: a.kind, kind_read: { by: 'triage', at: new Date().toISOString() } } : {}) } : null])
+      emit(userId, 'action', row)
+      if (row.source?.mail_id) cards.push(row)
+    }
+  } finally {
+    // (the plans of these mails, with the Home cards they made)
+    readPlans(cards)
   }
-  // (the plans of these mails, with the Home cards they made)
-  readPlans(cards)
   // a mail of a thread that is already a running instance's goes to that instance, without a model (lib/mailFlow.js)
   const MF = await import('./mailFlow.js')
   const threaded = await MF.linkByThread(userId, cards).catch((e) => { console.warn('[mail] thread', e.message); return new Map() })

@@ -12,6 +12,23 @@ import { addrOf } from '../mailSelf.js'
 
 export const stats = { read: 0, gated: 0, made: 0, failed: 0, off: 0 }
 
+// An address many people write from — a mailing list or group (Gmail rewrites From to the group's, and keeps the writer in X-Original-Sender),
+// a platform's automatic sender — is not one person: its mails change a plan only in that plan's own thread (re-review #2). Told by the
+// mail's headers only, never by words in the address: List-Id, List-Unsubscribe, Precedence: bulk · list · junk, Auto-Submitted other than
+// 「no」, an X-Original-Sender other than From. → the reason, or null
+export function sharedSender(mail = {}) {
+  const v = (x) => String(x ?? '').trim()
+  if (v(mail.listId)) return 'list-id'
+  if (v(mail.listUnsubscribe)) return 'list-unsubscribe'
+  if (['bulk', 'list', 'junk'].includes(v(mail.precedence).toLowerCase())) return 'precedence'
+  const auto = v(mail.autoSubmitted).toLowerCase()
+  if (auto && auto !== 'no') return 'auto-submitted'
+  const original = addrOf(mail.xOriginalSender)
+  if (original && original !== addrOf(mail.from)) return 'rewritten-from'
+  return null
+}
+
+// one owner's readings run one after another — in this server process (two servers each keep their own line)
 const queues = new Map() // tenant:owner → the tail of that owner's readings
 // mail: {id, from, subject, date, text, thread}; actionId: the Home card the mail made (its sheet is where the reminder opens the mail)
 export function fromMail(userId, mail, opts = {}) {
@@ -38,7 +55,8 @@ async function readMail(userId, mail, { actionId = null, deps = {} } = {}) {
   const now = deps.now || new Date()
   const tz = sk.rules.timezone
   const sender = addrOf(mail.from)
-  const scope = { kind: 'mail', owner: userId, mail: { id: mail.id, subject: mail.subject || '', from: mail.from || '', sender, thread: mail.thread || null, actionId } }
+  const scope = { kind: 'mail', owner: userId, mail: { id: mail.id, subject: mail.subject || '', from: mail.from || '', sender, thread: mail.thread || null, actionId,
+    ...(sharedSender(mail) ? { shared: true } : {}) } }
   const plans = await S.livePlans(scope, { now })
   const { input, keys } = R.inputFor({ where: 'mail', now, tz, plans, mail, rules: sk.rules })
   stats.read++

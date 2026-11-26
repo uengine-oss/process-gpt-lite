@@ -1630,6 +1630,8 @@ cd server && AGENDA_EVAL=1 node --test test/agenda-read.test.js                 
 cd server && node --test --test-concurrency=1 test/agenda.integration.test.js                  # AG-I-01~12 (개발 DB, 회사 agenda-it, 모델 대본)
 cd server && node --test test/agenda-review.test.js                                            # RV-U-01~04 검토 반영(모델 · DB 없음)
 cd server && node --test --test-concurrency=1 test/agenda-review.integration.test.js           # RV-I-01~11 검토 반영(개발 DB, 회사 agenda-rv)
+cd server && node --test test/agenda-review2.test.js                                           # R2-U-01~06 재검토 반영(모델 · DB 없음)
+cd server && node --test --test-concurrency=1 test/agenda-review2.integration.test.js          # R2-I-01~03 재검토 반영(개발 DB, 회사 agenda-rv2)
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/agenda-reminders.spec.js   # F-AG-01~08 (자기 스택 8983 · 5383부터, 가짜 모델 · 가짜 푸시 · 시험 시계)
 ```
 
@@ -1662,6 +1664,10 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/agend
 | **검토 #8** 시각이 있는 약속의 아침 알림도 시작 시각이 지나면 보내지 않는다 | 검토 PR #95 | RV-I-07 | 통합 | ✅ |
 | **검토 #9** 판정 입력은 마지막 15개 메시지 · 300자 · 메일 1,000자, 방마다 시간당 6번까지, 사람이 둘 이상인 방만 | 검토 PR #95 | RV-U-03 · RV-I-08 · 09 | 단위 · 통합 | ✅ |
 | **검토 #10** 「AI 제안」을 끈 방은 읽은 위치를 현재로, 메일 비서가 실패해도 그 메일의 약속은 읽음, 알림은 최대 한 번(결정 D-AG-21) | 검토 PR #95 | RV-I-10 · 11 | 통합 | ✅ |
+| **재검토 #1** 카드의 링크 옆 「보낸 사람」은 그 링크를 준 메일의 보낸 사람이다(같은 스레드의 다른 사람이 링크를 바꾸면 그 사람) | 재검토 PR #95 | R2-U-01 · R2-I-01 | 단위 · 통합 | ✅ |
+| **재검토 #2** 메일링 리스트 · 그룹이 바꾼 From · 자동 발송처럼 함께 쓰는 주소는 같은 스레드에서만 약속을 바꾼다 — 메일 머리(List-Id · List-Unsubscribe · Precedence · Auto-Submitted · 다른 X-Original-Sender)로만 판단하며, Gmail · IMAP에서 메일을 가져올 때 이 머리도 가져온다 | 재검토 PR #95 | R2-U-02 · 03 · R2-I-02 | 단위 · 통합 | ✅ |
+| **재검토 #3** 메일 약속의 제목 · 장소 · 챙길 것 · 메모 속 주소는 알림 글에서 「(링크: 도메인)」으로 바꾸고, 카드에는 그대로 보여 준다 | 재검토 PR #95 | R2-U-04 | 단위 | ✅ |
+| **재검토 #4** Home 카드 추가에 실패해도 약속은 읽는다 · 판정에는 새 메시지를 먼저(많으면 모두 짧게) · 한 시간 넘게 쉬는 방은 호출 기록에서 지운다 · 시간당 상한과 메일 순차 처리는 서버 프로세스별로 적용한다(스펙 결정) | 재검토 PR #95 | R2-I-03 · R2-U-05 · 06 · RV-U-03 | 단위 · 통합 | ✅ |
 | 열어 둔 대화방은 약속이 생긴 뒤 다시 열어야 메시지 아래 표시가 보인다(실시간 갱신 없음) · 약속 변경을 바로 알리는 알림은 없음(결정 D-AG-06) · 카카오톡 가져오기는 범위 밖 | — | — | — | ◐ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

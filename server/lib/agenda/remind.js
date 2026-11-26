@@ -75,6 +75,15 @@ export function leadWords(item, { now = new Date(), lang = 'ko' } = {}) {
 }
 
 const clean = (s, n = 200) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
+// an http(s) address in a text → 「(링크: evil.example)」 / "(link: evil.example)" — the shape of an address, not its meaning
+const URL_RE = /\bhttps?:\/\/[^\s<>"'()]+/gi
+export function hideUrls(text, lang = 'ko') {
+  return String(text ?? '').replace(URL_RE, (u) => {
+    let host = ''
+    try { host = new URL(u).hostname } catch { host = '' }
+    return lang === 'en' ? `(link${host ? `: ${host}` : ''})` : `(링크${host ? `: ${host}` : ''})`
+  })
+}
 
 // where it was said: {kind: 'room', title} | {kind: 'mail', subject}
 export function sourceWords(src, lang = 'ko') {
@@ -89,10 +98,14 @@ export function sourceWords(src, lang = 'ko') {
 // slot: 'day' | 'before'; people: the names of who it is for, when it is only some of a room
 export function reminderText(item, slot, { now = new Date(), tz = null, lang = 'ko', source = null, people = [] } = {}) {
   const when = whenWords(item, { now, tz, lang })
-  const title = clean(item.title, 80)
-  const place = clean(item.location, 120)
-  const bring = clean(item.bring, 120)
-  const notes = clean(item.notes, 200)
+  // an address written into a mail plan's title, place, what to bring or notes is said by its domain only (re-review #3); the card
+  // shows the words as they are
+  const fromMailSrc = (source || item.source)?.kind === 'mail'
+  const hide = (t) => (fromMailSrc ? hideUrls(t, lang) : t)
+  const title = clean(hide(item.title), 80)
+  const place = clean(hide(item.location), 120)
+  const bring = clean(hide(item.bring), 120)
+  const notes = clean(hide(item.notes), 200)
   // a mail's link is the sender's own word: it is not put in the notice (the phone's push, Home's notice) — the plan's card shows its domain and
   // who gave it (review #1); a room's link is the team's
   const fromMail = (source || item.source)?.kind === 'mail'

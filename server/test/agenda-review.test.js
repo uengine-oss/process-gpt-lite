@@ -1,7 +1,7 @@
 // 약속 알림 리뷰 반영(PR #95 검토) — DB · 모델 없이. 고치기 전 코드에서 먼저 돌려 실패를 확인한 시험이다.
 //   RV-U-01 (#1) 메일 약속의 링크는 알림 글(Home 알림 · 휴대폰 푸시)에 넣지 않는다 — 대화방 약속의 링크는 그대로
 //   RV-U-02 (#1) Home 카드에는 링크를 그 주소의 도메인으로, 메일 약속이면 「보낸 사람」과 함께 보인다
-//   RV-U-03 (#9) 판정이 보는 글은 줄인다: 새 메시지는 마지막 15개, 한 메시지 300자, 메일 본문 1000자
+//   RV-U-03 (#9) 판정이 보는 글은 줄인다: 메시지 15개 · 300자 몫 안에서(새 메시지가 더 많으면 모두를 짧게 — 재검토 #4), 메일 본문 1000자
 //   RV-U-04 (#6) 시험 시계 길: 환경 변수 + 로그인 + 관리자, 프록시 · 터널 머리(X-Forwarded-For · Forwarded · CF-Connecting-IP)가 있으면 거절
 // 이름은 지어낸 것.
 import test, { after } from 'node:test'
@@ -45,17 +45,19 @@ test('RV-U-02 Home 카드: 링크는 도메인으로, 메일 약속이면 보낸
   assert.equal(r.linkFrom, undefined, '대화방 약속은 방 사람이 정한 것')
 })
 
-test('RV-U-03 판정이 보는 글: 새 메시지는 마지막 15개 · 한 메시지 300자, 메일 본문 1000자', () => {
+test('RV-U-03 판정이 보는 글: 15개 × 300자 몫 안에서(새 메시지가 많으면 모두를 짧게), 메일 본문 1000자', () => {
   const members = [{ id: '00000000-0000-4000-8000-000000000001', name: '정하윤' }]
   const now = new Date('2026-11-26T14:00:00+09:00')
   const messages = Array.from({ length: 40 }, (_, i) => ({ uuid: `u-${i + 1}`, who: '정하윤', at: now, text: `${i + 1}번 ` + '가'.repeat(1000), fresh: true }))
   const { input } = R.inputFor({ where: 'room', now, tz: 'Asia/Seoul', members, messages })
   const state = R.gateState(input)
-  assert.ok(!state.includes('#25 '), '앞의 메시지는 빠진다')
-  assert.ok(state.includes('#26 ') && state.includes('#40 '))
+  // (re-review #4: more new messages than the cap holds are all given, each shorter — the gate's text stays within 15 × 300 characters)
   const lines = state.split('\n').filter((l) => /^#\d+/.test(l))
-  assert.equal(lines.length, 15)
-  for (const l of lines) assert.ok(l.length <= 300 + 60, `한 줄 ${l.length}자`)
+  assert.equal(lines.length, 40)
+  assert.ok(state.includes('#1 ') && state.includes('#40 '))
+  const texts = lines.map((l) => l.replace(/^.*?\d\d:\d\d\): /, ''))
+  for (const t of texts) assert.ok(t.length <= 112, `한 메시지 ${t.length}자`)
+  assert.ok(texts.reduce((n, t) => n + t.length, 0) <= 15 * 300)
   const { input: mi } = R.inputFor({ where: 'mail', now, tz: 'Asia/Seoul', mail: { from: 'a@x.example', subject: 's', date: now, text: '나'.repeat(5000) } })
   const ms = R.gateState(mi)
   assert.ok((ms.match(/나/g) || []).length <= 1000, `메일 본문 ${(ms.match(/나/g) || []).length}자`)

@@ -78,13 +78,29 @@ export function inputFor({ where, now = new Date(), tz, plans = [], members = []
   return { input, keys }
 }
 
-// the gate's state: the plans there and the new words, short (the first token is all that is read): the last rules.gateMessages messages,
-// each cut at rules.gateChars, a mail's text at rules.gateMailChars — the reading itself gets the whole window
-export function gateState(input, rules = DEFAULTS) {
+// the gate's state: the plans there and the new words, short (the first token is all that is read) — within rules.gateMessages messages of
+// rules.gateChars each (a mail: its text to rules.gateMailChars). The new messages come first: every one of them, cut shorter when there
+// are more than the cap holds (an early message that sets the plan is not dropped — re-review #4); the context before them fills what is
+// left, the latest first. The reading itself gets the whole window.
+export function gateLines(messages, rules = DEFAULTS) {
   const n = rules.gateMessages || DEFAULTS.gateMessages, chars = rules.gateChars || DEFAULTS.gateChars
+  const fresh = messages.filter((m) => m.new), before = messages.filter((m) => !m.new)
+  const budget = n * chars
+  const per = Math.max(60, Math.min(chars, Math.floor(budget / Math.max(1, fresh.length))))
+  let used = fresh.reduce((t, m) => t + Math.min(String(m.text).length, per), 0)
+  const context = []
+  for (const m of [...before].reverse()) {
+    const c = Math.min(String(m.text).length, chars)
+    if (fresh.length + context.length >= n || used + c > budget) break
+    context.unshift(m)
+    used += c
+  }
+  return [...context.map((m) => ({ m, cut: chars })), ...fresh.map((m) => ({ m, cut: per }))]
+}
+export function gateState(input, rules = DEFAULTS) {
   const plans = input.plans.length ? input.plans.map((p) => `- ${p.key} ${p.title} · ${p.when}${p.location ? ` · ${p.location}` : ''}`).join('\n') : L('- 없음', '- none')
   const words = input.where === 'room'
-    ? input.messages.slice(-n).map((m) => `${m.key}${m.new ? L(' [새]', ' [new]') : ''} ${m.who} (${m.at}): ${String(m.text).slice(0, chars)}`).join('\n')
+    ? gateLines(input.messages, rules).map(({ m, cut }) => `${m.key}${m.new ? L(' [새]', ' [new]') : ''} ${m.who} (${m.at}): ${String(m.text).slice(0, cut)}`).join('\n')
     : `${L('보낸 사람', 'From')}: ${input.mail.from}\n${L('받은 때', 'Received')}: ${input.mail.received}\n${L('제목', 'Subject')}: ${input.mail.subject}\n${String(input.mail.text).slice(0, rules.gateMailChars || DEFAULTS.gateMailChars)}`
   return [`${L('오늘', 'Today')}: ${input.today} (${input.timezone})`, L('정해 둔 약속:', 'Plans already made:'), plans,
     input.where === 'room' ? L('대화방의 대화:', 'The conversation:') : L('받은 메일:', 'The mail:'), words].join('\n')

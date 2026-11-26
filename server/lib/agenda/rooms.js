@@ -64,7 +64,17 @@ export function watch() {
 // (review #4: a message from a clock running behind fell before the place and was never read).
 const OVERLAP = `interval '10 minutes'`
 const SEEN_MAX = 500
+// (in this server process: two servers each keep their own count — the cap is per server)
 const readings = new Map() // tenant:room → the times (ms) this server asked the model about the room in the last hour (review #9)
+export const noteReading = (key, t = Date.now()) => { (readings.get(key) || readings.set(key, []).get(key)).push(t) }
+// rooms quiet for an hour leave the count (re-review #4: it only grew)
+export function pruneReadings(now = Date.now()) {
+  for (const [key, list] of readings) {
+    const live = list.filter((t) => now - t < 3600_000)
+    if (live.length) readings.set(key, live); else readings.delete(key)
+  }
+}
+export const readingRooms = () => [...readings.keys()]
 const humansOf = (participants) => (Array.isArray(participants) ? participants : []).filter((p) => p && !p.is_agent && /^[0-9a-f-]{36}$/i.test(String(p.id || '')))
 export async function readRoom(roomId, deps = {}) {
   const now = deps.now || new Date()
@@ -99,8 +109,8 @@ export async function readRoom(roomId, deps = {}) {
     if (!fresh.length) { await done(newest, null, { seen: seenWith(rows) }); return { skipped: 'nothing_new' } }
     // one room asks the model at most rules.roomHourly times an hour: the rest waits and is read together later (review #9)
     const key = `${T()}:${roomId}`
-    const hour = (readings.get(key) || []).filter((t) => Date.now() - t < 3600_000)
-    readings.set(key, hour)
+    pruneReadings()
+    const hour = readings.get(key) || []
     if (hour.length >= (sk.rules.roomHourly || 6)) {
       await done(null, { at: now, rate: true }, { keep: true })
       mark(roomId, { delayMs: Math.max(60_000, hour[0] + 3600_000 - Date.now()) })
@@ -118,7 +128,7 @@ export async function readRoom(roomId, deps = {}) {
     const tz = sk.rules.timezone
     const { input, keys } = R.inputFor({ where: 'room', now, tz, plans, members, messages, rules: sk.rules })
     stats.read++
-    hour.push(Date.now())
+    noteReading(key)
     const g = await R.gate(input, { skill: sk, ...(deps.decide ? { decide: deps.decide } : {}) })
     if (!g) {
       stats.failed++
