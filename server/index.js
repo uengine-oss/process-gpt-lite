@@ -978,8 +978,8 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
 }, auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   try {
-    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: only pictures, sound, video, PDF and
-    // plain text go without the sandbox (a PDF in it would not show)
+    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: it gets the sandbox here. Plain text gets
+    // the same script-free policy from the /api rule (apiHeaders); a PDF, picture, song or video goes without one (it would not show or play)
     const passive = /\.(png|jpe?g|gif|webp|avif|bmp|ico|tiff?|mp4|m4v|mov|webm|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|pdf|txt|md|csv|json)$/i.test(String(req.query.path))
     res.sendFile(workroom.rawPath(r, req.query.path), { headers: { 'X-Content-Type-Options': 'nosniff', ...(passive ? {} : { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" }) } })
   } catch (e) { fail(res, e) }
