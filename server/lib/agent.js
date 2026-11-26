@@ -53,6 +53,7 @@ import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
 import * as TP from './turnPlan.js'
+import * as PN from './projectNote.js'
 import * as ASK from './askPerson.js'
 import { oddsOf, TURN_ODDS_MS } from './decide.js'
 
@@ -250,6 +251,12 @@ export function runTurn(args) {
     try {
       const m = await handleTurn(args)
       state = m?.content?.stopped ? 'stopped' : 'done'
+      // 프로젝트 계획(lib/projectNote.js): a project turn ended — the plan is rewritten when the front step said the message is one to keep, or
+      // every few turns (in the background; a turn that already changed the plan — 계획에 넣기, a rule set — does not ask again)
+      const st = turnCtx.getStore()
+      if (st?.project && !st.noteDone && !args.auto && state === 'done') {
+        PN.afterTurn({ user: args.user, threadId: args.threadId, memory: !!TP.viewOf(turn)?.plan?.memory }).catch((e) => console.warn('[project-plan] after turn', e.message))
+      }
       return m
     } catch (e) {
       if (!e?.turnStopped) throw e
@@ -292,7 +299,8 @@ async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill
   runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked, replaces })
   return msg
 }
-const browserHandler = (skill) => ({ kind: 'browser', ...(skill ? { skill } : {}), label: `${L('브라우저', 'Browser')}${skill ? ` · ${skill}` : ''}` })
+// (the skill as people know it — its metadata.label, 「브라우저 · NotebookLM」 — else its name)
+const browserHandler = (skill) => ({ kind: 'browser', ...(skill ? { skill } : {}), label: `${L('브라우저', 'Browser')}${skill ? ` · ${PN.skillLabel(skill) || skill}` : ''}` })
 // the plan card's handler line for words that go to a browser task already there (lib/browserQueue.js): an answer, steering, going on
 const taskHandler = (what) => ({ kind: 'browser', label: `${L('브라우저', 'Browser')} · ${what}` })
 // the browser tasks this server started, newest last (what the tests read: the skill is passed on as chosen)
@@ -472,17 +480,30 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // (the page shows it there while it is answered)
   const th = conversation?.id ? await getThread(userId, threadId) : null
   const topicConv = th?.kind === 'project' && await PT.isTopic(userId, th, conversation.id).catch(() => false) ? String(conversation.id) : null
+  // a project room (its plan, its judge — lib/projectNote.js, lib/roomRules.js); a turn a habit started is not the person's words there
+  const project = !habitId && (th || await getThread(userId, threadId).catch(() => null))?.kind === 'project'
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
   const said = again ? ((await q(`select id from pro_messages where thread_id=$1 and role='user' and content->>'text'=$2 order by created_at desc limit 1`, [threadId, text]))[0] || { id: null })
     : await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}) })
   const store = turnCtx.getStore()
-  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null }
+  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
   TP.begin({ turn: store?.turn, userId, threadId, msgId: said.id, text, files: [...files, ...(pointed?.shown || [])] })
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
   // as the open document even when the live link (lib/craftLive.js) is down
   const doc = openDocOf(openDoc)
   if (store && doc) store.openDoc = doc
+  // 「앞으로 …」 told outright: a habit (lib/followups.js). In a project room the room's judge reads it first — it may be the project's plan
+  // or its rule (2026-11-27 녹화: 「내가 입력한 url 의 내용은 항상 …」 restated the project's purpose and became a habit) — so there it is
+  // asked only once the judge has said it is none of the room's (below)
+  const habitTold = async () => {
+    const told = await readRule(user, text).catch((e) => { console.warn('[followups] rule', e.message); return null })
+    if (!told) return null
+    noAgentTurn()
+    const ok = L(`기억할게요. ${whenText(told.event_cls)} 「${told.action}」를 먼저 물어볼게요. 설정 › 습관에서 끄거나 지울 수 있어요.`, `Got it. ${whenText(told.event_cls)}, I'll ask about "${told.action}" first. You can turn it off or remove it in Settings › Habits.`)
+    onDelta?.(ok)
+    return addMessage(userId, threadId, 'agent', 'text', { text: ok, habit: told.id })
+  }
   // 후행 습관(lib/followups.js): an answer in words to the question just asked, or a habit told outright
   if (!habitId && !again) {
     const ans = await readAnswer(user, threadId, said.id, text, files.length > 0).catch((e) => { console.warn('[followups] answer', e.message); return null })
@@ -499,14 +520,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       if (ans.accept.conversation?.id) pinned.set(threadId, { conversationId: String(ans.accept.conversation.id), title: String(ans.accept.conversation.title || '') })
       context = [context, L('(비서가 물은 일을 사용자가 수락했습니다)', '(The person accepted what the assistant asked)')].filter(Boolean).join('\n\n')
       if (store) { store.fresh = true; store.said = text; store.habitId = ans.accept.habitId }
-    } else {
-      const told = await readRule(user, text).catch((e) => { console.warn('[followups] rule', e.message); return null })
-      if (told) {
-        noAgentTurn()
-        const ok = L(`기억할게요. ${whenText(told.event_cls)} 「${told.action}」를 먼저 물어볼게요. 설정 › 습관에서 끄거나 지울 수 있어요.`, `Got it. ${whenText(told.event_cls)}, I'll ask about "${told.action}" first. You can turn it off or remove it in Settings › Habits.`)
-        onDelta?.(ok)
-        return addMessage(userId, threadId, 'agent', 'text', { text: ok, habit: told.id })
-      }
+    } else if (!project) {
+      const r = await habitTold()
+      if (r) return r
     }
   }
   // 이 방에서 돌거나 사람을 기다리는 이 사람의 브라우저 작업(lib/browserQueue.js, 2026-11-25 녹화): 입력창의 말이 그 작업이 물은 것의
@@ -574,23 +590,48 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // it may set what this room does with the links and files put in it (set_rule), or be one of those (run_rule).
   // (recording 2026-11-21: the rule's first sentence went down a shortcut to the agent first and came back as
   // "PowerPoint 를 만든다") A reply to a process draft the room is waiting on is that draft's, not the room's.
-  const room = !habitId && (await getThread(userId, threadId))?.kind === 'project'
+  const room = project
   // (「① … 마저 끝내고 → ② …」 decided above: the rest of this message is ②, not the room's rule or words for a task — 2026-11-25 review)
   if (room && !again && !store?.after && !generationPending(threadId)) {
+    // 프로젝트 계획(lib/projectNote.js): the judge reads the plan's purpose and what it keeps to with the rule; a project with no plan has one
+    // filled in on this turn from its messages, sub-topics and rule (waited for a few seconds — a slower one is read from the next turn on)
+    const plan = await PN.ensureNote({ user, threadId }).catch((e) => { console.warn('[project-plan] ensure', e.message); return null })
+    if (store) store.plan = plan
     const rule = await ruleOf(userId, threadId).catch(() => null)
     // the person's browser tasks here (under way, just ended) are read with it: words for a task are not the room's rule
     const tasks = BQ.taskContext(active, ended)
-    const read = await readRoom({ rule, text, files, tasks })
+    const read = await readRoom({ rule, text, files, tasks, plan: plan?.note || null })
     console.log(`[room] ${read.pick} ${JSON.stringify(read.probabilities)} via ${read.via} ${read.ms} ms thread=${String(threadId).slice(0, 8)}${read.error ? ` (${read.error})` : ''}`)
+    if (store && read.error) store.roomUnread = true
     // (only when there is a task to take the words: the turn is marked handled here before they go to it)
     if (read.pick === 'steer' && (activeIn(userId, threadId) || ended.length)) {
       noAgentTurn(taskHandler(L('작업에 지시', 'words for the task')))
       const r = await steerOrContinue({ user, threadId, text, onDelta, ended })
       if (r) return r
     }
+    // 계획에 넣기: the words add to or change how this project's work goes — into the plan's 지킬 것 · 정한 것, never over the room's rule
+    // (2026-11-25: a detailed instruction overwrote the rule). A browser task at work here takes them too: they hold for it as well.
+    if (read.pick === 'plan') {
+      noAgentTurn({ kind: 'action', label: L('계획에 넣기', 'Into the plan') })
+      if (store) store.noteDone = true
+      const r = await PN.addFromMessage({ user, threadId, text, fromId: said.id }).catch((e) => { console.warn('[project-plan] add', e.message); return null })
+      const busy = activeIn(userId, threadId)
+      if (busy) await steerBrowser(userId, busy.taskId, text).catch(() => false)
+      if (r?.chip) { onDelta?.(r.chip.content.text); return r.chip }
+      const ok = r?.item ? L(`이미 계획에 있어요: ${r.item}`, `Already in the plan: ${r.item}`) : L('계획에 넣지 못했어요. 잠시 후 다시 말씀해 주세요.', "I couldn't add that to the plan. Please say it again in a moment.")
+      onDelta?.(ok)
+      return addMessage(userId, threadId, 'agent', 'text', { text: ok })
+    }
     if (read.pick === 'set_rule') {
       noAgentTurn()
-      const set = await ruleAction(text)
+      if (store) store.noteDone = true
+      // the plan first (design §4.2: the rule's write-down reads it) — in a room with no rule yet, unless it was just filled in from this
+      // very message; the write-down then reads the plan and the room's recent messages, not this one sentence alone (design §4.3)
+      const note = rule || plan?.filled ? plan?.note || null
+        : (await PN.update({ user, threadId, from: { messageId: said.id, text }, reason: L(`사람이 이 방의 규칙(목적)을 정했다: 「${String(text).trim().slice(0, 300)}」`, `The person set this room's rule (its purpose): "${String(text).trim().slice(0, 300)}"`) })
+          .catch((e) => { console.warn('[project-plan] update', e.message); return null }))?.note || plan?.note || null
+      const recent = await PN.recentLines(threadId).catch(() => [])
+      const set = await ruleAction({ text, note, recent })
       // a room that has a rule: never replaced silently — 「규칙을 바꿀까요?」 with 「바꾸기」 · 「이번 작업에만 적용」 (lib/roomRules.js
       // settleRuleConfirm, POST /api/threads/:id/rule/confirm)
       if (rule) {
@@ -606,12 +647,26 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
     }
     if (read.pick === 'run_rule') {
       ranRule(rule.id).catch(() => {})
-      const goal = roomGoal(rule.action, text, files)
       const skill = rule.skill ? browserSkill(rule.skill) : null
+      // (the plan goes with a browser task's goal; a delegated run gets it as every project turn does — delegate)
+      const goal = roomGoal(rule.action, text, files, skill ? PN.noteText(plan?.note) : '')
       if (skill) return startBrowserTurn({ user, session, threadId, goal, startUrl: skill.startUrl || undefined, skill: skill.name, files, onDelta, room, asked: { text, files }, replaces: false, ack: L('이 방의 규칙대로 시작할게요.', 'Starting, as this room is set up to.') })
       return delegate({ user, session, threadId, text: goal, onDelta })
     }
   }
+  // in a project room, a habit told outright is read once the room's judge has said the words are none of the room's (not when the judge
+  // could not read them at all: a standing instruction the room could not read is not sent to the habits instead)
+  if (room && !again && !store?.roomUnread) {
+    const r = await habitTold()
+    if (r) return r
+  }
+  // the plan every handler below reads in a project room (the router as background, a browser task's goal)
+  const planRow = room ? (store?.plan !== undefined ? store.plan : await PN.noteRow(userId, threadId).catch(() => null)) : null
+  const planText = PN.noteText(planRow?.note)
+  // (the plan names a browser skill as one of this project's tools: the shortcuts that would hand a link or a document request to the agent
+  // before the router are skipped — the router reads the plan and picks between them; a structural condition, not a reading of the words)
+  const planTools = PN.planSkills(planRow?.note)
+  const withPlan = (goal) => (planText ? `${goal}\n\n${planText}` : goal)
   const hist = toLlmHistory(await history(threadId, 12))
   if (context) hist[hist.length - 1] = { role: 'user', content: `${text}\n\n${context}` }
   const now = new Date().toLocaleString(locale(), { timeZone: 'Asia/Seoul' })
@@ -674,7 +729,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // A one-off question about a connected service (YouTube, Calendar, Slack…) goes straight to
   // deepagents, which holds the connector tools; small router models tend to pick browser_task.
   // (a request about one of the user's panel apps — "팀 공유 캘린더에서 …" — is not a Google Calendar question)
-  if (!namedApp && await connectorFirst(user, text) && !RECURRING.test(text) && !/브라우저|사이트에\s*접속|\bbrowser\b|log\s*in to/i.test(text) && !generationPending(threadId)) {
+  if (!namedApp && !planTools.length && await connectorFirst(user, text) && !RECURRING.test(text) && !/브라우저|사이트에\s*접속|\bbrowser\b|log\s*in to/i.test(text) && !generationPending(threadId)) {
     return delegate({ user, session, threadId, text, onDelta })
   }
   if (generationPending(threadId)) {
@@ -698,21 +753,21 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // (a process that names documents among its steps — "…제안서를 만들어" — is still the router's create;
   // "Make a process for the Moonlight Coffee proposal: …" is a new process, not a document: the router's
   // process tool designs it, as the Korean request always went)
-  if (!namedApp && (DOC_REQUEST.test(text) || (DOC_REQUEST_EN.test(text) && !PROCESS_REQUEST_EN.test(text))) && !/패널|위젯|앱|프로세스|\b(panel|widget|app)\b/i.test(text) && !RECURRING.test(text)) {
+  if (!namedApp && !planTools.length && (DOC_REQUEST.test(text) || (DOC_REQUEST_EN.test(text) && !PROCESS_REQUEST_EN.test(text))) && !/패널|위젯|앱|프로세스|\b(panel|widget|app)\b/i.test(text) && !RECURRING.test(text)) {
     return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
   }
   // An address plus a site action ("테스트 상점(http://…/login)에 로그인해서 …") is the browser agent's: the router
   // model sometimes answers these itself, and the agent's sandbox cannot reach the site
   const siteUrl = /https?:\/\/[^\s)'"]+/i.exec(text)?.[0]
   if (!namedApp && siteUrl && SITE_ACTION.test(text) && !files.length && !RECURRING.test(text) && !generationPending(threadId)) {
-    return startBrowserTurn({ user, session, threadId, goal: text, startUrl: siteUrl, onDelta, room, asked: { text, files }, ack: L('사이트에서 직접 처리할게요.', "I'll do it on the site.") })
+    return startBrowserTurn({ user, session, threadId, goal: withPlan(text), startUrl: siteUrl, onDelta, room, asked: { text, files }, ack: L('사이트에서 직접 처리할게요.', "I'll do it on the site.") })
   }
   // a message about the result just made goes to the agent that made it (lib/followups.js) — read beside the router, not before it
   // (design turnplan §5.1: it held the router up by up to its odds limit); once it is found, the router's call is aborted
   TP.stage(store?.turn, 'routing')
   const { about, routed } = await TP.aboutOrRoute({
     about: () => followsResult(threadId, said.id, text),
-    route: (signal) => TP.taskCards(threadId).then((tasks) => routeTurn({ user, session, hist, now, tasks, signal, attachments: files.length })),
+    route: (signal) => TP.taskCards(threadId).then((tasks) => routeTurn({ user, session, hist, now, tasks, plan: planText, signal, attachments: files.length })),
     signal: store?.turn?.abort.signal,
   })
   checkpoint(store?.turn)
@@ -745,7 +800,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       if (args.skill && !skill) console.warn(`[router] browser skill '${args.skill}' is not installed`)
       TP.handler(store?.turn, browserHandler(skill?.name))
       const startUrl = skill?.startUrl ? (sameHost(args.start_url, skill.startUrl) ? args.start_url : skill.startUrl) : args.start_url
-      runBrowser({ user, session, threadId, goal: args.goal || text, startUrl: startUrl || undefined, skill: skill?.name, files, room, asked: { text, files } })
+      runBrowser({ user, session, threadId, goal: withPlan(args.goal || text), startUrl: startUrl || undefined, skill: skill?.name, files, room, asked: { text, files } })
       break
     }
     case 'schedule_task': {
@@ -878,7 +933,8 @@ export async function toolWanted({ text, attachments = 0, judge = oddsOf }) {
 // call: the model call; judge: the odds reading (tests replace both); limitMs / retryMs: the two time limits
 // tasks: the thread's recent task cards as lines (lib/turnPlan.js taskCards — a request that refers to one: 「아까 만들기로 한 노트북」)
 // attachments: how many files the message carries
-export async function routeTurn({ user, session, hist, now, tasks = [], signal, attachments = 0, call = chat, judge = oddsOf, limitMs = ROUTER_MS, retryMs = ROUTER_RETRY_MS }) {
+// plan: the project's plan as text (lib/projectNote.js noteText — '' outside a project): background; the message decides (design §4.3)
+export async function routeTurn({ user, session, hist, now, tasks = [], plan = '', signal, attachments = 0, call = chat, judge = oddsOf, limitMs = ROUTER_MS, retryMs = ROUTER_RETRY_MS }) {
   const userId = user.id
   const t0 = Date.now()
   const [skillList, processHint, teamHint, appHint, schedHint] = await Promise.all([
@@ -893,6 +949,8 @@ export async function routeTurn({ user, session, hist, now, tasks = [], signal, 
   const browserList = browserSkills()
   const browserHint = browserList.length ? `\n${L('브라우저 스킬(그 사이트에서 하는 일, browser_task 의 skill)', 'Browser skills (work done on that site; browser_task skill)')}: ${browserList.map((k) => `${k.name} — ${k.description.slice(0, 200)}`).join(' / ')}` : ''
   const taskHint = tasks.length ? `\n${TP.taskBlock(tasks)}` : ''
+  // (a tool of the plan that is a browser skill is how this project does that work: the expected handler when the message is that work)
+  const planHint = plan ? `\n${plan}\n${L('계획은 배경이고 이번 메시지가 정한다. 이번 메시지가 계획의 도구로 하는 이 프로젝트의 일이면(링크나 파일만 준 것 포함) 그 도구가 서버 브라우저 스킬일 때 browser_task 에 그 skill 을 쓴다.', "The plan is background; the message now decides. When the message is this project's work done with one of the plan's tools (a link or a file alone included) and that tool is a server browser skill, use browser_task with that skill.")}` : ''
   const hintMs = Date.now() - t0
   const model = config.llm.fastModel
   routerStats.calls++
@@ -907,8 +965,8 @@ export async function routeTurn({ user, session, hist, now, tasks = [], signal, 
       tools: routerTools(ROUTER_TOOLS.filter((t) => (appHint || t.function.name !== 'panel_record') && (config.scenarios || t.function.name !== 'send_mail'))),
       messages: [
         { role: 'system', content: isEn()
-          ? PERSONA_EN.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + taskHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
-          : PERSONA.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + taskHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
+          ? PERSONA_EN.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + taskHint + planHint + '\nCall a tool only when a specific tool is needed; for any other question, document writing, analysis or work, answer with the single word "DELEGATE" and no tool.'
+          : PERSONA.replace('{now}', now) + skillHint + browserHint + processHint + teamHint + appHint + schedHint + taskHint + planHint + '\n특정 도구가 필요할 때만 도구를 호출하고, 그 외 질문·문서작성·분석·업무 처리는 도구 없이 "DELEGATE" 한 단어만 답해.' },
         ...hist.slice(-8),
       ],
     })
@@ -1587,6 +1645,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const llmAuth = await llmKeys.admit()
   // the plan the person was shown (lib/turnPlan.js §1.4): the agent records it with write_todos and does only that work
   const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
+  // 프로젝트 계획(lib/projectNote.js): every turn of a project, in whichever sub-topic — a sub-topic has its own history, and the plan changes
+  // (design §4.3); background — the message decides
+  const projectPlan = thread?.kind === 'project' && mode !== 'skill' ? PN.noteText((await PN.noteRow(user.id, threadId).catch(() => null))?.note) : ''
   // the request, through the context router (viaRouter) or straight to the agent
   const request = async (viaRouter) => {
     // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
@@ -1603,7 +1664,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
       body: JSON.stringify({
         // English mode: the language instruction goes last, after what the person said and the hints
-        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + planText + langInstruction({ said: asked }), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + (projectPlan ? `\n\n${projectPlan}` : '') + planText + langInstruction({ said: asked }), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
         files: chatFiles(sent),
         user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
         conversation_id: conv, stream: true,

@@ -119,6 +119,14 @@ async function ruleChoose(choice) {
   ruleErr.value = ''
   try { await api(`/threads/${props.msg.thread_id}/rule/confirm`, { method: 'POST', body: { messageId: props.msg.id, choice } }) } catch (e) { ruleErr.value = e.message } finally { ruleBusy.value = false }
 }
+// 「되돌리기」 on a change of the project's plan (server lib/projectNote.js undoChange): the plan goes back to the one before it
+const planBusy = ref(false)
+const planErr = ref('')
+async function undoPlan() {
+  planBusy.value = true
+  planErr.value = ''
+  try { await api(`/threads/${props.msg.thread_id}/note/undo`, { method: 'POST', body: { chipId: props.msg.id } }) } catch (e) { planErr.value = e.message } finally { planBusy.value = false }
+}
 const ctx = computed(() => (c.value.context && c.value.context.action !== 'stay' && c.value.context.title ? c.value.context : null))
 const byName = { judge: '판단 모델', logprob: 'logprob', json: 'json', pinned: '대화에서 직접', trivial: '', none: '' }
 const ctxBy = computed(() => (ctx.value ? (ctx.value.rechecked ? '판단 모델 재확인→logprob' : ctx.value.escalated ? '판단 모델→logprob' : byName[ctx.value.strategy] ?? ctx.value.strategy) : ''))
@@ -340,6 +348,16 @@ onMounted(async () => {
     <button v-else-if="msg.kind === 'chip' && c.instId" class="chip link press" @click="router.push(`/routines/${encodeURIComponent(c.instId)}`)">
       <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
     </button>
+    <!-- a change of the project's plan (server lib/projectNote.js): what changed, 「되돌리기」 (back to the plan before it) and 「계획 보기」 -->
+    <div v-else-if="msg.kind === 'chip' && c.planChange" class="chip planchg" data-testid="plan-change">
+      <Icon name="plan" :size="16" /> <span class="ct" data-testid="plan-change-text">{{ c.text }}</span>
+      <span class="pacts">
+        <small v-if="c.planChange.undone" class="pdone" data-testid="plan-change-undone">되돌렸어요</small>
+        <button v-else-if="!c.planChange.backfill" class="pbtn press" :disabled="planBusy" data-testid="plan-change-undo" @click="undoPlan">되돌리기</button>
+        <button class="pbtn press" data-testid="plan-change-open" @click="app.planOpen = msg.thread_id">계획 보기</button>
+      </span>
+      <small v-if="planErr" class="aerr">{{ planErr }}</small>
+    </div>
     <div v-else-if="msg.kind === 'chip'" class="chip"><Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> {{ c.text }}</div>
     <!-- 팀 맥락 공유: 관계있지만 아직 볼 수 없는 팀원의 맥락(답 아래 요청 후보) -->
     <ReferChips v-if="msg.role === 'agent' && c.refer_id" part="requestable" :refer-id="c.refer_id" :thread="msg.thread_id" />
@@ -472,6 +490,14 @@ button.uref { text-align: left; }
 .chip.link { max-width: 100%; text-align: left; color: var(--text-primary); }
 .chip.link .ct { min-width: 0; word-break: keep-all; overflow-wrap: anywhere; }
 .chip.link > :deep(svg) { flex: none; }
+.chip.planchg { flex-wrap: wrap; max-width: 100%; border-radius: 18px; padding: 7px 8px 7px 14px; gap: 6px 8px; color: var(--text-primary); }
+.chip.planchg > :deep(svg) { flex: none; }
+.chip.planchg .ct { flex: 1 1 180px; min-width: 0; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.4; }
+.chip.planchg .pacts { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.chip.planchg .pbtn { height: 28px; padding: 0 11px; border-radius: 14px; background: var(--cell-bg); color: var(--text-primary); font-size: 12.5px; white-space: nowrap; }
+.chip.planchg .pbtn:disabled { opacity: .5; }
+.chip.planchg .pdone { align-self: center; color: var(--text-tertiary); font-size: 12.5px; }
+.chip.planchg .aerr { flex-basis: 100%; margin: 0; font-size: 12.5px; color: var(--color-error); }
 .replies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .reply { height: 36px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 14px; font-weight: 500; box-shadow: 0 2px 10px rgba(0 0 0 / .06); animation: pop-in .4s var(--spring) both; }
 .list { width: 424px; max-width: 100%; border-radius: 24px; padding: 8px; display: flex; flex-direction: column; --regular-bg: var(--bubble-agent-bg); }

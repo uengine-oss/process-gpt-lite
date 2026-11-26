@@ -164,7 +164,8 @@ test('방 판정이 다른 지름길보다 먼저: 규칙을 정하는 말은 �
   const ack = await runTurn({ user, session, threadId: tid, text: said })
   assert.equal(roomCalls().length, j0 + 1, '방 판정 한 번')
   const call = roomCalls().at(-1)
-  assert.deepEqual(call.options.map((o) => o.key), ['set_rule', 'other'], '규칙이 없으면 run_rule 은 보기에 없다')
+  // (a project room is read with its plan — 계획에 넣기 is offered too: lib/projectNote.js)
+  assert.deepEqual(call.options.map((o) => o.key), ['set_rule', 'plan', 'other'], '규칙이 없으면 run_rule 은 보기에 없다')
   assert.ok(call.state.includes(said))
   assert.match(call.state, /첨부한 파일: 없음/)
   assert.deepEqual(ack.content.roomRule, { said, action: '이 링크로 시험용 노트 사이트에서 요약 카드를 만든다', skill: 'fake-notes', runs: 0 })
@@ -181,7 +182,7 @@ test('방 판정이 다른 지름길보다 먼저: 규칙을 정하는 말은 �
   const ack2 = await runTurn({ user, session, threadId: tid, text, files: [file('메모.pdf')] })
   assert.equal(ack2.content.text, '이 방의 규칙대로 시작할게요.')
   const c2 = roomCalls().at(-1)
-  assert.deepEqual(c2.options.map((o) => o.key), ['set_rule', 'run_rule', 'other'])
+  assert.deepEqual(c2.options.map((o) => o.key), ['set_rule', 'plan', 'run_rule', 'other'])
   assert.ok(c2.state.includes(rule.action), '판정은 방의 규칙을 본다')
   assert.match(c2.state, /첨부한 파일: 1개 \(메모\.pdf\)/)
   const started = browserStarts.at(-1)
@@ -239,7 +240,7 @@ test('규칙은 그 방 주인만 보고 끄며, 끈 방에서는 판정이 run_
   const n0 = streams.length, b0 = browserStarts.length
   const p = runTurn({ user, session, threadId: tid, text: 'https://a.example/x 보고서 문서로 만들어 줘' })
   const h = await nth(n0 + 1)
-  assert.deepEqual(roomCalls().at(-1).options.map((o) => o.key), ['set_rule', 'other'])
+  assert.deepEqual(roomCalls().at(-1).options.map((o) => o.key), ['set_rule', 'plan', 'other'])
   h.push('message', { type: 'token', content: '네.' }); h.end()
   await p
   assert.equal(browserStarts.length, b0)

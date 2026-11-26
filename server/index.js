@@ -10,6 +10,7 @@ import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns, onceTurn } from './lib/agent.js'
 import { turnRoutes } from './lib/turnPlan.js'
+import { projectNoteRoutes } from './routes/projectNote.js'
 import { ruleOf, removeRule, settleRuleConfirm } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
@@ -726,6 +727,8 @@ app.use('/api', threadFolderRoutes(auth))
 app.get('/api/threads/:id/rule', auth, async (req, res) => res.json({ rule: await ruleOf(req.user.id, req.params.id).catch(() => null) }))
 // a turn in progress, as the plan card and the progress panel show it (lib/turnPlan.js): the page opened or reloaded mid-turn
 app.use('/api', turnRoutes(auth))
+// 프로젝트 계획(lib/projectNote.js): GET · PUT /threads/:id/note, POST /threads/:id/note/undo, PUT /threads/:id/rule {skill}
+app.use('/api', projectNoteRoutes(auth))
 app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await removeRule(req.user.id, req.params.id)))
 // 「규칙을 바꿀까요?」 card (a room that has a rule, words judged to set a new one): 「바꾸기」 (choice replace) makes that card hold the new
 // rule; 「이번 작업에만 적용」 (once) keeps the rule and gives the words to the browser task here (lib/agent.js onceTurn)
@@ -737,12 +740,18 @@ app.post('/api/threads/:id/rule/confirm', auth, async (req, res) => {
   emit(req.user.id, 'message', r.message)
   if (r.already) return res.status(409).json({ error: L('이미 고른 카드예요.', 'This card was already answered.') })
   if (choice === 'once') onceTurn({ user: req.user, session: req.session, threadId: req.params.id, text: r.said }).catch((e) => console.warn('[room rule] once', e.message))
+  // 「바꾸기」: the room's work changed — its plan is brought up to date (lib/projectNote.js, in the background; design turnplan §4.2)
+  if (choice === 'replace') {
+    import('./lib/projectNote.js').then((PN) => PN.update({ user: req.user, threadId: req.params.id, from: { messageId: r.message?.id, text: r.said }, reason: L(`사람이 이 방의 규칙(목적)을 바꿨다: 「${String(r.said).slice(0, 300)}」`, `The person changed this room's rule (its purpose): "${String(r.said).slice(0, 300)}"`) }))
+      .catch((e) => console.warn('[project-plan] rule replaced', e.message))
+  }
   res.json({ ok: true, choice })
 })
 app.get('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
-  res.json(await q('select * from pro_messages where thread_id=$1 order by created_at', [t.id]))
+  // (a project's plan is a row of its room but not a chat message: GET /api/threads/:id/note — lib/projectNote.js)
+  res.json(await q(`select * from pro_messages where thread_id=$1 and kind <> 'note' order by created_at`, [t.id]))
 })
 // A file attached in chat (raw body, name in X-File-Name): saved where the agent can read it and
 // in storage for the card and the editor.

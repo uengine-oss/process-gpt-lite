@@ -1,0 +1,139 @@
+# 2026-11-27 실제 사내 모델(개발 .env: frentis-ai-model, LiteLLM 의 claude-sonnet-5-5), 개발 DB, 판정은 LLM(PRO_JUDGE_URL= — 운영과 같음)
+
+## 1. 처음 채우기 · 방 판정 · 계획에 넣기 (방 「링크 슬라이드 팟캐스트」를 운영 순서대로, 보기 글을 고치기 전)
+
+=== backfill model=frentis-ai-model 4159 ms
+{
+ "v": 1,
+ "intent": "사람이 주는 URL(미디엄 글, 유튜브 영상 등)을 받아 NotebookLM 으로 슬라이드와 팟캐스트(오디오 오버뷰)를 만들어 주는 곳",
+ "deliverables": [
+  {
+   "text": "슬라이드 자료"
+  },
+  {
+   "text": "팟캐스트(오디오 오버뷰)"
+  }
+ ],
+ "tools": [
+  {
+   "name": "NotebookLM",
+   "kind": "browser_skill",
+   "ref": "notebooklm",
+   "how": "링크·PDF·유튜브 영상을 소스로 넣어 슬라이드와 오디오 오버뷰를 만들고 파일로 받아 온다"
+  },
+  {
+   "name": "Google 로그인",
+   "kind": "browser_skill",
+   "ref": "google-sign-in",
+   "how": "미디엄 글에 접근할 때 사람의 Google 계정으로 로그인한다"
+  }
+ ],
+ "constraints": [
+  {
+   "text": "미디엄 링크는 내 계정으로 접속해 인쇄한 PDF 로 만든 뒤 NotebookLM 에 넣는다"
+  },
+  {
+   "text": "작업은 서버 내장 브라우저에서 진행한다"
+  }
+ ],
+ "decisions": [
+  {
+   "text": "미디엄 글은 직접 링크를 넣지 않고 PDF 로 변환 후 NotebookLM 에 넣기로 했다"
+  }
+ ]
+}
+
+=== backfill model=claude-sonnet-5-5 3986 ms
+{
+ "v": 1,
+ "intent": "사람이 주는 링크(URL)를 받아 NotebookLM 으로 슬라이드와 팟캐스트(오디오 오버뷰)를 만들어 주는 곳",
+ "deliverables": [
+  {
+   "text": "슬라이드 자료"
+  },
+  {
+   "text": "팟캐스트(오디오 오버뷰)"
+  }
+ ],
+ "tools": [
+  {
+   "name": "NotebookLM",
+   "kind": "browser_skill",
+   "ref": "notebooklm",
+   "how": "링크·PDF·유튜브 영상 등을 소스로 넣어 슬라이드와 오디오 오버뷰를 만들고 파일로 받아 온다"
+  },
+  {
+   "name": "Google 로그인",
+   "kind": "browser_skill",
+   "ref": "google-sign-in",
+   "how": "미디엄 등 Google 계정이 필요한 사이트 접속 시 로그인 처리"
+  }
+ ],
+ "constraints": [
+  {
+   "text": "미디엄 링크는 직접 넣지 않고 내 계정으로 접속해 인쇄한 PDF 로 만든 뒤 NotebookLM 에 넣는다"
+  }
+ ],
+ "decisions": [
+  {
+   "text": "미디엄은 접근 권한 문제로 직접 링크를 넣지 않고 PDF 변환 후 업로드한다"
+  }
+ ]
+}
+[project-plan] backfill thread=accd6852 intent=57ch tools=2 constraints=1
+judge [덮어쓰기(작업에 준 세부 지시)] #1: other {} 6982 ms the model used up its token limit before answering
+judge [덮어쓰기(작업에 준 세부 지시)] #2: plan {"set_rule":0,"plan":0.72,"run_rule":0,"other":0} 6880 ms 
+judge [덮어쓰기(작업에 준 세부 지시)] #3: plan {"set_rule":0,"plan":0.82,"run_rule":0,"other":0} 6300 ms 
+judge [링크만] #1: run_rule {"set_rule":0,"plan":0,"run_rule":0.85,"other":0} 2638 ms 
+judge [링크만] #2: run_rule {"set_rule":0,"plan":0,"run_rule":0.92,"other":0} 1860 ms 
+judge [링크만] #3: run_rule {"set_rule":0,"plan":0,"run_rule":0.95,"other":0} 2008 ms 
+judge [앞으로 …] #1: plan {"set_rule":0,"plan":0.72,"run_rule":0,"other":0} 4640 ms 
+judge [앞으로 …] #2: plan {"set_rule":0,"plan":0.72,"run_rule":0,"other":0} 5242 ms 
+judge [앞으로 …] #3: plan {"set_rule":0,"plan":0.72,"run_rule":0,"other":0} 5880 ms 
+[project-plan] add the model used up its token limit before answering
+
+=== 계획에 넣기 4320 ms → constraints: 미디엄 글은 내 계정으로 인쇄해 PDF 로 넣고, 유튜브는 링크 그대로 넣어 줘.
+chip: 계획에 넣었어요: 미디엄 글은 내 계정으로 인쇄해 PDF 로 넣고, 유튜브는 링크 그대로 넣어 줘.
+
+## 2. 방 판정 — 보기 글을 고친 뒤(set_rule: 「처음 정하거나, 다시 말하거나, 통째로 바꾸는」), 세 번씩
+S1 덮어쓰기 — 원래 규칙 [want plan]:
+  plan {"set_rule":0,"plan":0.82,"run_rule":0,"other":0} 5856ms
+  plan {"set_rule":0,"plan":0.82,"run_rule":0,"other":0} 5828ms
+  plan {"set_rule":0,"plan":0.82,"run_rule":0,"other":0} 5818ms
+S2 링크만 — 덮어써진 규칙 [want run_rule]:
+  run_rule {"set_rule":0,"plan":0,"run_rule":0.95,"other":0} 1948ms
+  run_rule {"set_rule":0,"plan":0,"run_rule":0.95,"other":0} 1761ms
+  run_rule {"set_rule":0,"plan":0,"run_rule":0.95,"other":0} 1769ms
+S3 앞으로 — 덮어써진 규칙 [want set_rule|plan]:
+  other(!) {} 6654ms
+  plan {"set_rule":0,"plan":0.72,"run_rule":0,"other":0} 6017ms
+  plan {"set_rule":0,"plan":0.72,"run_rule":0,"other":0} 6080ms
+녹화의 문장 — 규칙 없음 · 빈 계획 [want set_rule]:
+  set_rule {"set_rule":0.95,"plan":0,"other":0} 2829ms
+  set_rule {"set_rule":0.95,"plan":0,"other":0} 2821ms
+  set_rule {"set_rule":0.95,"plan":0,"other":0} 2700ms
+녹화의 문장 — 규칙 없음 · 계획 있음 [want set_rule]:
+  set_rule {"set_rule":0.82,"plan":0,"other":0} 4449ms
+  set_rule {"set_rule":0.82,"plan":0,"other":0} 3811ms
+  set_rule {"set_rule":0.82,"plan":0,"other":0} 4839ms
+말투 — 규칙 있음 [want other]:
+  other {"set_rule":0,"plan":0,"run_rule":0,"other":0.95} 2151ms
+  other {"set_rule":0,"plan":0,"run_rule":0,"other":0.95} 1568ms
+  other {"set_rule":0,"plan":0,"run_rule":0,"other":0.92} 2302ms
+한 번의 일 — 규칙 있음 [want other]:
+  other {"set_rule":0,"plan":0,"run_rule":0,"other":0.85} 3068ms
+  other {"set_rule":0,"plan":0,"run_rule":0,"other":0.72} 4622ms
+  other {"set_rule":0,"plan":0,"run_rule":0,"other":0.72} 5310ms
+
+## 3. 계획에 넣기 — 토큰 한도 1,500 으로 고친 뒤
+3263 ms → constraints: Medium은 접근 권한 문제로 내 계정으로 인쇄 후 PDF로 만들어 NotebookLM에 넣는다. | chip: 계획에 넣었어요: Medium은 접근 권한 문제로 내 계정으로 인쇄 후 PDF로 만들어 NotebookLM에 넣는다.
+991 ms → constraints: 오디오는 영어로 (지금 항목 c1 「오디오는 한국어로」를 고쳐 씀) | chip: 계획에 넣었어요: 오디오는 영어로
+
+## 4. 규칙 받아 적기 — 계획 + 최근 대화와 함께 vs 한 문장만
+#1 with plan+recent: {"action":"이 링크나 파일로 NotebookLM 으로 슬라이드와 오디오 개요를 만든다","skill":"notebooklm"} | sentence alone: {"action":"앞으로 여기 주는 링크는 다 그렇게 해 줘","skill":""} (2886 ms both)
+#2 with plan+recent: {"action":"이 링크로 NotebookLM에서 슬라이드와 오디오 개요를 만든다","skill":"notebooklm"} | sentence alone: {"action":"앞으로 이 방에 주는 링크는 모두 그렇게 한다","skill":""} (4349 ms both)
+#3 with plan+recent: {"action":"이 링크로 NotebookLM에서 슬라이드와 오디오 개요를 만든다","skill":"notebooklm"} | sentence alone: {"action":"앞으로 여기 주는 링크는 다 그렇게 해 줘","skill":""} (3481 ms both)
+
+## 5. 긴 방(미션 뒤로 64개) 처음 채우기
+backfill of a 66-message room (4692 ms): {"intent":"사람이 주는 URL·링크를 받아 NotebookLM으로 슬라이드와 팟캐스트를 만들어 주는 곳","tools":["notebooklm","google-sign-in"],"constraints":["사람이 올리는 링크와 파일은 바로 처리한다"]}
+the mission among the last 40 messages alone: false
