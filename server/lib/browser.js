@@ -32,6 +32,8 @@ import * as H from './localAgents/hub.js'
 import { BLOCK, HARD, turnOf, progressOf, budgetAfter } from './browserProgress.js'
 import * as BF from './browserFiles.js'
 import * as P from './privateStore.js'
+// the person hears of a wait on them on their phone too, even with Lite closed (lib/askPerson.js — 2026-11-26)
+import * as ASK from './askPerson.js'
 
 export { STEP } from './browserSteps.js'
 export { PROFILES, profilesDir, LIVE } from './browserServer.js'
@@ -2056,6 +2058,11 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   const s0 = sessions.get(task.userId)
   if (s0?.queue.length) refreshQueue(task.userId, s0)
   say(task, null)
+  // a notice of the wait (a Home card, and a push to the person's phone): its card, else the task card for a wait on the screen — not for
+  // a task nobody watches (a process step's). A page that shows this thread in front keeps the phone quiet (public/sw.js)
+  const askAt = !task.unattended && task.threadId ? { via: 'task', threadId: task.threadId, cardId: posted?.id || task.id } : null
+  const notice = askAt ? ASK.ask(task.userId, { ...askAt, kind: posted ? askKindOf(message) : need === 'login' ? 'login' : 'hands',
+    text: task.asking?.question || reason || site || '' }).catch((e) => { console.warn('[browser] ask notice', e.message); return null }) : null
   await setThreadStatus(task.userId, task.threadId, 'needs_input')
   await pushFrame(task.userId, s)
   let checking = false
@@ -2068,6 +2075,8 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   task.waiting = null
   task.waitScreen = false
   task.asking = null
+  // answered, cancelled, taken over: the notice goes (its Home card, and nothing to answer from the phone)
+  if (notice) notice.then((id) => id && ASK.settle(task.userId, askAt)).catch(() => {})
   if (s0?.queue.length) refreshQueue(task.userId, s0)
   if (timer) clearInterval(timer)
   // a card the user never answered (cancel, takeover) should not stay actionable
@@ -2079,6 +2088,33 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   await setThreadStatus(task.userId, task.threadId, 'working')
   task.dog?.go('read', L('페이지 읽기', 'reading the page'))
   return answer
+}
+
+// a waiting card's kind for its notice (lib/pushActions.js askKind): a question, an approval, a sign-in
+const askKindOf = (message) => (message?.[0] === 'choice' ? (message[1]?.approval ? 'approval' : message[1]?.vault ? 'login' : 'question') : message?.[0] === 'vault' ? 'login' : 'hands')
+
+// An answer from the phone's notification (lib/askPerson.js act — a signed, single-use action): the task still waits on exactly that pick-one
+// card and the answer is one of its options. An approval is only ever refused this way — approving stays on the card, with the screen in
+// front of the person (a notification's buttons show on a lock screen) — and a vault card (a login, a card, a code) is never answered from
+// outside it. → true when the task took it
+export function canAnswerCard(asking, cardId, label) {
+  const a = asking || {}
+  if (!cardId || a.card !== cardId || a.kind !== 'choice' || a.vault) return false
+  const opts = (a.options || []).map(String)
+  if (!opts.includes(String(label))) return false
+  return !a.approval || String(label) === opts[opts.length - 1]
+}
+export async function answerCard(userId, cardId, label) {
+  const t = sessions.get(userId)?.task
+  if (!t?.waiting || t.cancelled || t.over || !canAnswerCard(t.asking, cardId, label)) return false
+  const opts = (t.asking.options || []).map(String)
+  const [m] = await q(`update pro_messages set content = content || $2::jsonb where id=$1 and content->>'state'='pending' returning *`,
+    [cardId, JSON.stringify({ state: 'answered', value: String(label), via: 'notification' })])
+  if (!m) return false
+  emit(userId, 'message', m)
+  console.log(`[browser] task ${t.id}: answered from a notification (${opts.indexOf(String(label))})`)
+  t.waiting?.(`The user chose: ${label}. Continue with that choice.`)
+  return true
 }
 
 // Which saved login/card to use: asks the user to add one if there is none, and which one if

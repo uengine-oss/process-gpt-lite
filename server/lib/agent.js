@@ -53,6 +53,7 @@ import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
 import * as TP from './turnPlan.js'
+import * as ASK from './askPerson.js'
 import { oddsOf, TURN_ODDS_MS } from './decide.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
@@ -239,6 +240,8 @@ const turnCtx = new AsyncLocalStorage()
 // From the message to the handler the turn is in its front stage (turn.front): 멈추기 reaches it there (lib/turns.js running), and no
 // handler starts once it is stopped (checkpoint) — the chat says 「멈췄어요」 instead (design turnplan §1.3).
 export function runTurn(args) {
+  // the person wrote in this thread again: a question the agent asked in it is past (its notice and Home card go — lib/askPerson.js)
+  if (!args.auto) ASK.settle(args.user.id, { via: 'chat', threadId: args.threadId }).catch(() => {})
   const turn = turns.enqueue({ userId: args.user.id, threadId: args.threadId })
   turn.front = true
   return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto, onRetract: args.onRetract || null }, async () => {
@@ -1822,7 +1825,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const page = adopted && store?.openDoc?.file && store.openDoc.file === live?.file ? store.openDoc : null
   const editedDoc = !!live?.file && (live.app === 'ieumoffice' ? editsSince(user.id, editsFrom).some((e) => e.applied)
     : [...usedTools].some((t) => t.startsWith(`${live.app}_`) && !/(inspect|read|list|render|preview|find|query|guide|documents)/.test(t)))
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
+  // the agent stopped to ask the person (deepagents' human_input_required): the question and its options kept on the answer, and a notice
+  // of it — a Home card and a push to the person's phone, whose buttons answer it (lib/askPerson.js, 2026-11-26)
+  const asks = hitl && !ended ? TP.humanInputParts(hitl) : null
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(asks ? { ask: { question: asks.question, options: asks.options } } : {}), ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
     ...TP.saved(turn, ended ? 'stopped' : 'done', body),
     ...(editedDoc ? { openDoc: { file: String(live.file).slice(0, 200), app: live.app, ...(page?.msgId ? { msgId: page.msgId } : {}), ...(page?.url ? { url: page.url } : {}) } } : {}),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
@@ -1831,6 +1837,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     await PT.fileTopic(user, { id: threadId }, topicRouted ? routing : { conversation_id: pin.conversationId, context: { title: pin.title } }, asked, body)
       .catch((e) => console.warn('[topics] file', e.message))
   } else if (preRouted) touchContext(user, routing, text, body)
+  if (asks && msg) ASK.ask(user.id, { via: 'chat', threadId, cardId: msg.id, kind: 'question', text: asks.question }).catch((e) => console.warn('[ask] notice', e.message))
   if (convNow && userMsgId) await q(`update pro_messages set content = content || jsonb_build_object('conv', $2::text) where id=$1`, [userMsgId, convNow]).catch(() => {})
   if (convNow && thread?.kind === 'chat') rebuildSoon(user.id, convNow)
   // documents made by the agent's own scripts (no file_artifact event) are found and added too
