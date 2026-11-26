@@ -1,0 +1,21 @@
+# 검토자의 프로브(scratchpad/swtest/run.mjs)를 바뀐 public/sw.js 에 돌린 결과 — 2026-11-26 17:28 KST
+# (1) 올리기 진행 이벤트: 서비스 워커가 있을 때와 없을 때 같다(정적 라우팅으로 공유 POST 말고는 서비스 워커를 거치지 않음)
+# (2) 다른 출처의 폼 POST 는 서비스 워커가 구별할 수 없어 받는다 — 파일은 보낸 쪽의 text/html 이 아니라 그냥 바이트로, 기록에는 종류가 없다.
+#     앱은 묻는 창의 「넣기」 전에는 아무것도 넣거나 올리지 않는다: e2e F-ST-08 이 같은 폼을 실제 앱에 보내 확인한다.
+chromium 156.0.8078.4
+controller activated
+XHR upload with SW  : {"status":200,"progressEvents":28,"last":1}
+XHR upload no SW    : {"status":200,"progressEvents":28,"last":1}
+cross-site landed at: http://localhost:54924/app/chat?share=mwxa5e5b-9176b8456b
+cache entries: [
+ [
+  "http://localhost:54924/app/share-target/mwxa5e5b-9176b8456b/0",
+  "application/octet-stream",
+  "<script>alert(1)</script>"
+ ],
+ [
+  "http://localhost:54924/app/share-target/mwxa5e5b-9176b8456b/meta",
+  "application/json",
+  "{\"id\":\"mwxa5e5b-9176b8456b\",\"at\":1795681076452,\"title\":\"Invoice\",\"text\":\"please pay https://evil.example/x\",\"url\":\"\",\"files\":[{\"n\":0,\"name\":\"photo.jpg\",\"size\":25}],\"skipped\":[]}"
+ ]
+]

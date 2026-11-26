@@ -53,7 +53,7 @@ import ReactionChips from './ReactionChips.vue'
 import { hold } from '../holdMenu.js'
 import { canReact } from '../../roomReactions.js'
 // what another app shared to Process GPT, meant for a room (components/ShareArrival.vue · src/shareInbox.js)
-import { inbox } from '../../shareInbox.js'
+import { inbox, loadDraft, saveDraft } from '../../shareInbox.js'
 
 const app = useApp()
 const team = useTeam()
@@ -372,6 +372,10 @@ function dropped(e) {
   else if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
 }
 watch(() => team.active, () => { for (const u of ups.value) u.job?.abort?.(); ups.value = []; refs.value = []; aiOn.value = false; mentioned.value = [] })
+// Each room keeps its own unsent words, for this window and person (src/shareInbox.js — sessionStorage): a share from another app
+// reloads the page, and the room's words come back with the shared ones added after them (2026-11-26 review). Sent: gone.
+watch(() => team.active, (room, was) => { if (was) saveDraft(was, draft.value); draft.value = room ? loadDraft(room) : '' }, { immediate: true })
+watch(draft, (v) => saveDraft(team.active, v))
 // (after the watch above, which empties the composer when the conversation changes)
 // 「동료에게 공유」 on a mail's sheet (MailFollowRow): the mail waits until a conversation is open here, then becomes its chip
 watch(() => [team.pendingMention, team.active, team.tab], () => {
