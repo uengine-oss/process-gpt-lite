@@ -322,7 +322,8 @@ test('the tray PNGs: 16 and 32 px (@2x), RGBA, the macOS ones a template, all pa
     assert.deepEqual([s.w, s.h], [size, size], name)
     assert.equal(s.colour, 6, `${name}: RGBA`)
   }
-  const yml = fs.readFileSync(path.join(ROOT, 'electron-builder.yml'), 'utf8')
+  // (a Windows checkout has CRLF line ends)
+  const yml = fs.readFileSync(path.join(ROOT, 'electron-builder.yml'), 'utf8').replace(/\r\n/g, '\n')
   assert.match(yml, /^files:\n(?:\s+.*\n)*?\s+- resources\/\*\*/m, 'resources/** is packed')
   // main.js finds them beside src/
   assert.match(fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8'), /path\.join\(__dirname, '\.\.', 'resources', 'tray'\)/)
