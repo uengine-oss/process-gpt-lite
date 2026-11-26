@@ -24,9 +24,18 @@ export const useSky = defineStore('sky', {
       const p = this.place || { lat: 37.57, lon: 126.98 }
       return sunPosition(this.clock, p.lat, p.lon)
     },
+    // the sun the sky is drawn with: the real one, unless the person chose a theme the hour disagrees with. A light theme at night (or
+    // at dusk, when the top of the sky is already dark) draws a morning sky, a dark theme by day an evening one — the page's titles sit
+    // on the sky with the chosen theme's ink, so the sky has to match it (11-27: 「계정」 · 「영업 자료」 dark on the night sky)
+    shownSun() {
+      const s = this.sun
+      if (this.themePref === 'light' && s.altitude < 10) return { ...s, altitude: 20 }
+      if (this.themePref === 'dark' && s.altitude > -6) return { ...s, altitude: -14 }
+      return s
+    },
     palette() {
       return computePalette({
-        altitude: this.sun.altitude,
+        altitude: this.shownSun.altitude,
         cloudCover: this.wx?.cloud ?? 25,
         weatherCode: this.wx?.code ?? 1,
         moon: moonPhase(this.clock),
