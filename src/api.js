@@ -1,4 +1,5 @@
 // Thin client for the pgpt-pro server (proxied at /api by Vite).
+import { forgetAllUnsent } from './sendQueue.js'
 import { BASE } from './base.js'
 import { forgetPlaces } from './shareTarget.js'
 
@@ -28,7 +29,7 @@ export function adoptHostSession() {
   const mine = auth.get()?.session?.access_token
   if (mine && sub(mine) === sub(access_token)) return false
   // (another person's session from here on: this device forgets the last one's places, waiting share and unsent words)
-  if (mine) forgetPlaces(storeOf('localStorage'), storeOf('sessionStorage'))
+  if (mine) { forgetPlaces(storeOf('localStorage'), storeOf('sessionStorage')); forgetAllUnsent(storeOf('localStorage')) }
   auth.set({ session: { access_token, refresh_token }, host: true })
   return true
 }
@@ -116,9 +117,10 @@ export function uploadTeamFile(file, onProgress = () => {}) {
 // an HTML page where an API answer was expected (the media type, or a body that is a document)
 export const htmlPage = (r, text) => /\bhtml\b/i.test(r.headers?.get?.('content-type') || '') || /^\s*<(!doctype|html)\b/i.test(String(text || ''))
 
-export async function api(path, { method = 'GET', body, raw } = {}) {
+export async function api(path, { method = 'GET', body, raw, signal } = {}) {
   const go = () => fetch(`${BASE}/api${path}`, {
     method,
+    ...(signal ? { signal } : {}),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` },
     body: body ? JSON.stringify(body) : undefined,
   })
@@ -161,13 +163,33 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
 }
 
 // POST that streams SSE events back: onEvent(type, data)
-export async function stream(path, body, onEvent) {
-  const r = await api(path, { method: 'POST', body, raw: true })
+// POST that streams SSE events back: onEvent(type, data). A failure says whether the server took the request (accepted):
+//   false — no answer at all (no connection, aborted), an error status, or a 200 that is not an event stream (a proxy's page in front):
+//           the message was not taken and may be sent again (src/sendQueue.js)
+//   true  — the stream broke after the server took it: its answer still arrives as live events — never sent again
+// onAccepted() is called the moment the server has taken it (its event stream began), long before the answer is written.
+// Before 2026-11-27 an error status was read as an empty stream and the message vanished without a word (recording 07:03).
+export async function stream(path, body, onEvent, { onAccepted, signal } = {}) {
+  let r
+  try { r = await api(path, { method: 'POST', body, raw: true, signal }) } catch (e) {
+    throw Object.assign(e, { accepted: false, ...(e?.name === 'AbortError' ? { aborted: true } : {}), ...(e?.message === 'unauthorized' ? { unauthorized: true } : {}) })
+  }
+  const sse = /text\/event-stream/i.test(r.headers.get('content-type') || '')
+  if (!r.ok || !sse) {
+    const t = await r.text().catch(() => '')
+    let m = t
+    try { m = JSON.parse(t).error || t } catch { /* plain text */ }
+    if (m === t && (!t || htmlPage(r, t))) m = `서버가 응답하지 못했어요 (${r.status}).`
+    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.ok ? 0 : r.status, accepted: false, ...(r.ok ? { proxyPage: true } : {}) })
+  }
+  onAccepted?.()
   const reader = r.body.getReader()
   const dec = new TextDecoder()
   let buf = ''
   for (;;) {
-    const { done, value } = await reader.read()
+    let got
+    try { got = await reader.read() } catch (e) { throw Object.assign(e, { accepted: true }) }
+    const { done, value } = got
     if (done) break
     buf += dec.decode(value, { stream: true })
     const chunks = buf.split('\n\n')
