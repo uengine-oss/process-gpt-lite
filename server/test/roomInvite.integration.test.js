@@ -4,6 +4,7 @@
 //   MS-I-02 같은 사람을 또 초대하면 아무 일도 없다(참여자 · 시스템 줄 그대로), 둘을 동시에 초대해도 한 번씩
 //   MS-I-03 참여자 모양: Process GPT 의 것 그대로 — {id, email, username: users.username, profile, agent_type: null, is_agent: false}, 뒤에 붙음
 //   MS-I-04 시스템 줄(role 'system', 보는 사람의 언어 · 화면 이름) · 새 사람은 방의 지난 메시지를 다 본다 · 'room' 알림 · 초대받은 사람의 'team' 알림
+//   MS-I-05 인원 한도 없음(2026-11-27 「그룹대화 인원 한도 없어」 — 전엔 8명): 열 명으로 만들고 열두 명을 더 초대, 한 요청의 인원만 PER_REQUEST 까지
 // Run: node --test --test-concurrency=1 test/roomInvite.integration.test.js  (로컬 Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -151,4 +152,23 @@ test('MS-I-04 시스템 줄 · 지난 메시지 · 방의 새 구성원을 바�
   // the invited: a 'team' notice that opens the room in Lite
   const [n] = await q(`select title, url, from_user_id from notifications where user_id=$1 and type='team' and url like $2`, [D.id, `/pro/team/${g.id}/%`])
   assert.deepEqual(n, { title: '정하윤님이 대화방에 초대했어요 · 견적 회의', url: `/pro/team/${g.id}/${(await q(`select uuid from chats where id=$1 and messages->'pgpt'->>'kind'='invite'`, [g.id]))[0].uuid}`, from_user_id: A.email })
+})
+
+test('MS-I-05 단체방 인원 한도 없음 — 열한 명으로 만들고 열두 명을 더 초대(전엔 8명에서 막힘), 한 번의 요청만 PER_REQUEST 명까지', { skip: !db }, async () => {
+  await setup()
+  const crowd = []
+  for (let i = 0; i < 22; i++) crowd.push(await person(`ms-crowd-${i}-${stamp}`, `참석자${i + 1}`))
+  const g = await M.groupThread(me(A), crowd.slice(0, 10).map((p) => p.id), '전체 공지')
+  made.rooms.push(g.id)
+  assert.equal((await M.membersOf(g.id)).length, 11)
+  const r = await M.invite(me(A), g.id, crowd.slice(10).map((p) => p.id))
+  assert.equal(r.added.length, 12)
+  assert.equal((await M.membersOf(g.id)).length, 23)
+  // a message reaches all of them
+  const m = await M.post(me(A), g.id, { body: '모두 들어왔나요?' })
+  assert.equal(m.body, '모두 들어왔나요?')
+  // one request is bounded (each id is checked one by one), the room is not
+  const many = Array.from({ length: M.PER_REQUEST + 1 }, () => crypto.randomUUID())
+  await assert.rejects(M.invite(me(A), g.id, many), /한 번에 500명까지/)
+  await assert.rejects(M.groupThread(me(A), many, '너무 많은 한 번'), /한 번에 500명까지/)
 })

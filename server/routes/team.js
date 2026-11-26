@@ -206,6 +206,8 @@ export function teamRoutes(auth) {
   r.post('/team/threads', auth, h(async (req) => {
     const ids = [...new Set((req.body.members || []).map(String))].filter((id) => id !== req.user.id)
     if (!ids.length) throw new TeamError(400, L('대화할 팀원을 골라 주세요.', 'Please choose the teammates to talk with.'))
+    // (no limit on a group's size — only on one request: each id is checked below, one by one)
+    if (ids.length > M.PER_REQUEST) throw new TeamError(400, L(`한 번에 ${M.PER_REQUEST}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.`, `Up to ${M.PER_REQUEST} people at a time. Invite the rest once the room is made.`))
     for (const id of ids) if (!(await isMember(id))) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
     const t = ids.length === 1 ? await M.directThread(req.user, ids[0]) : await M.groupThread(req.user, ids, text(req.body.title, 60))
     return { id: t.id }

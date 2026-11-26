@@ -33,7 +33,9 @@ import { people as resolvePeople } from '../people.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
-export const MAX_GROUP = 8
+// A group has no size limit (2026-11-27 사용자 「그룹대화 인원 한도 없어」 — it was 8). Only one request is bounded: making a room or inviting takes
+// at most PER_REQUEST people at a time (each is checked as a teammate, one by one) — a guard on the request, not on the room.
+export const PER_REQUEST = 500
 const iso = (d = new Date()) => new Date(d).toISOString()
 const nameOf = (p) => p?.name || p?.username || p?.email?.split('@')[0] || L('팀원', 'Teammate')
 
@@ -73,7 +75,7 @@ export async function directThread(me, otherId) {
 
 export async function groupThread(me, ids, title) {
   const members = [...new Set([me.id, ...ids])]
-  if (members.length > MAX_GROUP) throw new TeamError(400, L(`그룹 대화는 ${MAX_GROUP}명까지예요.`, `A group conversation has at most ${MAX_GROUP} people.`))
+  if (members.length > PER_REQUEST + 1) throw new TeamError(400, L(`한 번에 ${PER_REQUEST}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.`, `Up to ${PER_REQUEST} people at a time. Invite the rest once the room is made.`))
   const ps = await users(members)
   const [r] = await q(`insert into chat_rooms(id, participants, message, name, primary_agent_id, tenant_id, context)
                        values ($1,$2,$3,$4,null,$5,$6) returning *`,
@@ -93,7 +95,8 @@ export async function invite(me, roomId, userIds) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   if (t.kind !== 'group') throw new TeamError(400, L('1:1 대화에는 초대할 수 없어요. 단체방을 만들어 초대해 주세요.', "You can't invite people into a one-to-one conversation. Make a group conversation for that."))
-  const want = [...new Set((Array.isArray(userIds) ? userIds : []).map(String))].filter((id) => /^[0-9a-f-]{36}$/i.test(id) && id !== me.id).slice(0, MAX_GROUP)
+  const want = [...new Set((Array.isArray(userIds) ? userIds : []).map(String))].filter((id) => /^[0-9a-f-]{36}$/i.test(id) && id !== me.id)
+  if (want.length > PER_REQUEST) throw new TeamError(400, L(`한 번에 ${PER_REQUEST}명까지 초대할 수 있어요.`, `Up to ${PER_REQUEST} people can be invited at a time.`))
   if (!want.length) throw new TeamError(400, L('초대할 팀원을 골라 주세요.', 'Please choose the teammates to invite.'))
   const inRoom = new Set(split(t.participants).humans.map((p) => String(p.id)))
   const fresh = want.filter((id) => !inRoom.has(id))
@@ -110,7 +113,6 @@ export async function invite(me, roomId, userIds) {
     const { rows: [cur] } = await c.query('select participants from chat_rooms where id=$1 and tenant_id=$2 for update', [t.id, T()])
     const have = new Set(split(cur?.participants).humans.map((p) => String(p.id)))
     added = rows.filter((u) => !have.has(u.id))
-    if (have.size + added.length > MAX_GROUP) throw new TeamError(400, L(`그룹 대화는 ${MAX_GROUP}명까지예요.`, `A group conversation has at most ${MAX_GROUP} people.`))
     if (added.length) await c.query('update chat_rooms set participants = coalesce(participants, \'[]\'::jsonb) || $2::jsonb where id=$1', [t.id, JSON.stringify(added.map(participant))])
     await c.query('commit')
   } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
