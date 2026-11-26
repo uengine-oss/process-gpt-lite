@@ -132,14 +132,14 @@
       {
         "key": "share",
         "do": "share",
+        "fixed": true,
         "icon": "team",
-        "label": "동료에게 공유",
-        "labelEn": "Share with a colleague",
-        "hint": "다른 사람이 알아야 하거나 맡아야 할 메일",
-        "go": "메신저 열기",
-        "goEn": "Open messenger",
-        "says": "메신저를 열고 이 메일을 멘션으로 붙여요. 동료에게는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보이고, 본문은 「본문도 공유」를 켜야 보여요. 보내기를 누르기 전에는 보내지 않아요.",
-        "saysEn": "Opens the messenger with this mail as a mention. Colleagues see the sender, subject, date and attachment names only; the body only if you turn on \"Share the body too\". Nothing is sent before you press send."
+        "label": "대화방에 공유",
+        "labelEn": "Share to a room",
+        "go": "방 고르기",
+        "goEn": "Pick a room",
+        "says": "이 메일을 대화방에 멘션으로 올려요. 방 사람들에게는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보이고, 본문과 첨부 파일은 공유를 켠 방에서만 보여요. 보내기를 누르기 전에는 올리지 않아요.",
+        "saysEn": "Posts this mail to a room as a mention. The room sees the sender, subject, date and attachment names only; the body and the files only where you turn sharing on. Nothing is posted before you press send."
       },
       {
         "key": "chat",
@@ -166,5 +166,13 @@
         "saysEn": "Puts this mail and its {count} attachments ({names}) in the chat composer as chips. Write what to ask or do and send it — the agent reads the files from their private copies and answers. E.g. \"Check that the total on this payroll adds up\"."
       }
     ]
+  },
+  "rooms": {
+    "judgeRooms": 10,
+    "max": 2,
+    "minP": 0.3,
+    "cacheHours": 12,
+    "autoPerPoll": 20,
+    "noteChars": 1000
   }
 }

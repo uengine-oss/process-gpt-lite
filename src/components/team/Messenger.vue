@@ -400,14 +400,6 @@ watch(() => team.active, () => { for (const u of ups.value) u.job?.abort?.(); up
 // reloads the page, and the room's words come back with the shared ones added after them (2026-11-26 review). Sent: gone.
 watch(() => team.active, (room, was) => { if (was) saveDraft(was, draft.value); draft.value = room ? loadDraft(room) : '' }, { immediate: true })
 watch(draft, (v) => saveDraft(team.active, v))
-// (after the watch above, which empties the composer when the conversation changes)
-// 「동료에게 공유」 on a mail's sheet (MailFollowRow): the mail waits until a conversation is open here, then becomes its chip
-watch(() => [team.pendingMention, team.active, team.tab], () => {
-  if (!team.pendingMention?.length || !team.active || team.tab !== 'threads') return
-  const items = team.pendingMention
-  team.pendingMention = null
-  addItems(items)
-}, { immediate: true })
 // 다른 앱의 「공유」로 온 파일 · 글 (2026-11-26 「지금 현재 대화창이 열려 있다고 치면 팀 메시지에 여기에 곧바로 첨부를 할 수 있을 거야.」): once the
 // room it was meant for is open here, the files go up as chips (as if picked with 「내 컴퓨터에서」) and the words go in the box — nothing
 // is sent until the person presses 보내기. 「다른 곳에」 (ShareArrival) takes them back out.
@@ -546,7 +538,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <template v-else>
           <article v-for="m in team.inbox" :key="m.id" class="mail" :class="{ unread: m.unread }">
             <div class="mh"><PersonAvatar v-bind="face(m.sender)" />
-              <span class="who"><span><b>{{ m.sender.name }}</b> · {{ kindWord[m.kind] }}</span><small>{{ when(m.at) }}</small></span></div>
+              <!-- (a mail its owner's rule posted as it arrived — server lib/mailRooms.js: said as such) -->
+              <span class="who"><span><b>{{ m.sender.name }}</b> · <span :data-test="m.auto ? 'msg-auto' : null">{{ m.auto ? '메일 자동 공유' : kindWord[m.kind] }}</span></span><small>{{ when(m.at) }}</small></span></div>
             <p v-if="m.context?.title" class="ctitle">{{ m.context.title }}</p>
             <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ hidePaths(team.trBody(m) || m.body) }}</p>
             <p v-if="team.tr[m.id]?.body" class="trl"><span>AI 번역</span><button class="press" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
@@ -580,9 +573,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
         </div>
 
         <div v-else class="items scroll">
-          <!-- 「동료에게 공유」 from a mail's sheet: the mail waits for a conversation -->
-          <p v-if="team.pendingMention?.length" class="pending" data-test="msg-pending-mail"><Icon name="mail" :size="14" /><span>대화를 고르면 「{{ team.pendingMention[0].name }}」 메일이 멘션으로 붙어요</span>
-            <button class="press" aria-label="취소" @click="team.pendingMention = null">×</button></p>
           <button v-for="t in team.threads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
             <PersonAvatar v-if="t.kind === 'group'" kind="group">{{ t.members.length }}</PersonAvatar><PersonAvatar v-else :id="otherOf(t)?.id" :name="otherOf(t)?.name || t.title" />
             <span class="nm"><b>{{ titleOf(t) }}</b>
@@ -928,11 +918,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .chip .fx.hwp { background: #1f6fd1; } .chip .fx.doc { background: #2b579a; } .chip .fx.xls { background: #217346; } .chip .fx.ppt { background: #c43e1c; } .chip .fx.pdf { background: #d93025; } .chip .fx.md { background: #3d4451; }
 .chip .as { flex: none; font-style: normal; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 7px; color: #2a78d6; background: rgba(42, 120, 214, .14); margin-left: 2px; }
 .chip .as.share { color: #0f8a5f; background: rgba(15, 138, 95, .14); }
-.pending { display: flex; align-items: center; gap: 6px; margin: 4px 6px 8px; padding: 8px 10px; border-radius: 12px; font-size: 13px; color: var(--text-primary);
-  background: rgba(122, 90, 245, .1); border: 1px solid rgba(122, 90, 245, .3); }
-.pending > :deep(svg) { flex: none; color: #7a5af5; }
-.pending span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.pending button { flex: none; width: 22px; height: 22px; border-radius: 11px; color: var(--text-secondary); }
 /* (not 「.mail」: that is the inbox's mail row) */
 .chip.ref.mailchip { background: rgba(122, 90, 245, .1); border-color: rgba(122, 90, 245, .38); }
 /* one line: the subject gives way first, the sender next; the switch, the tag and × keep their size */

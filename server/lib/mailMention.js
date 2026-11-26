@@ -129,7 +129,7 @@ export async function readMail(userId, card) {
     try {
       const { originalOf } = await import('./mailReply.js')
       const m = await originalOf(userId, acc.provider, card.source.mail_id)
-      return { from: m.from, to: m.to || [], date: m.date, subject: m.subject || card.source.subject || '', text: m.text || '', attachments: m.attachments || [],
+      return { from: m.from, to: m.to || [], cc: m.cc || [], date: m.date, subject: m.subject || card.source.subject || '', text: m.text || '', attachments: m.attachments || [],
         threadId: m.threadId || card.source.thread_id || null, provider: acc.provider, address: acc.address || '' }
     } catch (e) { console.warn('[mail mention] original', e.message) }
   }
@@ -162,8 +162,8 @@ export async function turnContext(user, id, { chars } = {}) {
 
 // ---------- the messenger ----------
 // a mail mention to send, checked as the sender (the owner): {type: 'mail', actionId, body?} → what the message keeps; 「본문도 공유」 (body)
-// is recorded on the owner's card for that room (roomId)
-export async function forSend(user, x, { roomId = null } = {}) {
+// is recorded on the owner's card for that room (roomId). mail: the mail when the caller has read it already (lib/mailRooms.js — not read twice)
+export async function forSend(user, x, { roomId = null, mail = null } = {}) {
   const a = await cardOf(user.id, x.actionId)
   if (x.body === true) {
     // (a room the owner is in)
@@ -172,7 +172,7 @@ export async function forSend(user, x, { roomId = null } = {}) {
     if (!t) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
     await setShare(user.id, a.id, t.id, true)
   }
-  const m = await readMail(user.id, a)
+  const m = mail || await readMail(user.id, a)
   const who = senderOf(m.from || a.source.from)
   return { type: 'mail', actionId: a.id, owner: user.id, ownerName: user.name || '', name: m.subject || a.source.subject || '', from: who.name, domain: who.domain,
     subject: m.subject || a.source.subject || '', date: m.date || a.created_at, attachments: (m.attachments || []).map((f) => f.name || String(f)).filter(Boolean).slice(0, 20),

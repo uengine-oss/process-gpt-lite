@@ -208,13 +208,14 @@ export async function resolve(user, list) {
 const view = (x) => ({ as: x.as, name: x.name, ...(x.ref ? { ref: publicRef(x.ref) } : {}), ...(x.cardId ? { cardId: x.cardId } : {}), ...(x.mail ? { mail: x.mail } : {}), ...(x.att ? { att: x.att } : {}) })
 export const publicRef = (r) => ({ slug: r.slug, folder: r.folder, path: r.path, name: r.name, commit: r.commit, blob: r.blob, variation: r.variation || null })
 
-// the refs a messenger message is sent with, checked again as the sender (a refusal stops the send)
-export async function forSend(user, refs, { roomId = null } = {}) {
+// the refs a messenger message is sent with, checked again as the sender (a refusal stops the send); mail: a mail mention's mail when the
+// caller has read it already (lib/mailRooms.js)
+export async function forSend(user, refs, { roomId = null, mail = null } = {}) {
   const out = []
   for (const x of (Array.isArray(refs) ? refs : []).slice(0, MAX)) {
     // a mail of mine (lib/mailMention.js): what the message keeps is its summary — and the body only when I share it (with this room)
     if (x?.type === 'mail') {
-      const r = await MM.forSend(user, x, { roomId })
+      const r = await MM.forSend(user, x, { roomId, mail })
       if (!out.some((y) => y.type === 'mail' && y.actionId === r.actionId)) out.push(r)
       continue
     }

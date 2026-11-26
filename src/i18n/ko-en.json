@@ -3152,7 +3152,28 @@
   "이 알림이 보이면 알림이 켜진 거예요": "If you can see this, notifications are on",
   "답하러 가기": "Go answer",
   "질문": "Question",
-  "시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.": "Up to three test notifications a minute. Try again in a moment."
+  "시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.": "Up to three test notifications a minute. Try again in a moment.",
+  "대화방에 공유": "Share to a room",
+  "공유한 대화방": "Rooms it's shared with",
+  "본문 공유 중": "Body shared",
+  "요약만": "Summary only",
+  "방 열기": "Open the room",
+  "알맞은 대화방을 찾는 중…": "Finding the right rooms…",
+  "대화방이나 팀원 찾기": "Find a room or teammate",
+  "팀원에게 바로": "Straight to a teammate",
+  "찾는 대화방이나 팀원이 없어요.": "No room or teammate matches.",
+  "아직 대화방이 없어요. 팀원을 골라 새 대화로 보낼 수 있어요.": "No rooms yet. Pick a teammate to send it in a new conversation.",
+  "받는 곳": "To",
+  "한마디 적기 (없어도 돼요)": "Add a note (optional)",
+  "앞으로 오는 메일도 이 방에 올리기": "Also post the mail that comes from now on to this room",
+  "어떤 메일을 올릴까요": "Which mail to post",
+  "본문 끄기": "Stop sharing the body",
+  "첨부 끄기": "Stop sharing the files",
+  "그만 올리기": "Stop posting",
+  "본문도 함께 보여요": "The body shows too",
+  "그 메일의 본문도 함께 보여요.": "Their bodies show too.",
+  "지금은 꺼 둔 약속이에요": "This rule is off now",
+  "메일 자동 공유": "Mail shared automatically"
  },
  "patterns": [
   [
@@ -7170,6 +7191,42 @@
   [
    "공유한 파일 {0}개를 ‘{1}’ 폴더에 넣을까요?",
    "Add {0} shared file(s) to the ‘{1}’ folder?"
+  ],
+  [
+   "첨부 {0}개 공유 중",
+   "{0} attachments shared"
+  ],
+  [
+   "첨부 파일도 공유 ({0}개)",
+   "Share the files too ({0})"
+  ],
+  [
+   "「{0}」에 공유했어요",
+   "Shared to “{0}”"
+  ],
+  [
+   "앞으로 {0}도 이 방에 올려요",
+   "From now on, {0} goes to this room too"
+  ],
+  [
+   "앞으로 {0}도 이 방에 올려요.",
+   "From now on, {0} goes to this room too."
+  ],
+  [
+   "{0}이라 저절로 올라갔어요",
+   "Posted automatically: {0}"
+  ],
+  [
+   "「{0}」에는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보여요.",
+   "“{0}” sees only the sender, subject, date and attachment names."
+  ],
+  [
+   "「{0}」에는 보낸 사람 · 제목 · 날짜와 본문이 보여요.",
+   "“{0}” sees the sender, subject, date and the body."
+  ],
+  [
+   "첨부 파일 {0}개도 열 수 있어요.",
+   "They can open the {0} attachments too."
   ]
  ],
  "context": [
