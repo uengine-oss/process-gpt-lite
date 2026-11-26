@@ -325,7 +325,9 @@ export async function view(user, mat) {
 }
 
 // open a file material: the owner's own card, or my copy through my grant (the same as opening a share)
-export async function openFile(user, mat) {
+// record: the person opens it (their open is on the sharer's card — shares.js recordOpen); false when it is only handed to their
+// agent (a meeting suggestion's work order: order.js)
+export async function openFile(user, mat, { record = true } = {}) {
   const r = mat.ref || {}
   if (r.ownerId === user.id) {
     const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id::text=$1 and t.user_id=$2`, [r.sourceId, user.id])
@@ -333,7 +335,7 @@ export async function openFile(user, mat) {
   }
   const [s] = await q(`select id from pro_shares where tenant_id=$1 and recipient_id=$2 and source_message_id::text=$3 and revoked_at is null order by created_at desc limit 1`, [T(), user.id, r.sourceId])
   if (!s) return null
-  return S.openCopy(user, s.id)
+  return S.openCopy(user, s.id, { record })
 }
 
 // presenting the owner's file to the room: a grant for each room member who has none yet (a share)

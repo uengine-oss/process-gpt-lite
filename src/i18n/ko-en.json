@@ -3074,6 +3074,9 @@
   "이 PC 연결하기": "Connect this PC",
   "머리말": "Front matter",
   "연결하는 중…": "Connecting…",
+  "안 열어 봄": "Not opened",
+  "열어 봄": "Opened",
+  "에이전트가 고침": "Changed by the agent",
   "앱을 닫아도 팀 메시지 · AI 질문 · 내 할 일을 알려 드려요": "Even with the app closed, get team messages, AI questions and your to-dos",
   "알림이 켜져 있어요": "Notifications are on",
   "메시지는 방별로 묶고, AI 질문은 알림에서 바로 답할 수 있어요": "Messages are grouped by room, and you can answer AI questions right from the notification",
@@ -3212,6 +3215,10 @@
    "{0} outputs of this project"
   ],
   [
+   "파일 {0}개 중 {1}개 열어 봄",
+   "Opened {1} of {0} files"
+  ],
+  [
    "‘{0}’의 시작으로 보여요",
    "Looks like the start of ‘{0}’"
   ],
@@ -3234,6 +3241,10 @@
   [
    "마지막 소식 {0}초 전",
    "last update {0} s ago"
+  ],
+  [
+   "마지막으로 연 때 {0}",
+   "Last opened {0}"
   ],
   [
    "채팅의 산출물 {0}개",
@@ -3970,6 +3981,18 @@
   [
    "파일 {0}개",
    "{0} files"
+  ],
+  [
+   "{0}개 고침",
+   "{0} edited"
+  ],
+  [
+   "{0}개 추가",
+   "{0} added"
+  ],
+  [
+   "{0}개 지움",
+   "{0} removed"
   ],
   [
    "나: {0}",

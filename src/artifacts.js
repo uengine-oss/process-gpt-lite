@@ -62,7 +62,25 @@ export function openOutput(app, f) {
 // the messenger shows the reason beside the file when it did not open, and keeps itself open when it is docked (openPlan.js).
 // link: false — do not open a link by itself (after a wait the browser may block the window without a word): the caller
 // shows the reason with a link the person clicks. edit: the person asked to edit it (opens the ArtCraft app of a picture…).
-export async function openArtifact(app, router, msg, { link = true, edit = false } = {}) {
+// A file a teammate shared with me (my copy: content.shared.shareId) that opened tells its sender's card I opened it (sawShare) —
+// counted: already told (the messenger's chip asked the server, which recorded it).
+export async function openArtifact(app, router, msg, { link = true, edit = false, counted = false } = {}) {
+  const r = await openCard(app, router, msg, { link, edit })
+  if (r.opened && !counted) sawShare(msg?.content?.shared?.shareId)
+  return r
+}
+
+// 「열어 봄」 on its sender's card (server lib/team/shares.js recordOpen: my own row as its recipient, nothing for its sender): once in
+// a while per share — a sound played, paused and played again is one open
+const told = new Map()
+export function sawShare(shareId) {
+  const id = String(shareId || '')
+  if (!/^[0-9a-f-]{36}$/i.test(id) || Date.now() - (told.get(id) || 0) < 30_000) return
+  told.set(id, Date.now())
+  api(`/team/shares/${encodeURIComponent(id)}/opened`, { method: 'POST' }).catch(() => {})
+}
+
+async function openCard(app, router, msg, { link, edit }) {
   let c = msg.content || {}
   let plan = openPlan(c, { craftMissing, edit })
   if (plan.how === 'fetch' && msg.id) {
