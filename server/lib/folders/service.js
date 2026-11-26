@@ -587,31 +587,48 @@ function stagingFor(dir) {
 }
 export const keptRootOf = () => path.join(foldersRoot(), '.kept')
 // one path moved into the kept folder: a rename (same filesystem), else — another filesystem (the agents' workspace mounted apart from the
-// folders) — a copy that follows no link, checked file by file (each one's size), and only then the original removed; a copy that fails
-// is removed again (nothing half-copied is left behind). A path that cannot be moved is reported (false — the original stays)
+// folders) — a copy: what the path holds is noted first (each file's size and times), copied (plain files and folders only — a link, a
+// FIFO, a socket or a device is not copied: listed as skipped), and the original removed only when it is still exactly what was noted
+// (nothing written, added or gone meanwhile — a sandbox may still write through the move) and the copy holds every noted file at its
+// size. Otherwise the copy is removed again and the original stays (false). → false | {skipped: [paths not copied]}
 async function keepPath(from, to) {
   await fs.mkdir(path.dirname(to), { recursive: true })
-  try { await fs.rename(from, to); return true } catch (e) { if (e.code !== 'EXDEV') return false }
+  try { await fs.rename(from, to); return { skipped: [] } } catch (e) { if (e.code !== 'EXDEV') return false }
   if (await fs.lstat(to).catch(() => null)) return false
+  let before
+  try { before = await snapshot(from) } catch { return false }
   try {
-    await fs.cp(from, to, { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false, filter: async (src) => !(await fs.lstat(src)).isSymbolicLink() })
-    if (!(await copiedWhole(from, to))) throw new Error('the copy is not whole')
+    await fs.cp(from, to, { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false,
+      filter: async (src) => { const st = await fs.lstat(src); return st.isDirectory() || st.isFile() } })
+    if (!sameSnapshot(before, await snapshot(from)) || !(await holdsSnapshot(to, before))) throw new Error('the original changed while it was copied, or the copy is not whole')
   } catch {
     await fs.rm(to, { recursive: true, force: true }).catch(() => {})
     return false
   }
   await fs.rm(from, { recursive: true, force: true }).catch(() => {})
-  return true
+  return { skipped: before.skipped }
 }
-// does `to` hold every file of `from` (links aside — they are not copied), each of the same size
-async function copiedWhole(from, to) {
-  const a = await fs.lstat(from).catch(() => null)
-  if (!a || a.isSymbolicLink()) return true
-  const b = await fs.lstat(to).catch(() => null)
-  if (!b) return false
-  if (!a.isDirectory()) return b.isFile() && b.size === a.size
-  if (!b.isDirectory()) return false
-  for (const e of await fs.readdir(from)) if (!(await copiedWhole(path.join(from, e), path.join(to, e)))) return false
+// what a path holds now: files rel → {size, mtimeMs, ctimeMs}, folders rel → 'dir'; links aside, other kinds (FIFO, socket, device) listed
+async function snapshot(root) {
+  const files = new Map(), skipped = []
+  const walk = async (abs, rel) => {
+    const st = await fs.lstat(abs)
+    if (st.isDirectory()) {
+      files.set(rel, 'dir')
+      for (const e of (await fs.readdir(abs)).sort()) await walk(path.join(abs, e), rel ? `${rel}/${e}` : e)
+    } else if (st.isFile()) files.set(rel, { size: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs })
+    else if (!st.isSymbolicLink()) skipped.push(rel || path.basename(abs))
+  }
+  await walk(root, '')
+  return { files, skipped }
+}
+const sameSnapshot = (a, b) => a.files.size === b.files.size && a.skipped.join('\0') === b.skipped.join('\0')
+  && [...a.files].every(([k, x]) => { const y = b.files.get(k); return x === 'dir' ? y === 'dir' : !!y && y !== 'dir' && y.size === x.size && y.mtimeMs === x.mtimeMs && y.ctimeMs === x.ctimeMs })
+async function holdsSnapshot(to, snap) {
+  for (const [rel, x] of snap.files) {
+    const st = await fs.lstat(rel ? path.join(to, rel) : to).catch(() => null)
+    if (!st || (x === 'dir' ? !st.isDirectory() : !st.isFile() || st.size !== x.size)) return false
+  }
   return true
 }
 const sizeOf = async (p) => { const st = await fs.lstat(p).catch(() => null); if (!st) return 0; if (!st.isDirectory()) return st.size; let n = 0; for (const e of await fs.readdir(p)) n += await sizeOf(path.join(p, e)); return n }
@@ -703,11 +720,30 @@ function ranStopped(who, age, olderThan, going) {
 // <folders>/.kept/<variation>/<time> and recorded on the variation like any kept folder (「따로 남긴 파일」, removed after the usual days).
 // Which retire and for which variation is in its note beside it (<staging>.json — retire writes it before the move and touches it while it
 // runs: the note's time says the retire still goes on). A copy with no note (an older version's) goes by when it was moved there (its
-// ctime — a rename sets it). The copy is claimed first (its note rewritten as this process's and touched while it is moved: no other
-// server takes it meanwhile). One that cannot be kept (a file that cannot be read) is tried again later and later (<staging>.fail —
-// 1 min, doubling up to a day), and recorded on the variation once (action 'keep-failed'). A note whose copy is gone is removed once it is
-// old. → how many were kept
+// ctime — a rename sets it). The copy is claimed first, at once for everyone: <staging>.claim made only if it is not there (open 'wx') —
+// its server, touched while the copy moves; a claim whose server stopped is taken over (the same rule). A copy gone meanwhile was kept by
+// someone else: nothing failed. One that cannot be kept (a file that cannot be read, an original that changed while it was copied) is
+// tried again later and later (<staging>.fail — 1 min, doubling up to a day), and recorded on the variation once (action 'keep-failed').
+// A note, failure mark or claim whose copy is gone is removed once it is old. → how many were kept
 const staged = new Set() // staging copies this process's retires (or sweeps) are working on now (keyOf)
+const claiming = new Set() // copies a sweep of this process is claiming or moving now (keyOf)
+async function claimCopy(staging) {
+  const file = `${staging}.claim`
+  const me = JSON.stringify({ host: os.hostname(), pid: process.pid, boot: BOOT, ns: PID_NS })
+  for (let i = 0; i < 2; i++) {
+    try {
+      const h = await fs.open(file, 'wx')
+      try { await h.writeFile(me) } finally { await h.close() }
+      return file
+    } catch (e) { if (e.code !== 'EEXIST') return null }
+    let who = null
+    try { who = JSON.parse(await fs.readFile(file, 'utf8')) } catch { /* being written, or gone */ }
+    const st = await fs.stat(file).catch(() => null)
+    if (st && !ranStopped(who, Date.now() - st.mtimeMs, STALE_RETIRE_MS, false)) return null
+    await fs.rm(file, { force: true }).catch(() => {})
+  }
+  return null
+}
 export const RETIRE_TOUCH_MS = () => Math.max(10, Number(process.env.PRO_RETIRE_TOUCH_MS) || 60_000)
 // while something works on a retire's copy, its lock and note say so (their time moves on)
 function touching(...files) {
@@ -723,8 +759,8 @@ export async function keepStoppedStagings() {
     for (const name of names) {
       const staging = path.join(root, name)
       // (a note — or a failure mark — whose copy is gone, from a retire that stopped between writing it and the move: removed once old)
-      if (/\.(json|fail)$/.test(name)) {
-        const copy = staging.replace(/\.(json|fail)$/, '')
+      if (/\.(json|fail|claim)$/.test(name)) {
+        const copy = staging.replace(/\.(json|fail|claim)$/, '')
         const st = await fs.stat(staging).catch(() => null)
         if (st && !names.includes(path.basename(copy)) && !staged.has(await keyOf(copy)) && Date.now() - st.mtimeMs > STALE_RETIRE_MS) await fs.rm(staging, { force: true }).catch(() => {})
         continue
@@ -732,6 +768,7 @@ export async function keepStoppedStagings() {
       const here = await fs.lstat(staging).catch(() => null)
       if (!here?.isDirectory()) continue
       const key = await keyOf(staging)
+      if (claiming.has(key)) continue
       let note = null
       try { note = JSON.parse(await fs.readFile(`${staging}.json`, 'utf8')) } catch { /* no note */ }
       const noteAt = note ? (await fs.stat(`${staging}.json`).catch(() => null))?.mtimeMs : null
@@ -745,13 +782,21 @@ export async function keepStoppedStagings() {
       if (!v && note?.repo && note?.branch) {
         [v] = await q('select v.id, v.folder_id from pro_folder_variations v join pro_folders f on f.id=v.folder_id where f.repo_path=$1 and v.branch=$2', [note.repo, note.branch]).catch(() => [])
       }
-      // (claimed: the note is this process's now and stays fresh while the copy moves)
-      await fs.writeFile(`${staging}.json`, JSON.stringify({ ...(note || {}), host: os.hostname(), pid: process.pid, boot: BOOT, ns: PID_NS, keeping: true })).catch(() => {})
-      staged.add(key)
-      const stop = touching(`${staging}.json`)
+      if (claiming.has(key)) continue
+      claiming.add(key)
+      let ok = false, claim = null, stop = () => {}
       const keptDir = path.join(keptRootOf(), String(v?.id || 'none'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(2).toString('hex')}`)
-      let ok = false
-      try { ok = await keepPath(staging, keptDir) } finally { stop(); staged.delete(key) }
+      try {
+        claim = await claimCopy(staging)
+        if (!claim || !(await fs.lstat(staging).catch(() => null))) continue // (someone else has it, or kept it already)
+        stop = touching(claim, `${staging}.json`)
+        ok = await keepPath(staging, keptDir)
+      } finally {
+        stop()
+        if (claim) await fs.rm(claim, { force: true }).catch(() => {})
+        claiming.delete(key)
+      }
+      if (!ok && !(await fs.lstat(staging).catch(() => null))) continue // (kept by someone else meanwhile: nothing failed)
       if (!ok) {
         const tries = (Number(fail?.tries) || 0) + 1
         const next = new Date(Date.now() + Math.min(86400_000, 60_000 * 2 ** (tries - 1))).toISOString()
@@ -759,7 +804,7 @@ export async function keepStoppedStagings() {
         console.warn(`[folders] a stopped retire's copy could not be kept (try ${tries}, again after ${next}) — left at ${staging}`)
         if (v && tries === 1) {
           await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, note) values ($1,$2,$3,null,'keep-failed',$4)`,
-            [T(), v.id, v.folder_id, JSON.stringify({ copy: name, why: 'a file of it could not be copied' })]).catch(() => {})
+            [T(), v.id, v.folder_id, JSON.stringify({ copy: name, why: 'it could not be copied whole, or it changed while it was copied' })]).catch(() => {})
         }
         continue
       }
@@ -769,7 +814,7 @@ export async function keepStoppedStagings() {
       await fs.rm(`${staging}.fail`, { force: true })
       if (v) {
         await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, note) values ($1,$2,$3,null,'kept',$4)`,
-          [T(), v.id, v.folder_id, JSON.stringify({ dir: path.relative(keptRootOf(), keptDir), count: -1, bytes: await sizeOf(keptDir).catch(() => 0), mode: note?.mode || 'person', why: null })])
+          [T(), v.id, v.folder_id, JSON.stringify({ dir: path.relative(keptRootOf(), keptDir), count: -1, bytes: await sizeOf(keptDir).catch(() => 0), mode: note?.mode || 'person', why: null, ...(ok.skipped?.length ? { skipped: ok.skipped.slice(0, 50) } : {}) })])
           .catch((e) => { if (e.code !== '42P01') console.warn('[folders] kept record', e.message) })
       }
       n++
@@ -821,6 +866,7 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
   staged.add(key)
   const stop = touching(held && path.join(held, 'locked'), note)
   let keptDir = null, bytes = 0, stuck = false, whole = false, left = []
+  const skipped = []
   try {
     await fs.writeFile(note, JSON.stringify({ vid, repo, branch, mode, host: os.hostname(), pid: process.pid, boot: BOOT, ns: PID_NS, at: new Date().toISOString() }))
     await fs.rename(dir, staging)
@@ -841,14 +887,17 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
     if (whole || left.length) {
       keptDir = path.join(keptRootOf(), String(vid || 'none'), `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(2).toString('hex')}`)
       if (whole) {
-        if (!(await keepPath(staging, keptDir))) stuck = true
-        else bytes = await sizeOf(keptDir).catch(() => 0)
+        const r = await keepPath(staging, keptDir)
+        if (!r) stuck = true
+        else { bytes = await sizeOf(keptDir).catch(() => 0); skipped.push(...r.skipped) }
       } else {
         for (const l of left) {
           const from = path.join(staging, l.path)
           if (!(await fs.lstat(from).catch(() => null))) continue
           bytes += await sizeOf(from).catch(() => 0)
-          if (!(await keepPath(from, path.join(keptDir, l.path)))) stuck = true
+          const r = await keepPath(from, path.join(keptDir, l.path))
+          if (!r) stuck = true
+          else skipped.push(...r.skipped.map((x) => `${l.path}/${x}`))
         }
       }
       const now = new Date()
@@ -863,7 +912,7 @@ export async function retire(repo, dir, { mode = 'person', vid = null } = {}) {
     if (held) await letGo(held)
   }
   await G.git(repo, ['worktree', 'prune'], { check: false })
-  return { kept: whole ? -1 : left.length, keptDir, bytes, staging: stuck ? staging : null }
+  return { kept: whole ? -1 : left.length, keptDir, bytes, staging: stuck ? staging : null, skipped }
 }
 
 // commit what changed in the checkout; the variation becomes ready for review
@@ -891,7 +940,7 @@ export async function release(folder, v, { keep = false, mode = 'person', who = 
   // what was kept is recorded on the variation (its screen lists it with a download until it is removed — folders/seats.js keptOf)
   if (gone.keptDir && v.id) {
     await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, note) values ($1,$2,$3,$4,'kept',$5)`,
-      [T(), v.id, folder.id, who ? String(who) : null, JSON.stringify({ dir: path.relative(keptRootOf(), gone.keptDir), count: gone.kept, bytes: gone.bytes || 0, mode, why })])
+      [T(), v.id, folder.id, who ? String(who) : null, JSON.stringify({ dir: path.relative(keptRootOf(), gone.keptDir), count: gone.kept, bytes: gone.bytes || 0, mode, why, ...(gone.skipped?.length ? { skipped: gone.skipped.slice(0, 50) } : {}) })])
       .catch((e) => { if (e.code !== '42P01') console.warn('[folders] kept record', e.message) })
   }
   return gone
