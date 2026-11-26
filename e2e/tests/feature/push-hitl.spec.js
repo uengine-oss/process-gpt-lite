@@ -12,6 +12,8 @@
 //   F-PH-05 iPhone(Safari 탭, 홈 화면 앱 아님) 390px 밝은 · 밤: 「iPhone에서 알림 받기」 — iOS 16.4 이상 · 홈 화면에 추가한 앱에서만, 닫으면
 //           다시 나오지 않음
 //   F-PH-06 설정 › 계정 › 연결: 「알림이 켜져 있어요」 · 「시험 알림 보내기」(밤)
+//   F-PH-07 (보안 검토 11-26) 푸시 서비스가 아닌 구독 주소는 400, /api/push/key 는 공개 키만, 「시험 알림」은 1분에 세 번(넷째는 429)
+//   (F-PH-04 에 더해: Safari 에서는 앞에 열어 둔 방의 푸시도 조용히 띄웠다 바로 닫는다)
 // 자기 스택(lib/localStack.js — 회사 push-hitl-ui, BFF 8973 · Vite 5373 부터 빈 포트, PRO_NOTIFY_FEED=1 로 알림 피드만 켬)을 띄우고 지운다.
 // 푸시 서비스는 이 파일의 가짜(server/test/fixtures/fakePush.mjs): 실제 기기 · 실제 푸시 서비스로는 아무것도 가지 않는다 — 브라우저의
 // pushManager.subscribe 도 막아 둔다. 서비스 워커의 처리기(public/sw.js self.__pgl)를 그 워커 안에서 부른다. 모델은 부르지 않는다.
@@ -31,7 +33,8 @@ const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isM
 const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1'
 const NOWHERE = 'http://127.0.0.1:9'
 const TENANT = 'push-hitl-ui'
-const HITL = JSON.stringify({ type: 'human_input_required', question: '어떤 형식으로 정리할까요?', context: '이번 주 회의록 초안이 준비됐어요.', options: ['세 줄 요약', '표로 정리'], run_state: {} })
+// (quick: the agent marks the choice light — only then may a notification's button answer it: review 11-26 #2)
+const HITL = JSON.stringify({ type: 'human_input_required', question: '어떤 형식으로 정리할까요?', context: '이번 주 회의록 초안이 준비됐어요.', options: ['세 줄 요약', '표로 정리'], quick: true, run_state: {} })
 let S, HY, SY, P, agent
 const asked = [] // what the fake deepagents was sent
 
@@ -63,7 +66,7 @@ test.beforeAll(async () => {
   agent = await startAgent()
   S = await startStack({ tenant: TENANT, apiFrom: Number(process.env.RT_API_FROM) || 8973, webFrom: Number(process.env.RT_WEB_FROM) || 5373,
     env: { PRO_DEEPAGENTS_URL: agent.url, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: '', PRO_JUDGE_URL: '', PRO_MEMENTO_URL: NOWHERE,
-      PRO_NOTIFY_FEED: '1', PRO_VAPID_FILE: path.join(os.tmpdir(), `pgl-vapid-${TENANT}-${process.pid}.json`) } })
+      PRO_NOTIFY_FEED: '1', PRO_PUSH_ALLOW_ORIGINS: P.origin, PRO_VAPID_FILE: path.join(os.tmpdir(), `pgl-vapid-${TENANT}-${process.pid}.json`) } })
   HY = await S.person(`pro-rt-${TENANT}-a@people-mail.test`, '정하윤')
   SY = await S.person(`pro-rt-${TENANT}-b@people-mail.test`, '김서연')
   for (const p of [HY, SY]) await S.join(p)
@@ -260,6 +263,10 @@ test('F-PH-04 앞에 열어 둔 방은 알리지 않고, 멘션은 언제나', a
   const mention = { id: 'x3', type: 'team', title: '김서연님이 나를 언급했어요', body: '@정하윤 확인 부탁해요', room, mention: true, tag: 'pgl-x3', renotify: true, actions: [{ action: 'reply', title: '답장' }] }
   await sw.evaluate((d) => self.__pgl.push(d), mention)
   expect(await shown(sw, 'pgl-x3')).toEqual([{ title: '김서연님이 나를 언급했어요', body: '@정하윤 확인 부탁해요', tag: 'pgl-x3', requireInteraction: false, actions: [{ action: 'reply', title: '답장' }] }])
+  // Safari (iPhone): a push that shows nothing counts as silent and loses the subscription — shown silently and closed at once (review #3)
+  expect(await sw.evaluate(([d, ua]) => self.__pgl.push(d, ua), [front, IPHONE_UA])).toBe('quiet')
+  expect(await shown(sw, front.tag)).toEqual([])
+  expect(await shown(sw, 'pgl-quiet')).toEqual([])
   // the same room with the messenger closed: shown
   await p.locator('[data-test="msg-close"]').click()
   await expect.poll(() => sw.evaluate((d) => self.__pgl.shownInFront(d), front), { timeout: 10000 }).toBe(false)
@@ -299,4 +306,23 @@ test('F-PH-06 설정 › 계정 › 연결: 알림 상태와 「시험 알림 �
   expect(await noOverflow(p)).toBe(true)
   await shot(p, 'f-ph-06-settings-dark')
   await p.context().close()
+})
+
+test('F-PH-07 푸시 주소 · 상태 · 시험 횟수 — 푸시 서비스만 받고, 서버의 상태는 내주지 않고, 시험은 1분에 세 번', async () => {
+  // the key alone: what push services answered stays in the server's log (review #6)
+  const key = await S.api(SY.token, '/push/key')
+  expect(Object.keys(key)).toEqual(['publicKey'])
+  // a subscription that is no push service: refused
+  const bad = await fetch(`http://127.0.0.1:${S.apiPort}/api/push/subscriptions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SY.token}` },
+    body: JSON.stringify({ subscription: { endpoint: 'https://metadata.internal.example/latest', keys: { p256dh: 'x', auth: 'y' } } }) })
+  expect(bad.status).toBe(400)
+  // three test pushes a minute for one person; their answer is the device count only
+  const shots = []
+  for (let i = 0; i < 4; i++) {
+    const r = await fetch(`http://127.0.0.1:${S.apiPort}/api/push/test`, { method: 'POST', headers: { Authorization: `Bearer ${SY.token}` } })
+    shots.push({ status: r.status, body: await r.json() })
+  }
+  expect(shots.map((x) => x.status)).toEqual([200, 200, 200, 429])
+  expect(Object.keys(shots[0].body)).toEqual(['devices'])
+  expect(shots[3].body.error).toBe('시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.')
 })

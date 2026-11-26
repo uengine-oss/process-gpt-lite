@@ -231,7 +231,10 @@ async function pushRows(rows) {
   const { pushTo } = await import('./webpush.js')
   await fromNames(rows)
   for (const r of rows) if (r.type === 'chat') r.from = await senderOf(r)
+  const { memberHere } = await import('./webpush.js')
   for (const [uid, list] of byUser) {
+    // (an approved member of this company only — someone removed, or not admitted, hears nothing: review 11-26, PR #89)
+    if (!(await memberHere(uid))) continue
     // rows name a person by id or by email
     const [u] = await q('select email from users where id::text=$1 and tenant_id=$2', [uid, T()]).catch(() => [])
     const mine = [uid, u?.email].filter(Boolean)

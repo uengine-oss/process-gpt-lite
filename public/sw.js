@@ -37,10 +37,21 @@ const dataOf = (d) => ({ id: d.id || null, type: d.type || null, url: d.url || n
   card: d.card || null, place: d.place || null, kind: d.kind || null, token: d.token || null, title: d.title || '',
   actions: (d.actions || []).map((a) => ({ action: a.action, title: a.title })) })
 
-async function onPush(d) {
+// Safari's Web Push (iPhone · iPad · Mac) counts a push that shows nothing as a silent push and drops the subscription after a few: there
+// a push for what is already in front is shown silently and closed at once (review 11-26, PR #89). Chrome · Edge · Firefox allow none
+// while a page of the site is in front.
+const appleWebKit = (ua) => /iPhone|iPad|iPod/.test(ua) || (/Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS/.test(ua))
+const QUIET = 'pgl-quiet'
+
+// d: the push; ua: this browser (tests give one) → the options shown, 'quiet' (shown and closed), or null (nothing)
+async function onPush(d, ua = self.navigator.userAgent) {
   try { if (self.navigator.setAppBadge && d.badge != null) d.badge ? await self.navigator.setAppBadge(d.badge) : await self.navigator.clearAppBadge() } catch { /* no badging here */ }
-  // (Chrome asks for a notification on every push only while no page of the site is in front)
-  if (await shownInFront(d)) return null
+  if (await shownInFront(d)) {
+    if (!appleWebKit(String(ua || ''))) return null
+    await self.registration.showNotification(d.title || 'process gpt', { body: d.body || '', tag: QUIET, silent: true, data: {} })
+    for (const n of await self.registration.getNotifications({ tag: QUIET })) n.close()
+    return 'quiet'
+  }
   const tag = d.tag || (d.id ? `pgl-${d.id}` : undefined)
   const max = Math.max(0, Math.min(2, self.Notification?.maxActions ?? 2))
   const opts = {

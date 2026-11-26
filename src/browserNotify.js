@@ -99,7 +99,12 @@ export async function clearRoom(room) {
 // → { devices, local }
 export async function sendTest() {
   if (pushOk() && permission() === 'granted' && !pushOn) await subscribePush().catch(() => {})
-  const r = await api('/push/test', { method: 'POST' }).catch(() => ({ devices: 0 }))
+  // (three a minute: the server says so — 429 — and nothing is shown here either)
+  let r
+  try { r = await api('/push/test', { method: 'POST' }) } catch (e) {
+    if (e?.status === 429) return { devices: 0, local: false, limited: e.message }
+    r = { devices: 0 }
+  }
   if (r.devices > 0 && pushOn) return { devices: r.devices, local: false }
   if (permission() !== 'granted') return { devices: r.devices || 0, local: false }
   // (English mode: the page's translator — a system notification is not on the page)

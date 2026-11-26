@@ -7,9 +7,13 @@
 //   url: /pro/ask/<chat|task>/<thread>/<card> — chat: the agent's question message; task: the browser task's card (its question,
 //   approval or vault card, or the task card itself when it asks for the screen)
 // An answer from the notification (POST /api/push/act): the token the push carried (lib/pushActions.js) — checked, then the notice is
-// used up once, then the card answered if it still waits.
+// used up once, then the card answered if it still waits (and given back when nothing was answered).
+// Review 11-26 (PR #89): a button answers only what its asker marked light (quick) or the refusal it named — a lock screen's tap never
+// approves, uploads or sends; the answer's turn runs in the person's own session, found by their account id (lib/supa.js sessionOfUser);
+// only an approved member of this company is sent notices or may answer (lib/webpush.js memberHere).
 import { config } from '../config.js'
-import { q } from './supa.js'
+import { q, sessionOfUser } from './supa.js'
+import { memberHere } from './webpush.js'
 import { emit } from './bus.js'
 import { L, langOf, withLang, asUser } from './lang.js'
 import * as PA from './pushActions.js'
@@ -42,9 +46,9 @@ export async function ask(userId, { via, threadId, cardId, kind = 'question', te
     [T(), String(userId), url])
   if (had) return had.id
   const title = withLang(await langOf(userId), () => askTitle(kind))
-  // (only for someone who has an account here — a test's made-up person gets none)
+  // (only for a person of this company — a test's made-up person, or someone of another company, gets none)
   const [n] = await q(`insert into notifications(id,user_id,title,type,description,url,tenant_id)
-                       select gen_random_uuid(),$1,$2,'ai_ask',$3,$4,$5 where exists (select 1 from users u where u.id::text = $1) returning id`,
+                       select gen_random_uuid(),$1,$2,'ai_ask',$3,$4,$5 where exists (select 1 from users u where u.id::text = $1 and u.tenant_id = $5) returning id`,
     [String(userId), title, PA.askText(text) || title, url, T()])
   emit(userId, 'notifications', {})
   return n?.id || null
@@ -76,6 +80,17 @@ export const stillWaiting = async (at) => !!(await waitingCard(at))
 /** the card's kind for the Home card and the push: question · approval · login · hands */
 export const kindOf = (at, card) => (at.via === 'chat' ? 'question' : PA.askKind(card || {}))
 
+/** A restart ended this server's browser tasks: their notices go — of the companies this server serves only (another server on the same
+ *  database keeps its own) */
+export async function resetTaskAsks() {
+  const { eachTenant } = await import('./supa.js')
+  let n = 0
+  await eachTenant(async () => {
+    n += (await q(`update notifications set is_checked=true where tenant_id=$1 and type='ai_ask' and url like '/pro/ask/task/%' and not coalesce(is_checked,false) returning id`, [T()])).length
+  })
+  return n
+}
+
 /** where the notice opens: the project room, the routine's page, or the chat — the conversation the question was asked in when the main
  *  chat's message names one (/chat/c/<conversation>, as the conversation list opens it) */
 export async function placeOf(threadId, cardId = null) {
@@ -93,8 +108,9 @@ export async function askPayload(row, userId, { now = Date.now() } = {}) {
   if (!at) return null
   const [card] = await q('select kind, content from pro_messages where id=$1', [at.cardId]).catch(() => [])
   const kind = kindOf(at, card)
-  const options = at.via === 'chat' ? card?.content?.ask?.options || [] : card?.kind === 'choice' ? card.content?.options || [] : []
-  const { buttons, answers } = withLang(await langOf(userId), () => PA.askButtons({ kind, options }, { open: L('열기', 'Open') }))
+  // what the asker said of its choice: quick (light enough for a lock screen's tap), refusal (the option that declines)
+  const said = at.via === 'chat' ? card?.content?.ask || {} : card?.kind === 'choice' ? card.content || {} : {}
+  const { buttons, answers } = withLang(await langOf(userId), () => PA.askButtons({ kind, options: said.options || [], quick: said.quick === true, refusal: said.refusal || null }, { open: L('열기', 'Open') }))
   const token = answers.length ? PA.mintAction({ key: signingKey(), tenant: T(), userId, notice: row.id, card: at.cardId, answers, now }) : null
   return {
     id: row.id, type: 'ai_ask', kind, title: String(row.title || '').slice(0, 120), body: String(row.description || '').slice(0, 160),
@@ -119,10 +135,11 @@ export async function act({ token, answer }, { answerTask, answerChat, now = Dat
   const [n] = await q(`select id, user_id, url from notifications where id=$1 and tenant_id=$2 and type='ai_ask'`, [c.n, T()])
   if (!n) return refuse(404, 'no such notice')
   const at = parseAskUrl(n.url)
-  // the token is this person's, for this notice's card, and the notice and its thread are theirs
+  // the token is this person's, for this notice's card, and the notice and its thread are theirs — a member of this company still
+  // (users.email is only for matching an older notice that names its person by address: the person is their id)
   const [who] = await q(`select u.id::text as id, u.email, coalesce(nullif(p.name,''), u.username, u.email) as name from users u
                          left join pro_profile p on p.user_id = u.id where u.id::text=$1 and u.tenant_id=$2`, [c.u, T()]).catch(() => [])
-  if (!who || !at || at.cardId !== c.c || ![who.id, who.email].includes(n.user_id)) return refuse(403, 'not yours')
+  if (!who || !at || at.cardId !== c.c || ![who.id, who.email].includes(n.user_id) || !(await memberHere(who.id))) return refuse(403, 'not yours')
   const [thread] = await q('select * from pro_threads where id=$1 and user_id=$2', [at.threadId, who.id])
   if (!thread) return refuse(403, 'not yours')
   // used once: the notice goes from waiting to checked here — a second tap, another device, the same token again finds it checked
@@ -130,13 +147,18 @@ export async function act({ token, answer }, { answerTask, answerChat, now = Dat
   if (!won) return refuse(409, withLang(await langOf(who.id), () => L('이미 답했거나 닫은 알림이에요', 'This was already answered or closed.')))
   emit(who.id, 'notifications', {})
   const label = c.a[i]
-  const ok = at.via === 'task' ? await answerTask?.(who.id, at.cardId, label) : await answerChat?.(who, thread, at.cardId, label)
+  let ok = false, failed = null
+  try {
+    ok = at.via === 'task' ? await answerTask?.(who.id, at.cardId, label) : await answerChat?.(who, thread, at.cardId, label)
+  } catch (e) { failed = e; console.warn(`[push] ${at.via} answer failed:`, e.message) }
   if (!ok) {
-    // a chat question still unanswered (a turn was under way in its thread): its notice and Home card come back — nothing was answered
-    const back = at.via === 'chat' && await stillWaiting(at)
+    // nothing was answered (a turn under way in its thread, no session, the task in another server's memory): a card that still waits gets
+    // its notice and Home card back
+    const back = await stillWaiting(at)
     if (back) { await q('update notifications set is_checked=false where id=$1', [n.id]); emit(who.id, 'notifications', {}) }
-    return refuse(409, withLang(await langOf(who.id), () => (back ? L('그 대화에서 다른 답을 쓰는 중이에요. 앱에서 답해 주세요.', 'Another answer is being written in that chat. Answer it in the app.')
-      : L('더 이상 답을 기다리는 질문이 아니에요', 'This question is no longer waiting for an answer.'))))
+    return refuse(failed ? 503 : 409, withLang(await langOf(who.id), () => (failed ? L('지금은 답하지 못했어요. 앱에서 답해 주세요.', "Couldn't answer just now. Answer it in the app.")
+      : back ? L('그 대화에서 다른 답을 쓰는 중이에요. 앱에서 답해 주세요.', 'Another answer is being written in that chat. Answer it in the app.')
+        : L('더 이상 답을 기다리는 질문이 아니에요', 'This question is no longer waiting for an answer.'))))
   }
   console.log(`[push] ${at.via} card ${at.cardId.slice(0, 8)}: answered from the notification (option ${i})`)
   const said = withLang(await langOf(who.id), () => L(`「${label}」${ro(`${label}」`)} 답했어요`, `Answered: ${label}`))
@@ -145,12 +167,15 @@ export async function act({ token, answer }, { answerTask, answerChat, now = Dat
 
 /** the chat's answerer for act(): the question must still be unanswered (nothing the person said after it) with no turn under way — then
  *  the option goes to the thread as the person's own message (what tapping the chat's quick reply does), in a session of theirs.
- *  runTurn · sessionFor · busy: lib/agent.js runTurn, lib/supa.js sessionFor, lib/turns.js running (given, not imported: no cycle) */
-export function chatAnswerer({ runTurn, sessionFor, busy }) {
+ *  runTurn · busy: lib/agent.js runTurn, lib/turns.js running (given, not imported: no cycle). sessionOf(userId): the person's own session
+ *  by their account id (lib/supa.js sessionOfUser — never by an address from public.users, never making an account or a users row); a
+ *  session that turns out to be someone else's is not used. */
+export function chatAnswerer({ runTurn, busy, sessionOf = sessionOfUser }) {
   return async (who, thread, cardId, label) => {
     if (!(await stillWaiting({ via: 'chat', threadId: thread.id, cardId })) || busy?.({ userId: who.id, threadId: thread.id })?.length) return false
-    const { user, session } = await sessionFor(who.email, who.name)
-    const person = { id: who.id, email: user?.email || who.email, name: who.name }
+    const { user, session } = await sessionOf(who.id)
+    if (!user?.id || String(user.id) !== String(who.id) || !session?.access_token) throw new Error('the session is not this person\'s')
+    const person = { id: who.id, email: user.email, name: who.name }
     // (in the person's language, tenant and usage — as their own request would be: lib/lang.js asUser)
     asUser(who.id, () => runTurn({ user: person, session, threadId: thread.id, text: label }))
       .catch((e) => console.warn('[push] chat answer', e.message))

@@ -66,6 +66,9 @@ export async function removeMember(userId, by) {
   await q('delete from pro_role_assignments where tenant_id=$1 and user_id=$2', [T(), userId])
   // remembered, so their next visit does not put them back (ensureMember)
   await q(`insert into pro_team_removed(tenant_id,user_id,removed_by) values ($1,$2,$3) on conflict (tenant_id,user_id) do update set removed_by=excluded.removed_by, removed_at=now()`, [T(), userId, by || null])
+  // their phones and browsers hear nothing more from this company (lib/webpush.js — review 11-26, PR #89)
+  const { forgetDevices } = await import('./webpush.js')
+  await forgetDevices(userId, T())
 }
 
 // The signed-in user joins the team on first sight. In Lite the team is the people of this tenant:

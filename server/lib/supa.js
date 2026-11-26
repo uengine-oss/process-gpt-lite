@@ -92,6 +92,10 @@ export async function sessionFor(email, name) {
 async function mintSession(email0, name, retried = false) {
   const email = normEmail(email0)
   const user = await ensureUser(email, name)
+  return { user: { id: user.id, email, name: name || email.split('@')[0] }, session: await magicSession(email, retried) }
+}
+// a session of the account at that address, by a sign-in link verified here (the address must have an account)
+async function magicSession(email, retried = false) {
   const { data: link, error: linkErr } = await admin.auth.admin.generateLink({ type: 'magiclink', email })
   if (linkErr) throw linkErr
   const res = await fetch(`${config.supabaseUrl}/auth/v1/verify`, {
@@ -100,9 +104,27 @@ async function mintSession(email0, name, retried = false) {
     body: JSON.stringify({ type: 'magiclink', token_hash: link.properties.hashed_token }),
   })
   const session = await res.json()
-  if (!session.access_token && session.error_code === 'otp_expired' && !retried) return mintSession(email, name, true)
+  if (!session.access_token && session.error_code === 'otp_expired' && !retried) return magicSession(email, true)
   if (!session.access_token) throw new Error('session mint failed: ' + JSON.stringify(session).slice(0, 200))
-  return { user: { id: user.id, email, name: name || email.split('@')[0] }, session }
+  return session
+}
+
+// A session of an account that already exists, found by its id (2026-11-26 review of the phone notifications' answers, PR #89): the
+// address is the auth server's own record of that account — never public.users.email, which Process GPT lets its owner change (a member
+// could name someone else's address there and be handed that person's session). Nothing is made: no account, no users row. The session
+// must turn out to be that account's, or it is not used.
+export async function sessionOfUser(userId) {
+  const { data, error } = await admin.auth.admin.getUserById(String(userId))
+  const email = data?.user?.email
+  if (error || !email) throw new Error('no such account')
+  const key = normEmail(email)
+  const before = minting.get(key) || Promise.resolve()
+  const mine = before.catch(() => {}).then(() => magicSession(key))
+  minting.set(key, mine)
+  let session
+  try { session = await mine } finally { if (minting.get(key) === mine) minting.delete(key) }
+  if (session?.user?.id !== String(userId)) throw new Error('the session is not that account\'s')
+  return { user: { id: session.user.id, email: session.user.email || key }, session }
 }
 
 // The person of a token, or null when Supabase refuses it (4xx). A timeout or 5xx from a slow or restarting

@@ -89,18 +89,18 @@ test('PA-U-06 멘션은 따로 — 「나를 언급했어요」 · 「mentioned 
   assert.equal(PA.isMention({ type: 'chat', title: '나를 언급했어요' }), false)
 })
 
-test('PA-U-07 단추: 짧은 보기 두 개 이하는 보기, 승인은 「열기」와 거절만, 그 밖은 「열기」', () => {
-  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['세 줄 요약', '표로 정리'] }),
+test('PA-U-07 단추: 묻는 쪽이 가볍다고 한 짧은 보기 두 개 이하는 보기, 승인은 「열기」와 정해진 거절만, 그 밖은 「열기」', () => {
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['세 줄 요약', '표로 정리'], quick: true }),
     { buttons: [{ action: 'a0', title: '세 줄 요약' }, { action: 'a1', title: '표로 정리' }], answers: ['세 줄 요약', '표로 정리'] })
-  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['예'] }).answers, ['예'])
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['예'], quick: true }).answers, ['예'])
   const open = { buttons: [{ action: 'open', title: '열기' }], answers: [] }
-  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['가', '나', '다'] }), open)
-  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['아주 긴 보기라서 알림 단추에서 잘려 버리는 글자'] }), open)
-  assert.deepEqual(PA.askButtons({ kind: 'question', options: [] }), open)
-  // an approval: approving is on the card only — the notification refuses or opens
-  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['승인', '취소'] }),
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['가', '나', '다'], quick: true }), open)
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['아주 긴 보기라서 알림 단추에서 잘려 버리는 글자'], quick: true }), open)
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: [], quick: true }), open)
+  // an approval: approving is on the card only — the notification refuses (the card names its refusal) or opens
+  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['승인', '취소'], refusal: '취소' }),
     { buttons: [{ action: 'open', title: '열기' }, { action: 'a0', title: '취소' }], answers: ['취소'] })
-  assert.deepEqual(PA.askButtons({ kind: 'login', options: ['a', 'b'] }), open)
+  assert.deepEqual(PA.askButtons({ kind: 'login', options: ['a', 'b'], quick: true, refusal: 'b' }), open)
   assert.deepEqual(PA.askButtons({ kind: 'hands' }, { open: 'Open' }).buttons, [{ action: 'open', title: 'Open' }])
 })
 
@@ -114,4 +114,28 @@ test('PA-U-08 카드 종류와 알림 글자', () => {
   assert.equal(PA.askKind({ kind: 'text', content: { ask: {} } }), 'question')
   assert.equal(PA.askText('**어떤 형식**으로   정리할까요?\n- 표'), '어떤 형식으로 정리할까요? - 표')
   assert.equal([...PA.askText('가'.repeat(300))].length, 140)
+})
+
+// 보안 검토 11-26 #2: 잠금 화면의 단추 한 번으로 결과가 큰 일을 하지 않는다 — 단추로 답하는 보기는 묻는 쪽이 「가벼운 선택」(quick)으로 표시한
+// 것만, 그 밖에는 「열기」와 묻는 쪽이 정한 거절(refusal)뿐. 파일 고르기(올릴 파일)는 승인과 같다
+test('PA-U-09 단추는 묻는 쪽이 가볍다고 한 보기만 — 그 밖은 「열기」와 정해진 거절뿐, 파일 고르기는 승인', () => {
+  const open = { buttons: [{ action: 'open', title: '열기' }], answers: [] }
+  // a question nobody marked: no answer from the lock screen (「보낼까요? [보내기/취소]」)
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['보내기', '취소'] }), open)
+  // …with the asker's refusal: that one only
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['보내기', '취소'], refusal: '취소' }),
+    { buttons: [{ action: 'open', title: '열기' }, { action: 'a0', title: '취소' }], answers: ['취소'] })
+  // a refusal that is not one of its options is not offered
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['보내기', '취소'], refusal: '그만' }), open)
+  // marked quick by the asker: the options
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['세 줄 요약', '표로 정리'], quick: true }).answers, ['세 줄 요약', '표로 정리'])
+  assert.deepEqual(PA.askButtons({ kind: 'question', options: ['세 줄 요약', '표로 정리'], quick: 'yes' }), open, 'only true')
+  // an approval: its own refusal (the card says which), never the approval
+  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['승인', '취소'], refusal: '취소' }).answers, ['취소'])
+  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['승인', '취소'] }), open, 'no refusal named: open only')
+  // (quick on an approval changes nothing: still its refusal alone)
+  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['승인', '취소'], refusal: '취소', quick: true }).answers, ['취소'])
+  // a file to upload picked on the card: an approval — open only (its options are file names, none refuses)
+  assert.equal(PA.askKind({ kind: 'choice', content: { files: true, options: ['견적서.pdf', '계약서.docx'] } }), 'approval')
+  assert.deepEqual(PA.askButtons({ kind: 'approval', options: ['견적서.pdf', '계약서.docx'], quick: true }), open)
 })

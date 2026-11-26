@@ -1515,9 +1515,9 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/local
 사용자(11-26, 카카오톡 · Gemini · Claude 알림이 떠 있는 안드로이드 알림 창 화면): 「퀵하게 대화방에서 온 내용 혹은 ai의 후먼인더루프 등을 모바일에서 보게할 수 있나?」 이제 AI가 사람의 응답을 기다리면(채팅 에이전트의 질문, 브라우저 작업의 질문 · 승인 · 로그인 · 직접 확인) `notifications`에 `ai_ask` 행이 생기고, Home 카드와 휴대폰 알림으로 표시된다. 보기가 두 개 이하인 짧은 질문은 알림의 단추로 바로 답할 수 있다(한 번만 쓰는 서명 토큰, `POST /api/push/act`). 승인 알림에는 「열기」 · 「취소」 단추만 표시한다. 대화방 메시지는 방마다 알림 하나(「<방> · N」, 마지막 두 줄, 「답장」)로 묶고, 현재 열어 둔 방의 메시지는 알리지 않는다. Home과 설정에 「시험 알림 보내기」가 있고, iPhone의 Safari 탭에는 홈 화면 앱 안내가 표시된다.
 
 ```bash
-cd server && node --test test/pushActions.test.js                                            # PA-U-01~08
-cd server && node --test --test-concurrency=1 test/pushHitl.integration.test.js              # PH-I-01~09 (로컬 Supabase, 회사 push-hitl-it)
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/push-hitl.spec.js   # F-PH-01~06 (자기 스택 8973 · 5373부터, 가짜 푸시 서비스)
+cd server && node --test test/pushActions.test.js test/webpush.test.js                       # PA-U-01~09 · WP-S-01~02
+cd server && node --test --test-concurrency=1 test/pushHitl.integration.test.js              # PH-I-01~15 (로컬 Supabase · GoTrue, 회사 push-hitl-it)
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/push-hitl.spec.js   # F-PH-01~07 (자기 스택 8973 · 5373부터, 가짜 푸시 서비스)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1533,6 +1533,13 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/push-
 | 현재 열어 둔 방의 메시지는 알리지 않고, 다른 방의 메시지 · 멘션은 알린다. 메신저를 닫으면 다시 알린다. 내가 보낸 메시지는 알리지 않는다 | 사용자 11-26 | F-PH-04 · PH-I-02 · PA-U-06 | 단위 · 통합 · feature | ✅ |
 | Home 카드: 「브라우저 알림 켜기」 → 「알림이 켜져 있어요」 → 「시험 알림 보내기」(390px 밝은 모드 · 밤 모드, 넘침 없음). 설정에는 「이 기기의 알림 · 켜짐」 줄을 표시한다 | 사용자 11-26 | F-PH-01 · F-PH-06 · PH-I-07 | 통합 · feature | ✅ |
 | iPhone의 Safari 탭: 켜기 단추 대신 iOS 16.4 이상 · 「홈 화면에 추가」 안내를 표시한다. 닫으면 다시 표시하지 않는다(밝은 모드 · 밤 모드) | 사용자 11-26 | F-PH-05 | feature | ✅ |
+| **검토 11-26 #1** 알림 버튼으로 보낸 답변은 사용자 본인의 세션으로 처리: 계정 id로 인증 서버에서 조회한 주소를 사용해 세션을 생성하고 해당 계정의 세션인지 확인한다. `users` 행의 이메일은 사용하지 않고, 계정이나 `users` 행을 생성하지 않는다 | 검토 11-26 | PH-I-10 | 통합 | ✅ |
+| **#2** 잠금 화면에서 버튼 한 번으로 처리할 수 있는 일은 가벼운 일로 제한: 질문을 제시하는 쪽이 `quick`으로 표시한 선택지만 버튼으로 표시하고, 그 밖에는 「열기」와 정해 둔 거절 선택지(`refusal`)만 표시한다. 올릴 파일 고르기는 승인으로 다루며 「열기」만 표시한다. 브라우저 작업도 같은 규칙으로 다시 확인한다 | 검토 11-26 | PA-U-09 · PH-I-11 | 단위 · 통합 | ✅ |
+| **#3** Safari에서는 현재 화면에 열어 둔 방의 푸시도 소리 없이 띄웠다가 바로 닫는다(조용한 푸시로 구독이 끊기는 것을 방지) | 검토 11-26 | F-PH-04 | feature | ✅ |
+| **#4** 답변 처리에 실패하면(세션 · 다른 서버의 작업) 알림 행과 Home 카드를 이전 상태로 되돌린다 | 검토 11-26 | PH-I-12 | 통합 | ✅ |
+| **#5** 승인된 구성원에게만 보내고 받는다. 내보낸 사용자의 요청은 403으로 거절하며, 내보낼 때 기기 구독을 삭제한다(`forgetDevices`) | 검토 11-26 | PH-I-13 | 통합 | ✅ |
+| **#6** 구독 주소는 푸시 서비스(FCM · Apple · Mozilla · Windows) 주소만 허용하고 리디렉션은 따라가지 않는다. `/api/push/key` · `/api/push/test`는 상태를 반환하지 않고, 시험 알림은 1분에 세 번까지 보낼 수 있다 | 검토 11-26 | WP-S-01 · 02 · PH-I-14 · F-PH-07 | 단위 · 통합 · feature | ✅ |
+| **경미** 다시 시작할 때 삭제하는 알림은 이 서버가 담당하는 회사의 알림으로 제한하며, 알림은 이 회사의 `users` 행이 있는 사용자에게만 보낸다 | 검토 11-26 | PH-I-15 | 통합 | ✅ |
 | 브라우저 작업의 대기(`lib/browser.js` waitForUser)에서 알림을 생성하고 종료하는 연동을 실제 사용자의 브라우저 작업으로 확인, 실제 Android · iPhone 기기, 영어 화면 | — | — (코드 · 사전만) | — | ◐ |
 | 알림 안에서 글을 입력해 답하기(인라인 답장): 안정판 브라우저의 웹 알림에서 지원하지 않아 구현하지 않았다 | 스펙 요구 2 | — | — | ✗ |
 

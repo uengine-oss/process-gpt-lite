@@ -3,10 +3,10 @@
 새 테이블은 없다. 알림은 process-gpt의 `notifications` 테이블에 `ai_ask` 행으로 쌓이고, 구독은 기존 `pro_push_subscriptions`를 쓴다. 규칙(토큰 · 묶기 · 단추)은 화면 없이 단위 시험으로 본다. 서버는 로컬 Supabase에 대고 통합 시험으로 본다(이 시험만의 회사 `push-hitl-it`, deepagents는 흉내 낸 스트림). 화면과 서비스 워커는 Playwright로 실제 Chromium에서 본다. 푸시 서비스는 시험 자신의 가짜(`server/test/fixtures/fakePush.mjs`)다. 서버가 보낸 aes128gcm 본문을 구독의 개인 키로 풀어 읽으며, 실제 기기나 실제 푸시 서비스로는 아무것도 보내지 않는다(브라우저의 `pushManager.subscribe`도 막아 둔다). 모델은 부르지 않는다.
 
 ```bash
-cd server && node --test test/pushActions.test.js                                            # 단위 8 (PA-U-01~08)
-cd server && node --test --test-concurrency=1 test/pushHitl.integration.test.js              # 통합 9 (PH-I-01~09, 로컬 Supabase)
+cd server && node --test test/pushActions.test.js test/webpush.test.js                       # 단위 9 + 5 (PA-U-01~09 · WP-S-01~02)
+cd server && node --test --test-concurrency=1 test/pushHitl.integration.test.js              # 통합 15 (PH-I-01~15, 로컬 Supabase · 로컬 GoTrue)
 # 화면: 자기 스택(회사 push-hitl-ui, BFF 8973 · Vite 5373부터 빈 포트, PRO_NOTIFY_FEED=1)을 띄우고 지운다
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/push-hitl.spec.js   # F-PH-01~06
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/push-hitl.spec.js   # F-PH-01~07
 ```
 
 서비스 워커의 처리기(`public/sw.js`의 `self.__pgl.push` · `click` · `shownInFront`)는 Playwright가 그 워커 안에서 직접 부른다. 가짜 푸시 서비스가 받은 페이로드를 그대로 넘기고, 띄운 알림은 `registration.getNotifications()`로 읽는다. 실제 Android · iOS 기기에서는 시험하지 않았다. 시험 브라우저는 푸시를 구독할 수 없으므로, F-PH-01의 「시험 알림 보내기」 결과 문구는 「기기 1대에 보냈어요. 이 브라우저는 푸시를 받지 못해 직접 띄웠어요.」이다. 구독한 휴대폰에서는 「보냈어요 · 기기 1대」가 뜬다.
@@ -27,3 +27,12 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/push-
 | 열어 둔 방과 멘션 | F-PH-04(열어 둔 방은 띄우지 않음 · 다른 방은 띄움 · 같은 방의 멘션은 띄움 · 메신저를 닫으면 다시 띄움) · PH-I-02(멘션은 자기 태그) · PA-U-06 |
 | 휴대폰에서 알림을 켜고 시험한다 | F-PH-01(390px 밝은 · 밤, 넘침 없음, 「알림 켜기」 → 「알림이 켜져 있어요」 → 「시험 알림 보내기」 → 가짜 푸시 서비스가 받은 「시험 알림이에요」, 사진 `f-ph-01a-ask-*` · `f-ph-01b-on-*`) · F-PH-06(설정 줄 「이 기기의 알림 · 켜짐」, 밤, 사진 `f-ph-06-settings-dark`) · PH-I-07 |
 | iPhone의 Safari 탭 | F-PH-05(iPhone Safari UA · 밝은 · 밤: 켜기 단추 없음 · iOS 16.4 · 「홈 화면에 추가」, ✕ 뒤 새로 고쳐도 없음, 사진 `f-ph-05-ios-*`) |
+| 표시 없는 질문과 파일 고르기 | PH-I-11(올릴 파일 고르기 → 「승인이 필요해요」 · 「열기」만 · 토큰 없음, 표시 없는 브라우저 · 채팅 질문에는 「열기」 표시, 거절 선택지가 정해져 있으면 답변 선택지로는 해당 거절만 표시, `canAnswerCard`는 표시 없는 선택지 · 승인 · 파일 고르기를 받지 않음) · PA-U-07 · 09 |
+| users 행의 이메일을 남의 주소로 바꾼 구성원 | PH-I-10(실제 로컬 GoTrue 계정 둘: 답변 턴의 JWT `sub`는 사용자 본인, 다른 사람은 이 회사의 `users` 테이블에 추가되지 않음, minter가 다른 사람의 세션을 반환하면 답변을 처리하지 않고 이전 상태로 되돌림) |
+| 답변 처리에 실패하면 이전 상태로 되돌린다 | PH-I-12(세션을 만들지 못함 · 다른 서버의 작업 → 503, 알림 행과 Home 카드가 이전 상태로 돌아옴) · PH-I-09 |
+| 구성원에게만 · 내보내면 구독 삭제 | PH-I-13(다른 회사 구성원의 구독으로는 0건, 내보내면 구독이 삭제되고 해당 사용자의 토큰은 403으로 거절됨, 피드에서도 전송하지 않음) |
+| 푸시 서비스 주소만 허용 · 리디렉션을 따라가지 않음 · 상태를 반환하지 않음 · 시험 알림은 1분에 세 번 | WP-S-01 · 02 · PH-I-14(푸시 서비스가 아닌 주소에는 요청을 보내지 않고 행을 삭제함, 302를 따라가지 않음) · F-PH-07(실제 BFF: 400 · 공개 키만 · 200 200 200 429) |
+| Safari에서 현재 화면에 열어 둔 방의 푸시 | F-PH-04(iPhone UA: 소리 없이 띄웠다가 바로 닫음 → `quiet`, 남는 알림 없음; Chrome UA: 띄우지 않음) |
+| 다시 시작할 때 이 서버가 담당하는 회사의 것만 · 알림은 이 회사 구성원에게만 | PH-I-15 |
+
+보안 검토(11-26, PR #89)를 통해 추가한 시험은 수정 전 코드에서 먼저 실행해 실패하는 것을 확인했다. PA-U-09 · WP-S-01 · 02 · PH-I-10~15는 수정 전 작업 트리에서, F-PH-04의 Safari 부분과 F-PH-07은 수정 전 커밋(`df8f981`)의 임시 작업 트리에서 실행했다. PH-I-10은 수정 전에 답변 턴이 변경된 이메일 주소의 소유자 세션으로 실행됐다.

@@ -32,12 +32,16 @@ export function decryptPush(body, { ecdh, auth }) {
 export async function startFakePush({ host = '127.0.0.1' } = {}) {
   const subs = new Map() // who → {ecdh, auth}
   const received = []
+  const requests = [] // every request's path, whatever it was (a test that nothing reached a place reads it)
+  const redirects = new Map() // who → where its endpoint sends the pusher (302)
   const waiters = []
   const server = http.createServer((req, res) => {
     const chunks = []
+    requests.push(String(req.url || ''))
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
       const who = decodeURIComponent(String(req.url || '').replace(/^\/push\//, ''))
+      if (redirects.has(who)) { res.writeHead(302, { Location: redirects.get(who) }); return res.end() }
       const s = subs.get(who)
       if (!s) { res.writeHead(410); return res.end() }
       try {
@@ -51,7 +55,9 @@ export async function startFakePush({ host = '127.0.0.1' } = {}) {
   await new Promise((ok) => server.listen(0, host, ok))
   const base = `http://${host}:${server.address().port}`
   return {
-    received,
+    received, requests, origin: base,
+    /** `who`'s endpoint answers 302 to `location` (a push service never does: the sender must not follow it) */
+    redirect(who, location) { redirects.set(who, location); return `${base}/push/${encodeURIComponent(who)}` },
     /** a subscription as a browser would give it, for `who` (its endpoint is this server) */
     subscription(who) {
       const ecdh = crypto.createECDH('prime256v1'); ecdh.generateKeys()

@@ -28,7 +28,7 @@ async function test() {
   said.value = ''
   try {
     const r = await sendTest()
-    said.value = !r.local ? (r.devices > 0 ? `보냈어요 · 기기 ${r.devices}대. 몇 초 안에 알림이 와요.` : '알림이 꺼져 있어 보내지 못했어요')
+    said.value = r.limited ? r.limited : !r.local ? (r.devices > 0 ? `보냈어요 · 기기 ${r.devices}대. 몇 초 안에 알림이 와요.` : '알림이 꺼져 있어 보내지 못했어요')
       : r.devices > 0 ? `기기 ${r.devices}대에 보냈어요. 이 브라우저는 푸시를 받지 못해 직접 띄웠어요.`
         : '이 브라우저는 푸시를 받지 못해 직접 띄웠어요. 앱을 닫으면 알림이 오지 않아요.'
   } finally { busy.value = false }

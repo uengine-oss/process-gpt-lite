@@ -3095,7 +3095,8 @@
   "시험 알림이에요": "This is a test notification",
   "이 알림이 보이면 알림이 켜진 거예요": "If you can see this, notifications are on",
   "답하러 가기": "Go answer",
-  "질문": "Question"
+  "질문": "Question",
+  "시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.": "Up to three test notifications a minute. Try again in a moment."
  },
  "patterns": [
   [

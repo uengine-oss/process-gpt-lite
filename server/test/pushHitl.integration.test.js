@@ -12,6 +12,14 @@
 //   PH-I-07 「시험 알림 보내기」: 내 기기마다 하나
 //   PH-I-08 이름 없는 단체방: 제목은 나를 뺀 사람들 이름(「박도윤, 김민수 · 2」)
 //   PH-I-09 그 대화에서 다른 답을 쓰는 중이면 단추의 답은 보내지 않고 알림 · Home 카드는 남는다(끝나면 같은 단추로 답함)
+// 보안 검토 11-26(PR #89):
+//   PH-I-10 단추의 답은 그 사람 자신의 세션으로 — users 의 이메일을 남의 주소로 바꿔도 남의 세션이 아니고, 남을 회사에 넣지 않는다; 다른
+//           사람의 세션이 나오면 답하지 않는다
+//   PH-I-11 잠금 화면의 한 번으로 결과가 큰 일은 하지 않는다: 파일 고르기 · 표시 없는 브라우저 · 채팅 질문은 「열기」(정해진 거절만 단추)
+//   PH-I-12 답하다 실패하면(세션 · 작업) 알림 · Home 카드는 되돌아온다
+//   PH-I-13 회사의 사람이 아니거나 내보낸 사람에게는 보내지도 받지도 않는다, 내보내면 그 사람의 기기 구독을 지운다
+//   PH-I-14 푸시는 허용한 푸시 서비스 주소로만, 넘겨주기(redirect)는 따라가지 않는다
+//   PH-I-15 알림은 이 회사의 사람에게만 만들고, 서버가 다시 시작할 때 지우는 것은 이 서버가 맡은 회사의 것만
 // 데이터베이스가 없으면 건너뜀. 시험 사용자는 무작위 id(로그인 계정 아님), 끝나면 지움.
 // Run: node --test --test-concurrency=1 test/pushHitl.integration.test.js
 import test, { after } from 'node:test'
@@ -79,6 +87,8 @@ const B = { id: crypto.randomUUID(), email: `pro-push-hitl-b-${stamp}@people-mai
 const session = { access_token: 'test-token' }
 const ROOM = `push-room-${stamp}`
 const P = await startFakePush()
+// the fake push service is the one push service this test lets the server reach (review 11-26 #6: only push services' hosts)
+process.env.PRO_PUSH_ALLOW_ORIGINS = P.origin
 const threads = []
 async function thread(user, kind = 'project') {
   const [t] = await q(`insert into pro_threads(user_id,kind,title,conversation_id) values ($1,$2,'주간 회의 정리',$3) returning id`, [user.id, kind, `ph-${stamp}-${threads.length}`])
@@ -86,14 +96,15 @@ async function thread(user, kind = 'project') {
   return t.id
 }
 const msgs = (tid) => q('select id, role, kind, content from pro_messages where thread_id=$1 order by created_at', [tid])
-const HITL = JSON.stringify({ type: 'human_input_required', question: '어떤 형식으로 정리할까요?', context: '회의록 초안이 준비됐어요.', options: ['세 줄 요약', '표로 정리'], run_state: {} })
+// (quick: the asker marks the choice as light — only then can a notification's button answer it, review 11-26 #2)
+const HITL = JSON.stringify({ type: 'human_input_required', question: '어떤 형식으로 정리할까요?', context: '회의록 초안이 준비됐어요.', options: ['세 줄 요약', '표로 정리'], quick: true, run_state: {} })
 // the agent asks in a project thread → {tid, card}
-async function asked(user) {
+async function asked(user, hitl = HITL) {
   const tid = await thread(user)
   const n0 = streams.length
   const p = runTurn({ user, session, threadId: tid, text: '이번 주 회의록 정리해 줘' })
   const h = await nth(n0 + 1)
-  h.push('message', { type: 'done', content: HITL }); h.end()
+  h.push('message', { type: 'done', content: hitl }); h.end()
   const card = await p
   return { tid, card }
 }
@@ -112,18 +123,31 @@ if (up) {
   // the feed's position: now (rows before it are not news)
   await notify.feedOnce()
 }
+const OTHER = 'push-hitl-other' // another company on the same database (PH-I-13 · 15)
+const extraUsers = [] // made by the review's tests
+const authIds = [] // real sign-in accounts (PH-I-10)
+const P2 = await startFakePush() // a server that is no push service (PH-I-14)
 after(async () => {
   globalThis.fetch = realFetch
   if (up) {
-    await q('delete from notifications where tenant_id=$1', [TENANT]).catch(() => {})
-    await q('delete from pro_push_subscriptions where tenant_id=$1', [TENANT]).catch(() => {})
+    for (const t of [TENANT, OTHER]) {
+      await q('delete from notifications where tenant_id=$1', [t]).catch(() => {})
+      await q('delete from pro_push_subscriptions where tenant_id=$1', [t]).catch(() => {})
+      await q('delete from pro_team_members where tenant_id=$1', [t]).catch(() => {})
+      await q('delete from pro_team_removed where tenant_id=$1', [t]).catch(() => {})
+    }
     if (threads.length) await q('delete from pro_threads where id = any($1)', [threads])
-    for (const u of [A, B]) {
+    for (const u of [A, B, ...extraUsers]) {
       await q('delete from pro_profile where user_id=$1', [u.id]).catch(() => {})
       await q('delete from users where id=$1', [u.id]).catch(() => {})
     }
+    const { admin } = await import('../lib/supa.js')
+    for (const id of authIds) {
+      await q('delete from users where id=$1', [id]).catch(() => {})
+      await admin.auth.admin.deleteUser(id).catch(() => {})
+    }
   }
-  await P.close()
+  await P.close(); await P2.close()
   await pool.end()
   const { closeOntology } = await import('../lib/ontology/store.js').catch(() => ({}))
   await closeOntology?.().catch(() => {})
@@ -134,7 +158,7 @@ let pushed // PH-I-02's payload of it
 
 test('PH-I-01 에이전트가 묻고 멈추면: 답에 질문 · 보기, ai_ask 알림 한 줄, Home 카드는 그 프로젝트에서 연다', { skip: !up }, async () => {
   first = await asked(A)
-  assert.deepEqual(first.card.content.ask, { question: '어떤 형식으로 정리할까요?', options: ['세 줄 요약', '표로 정리'] })
+  assert.deepEqual(first.card.content.ask, { question: '어떤 형식으로 정리할까요?', options: ['세 줄 요약', '표로 정리'], quick: true })
   assert.match(first.card.content.text, /어떤 형식으로 정리할까요\?\n- 세 줄 요약\n- 표로 정리/)
   const rows = await until(async () => { const r = await notices(A); return r.length ? r : null })
   assert.equal(rows.length, 1)
@@ -199,7 +223,7 @@ test('PH-I-02 피드 → 푸시: 질문은 단추 · 토큰, 방은 하나로 �
 
 test('PH-I-03 알림의 단추로 답하면 그 보기가 내 메시지로 한 번 가고, 같은 토큰은 다시 쓰지 못한다', { skip: !up }, async () => {
   const turns = []
-  const answerChat = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), busy: () => [] })
+  const answerChat = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), sessionOf: async (id) => ({ user: { id }, session }), busy: () => [] })
   const r = await ASK.act({ token: pushed.token, answer: 0 }, { answerChat, answerTask: async () => assert.fail('not a task') })
   assert.equal(r.status, 200, JSON.stringify(r))
   assert.equal(r.answered, '세 줄 요약')
@@ -258,7 +282,7 @@ test('PH-I-05 채팅에 직접 답하면 그 대화의 질문 알림은 확인�
   await p
   assert.equal((await notify.listFor(A)).some((x) => x.type === 'ai_ask'), false)
   const turns = []
-  const answerChat = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), busy: () => [] })
+  const answerChat = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), sessionOf: async (id) => ({ user: { id }, session }), busy: () => [] })
   assert.equal((await ASK.act({ token, answer: 0 }, { answerChat })).status, 409)
   assert.equal(turns.length, 0)
   // (a question the person already answered in the chat is not waiting, even if its notice were still up)
@@ -268,7 +292,7 @@ test('PH-I-05 채팅에 직접 답하면 그 대화의 질문 알림은 확인�
 test('PH-I-06 브라우저 작업의 승인 카드: 알림은 「열기」 · 「취소」뿐, 승인은 카드에서만', { skip: !up }, async () => {
   const tid = await thread(A, 'chat')
   const [card] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','choice',$2) returning id`,
-    [tid, { site: 'shop.example', approval: true, question: '장바구니 49,000원 결제', options: ['승인', '취소'], taskId: crypto.randomUUID(), state: 'pending' }])
+    [tid, { site: 'shop.example', approval: true, question: '장바구니 49,000원 결제', options: ['승인', '취소'], refusal: '취소', taskId: crypto.randomUUID(), state: 'pending' }])
   const id = await ASK.ask(A.id, { via: 'task', threadId: tid, cardId: card.id, kind: 'approval', text: '장바구니 49,000원 결제' })
   assert.equal(await ASK.ask(A.id, { via: 'task', threadId: tid, cardId: card.id, kind: 'approval', text: '같은 카드' }), id, 'once per card')
   const [row] = await q('select * from notifications where id=$1', [id])
@@ -279,14 +303,14 @@ test('PH-I-06 브라우저 작업의 승인 카드: 알림은 「열기」 · �
   assert.deepEqual(p.actions, [{ action: 'open', title: '열기' }, { action: 'a0', title: '취소' }])
   assert.deepEqual(PA.verifyAction(p.token, { key: ASK.signingKey() }).claims.a, ['취소'])
   // the task's own guard: an approval is refused from outside its card, never approved
-  const asking = { card: card.id, kind: 'choice', approval: true, options: ['승인', '취소'] }
+  const asking = { card: card.id, kind: 'choice', approval: true, options: ['승인', '취소'], refusal: '취소' }
   assert.equal(canAnswerCard(asking, card.id, '승인'), false)
   assert.equal(canAnswerCard(asking, card.id, '취소'), true)
-  assert.equal(canAnswerCard({ ...asking, approval: false }, card.id, '승인'), true)
+  assert.equal(canAnswerCard({ ...asking, approval: false, quick: true }, card.id, '승인'), true)
   assert.equal(canAnswerCard(asking, crypto.randomUUID(), '취소'), false, 'another card')
   assert.equal(canAnswerCard({ ...asking, vault: true }, card.id, '취소'), false, 'a vault card')
   assert.equal(canAnswerCard({ ...asking, kind: 'vault' }, card.id, '취소'), false)
-  assert.equal(canAnswerCard({ ...asking, approval: false }, card.id, '다른 말'), false, 'not one of its options')
+  assert.equal(canAnswerCard({ ...asking, approval: false, quick: true }, card.id, '다른 말'), false, 'not one of its options')
   // refused from the notification: the task hears it; then the card is no longer waiting — the Home drops it
   const heard = []
   const r = await ASK.act({ token: p.token, answer: 0 }, { answerTask: async (...a) => { heard.push(a); await q(`update pro_messages set content = content || '{"state":"answered"}'::jsonb where id=$1`, [card.id]); return true } })
@@ -346,7 +370,7 @@ test('PH-I-09 그 대화에서 다른 답을 쓰는 중이면 단추의 답은 �
   const n = await until(async () => (await notices(A)).find((x) => !x.is_checked && x.url.endsWith(card.id)))
   const token = PA.mintAction({ key: ASK.signingKey(), tenant: TENANT, userId: A.id, notice: n.id, card: card.id, answers: ['세 줄 요약', '표로 정리'] })
   const turns = []
-  const busy = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), busy: () => [{ started: true }] })
+  const busy = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), sessionOf: async (id) => ({ user: { id }, session }), busy: () => [{ started: true }] })
   const r = await ASK.act({ token, answer: 1 }, { answerChat: busy })
   assert.equal(r.status, 409)
   assert.equal(r.error, '그 대화에서 다른 답을 쓰는 중이에요. 앱에서 답해 주세요.')
@@ -354,7 +378,167 @@ test('PH-I-09 그 대화에서 다른 답을 쓰는 중이면 단추의 답은 �
   assert.equal((await notices(A)).find((x) => x.id === n.id).is_checked, false)
   assert.ok((await notify.listFor(A)).some((x) => x.type === 'ai_ask' && x.url.endsWith(card.id)))
   // once the turn is over, the same button answers
-  const free = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), busy: () => [] })
+  const free = ASK.chatAnswerer({ runTurn: async (a) => { turns.push(a) }, sessionFor: async (email) => ({ user: { email }, session }), sessionOf: async (id) => ({ user: { id }, session }), busy: () => [] })
   assert.equal((await ASK.act({ token, answer: 1 }, { answerChat: free })).status, 200)
   assert.deepEqual(turns.map((t) => [t.threadId, t.text]), [[tid, '표로 정리']])
+})
+
+// ---------- 보안 검토 11-26 (PR #89) ----------
+const jwtSub = (t) => JSON.parse(Buffer.from(String(t).split('.')[1], 'base64url').toString()).sub
+const tokenFor = (user, n, cardId, answers) => PA.mintAction({ key: ASK.signingKey(), tenant: TENANT, userId: user.id, notice: n.id, card: cardId, answers })
+const noticeOf = (user, cardId) => until(async () => (await notices(user)).find((x) => !x.is_checked && x.url.endsWith(cardId)))
+// a person of this company (a users row here), with a Lite profile
+async function person(tag, name, tenant = TENANT) {
+  const u = { id: crypto.randomUUID(), email: `pro-push-hitl-${tag}-${stamp}@people-mail.test`, name }
+  await q('insert into tenants (id) values ($1) on conflict do nothing', [tenant])
+  await q(`insert into users (id, email, username, tenant_id) values ($1,$2,$3,$4)`, [u.id, u.email, name, tenant])
+  await q(`insert into pro_profile(user_id,name,email) values ($1,$2,$3) on conflict (user_id) do nothing`, [u.id, name, u.email])
+  extraUsers.push(u)
+  return u
+}
+// a waiting card the test writes itself (as lib/browser.js waitForUser · lib/agent.js would) → {tid, cardId, n}
+async function card(user, kind, content, { via = 'task', threadKind = 'chat' } = {}) {
+  const tid = await thread(user, threadKind)
+  const [m] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent',$2,$3) returning id`, [tid, kind, { state: 'pending', ...content }])
+  const id = await ASK.ask(user.id, { via, threadId: tid, cardId: m.id, kind: 'question', text: content.question || '' })
+  const [n] = id ? await q('select * from notifications where id=$1', [id]) : [null]
+  return { tid, cardId: m.id, n }
+}
+
+test('PH-I-10 단추의 답은 그 사람 자신의 세션으로 — users 의 이메일을 바꿔도 남의 세션이 아니고, 남을 회사에 넣지도 않는다', { skip: !up }, async () => {
+  const { admin, sessionFor } = await import('../lib/supa.js')
+  const account = async (tag) => {
+    const { data, error } = await admin.auth.admin.createUser({ email: `pro-push-hitl-${tag}-${stamp}@people-mail.test`, email_confirm: true })
+    if (error) throw error
+    authIds.push(data.user.id)
+    return data.user
+  }
+  const atk = await account('atk'), vic = await account('vic')
+  // a member whose own users row (Process GPT lets a person update it) names the victim's address; the victim is not in this company
+  await q(`insert into users (id, email, username, tenant_id) values ($1,$2,'유도현',$3)`, [atk.id, vic.email, TENANT])
+  const { tid, card: c } = await asked({ id: atk.id, email: atk.email, name: '유도현' })
+  const n = await noticeOf({ id: atk.id, email: vic.email }, c.id)
+  const seen = []
+  // (the server's own wiring before the fix: sessionFor — given here so the test shows what it would have done)
+  const answerChat = ASK.chatAnswerer({ runTurn: async (a) => { seen.push(a) }, sessionFor, busy: () => [] })
+  const r = await ASK.act({ token: tokenFor(atk, n, c.id, ['세 줄 요약', '표로 정리']), answer: 0 }, { answerChat })
+  assert.equal(r.status, 200, JSON.stringify(r))
+  await until(() => seen.length)
+  assert.equal(jwtSub(seen[0].session.access_token), atk.id, "the turn runs in the asker's own session")
+  assert.deepEqual({ id: seen[0].user.id, email: seen[0].user.email, thread: seen[0].threadId }, { id: atk.id, email: atk.email, thread: tid })
+  assert.equal((await q('select 1 from users where id=$1 and tenant_id=$2', [vic.id, TENANT])).length, 0, 'the victim was not put into this company')
+  // a minter that hands back someone else's session: nothing is run, the notice waits again
+  const second = await asked({ id: atk.id, email: atk.email, name: '유도현' })
+  const n2 = await noticeOf({ id: atk.id, email: vic.email }, second.card.id)
+  const wrong = async () => ({ user: { id: vic.id, email: vic.email }, session: { access_token: 'x' } })
+  const r2 = await ASK.act({ token: tokenFor(atk, n2, second.card.id, ['세 줄 요약']), answer: 0 },
+    { answerChat: ASK.chatAnswerer({ runTurn: async (a) => { seen.push(a) }, sessionFor: wrong, sessionOf: wrong, busy: () => [] }) }).catch((e) => ({ thrown: e.message }))
+  assert.notEqual(r2.status, 200)
+  assert.equal(seen.length, 1)
+  assert.equal((await q('select is_checked from notifications where id=$1', [n2.id]))[0].is_checked, false)
+})
+
+test('PH-I-11 잠금 화면의 한 번으로 결과가 큰 일은 하지 않는다 — 파일 고르기 · 표시 없는 질문은 「열기」, 정해진 거절만 단추', { skip: !up }, async () => {
+  const open = [{ action: 'open', title: '열기' }]
+  // a file to upload to an outside site, picked on the card (lib/browser.js files: true): an approval, open only
+  const f = await card(A, 'choice', { files: true, site: 'shop.example', question: '올릴 파일 고르기', options: ['견적서.pdf', '계약서.docx'] })
+  const fp = await ASK.askPayload(f.n, A.id)
+  assert.equal(fp.kind, 'approval')
+  assert.deepEqual(fp.actions, open)
+  assert.equal(fp.token, undefined)
+  // the browser agent's own pick-one (need_user) — nobody marked it light: open only
+  const u = await card(A, 'choice', { site: 'mail.example', question: '보낼까요?', options: ['보내기', '취소'] })
+  assert.deepEqual((await ASK.askPayload(u.n, A.id)).actions, open)
+  // the chat agent's question without the asker's mark: open only; with its refusal named: that one
+  const plain = await asked(A, JSON.stringify({ type: 'human_input_required', question: '이 메일을 보낼까요?', options: ['보내기', '취소'] }))
+  assert.deepEqual(plain.card.content.ask, { question: '이 메일을 보낼까요?', options: ['보내기', '취소'] })
+  const pn = await noticeOf(A, plain.card.id)
+  assert.deepEqual((await ASK.askPayload(pn, A.id)).actions, open)
+  const refusing = await asked(A, JSON.stringify({ type: 'human_input_required', question: '이 메일을 보낼까요?', options: ['보내기', '취소'], refusal: '취소' }))
+  const rn = await noticeOf(A, refusing.card.id)
+  const rp = await ASK.askPayload(rn, A.id)
+  assert.deepEqual(rp.actions, [...open, { action: 'a0', title: '취소' }])
+  assert.deepEqual(PA.verifyAction(rp.token, { key: ASK.signingKey() }).claims.a, ['취소'])
+  // the task itself takes only what its card allows from outside it
+  const base = { card: f.cardId, kind: 'choice' }
+  assert.equal(canAnswerCard({ ...base, files: true, options: ['견적서.pdf', '계약서.docx'] }, f.cardId, '견적서.pdf'), false, 'a file pick')
+  assert.equal(canAnswerCard({ ...base, files: true, quick: true, options: ['견적서.pdf'] }, f.cardId, '견적서.pdf'), false, 'a file pick, even marked')
+  assert.equal(canAnswerCard({ ...base, options: ['보내기', '취소'] }, f.cardId, '보내기'), false, 'not marked light')
+  assert.equal(canAnswerCard({ ...base, options: ['보내기', '취소'], refusal: '취소' }, f.cardId, '취소'), true, 'its refusal')
+  assert.equal(canAnswerCard({ ...base, options: ['보내기', '취소'], refusal: '취소' }, f.cardId, '보내기'), false)
+  assert.equal(canAnswerCard({ ...base, approval: true, options: ['승인', '취소'] }, f.cardId, '취소'), false, 'an approval without its refusal named')
+  assert.equal(canAnswerCard({ ...base, options: ['세 줄 요약', '표로 정리'], quick: true }, f.cardId, '표로 정리'), true)
+})
+
+test('PH-I-12 답하다 실패하면(세션 · 작업) 알림과 Home 카드는 되돌아온다', { skip: !up }, async () => {
+  const { card: c } = await asked(A)
+  const n = await noticeOf(A, c.id)
+  const down = async () => { throw new Error('auth server down') }
+  const r = await ASK.act({ token: tokenFor(A, n, c.id, ['세 줄 요약']), answer: 0 },
+    { answerChat: ASK.chatAnswerer({ runTurn: async () => assert.fail('no turn'), sessionFor: down, sessionOf: down, busy: () => [] }) }).catch((e) => ({ thrown: e.message }))
+  assert.equal(r.thrown, undefined, 'answered with a status, not thrown')
+  assert.notEqual(r.status, 200)
+  assert.equal((await q('select is_checked from notifications where id=$1', [n.id]))[0].is_checked, false)
+  assert.ok((await notify.listFor(A)).some((x) => x.id === n.id))
+  // a browser task's answer that fails (the task lives in another server's memory): the same
+  const t = await card(A, 'choice', { site: 'shop.example', question: '어느 계정으로 할까요?', options: ['개인', '회사'], quick: true })
+  const r2 = await ASK.act({ token: tokenFor(A, t.n, t.cardId, ['개인']), answer: 0 }, { answerTask: async () => { throw new Error('not here') } }).catch((e) => ({ thrown: e.message }))
+  assert.equal(r2.thrown, undefined)
+  assert.notEqual(r2.status, 200)
+  assert.equal((await q('select is_checked from notifications where id=$1', [t.n.id]))[0].is_checked, false)
+})
+
+test('PH-I-13 회사의 사람이 아니거나 내보낸 사람에게는 보내지도 받지도 않는다 — 내보내면 기기 구독도 지운다', { skip: !up }, async () => {
+  const team = await import('../lib/team.js')
+  // someone of another company whose subscription row says this one (left from before): nothing is sent
+  const outsider = await person('out', '서지안', OTHER)
+  const so = P.subscription('out')
+  await q(`insert into pro_push_subscriptions(endpoint, user_id, tenant_id, p256dh, auth, ua) values ($1,$2,$3,$4,$5,'test')`, [so.endpoint, outsider.id, TENANT, so.keys.p256dh, so.keys.auth])
+  assert.equal(await webpush.pushTo(outsider.id, { id: 'x-out', title: '시험' }), 0)
+  // a member, then removed by an administrator
+  const R = await person('rm', '오세린')
+  const sr = P.subscription('rm')
+  await q(`insert into pro_push_subscriptions(endpoint, user_id, tenant_id, p256dh, auth, ua) values ($1,$2,$3,$4,$5,'test')`, [sr.endpoint, R.id, TENANT, sr.keys.p256dh, sr.keys.auth])
+  const c = await card(R, 'choice', { site: 'shop.example', question: '어느 쪽?', options: ['가', '나'], quick: true })
+  await team.removeMember(R.id, A.id)
+  assert.equal((await q('select 1 from pro_push_subscriptions where user_id=$1', [R.id])).length, 0, 'their devices are forgotten')
+  const r = await ASK.act({ token: tokenFor(R, c.n, c.cardId, ['가']), answer: 0 }, { answerTask: async () => true })
+  assert.equal(r.status, 403)
+  // the feed sends a removed person nothing (a notice written for them anyway)
+  await q(`insert into pro_push_subscriptions(endpoint, user_id, tenant_id, p256dh, auth, ua) values ($1,$2,$3,$4,$5,'test')`, [sr.endpoint, R.id, TENANT, sr.keys.p256dh, sr.keys.auth])
+  await notify.feedOnce()
+  await q(`insert into notifications(id,user_id,title,type,description,url,tenant_id) values (gen_random_uuid(),$1,'내보낸 뒤의 알림','team','',$2,$3)`, [R.id, `/pro/team/${ROOM}/${crypto.randomUUID()}`, TENANT])
+  await notify.feedOnce()
+  assert.equal((await P.payloads('rm', 1, 400)).length, 0)
+  assert.equal((await P.payloads('out', 1, 10)).length, 0)
+})
+
+test('PH-I-14 푸시는 허용한 푸시 서비스 주소로만, 넘겨주기는 따라가지 않는다', { skip: !up }, async () => {
+  const B2 = await person('b2', '하도윤')
+  // a subscription row pointing at a server that is no push service (written straight into the table)
+  const bad = P2.subscription('inside')
+  await q(`insert into pro_push_subscriptions(endpoint, user_id, tenant_id, p256dh, auth, ua) values ($1,$2,$3,$4,$5,'test')`, [bad.endpoint, B2.id, TENANT, bad.keys.p256dh, bad.keys.auth])
+  // and one at the (allowed) fake push service that answers 302 to that server
+  const hop = P.subscription('hop')
+  const hopEndpoint = P.redirect('hop', `${P2.origin}/push/inside`)
+  await q(`insert into pro_push_subscriptions(endpoint, user_id, tenant_id, p256dh, auth, ua) values ($1,$2,$3,$4,$5,'test')`, [hopEndpoint, B2.id, TENANT, hop.keys.p256dh, hop.keys.auth])
+  await webpush.pushTo(B2.id, { id: 'x-ssrf', title: '시험' })
+  assert.deepEqual(P2.requests, [], 'nothing reached the server that is no push service')
+  assert.equal((await q('select 1 from pro_push_subscriptions where endpoint=$1', [bad.endpoint])).length, 0, 'the bad row is dropped')
+})
+
+test('PH-I-15 알림은 이 회사의 사람에게만 만들고, 다시 시작할 때 지우는 것은 이 서버가 맡은 회사의 것만', { skip: !up }, async () => {
+  // a users row in another company only: no notice here
+  const O = await person('oth', '문예린', OTHER)
+  const tid = await thread(O, 'chat')
+  const [m] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','choice',$2) returning id`, [tid, { state: 'pending', question: '어느 쪽?', options: ['가', '나'] }])
+  assert.equal(await ASK.ask(O.id, { via: 'task', threadId: tid, cardId: m.id, kind: 'question', text: '어느 쪽?' }), null)
+  assert.equal((await q(`select 1 from notifications where user_id=$1 and type='ai_ask'`, [O.id])).length, 0)
+  // a browser task's notice here and one of another company: a restart checks off this server's own only
+  const here = await card(A, 'choice', { site: 'shop.example', question: '여기', options: ['가'] })
+  const [there] = await q(`insert into notifications(id,user_id,title,type,description,url,tenant_id) values (gen_random_uuid(),$1,'다른 회사','ai_ask','',$2,$3) returning id`,
+    [O.id, `/pro/ask/task/${tid}/${m.id}`, OTHER])
+  await ASK.resetTaskAsks()
+  assert.equal((await q('select is_checked from notifications where id=$1', [here.n.id]))[0].is_checked, true)
+  assert.equal((await q('select is_checked from notifications where id=$1', [there.id]))[0].is_checked, false)
 })

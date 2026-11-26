@@ -1810,7 +1810,7 @@ async function doAct(s, task, name, a) {
       const answer = await waitForUser(s, task, {
         need: 'approve', site,
         reason: `${a.summary || L('이 단계는 승인이 필요해요.', 'This step needs your approval.')} ${L('카드에서 「승인」을 누르면 진행하고, 「취소」를 누르면 하지 않아요.', 'Press "Approve" on the card to go ahead, or "Cancel" to skip it.')}`,
-        message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? L(`\n결제 카드: ${card.label}`, `\nPayment card: ${card.label}`) : ''}`.trim(), options: L(['승인', '취소'], ['Approve', 'Cancel']) }],
+        message: ['choice', { site, approval: true, question: `${a.summary || ''}${card ? L(`\n결제 카드: ${card.label}`, `\nPayment card: ${card.label}`) : ''}`.trim(), options: L(['승인', '취소'], ['Approve', 'Cancel']), refusal: L('취소', 'Cancel') }],
       })
       const yes = /chose: (승인|Approve)\./.test(String(answer))
       if (yes) task.approved = true
@@ -1908,7 +1908,7 @@ async function uploadAllowed(s, task, f, signal) {
   const answer = await waitForUser(s, task, { need: 'approve', site: host,
     reason: L(`「${f.name}」은(는) 이 작업에 첨부한 파일이 아니라서, ${host}에 올리기 전에 물어봐요. 카드에서 「승인」을 누르면 올리고, 「취소」를 누르면 올리지 않아요.`,
       `"${f.name}" was not attached to this task, so I ask before uploading it to ${host}. Press "Approve" on the card to upload it, or "Cancel" not to.`),
-    message: ['choice', { site: host, approval: true, upload: true, question: L(`「${f.name}」을(를) ${nameOn(task, host)}(${host})에 올릴까요?`, `Upload "${f.name}" to ${nameOn(task, host)} (${host})?`), options: L(['승인', '취소'], ['Approve', 'Cancel']) }] })
+    message: ['choice', { site: host, approval: true, upload: true, question: L(`「${f.name}」을(를) ${nameOn(task, host)}(${host})에 올릴까요?`, `Upload "${f.name}" to ${nameOn(task, host)} (${host})?`), options: L(['승인', '취소'], ['Approve', 'Cancel']), refusal: L('취소', 'Cancel') }] })
   if (/chose: (승인|Approve)\./.test(String(answer))) { task.uploadOk.add(key); return { yes: true } }
   return { yes: false, why: `the person did not allow uploading "${f.name}" to ${host}; do not upload it, say so when you finish` }
 }
@@ -2047,8 +2047,10 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
   // (2026-11-25 review: a typed message could approve a payment)
   const vaultish = message?.[0] === 'vault' || !!message?.[1]?.vault
   const approval = !!message?.[1]?.approval
+  // files · quick · refusal: what an answer from outside the card may be (answerCard — a phone notification's button, review 11-26 PR #89)
   task.asking = { seq: ++task.asks, need, reason: reason || '', question: String(message?.[1]?.question || ask || '').trim(), options: message?.[0] === 'choice' ? (message[1].options || []) : [],
-    kind: message?.[0] || null, vault: vaultish, approval, locked: vaultish || approval || ['login', 'captcha', 'approve'].includes(need), card: null }
+    kind: message?.[0] || null, vault: vaultish, approval, locked: vaultish || approval || ['login', 'captcha', 'approve'].includes(need), card: null,
+    files: !!message?.[1]?.files, quick: message?.[1]?.quick === true, refusal: message?.[1]?.refusal || null }
   // the card asks the person: not a stall the watchdog should report
   task.dog?.hold()
   // the card goes up first, so whoever sees "needs input" also finds what to answer
@@ -2091,18 +2093,21 @@ async function waitForUser(s, task, { reason, site, siteName, message, need = 'o
 }
 
 // a waiting card's kind for its notice (lib/pushActions.js askKind): a question, an approval, a sign-in
-const askKindOf = (message) => (message?.[0] === 'choice' ? (message[1]?.approval ? 'approval' : message[1]?.vault ? 'login' : 'question') : message?.[0] === 'vault' ? 'login' : 'hands')
+// (a file to upload, picked on the card, is an approval: picking it lets the upload go)
+const askKindOf = (message) => (message?.[0] === 'choice' ? (message[1]?.approval || message[1]?.files ? 'approval' : message[1]?.vault ? 'login' : 'question') : message?.[0] === 'vault' ? 'login' : 'hands')
 
 // An answer from the phone's notification (lib/askPerson.js act — a signed, single-use action): the task still waits on exactly that pick-one
-// card and the answer is one of its options. An approval is only ever refused this way — approving stays on the card, with the screen in
-// front of the person (a notification's buttons show on a lock screen) — and a vault card (a login, a card, a code) is never answered from
-// outside it. → true when the task took it
+// card and the answer is one the card allows from outside it. A notification's buttons show on a lock screen to whoever holds the phone
+// (review 11-26, PR #89), so only: an option of a card its asker marked light (quick), or the refusal the card names. Never an approval,
+// never a file to upload (picking one lets it go to the site), never a vault card (a login, a card, a code). → true when the task took it
 export function canAnswerCard(asking, cardId, label) {
   const a = asking || {}
-  if (!cardId || a.card !== cardId || a.kind !== 'choice' || a.vault) return false
+  if (!cardId || a.card !== cardId || a.kind !== 'choice' || a.vault || a.files) return false
   const opts = (a.options || []).map(String)
-  if (!opts.includes(String(label))) return false
-  return !a.approval || String(label) === opts[opts.length - 1]
+  const said = String(label)
+  if (!opts.includes(said)) return false
+  if (a.refusal != null && said === String(a.refusal)) return true
+  return a.quick === true && !a.approval
 }
 export async function answerCard(userId, cardId, label) {
   const t = sessions.get(userId)?.task

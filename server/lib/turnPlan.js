@@ -394,7 +394,9 @@ export function createSegments({ promoteAt = PROMOTE_CHARS, onDelta, onRetract, 
 // deepagents' done.content is the last assistant message — or, when the agent stopped to ask the person (request_human_input), the
 // interrupt as JSON: {"type":"human_input_required","question","context","options","run_state"} (deepagents executor.py). That JSON
 // was saved as the answer (review 11-25 #1). The question becomes the answer; any other JSON is never taken as answer text.
-// → {question, context, options} of that JSON, or null (the phone's notification of the question reads them: lib/askPerson.js)
+// → {question, context, options, quick, refusal} of that JSON, or null (the phone's notification of the question reads them: lib/askPerson.js).
+// quick: the asker marked the choice light enough to be answered from a lock screen's button; refusal: which option declines — only these
+// make a notification's answer buttons (review 11-26, PR #89); neither is guessed from the words
 export function humanInputParts(text) {
   const t = String(text ?? '').trim()
   if (!t.startsWith('{')) return null
@@ -402,7 +404,8 @@ export function humanInputParts(text) {
   try { j = JSON.parse(t) } catch { return null }
   if (!j || j.type !== 'human_input_required' || !String(j.question || '').trim()) return null
   const options = (Array.isArray(j.options) ? j.options : []).map((o) => String(o && typeof o === 'object' ? o.label ?? o.text ?? o.value ?? '' : o ?? '').trim()).filter(Boolean).slice(0, 6)
-  return { question: String(j.question).trim(), context: String(j.context || '').trim(), options }
+  const refusal = typeof j.refusal === 'string' && options.includes(j.refusal.trim()) ? j.refusal.trim() : null
+  return { question: String(j.question).trim(), context: String(j.context || '').trim(), options, quick: j.quick === true, refusal }
 }
 export function humanInput(text) {
   const p = humanInputParts(text)

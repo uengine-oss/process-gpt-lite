@@ -1828,7 +1828,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // the agent stopped to ask the person (deepagents' human_input_required): the question and its options kept on the answer, and a notice
   // of it — a Home card and a push to the person's phone, whose buttons answer it (lib/askPerson.js, 2026-11-26)
   const asks = hitl && !ended ? TP.humanInputParts(hitl) : null
-  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(asks ? { ask: { question: asks.question, options: asks.options } } : {}), ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
+  const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(asks ? { ask: { question: asks.question, options: asks.options, ...(asks.quick ? { quick: true } : {}), ...(asks.refusal ? { refusal: asks.refusal } : {}) } } : {}), ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
     ...TP.saved(turn, ended ? 'stopped' : 'done', body),
     ...(editedDoc ? { openDoc: { file: String(live.file).slice(0, 200), app: live.app, ...(page?.msgId ? { msgId: page.msgId } : {}), ...(page?.url ? { url: page.url } : {}) } } : {}),
     ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })

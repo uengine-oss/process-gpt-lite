@@ -87,26 +87,29 @@ export function roomNotice({ room, name, count = 1, lines = [] }) {
 // ---------- what the AI waits for ----------
 export const ASK_KINDS = ['question', 'approval', 'login', 'hands']
 // a waiting card (lib/browser.js waitForUser, lib/agent.js delegate) → its kind: the card's own kind and fields
+// (a file picked on the card to be uploaded to a site — lib/browser.js files: true — is an approval: picking it lets the upload go)
 export function askKind({ kind, content = {} } = {}) {
-  if (kind === 'choice') return content.approval ? 'approval' : content.vault ? 'login' : 'question'
+  if (kind === 'choice') return content.approval || content.files ? 'approval' : content.vault ? 'login' : 'question'
   if (kind === 'vault') return 'login'
   if (kind === 'task') return content.need === 'login' ? 'login' : 'hands'
   return 'question'
 }
 
-/** the buttons a waiting card's notification carries, and the answers its token allows (by index):
- *  - a question with one or two short options: the options themselves — a tap answers without opening Lite
- *  - an approval (a payment, an upload): 「열기」 and the refusal only — approving is done on the card, with the screen in front of the
- *    person (a phone's lock screen shows notification buttons to whoever holds it); refusing is always safe
- *  - everything else (more options, a sign-in, a check only the person can do on the screen): 「열기」 */
-export function askButtons({ kind, options = [] }, { open = '열기' } = {}) {
+/** the buttons a waiting card's notification carries, and the answers its token allows (by index). A phone's lock screen shows a
+ *  notification's buttons to whoever holds the phone, so a tap may only do what is light (review 11-26, PR #89) — by default, nothing:
+ *  - a question whose asker marked it light (quick: true) with one or two short options: the options — a tap answers without opening Lite
+ *  - otherwise, when the asker named the option that declines (refusal, one of its options): 「열기」 and that one — refusing is safe
+ *    (an approval — a payment, an upload, a file to upload — is only ever refused this way; approving is done on the card)
+ *  - everything else (no mark, more options, a sign-in, a check only the person can do on the screen): 「열기」 */
+export function askButtons({ kind, options = [], quick = false, refusal = null }, { open = '열기' } = {}) {
   const opts = (options || []).map((o) => String(o ?? '').trim()).filter(Boolean)
-  const short = opts.every((o) => [...o].length <= MAX_LABEL)
-  if (kind === 'question' && opts.length >= 1 && opts.length <= MAX_ACTIONS && short) {
+  const short = (o) => [...o].length <= MAX_LABEL
+  if (kind === 'question' && quick === true && opts.length >= 1 && opts.length <= MAX_ACTIONS && opts.every(short)) {
     return { buttons: opts.map((o, i) => ({ action: `a${i}`, title: o })), answers: opts }
   }
-  if (kind === 'approval' && opts.length === 2 && short) {
-    return { buttons: [{ action: 'open', title: open }, { action: 'a0', title: opts[1] }], answers: [opts[1]] }
+  const no = refusal != null ? String(refusal).trim() : ''
+  if ((kind === 'question' || kind === 'approval') && no && opts.includes(no) && short(no)) {
+    return { buttons: [{ action: 'open', title: open }, { action: 'a0', title: no }], answers: [no] }
   }
   return { buttons: [{ action: 'open', title: open }], answers: [] }
 }
