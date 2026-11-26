@@ -148,9 +148,15 @@ export async function finishChatWork({ user, folder, v, threadId, room, seeded, 
 
 // ---------- process steps ----------
 const handled = new Map() // todo id → stage
+// (null: a base no step may start from — a project's workspace, folders/templates.js: the step gets no folder)
 const baseOf = async (folder, row) => {
   const want = String(row.agent_config?.base_ref || 'main')
-  if (want.startsWith('var:')) return want.slice(4)
+  if (want.startsWith('var:')) {
+    const b = want.slice(4)
+    if (S.isWorkspaceBranch(b)) return null
+    const [v] = await q(`select source from pro_folder_variations where folder_id=$1 and branch=$2`, [folder.id, b])
+    return v?.source?.template ? null : b
+  }
   if (want === '@previous') {
     const inst = row.root_proc_inst_id || row.proc_inst_id
     const line = inst ? lineOf(inst) : null
@@ -221,6 +227,7 @@ export async function stepOne(row) {
         // token for it, or the path — projectRepoFor)
         if (!row.agent_config.project_repo && !done) {
           const base = await baseOf(folder, row)
+          if (!base) { if (!handled.has(row.id)) console.warn(`[folders] step ${row.id}: its base is a project's workspace — no folder for it`); handled.set(row.id, 'private-base'); return }
           await q(`update todolist set agent_config = agent_config || $2 where id=$1`, [row.id, { ...projectRepoFor(folder), base_ref: base }])
         }
         const wt = row.output?.worktree
@@ -243,7 +250,9 @@ export async function stepOne(row) {
       // deepagents (and other in-process engines): a checkout in the instance's run folder
       const room = row.root_proc_inst_id || row.proc_inst_id || row.id
       if (!v && !done) {
-        const nv = await S.createVariation(folder, { title: row.activity_name || L('프로세스 단계', 'Process step'), kind: 'run', base: await baseOf(folder, row),
+        const base = await baseOf(folder, row)
+        if (!base) { if (!handled.has(row.id)) console.warn(`[folders] step ${row.id}: its base is a project's workspace — no folder for it`); handled.set(row.id, 'private-base'); return }
+        const nv = await S.createVariation(folder, { title: row.activity_name || L('프로세스 단계', 'Process step'), kind: 'run', base,
           holder: { type: 'agent', id: row.agent_orch || 'deepagents', name: row.activity_name || L('에이전트', 'Agent') },
           source: { label: row.activity_name, todo_id: row.id, proc_inst_id: row.proc_inst_id, room_id: room, engine: row.agent_orch || 'deepagents' } })
         await S.checkout(folder, nv, S.runCheckoutDir(room, folder))

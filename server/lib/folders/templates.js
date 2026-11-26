@@ -14,6 +14,7 @@
 // An optional TEMPLATE.md at the template's root says what it is for (description) and where outputs go (outputs, 산출물/ by default) —
 // its YAML front matter, read like a SKILL.md's.
 import crypto from 'node:crypto'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -73,7 +74,8 @@ export async function infoOf(folder, rev = null) {
 }
 // owner: mark or unmark (projects already started keep their workspace)
 export async function setTemplate(folder, user, on) {
-  if (folder.kind !== 'managed') throw err(400, L('관리형 공유 폴더만 템플릿으로 쓸 수 있어요.', 'Only a managed shared folder can be a template.'))
+  // (a work folder of an instance started from a mail — lib/mailWork.js — is that instance's, never a starting point)
+  if (on && (folder.kind !== 'managed' || folder.settings?.work)) throw err(400, L('관리형 공유 폴더만 템플릿으로 쓸 수 있어요.', 'Only a managed shared folder can be a template.'))
   const settings = { ...(folder.settings || {}) }
   if (on) settings.template = { by: String(user.id), at: new Date().toISOString() }
   else delete settings.template
@@ -83,20 +85,28 @@ export async function setTemplate(folder, user, on) {
 }
 
 // ---------- a project from a template ----------
-const branchOf = (thread, n) => `var/t/${String(thread.id).replace(/-/g, '').slice(0, 8)}${n > 1 ? `-${n}` : ''}`
+// (the whole thread id: two projects never share a branch; -n for the next workspace of the same project)
+const branchOf = (thread, n) => `${S.WORKSPACE_PREFIX}${String(thread.id).replace(/-/g, '')}${n > 1 ? `-${n}` : ''}`
 // The project's workspace: a variation of the template from its main now, held by the project's person, ready (nothing changed yet).
 export async function makeWorkspace(user, thread, folder) {
   if (!isTemplate(folder)) throw err(400, L('템플릿이 아닌 폴더예요.', "That folder isn't a template."))
   const info = await infoOf(folder)
   const commit = await G.head(folder.repo_path, folder.default_branch)
   const [{ n }] = await q(`select count(*)::int as n from pro_folder_variations where folder_id=$1 and source->>'thread_id'=$2`, [folder.id, String(thread.id)])
+  // a branch that is there already (a row taken away, a branch left behind) is never taken over: the next free one
+  let k = n + 1
+  while (await G.branchExists(folder.repo_path, branchOf(thread, k)) || (await q('select 1 from pro_folder_variations where folder_id=$1 and branch=$2', [folder.id, branchOf(thread, k)])).length) {
+    if (++k > n + 50) throw err(409, L('작업 공간을 만들 자리를 찾지 못했어요.', "Couldn't find a place for the workspace."))
+  }
   const v = await S.createVariation(folder, {
-    title: thread.title || L('프로젝트', 'Project'), kind: 'person', branch: branchOf(thread, n + 1), base: commit,
+    title: thread.title || L('프로젝트', 'Project'), kind: 'person', branch: branchOf(thread, k), base: commit,
     holder: { type: 'user', id: user.id, name: user.name }, createdBy: user.id,
     source: { label: L(`${user.name} 님의 프로젝트 「${thread.title || ''}」 · 템플릿 「${folder.name}」에서 시작`, `${user.name}'s project "${thread.title || ''}" · started from the template "${folder.name}"`),
       thread_id: String(thread.id), project: true, engine: 'deepagents',
       template: { folder_id: String(folder.id), slug: folder.slug, name: folder.name, commit, outputs: info.outputs, at: new Date().toISOString() } },
   })
+  // (the row is this project's — not one that was there under the same branch)
+  if (String(v.holder_id) !== String(user.id) || v.source?.thread_id !== String(thread.id) || !v.source?.template) throw err(409, L('작업 공간을 만들지 못했어요.', "Couldn't make the workspace."))
   await q(`update pro_folder_variations set status='ready', updated_at=now() where id=$1 and status='open'`, [v.id])
   await q('update pro_thread_folders set variation_id=$2, updated_at=now() where thread_id=$1', [thread.id, v.id])
   return S.variationById(v.id)
@@ -130,14 +140,36 @@ export async function candidates(folder, v) {
 }
 
 const blobOf = async (repo, rev, rel) => (await G.git(repo, ['rev-parse', '--verify', '-q', `${rev}:${rel}`], { check: false })).trim() || null
-const modeOf = async (repo, rev, rel) => ((await G.git(repo, ['ls-tree', rev, '--', rel], { check: false })).split(/\s+/)[0]) || '100644'
+// the path's mode and object at a rev (ls-tree -z: a name with a line break stays one entry) → {mode, type} | null
+async function entryOf(repo, rev, rel) {
+  const out = (await G.git(repo, ['ls-tree', '-z', rev, '--', rel], { check: false })).split('\0').find((e) => e && e.slice(e.indexOf('\t') + 1) === rel)
+  if (!out) return null
+  const [mode, type] = out.slice(0, out.indexOf('\t')).split(' ')
+  return { mode, type }
+}
+// only plain files travel: no link (120000), no submodule (160000), no folder
+const PLAIN = new Set(['100644', '100755'])
 const isBinary = (buf) => !!buf && buf.subarray(0, 8000).includes(0)
+// git merge-file: its exit status says it — 0 clean, 1..127 that many conflicts; anything else (a signal, git not found, an error status)
+// is a failure, never read as a merge → {status: 'clean'|'conflict', out}
+export function mergeFile(cwd, files) {
+  return new Promise((resolve, reject) => {
+    execFile('git', ['merge-file', '-p', '-L', 'main', '-L', 'start', '-L', 'project', ...files], { cwd, env: G.gitEnv(), encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60000 }, (e, out, errOut) => {
+      if (!e) return resolve({ status: 'clean', out })
+      if (Number.isInteger(e.code) && e.code > 0 && e.code < 128 && !e.signal && !e.killed) return resolve({ status: 'conflict', out })
+      reject(Object.assign(new Error(`git merge-file failed: ${String(errOut || e.message).slice(0, 200)}`), { status: 500 }))
+    })
+  })
+}
 
 // What one chosen file becomes on top of the template's main: the workspace's version when main still has the start's, a three-way merge
 // of the line changes when main moved on meanwhile, or a conflict → {path, blob|null (deleted), mode} | {path, conflict: true}
 async function resolveFile(repo, { start, main, head }, rel, tmp) {
   const [b, m, h] = await Promise.all([blobOf(repo, start, rel), blobOf(repo, main, rel), blobOf(repo, head, rel)])
-  if (m === b) return { path: rel, blob: h, mode: h ? await modeOf(repo, head, rel) : null }
+  const he = h ? await entryOf(repo, head, rel) : null
+  const me = m ? await entryOf(repo, main, rel) : null
+  if ((he && (!PLAIN.has(he.mode) || he.type !== 'blob')) || (me && (!PLAIN.has(me.mode) || me.type !== 'blob'))) return { path: rel, odd: true }
+  if (m === b) return { path: rel, blob: h, mode: he?.mode || null }
   if (m === h) return { path: rel, same: true }
   if (!b || !m || !h) return { path: rel, conflict: true }
   const read = async (sha) => G.git(repo, ['cat-file', 'blob', sha], { buffer: true })
@@ -146,10 +178,10 @@ async function resolveFile(repo, { start, main, head }, rel, tmp) {
   const id = crypto.randomBytes(4).toString('hex')
   const f = (x) => path.join(tmp, `${id}-${x}`)
   await Promise.all([fs.writeFile(f('main'), mb), fs.writeFile(f('base'), bb), fs.writeFile(f('head'), hb)])
-  const merged = await G.git(tmp, ['merge-file', '-p', '-L', 'main', '-L', 'start', '-L', 'project', f('main'), f('base'), f('head')], { check: false, buffer: true })
-  if (/^(<<<<<<<|>>>>>>>) /m.test(merged.toString('utf8'))) return { path: rel, conflict: true }
-  const blob = (await G.git(repo, ['hash-object', '-w', '--stdin'], { input: merged })).trim()
-  return { path: rel, blob, mode: await modeOf(repo, main, rel) }
+  const merged = await mergeFile(tmp, [f('main'), f('base'), f('head')])
+  if (merged.status !== 'clean') return { path: rel, conflict: true }
+  const blob = (await G.git(repo, ['hash-object', '-w', '--stdin'], { input: merged.out })).trim()
+  return { path: rel, blob, mode: me.mode }
 }
 
 // POST …/variations/:vid/propose {paths, title?, note?} — the project's person. → {variation, files}
@@ -169,6 +201,8 @@ export async function propose(folder, v, user, { paths, title, note } = {}) {
   try {
     const done = []
     for (const p of want) done.push(await resolveFile(repo, { start: c.start, main, head }, p, tmp))
+    const odd = done.filter((x) => x.odd).map((x) => x.path)
+    if (odd.length) throw err(400, L(`보통 파일만 보낼 수 있어요(링크 · 하위 저장소는 안 돼요): ${odd.slice(0, 3).join(', ')}`, `Only plain files can be sent (no link, no sub-repository): ${odd.slice(0, 3).join(', ')}`), 'tpl_not_plain')
     const clash = done.filter((x) => x.conflict).map((x) => x.path)
     if (clash.length) throw err(409, L(`템플릿에서도 그 사이 같은 곳이 바뀌었어요: ${clash.join(', ')} — 템플릿 주인과 먼저 맞춰 주세요.`, `The template changed the same place meanwhile: ${clash.join(', ')} — please settle it with the template's owner first.`), 'tpl_conflict')
     const changed = done.filter((x) => !x.same)
@@ -176,8 +210,9 @@ export async function propose(folder, v, user, { paths, title, note } = {}) {
     // the commit: main's tree with these files as decided — built in a temporary index (no work tree, nothing else of the workspace)
     const env = { GIT_INDEX_FILE: path.join(tmp, 'index') }
     await G.git(repo, ['read-tree', main], { env })
-    const add = changed.filter((x) => x.blob).map((x) => `${x.mode} ${x.blob}\t${x.path}`)
-    if (add.length) await G.git(repo, ['update-index', '--index-info'], { env, input: `${add.join('\n')}\n` })
+    // (-z: one NUL after each entry — a path may hold a line break)
+    const add = changed.filter((x) => x.blob).map((x) => `${x.mode} ${x.blob}\t${x.path}\0`)
+    if (add.length) await G.git(repo, ['update-index', '-z', '--index-info'], { env, input: add.join('') })
     const gone = changed.filter((x) => !x.blob).map((x) => x.path)
     if (gone.length) await G.git(repo, ['update-index', '--force-remove', '-z', '--stdin'], { env, input: `${gone.join('\0')}\0` })
     const tree = (await G.git(repo, ['write-tree'], { env })).trim()
@@ -186,9 +221,14 @@ export async function propose(folder, v, user, { paths, title, note } = {}) {
     const who = { GIT_AUTHOR_NAME: user.name || 'pgpt-pro', GIT_AUTHOR_EMAIL: user.email || 'folders@pgpt-pro.local', GIT_COMMITTER_NAME: user.name || 'pgpt-pro', GIT_COMMITTER_EMAIL: user.email || 'folders@pgpt-pro.local' }
     const commit = (await G.git(repo, ['commit-tree', tree, '-p', main, '-m', msg], { env: who })).trim()
     // an ordinary variation of the template (it shows in its 변형 list), from main, with that one commit
-    const branch = `var/u/${String(user.id).replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}/req-${crypto.randomBytes(3).toString('hex')}`
+    // (a branch name never there before — never one to take over)
+    let branch
+    do branch = `var/u/${String(user.id).replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}/req-${crypto.randomBytes(5).toString('hex')}`
+    while (await G.branchExists(repo, branch))
+    // (what the template's members see of it: the files and the note — not which workspace or project it came from, beyond the label)
     const fresh = await S.createVariation(folder, { title: name, kind: 'person', base: main, branch, holder: { type: 'user', id: user.id, name: user.name }, createdBy: user.id,
-      source: { label: L(`${user.name} 님이 프로젝트 「${v.title}」에서 보낸 반영 요청`, `Merge request from ${user.name}'s project "${v.title}"`), request: { from_variation: v.id, thread_id: v.source.thread_id || null, paths: changed.map((x) => x.path), note: note ? String(note).slice(0, 1000) : null } } })
+      source: { label: L(`${user.name} 님이 프로젝트 「${v.title}」에서 보낸 반영 요청`, `Merge request from ${user.name}'s project "${v.title}"`), request: { paths: changed.map((x) => x.path), note: note ? String(note).slice(0, 1000) : null } } })
+    if (fresh.branch !== branch || fresh.head_commit !== main) throw err(409, L('반영 요청을 만들지 못했어요. 다시 보내 주세요.', "Couldn't make the request. Please send it again."))
     await G.git(repo, ['update-ref', `refs/heads/${branch}`, commit, main])
     await q(`update pro_folder_variations set head_commit=$2, status='ready', updated_at=now() where id=$1`, [fresh.id, commit])
     const sent = { variation_id: fresh.id, paths: changed.map((x) => x.path), at: new Date().toISOString() }

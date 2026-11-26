@@ -9,6 +9,8 @@
 //   F-TF-04 「원본에 반영 요청」 시트: 템플릿 파일만 고르고 결과물은 「보내지 않아요」 → 정하윤의 알림 → 그 변형에는 양식만 → 반영
 //   F-TF-05 박도윤이 「새 프로젝트」에서 같은 템플릿을 고름(「템플릿으로 시작」) → 고친 main 에서 시작 · 김서연의 작업 공간은 없음(404)
 //   F-TF-06 390px 휴대폰 — 작업 공간 막대 · 반영 요청 시트(밝은 · 어두운 테마)
+//   F-TF-07 HTTP 로 돌아가는 길이 없음 — 새 변형의 기준(작업 공간 id · 가지 이름 · git 표현) · 판(sha)으로 raw · publish · 반영 요청이 보여 주는 것 ·
+//           템플릿 지정 권한(PATCH) · 보기 권한자의 「템플릿으로 시작」
 // 자기 스택(lib/localStack.js: 회사 template-folders-web 의 BFF 8981 + Vite 5381 — 쓰이고 있으면 멈춘다; RT_TF_API_PORT · RT_TF_WEB_PORT)을 띄우고
 // 지운다. 가짜 모델과 가짜 deepagents 는 이 파일이 59981 한 곳에 띄운다 — 가짜 deepagents 는 메시지의 user_jwt 로 BFF 의 폴더 도구(/mcp/folders)를
 // 실제로 불러 템플릿과 참조 자리를 읽고, 작업 폴더(이 컴퓨터의 deepagents 작업 공간)에 쓰고 저장소의 방에 올린다(lib/roomStore.js 와 같은 열쇠).
@@ -33,8 +35,8 @@ const NOWHERE = 'http://127.0.0.1:9'
 const busy = (p) => { try { execFileSync('lsof', ['-nP', `-iTCP:${p}`, '-sTCP:LISTEN'], { stdio: 'ignore' }); return true } catch { return false } }
 const { PGPT_ROOT } = await import(path.join(REPO, 'server/lib/paths.js'))
 const WORKSPACE = path.join(PGPT_ROOT, 'services/deepagents/workspace', TENANT)
-const OLD = '서울시 구로구 디지털로 26길 5'
-const NEW = '서울시 금천구 가산디지털1로 168, 7층'
+const OLD = '예시시 가람구 옛길로 5'
+const NEW = '예시시 나래구 새길로 7, 3층'
 const MD = {
   intro: '# 회사 개요\n\n- 우리 회사는 설비 보전 시스템을 만들어요. 제조 고객사 42곳이 써요.\n',
   record: '# 2026 납품 실적\n\n- 한빛기계 — 설비 보전 시스템, 설비 120대 연결\n',
@@ -180,7 +182,7 @@ test.afterAll(async () => {
   fs.writeFileSync(path.join(REPO, 'e2e/reports', `bff-${TENANT}.log`), S.logs.join(''))
   await S.q('delete from pro_folder_ref_events where tenant_id=$1', [TENANT]).catch(() => {})
   await S.q('delete from notifications where tenant_id=$1', [TENANT]).catch(() => {})
-  for (const p of [A, B, C].filter(Boolean)) {
+  for (const p of [A, B, C, { id: (await S.q(`select id::text from users where tenant_id=$1 and email=$2`, [TENANT, `pro-rt-${TENANT}-d@uengine.org`]).catch(() => []))[0]?.id }].filter((x) => x?.id)) {
     await S.q('delete from pro_messages where thread_id in (select id from pro_threads where user_id=$1)', [p.id]).catch(() => {})
     await S.q('delete from pro_thread_folders where thread_id in (select id from pro_threads where user_id=$1)', [p.id]).catch(() => {})
     await S.q(`delete from pro_threads where user_id=$1 and kind <> 'chat'`, [p.id]).catch(() => {})
@@ -370,4 +372,38 @@ test('F-TF-06 390px — 작업 공간 막대와 반영 요청 시트가 화면 �
     expect(p.errors).toEqual([])
     await p.context().close()
   }
+})
+
+test('F-TF-07 HTTP 로 돌아가는 길이 없음 — 새 변형의 기준 · 판으로 읽기 · 반영 요청의 출처 · 템플릿 지정과 시작 권한', async () => {
+  const ws = (await S.q('select branch, head_commit from pro_folder_variations where id=$1', [WS_B.id]))[0]
+  // POST …/variations {base}: a workspace (someone else's → 404, one's own → 409), a branch name or a git expression (400), main (200)
+  const mkVar = (who, base) => call(who, 'POST', `/folders/${TPL.slug}/variations`, { title: `기준 시험 ${Math.random().toString(36).slice(2, 6)}`, base })
+  expect((await mkVar(C, WS_B.id)).status).toBe(404)
+  expect((await mkVar(B, WS_B.id)).status).toBe(409)
+  for (const b of [ws.branch, `refs/heads/${ws.branch}`, ':/제안서', 'main~1', 'HEAD']) expect((await mkVar(C, b)).status, b).toBe(400)
+  expect((await mkVar(C, ws.head_commit)).status).toBe(404)
+  const ok = await mkVar(C, 'main')
+  expect(ok.status).toBe(200)
+  await call(C, 'POST', `/folders/${TPL.slug}/variations/${ok.body.id}/discard`)
+  // reading by the workspace's commit: its person only (raw · publish · tree)
+  expect((await call(C, 'GET', `/folders/${TPL.slug}/raw?ref=${ws.head_commit}&path=${enc(DRAFT)}`)).status).toBe(404)
+  expect((await call(A, 'GET', `/folders/${TPL.slug}/raw?ref=${ws.head_commit}&path=${enc(DRAFT)}`)).status).toBe(404)
+  expect((await call(C, 'POST', `/folders/${TPL.slug}/publish`, { path: DRAFT, ref: ws.head_commit })).status).toBe(404)
+  expect((await call(C, 'GET', `/folders/${TPL.slug}/tree?ref=${ws.head_commit}`)).status).toBe(404)
+  expect((await call(B, 'GET', `/folders/${TPL.slug}/raw?ref=${ws.head_commit}&path=${enc(DRAFT)}`)).status).toBe(200)
+  // the request the template's members see: its files and note — no workspace id, no thread
+  const req = (await call(A, 'GET', `/folders/${TPL.slug}`)).body.variations.find((v) => v.source?.request)
+  expect(Object.keys(req.source.request).sort()).toEqual(['note', 'paths'])
+  expect(JSON.stringify(req)).not.toContain(WS_B.id)
+  expect(JSON.stringify(req)).not.toContain(PROJ_B)
+  // PATCH template: the owner only; never a work folder
+  expect((await call(B, 'PATCH', `/folders/${TPL.slug}`, { template: false })).status).toBe(403)
+  await S.q(`update pro_folders set settings = settings || '{"work": {"instId": "tf"}}'::jsonb where id=$1`, [INTRO.id])
+  expect((await call(A, 'PATCH', `/folders/${INTRO.slug}`, { template: true })).status).toBe(400)
+  await S.q(`update pro_folders set settings = settings - 'work' where id=$1`, [INTRO.id])
+  // 「템플릿으로 시작」: a viewer of the template is refused, and nothing is made
+  const D = await S.person(`pro-rt-${TENANT}-d@uengine.org`, '윤도하')
+  await S.api(A.token, `/folders/${TPL.slug}/members`, { method: 'POST', body: { type: 'user', id: D.id, role: 'viewer' } })
+  expect((await call(D, 'POST', `/folders/${TPL.slug}/start-project`, { title: '보기 권한으로' })).status).toBe(403)
+  expect((await S.q(`select count(*)::int n from pro_threads where user_id=$1 and kind='project'`, [D.id]))[0].n).toBe(0)
 })

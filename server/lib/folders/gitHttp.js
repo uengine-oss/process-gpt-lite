@@ -266,6 +266,20 @@ export async function syncHidden(folder, claims) {
   parts.delete(ownPart(claims))
   return [...parts]
 }
+// Projects' workspaces made from a template (refs/heads/var/t/…, folders/templates.js) are hidden from every token — not listed, not
+// fetched, not pushed to. A desktop's job for the workspace's own person, in that project (lib/localAgents/chat.js: its chat's line is the
+// workspace), sees that one branch: git's hidden-ref entries are read in order, a later `!ref` shows a ref an earlier entry hid.
+export const WORKSPACE_REFS = `refs/heads/${S.WORKSPACE_PREFIX}`
+export async function workspaceHidden(folder, claims) {
+  const out = [WORKSPACE_REFS]
+  if (claims?.scope !== 'device' || !claims.job) return out
+  const [job] = await q('select user_id, chat, folder_id from pro_local_jobs where id::text=$1', [String(claims.job)]).catch(() => [])
+  const vid = job?.chat?.mode === 'project' ? job.chat.variation : null
+  if (!vid || String(job.folder_id || job.chat.folderId || '') !== String(folder.id)) return out
+  const v = await S.variationById(vid).catch(() => null)
+  if (v && v.folder_id === folder.id && v.source?.template && S.visibleTo(v, { id: String(job.user_id) }) && S.isWorkspaceBranch(v.branch)) out.push(`!refs/heads/${v.branch}`)
+  return out
+}
 // a push that names another desktop's sync branch (any token but that desktop's own sync token): refused like any other foreign ref
 export const syncRefusals = (commands, claims) => {
   const own = ownPart(claims)
@@ -307,7 +321,7 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
         const [folder] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [folderId, claims.tenant])
         if (!folder) return deny(res, 404, 'no such folder')
         if (folder.kind === 'linked') return deny(res, 403, 'a linked folder is not served over git')
-        const hide = await syncHidden(folder, claims)
+        const hide = [...await syncHidden(folder, claims), ...await workspaceHidden(folder, claims)]
         if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo, null, { hide })
         // a push: what it would change is decided here, before git sees it
         const body = await readBody(req, maxPush)

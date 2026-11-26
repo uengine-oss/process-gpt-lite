@@ -305,6 +305,9 @@ export async function projectStepFolders() {
     try {
       const folder = await S.folderById(row.folder_id)
       const v = row.variation_id ? await S.variationById(row.variation_id) : null
+      // a project started from a template: its workspace is its person's only — a process step (its run variation, the instance line,
+      // a cli-agent's clone) would put its files where every member sees them, so the steps get no folder (templates.js)
+      if (TPL.isWorkspace(v) || TPL.isTemplate(folder)) continue
       const inst = row.root_proc_inst_id || row.proc_inst_id
       const line = `inst/${String(inst).replace(/[^A-Za-z0-9]/g, '').slice(-12)}`
       const base = await G.branchExists(folder.repo_path, line) ? '@previous' : v && LIVE.includes(v.status) ? `var:${v.branch}` : 'main'

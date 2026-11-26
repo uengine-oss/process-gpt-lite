@@ -301,7 +301,9 @@ export function folderRoutes(auth) {
   // ---------- variations ----------
   r.post('/folders/:slug/variations', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    return S.createVariation(folder, { title: req.body.title, kind: 'person', base: req.body.base, holder: { type: 'user', id: req.user.id, name: req.user.name }, source: { label: L(`${req.user.name} 님이 직접 만든 변형`, `Variation made by ${req.user.name}`) }, createdBy: req.user.id })
+    // (the base as given is never handed to git: main, a variation this person may see, or a commit they may read — service.js baseFor)
+    const base = await S.baseFor(folder, req.body?.base, req.user)
+    return S.createVariation(folder, { title: req.body.title, kind: 'person', base, holder: { type: 'user', id: req.user.id, name: req.user.name }, source: { label: L(`${req.user.name} 님이 직접 만든 변형`, `Variation made by ${req.user.name}`) }, createdBy: req.user.id })
   }))
   r.get('/folders/:slug/variations/:vid', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)

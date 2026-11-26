@@ -88,8 +88,10 @@ export async function folderRef(user, it) {
   if (folder.kind === 'skill') throw fail(400, L('스킬 폴더의 파일은 멘션하지 않아요.', "Files of a skill's folder aren't mentioned."))
   const p = S.safeRel(it.path)
   let v = null, commit = null, blob = ''
+  // (only what this person may read: a variation they may see — never a project's workspace that is not theirs — and a commit they may
+  // read; anything else is this path's current version — folders/service.js visibleTo · commitVisible)
   if (it.variation) {
-    const x = await S.variation(folder, it.variation).catch(() => null)
+    const x = await S.variationFor(folder, it.variation, user).catch(() => null)
     // a variation still open is what it names; a merged one is main now
     if (x && !['merged', 'discarded'].includes(x.status)) {
       commit = await G.head(folder.repo_path, `refs/heads/${x.branch}`)
@@ -97,7 +99,7 @@ export async function folderRef(user, it) {
       if (blob) v = { id: x.id, title: x.title, status: x.status }
     }
   }
-  if (!blob && it.commit) {
+  if (!blob && it.commit && await S.commitVisible(folder, it.commit, user)) {
     blob = await S.blobAt(folder, it.commit, p).catch(() => '')
     if (blob) commit = it.commit
   }
@@ -106,7 +108,7 @@ export async function folderRef(user, it) {
   // commit of the folder — the commit where it was is the one kept. Anything else is not this file (a blob of another file would show
   // its contents under this name — PR #45 review): this path's current version instead.
   if (!blob && it.blob) {
-    const at = await commitOfBlob(folder, p, it.blob)
+    const at = await commitOfBlob(folder, p, it.blob, { visible: (c) => S.commitVisible(folder, c, user) })
     if (at) { blob = it.blob; commit = at }
   }
   if (!blob) { commit = head; blob = head ? await S.blobAt(folder, head, p) : '' }
@@ -115,12 +117,13 @@ export async function folderRef(user, it) {
 }
 
 // the newest commit (main first, then any branch) whose version of `rel` is that blob, or null (git log --find-object)
-export async function commitOfBlob(folder, rel, sha) {
+// visible(commit): only a commit the person may read counts (a project's workspace they may not see holds none of theirs)
+export async function commitOfBlob(folder, rel, sha, { visible = async () => true } = {}) {
   if (!COMMIT.test(String(sha || ''))) return null
   for (const range of [[folder.default_branch], ['--all']]) {
     // (the commits that put this blob at this path or took it away: the ones where it went in are its versions)
     const list = (await G.git(folder.repo_path, ['log', ...range, '--format=%H', '-n', '50', `--find-object=${sha}`, '--', rel], { check: false })).split('\n').filter(Boolean)
-    for (const c of list) if ((await S.blobAt(folder, c, rel).catch(() => '')) === sha) return c
+    for (const c of list) if ((await S.blobAt(folder, c, rel).catch(() => '')) === sha && await visible(c)) return c
   }
   return null
 }
@@ -246,6 +249,8 @@ async function stateOf(viewer, r, cache) {
   let rev = folder.default_branch, variation = null
   if (r.variation?.id) {
     const v = await S.variationById(r.variation.id).catch(() => null)
+    // (a project's workspace that is not this viewer's: nothing of it — its file is not there for them)
+    if (v && (v.folder_id !== folder.id || !S.visibleTo(v, viewer))) return { access: S.RANK[role] >= S.RANK.editor ? 'edit' : 'read', gone: true, card: 'gone' }
     if (v && !['merged', 'discarded'].includes(v.status)) { rev = v.branch; variation = { id: v.id, title: v.title, status: v.status } }
     else if (v) variation = { id: v.id, title: v.title, status: v.status }
   }
@@ -287,14 +292,19 @@ export async function open(user, messageId, index, { latest = false } = {}) {
     throw e.status === 403 ? fail(403, L(`「${r.folder}」 폴더 권한이 없어요.`, `You have no access to the "${r.folder}" folder.`)) : e
   })
   let rev = folder.default_branch, vid = null
+  const notThere = () => fail(404, L('그 파일이 지금은 폴더에 없어요.', "That file isn't in the folder any more."))
   if (r.variation?.id) {
     const v = await S.variationById(r.variation.id).catch(() => null)
+    // (a project's workspace that is not the opener's: not there for them — folders/templates.js)
+    if (v && (v.folder_id !== folder.id || !S.visibleTo(v, user))) throw notThere()
     if (v && v.folder_id === folder.id && !['merged', 'discarded'].includes(v.status)) { rev = v.branch; vid = v.id }
   }
   const current = await S.blobAt(folder, rev, r.path)
   const blob = latest || !r.blob ? current : r.blob
-  if (!blob) throw fail(404, L('그 파일이 지금은 폴더에 없어요.', "That file isn't in the folder any more."))
+  if (!blob) throw notThere()
   const isCurrent = blob === current
+  // an older version: only at a commit this person may read, and only the blob that commit really has at this path
+  if (!isCurrent && !(COMMIT.test(String(r.commit || '')) && await S.commitVisible(folder, r.commit, user) && (await S.blobAt(folder, r.commit, r.path).catch(() => '')) === blob)) throw notThere()
   const out = { slug: folder.slug, folder: folder.name, path: r.path, name: r.name, ref: isCurrent ? (vid || 'main') : r.commit, latest: isCurrent }
   if (!editable(r.name)) return out
   const pub = await S.publishBlob(folder, r.path, blob)

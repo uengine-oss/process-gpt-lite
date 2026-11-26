@@ -462,10 +462,54 @@ export async function variationFor(folder, id, user) {
   if (!visibleTo(v, user)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
   return v
 }
-// a ref a route was given (main, a commit, a variation id): refused when it names a workspace this person may not see
+// a workspace's branch (folders/templates.js) — the prefix nothing else in a folder uses; git tokens never advertise it (gitHttp.js)
+export const WORKSPACE_PREFIX = 'var/t/'
+export const isWorkspaceBranch = (b) => String(b || '').replace(/^refs\/heads\//, '').startsWith(WORKSPACE_PREFIX)
+// the branches of the folder this person may not read: every workspace branch but their own workspaces' (one with no row is no one's)
+export async function hiddenBranches(folder, user) {
+  const mine = new Set((await q(`select branch, holder_type, holder_id, source from pro_folder_variations where folder_id=$1 and source ? 'template'`, [folder.id]))
+    .filter((v) => visibleTo(v, user)).map((v) => v.branch))
+  const all = (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname:short)', `refs/heads/${WORKSPACE_PREFIX}`], { check: false })).split('\n').filter(Boolean)
+  return new Set(all.filter((b) => !mine.has(b)))
+}
+// A commit this person may read: one on main, or on a branch of the folder they may see (never one only a workspace they may not see
+// holds, nor one no branch holds) — one git call (for-each-ref --contains). workspaces: false — not even their own workspace counts (a new
+// variation may not start inside one: its outputs would be in a variation everyone sees)
+export async function commitVisible(folder, sha, user, { workspaces = true } = {}) {
+  if (!COMMIT.test(String(sha || ''))) return false
+  const ok = (await G.git(folder.repo_path, ['cat-file', '-t', String(sha)], { check: false })).trim() === 'commit'
+  if (!ok) return false
+  const heads = (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname:short)', '--contains', String(sha), 'refs/heads/'], { check: false })).split('\n').filter(Boolean)
+  if (!heads.length) return false
+  if (heads.includes(folder.default_branch)) return true
+  const hidden = await hiddenBranches(folder, user)
+  return heads.some((b) => !hidden.has(b) && (workspaces || !isWorkspaceBranch(b)))
+}
+// a ref a route was given (main, a commit, a variation id): refused when it names a workspace — or a commit only a workspace holds — this
+// person may not see
 export async function assertRefVisible(folder, ref, user) {
-  if (!ref || ref === 'main' || COMMIT.test(String(ref))) return null
+  if (!ref || ref === 'main') return null
+  if (COMMIT.test(String(ref))) {
+    if (!(await commitVisible(folder, String(ref), user))) throw err(404, L('그 판을 찾지 못했어요.', "I couldn't find that version."))
+    return null
+  }
   return variationFor(folder, ref, user)
+}
+// What a person may start a new variation from (POST …/variations {base}): main, a variation they may see — not a workspace (its
+// outputs would leave it: 「원본에 반영 요청」 sends what may) — or a commit they may read. Nothing else (no branch name, no git revision).
+export async function baseFor(folder, base, user) {
+  const b = String(base ?? '').trim()
+  if (!b || b === 'main') return 'main'
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(b)) {
+    const v = await variationFor(folder, b, user)
+    if (v.source?.template) throw err(409, L('프로젝트의 작업 공간에서는 새 변형을 만들지 않아요. 템플릿 파일의 고침은 「원본에 반영 요청」으로 보내 주세요.', "No new variation is made from a project's workspace. Send the template files you fixed with “Request a merge into the original”."))
+    return v.id
+  }
+  if (COMMIT.test(b)) {
+    if (!(await commitVisible(folder, b, user, { workspaces: false }))) throw err(404, L('그 판을 찾지 못했어요.', "I couldn't find that version."))
+    return b
+  }
+  throw err(400, L('기준은 main, 변형, 또는 판(커밋)이어야 해요.', 'The base must be main, a variation or a version (commit).'))
 }
 export async function variationById(id) {
   const [v] = await q('select * from pro_folder_variations where id=$1', [id])
@@ -480,6 +524,8 @@ export async function createVariation(folder, { title, kind = 'person', base, ho
   if (base && base !== 'main') {
     const bv = /^[0-9a-f-]{36}$/.test(base) ? await variation(folder, base).catch(() => null) : null
     baseRef = bv ? bv.branch : base
+    // (nothing grows from a project's workspace but its own work: its files would be in a variation everyone sees — templates.js)
+    if (bv?.source?.template || isWorkspaceBranch(baseRef)) throw err(409, L('프로젝트의 작업 공간에서는 새 변형을 만들지 않아요.', "No new variation is made from a project's workspace."))
   }
   if (!branch) {
     branch = kind === 'person' || kind === 'handover'

@@ -23,7 +23,17 @@ cd server && node --test test/templateFolders.test.js
 
 - **TF-U-11 프로젝트 이름:** 프로젝트가 첫 말로 만들어진 뒤 모델이 이름을 지으면 작업 공간의 이름 · 출처 문구도 그 이름이 된다(사람이 바꾼 이름은 그대로). 작업 공간의 턴에는 「반영하면 …」 변경 카드를 만들지 않는다(녹화에서 찾음).
 
-함께 돌린 기존 시험: `test/threadFolders.test.js`(7) · `test/folderRefs.test.js`(37) · `test/i18n-dictionary.test.js`(3) — 모두 통과.
+- **TF-U-12 새 변형의 기준:** `baseFor` 는 빈 값 · `main` · 읽을 수 있는 판만 그대로 받는다. 남의 작업 공간 id 는 404, 자기 작업 공간은 409, 가지 이름 · `refs/heads/…` · `:/제안서` · `main~1` · `HEAD` · `…^{commit}` 는 400, 작업 공간에만 있는 판은 남에게도 자기에게도 404(작업 공간에서 새 변형을 만들지 않음). `createVariation` 자체도 작업 공간 id · 가지를 기준으로 받지 않는다(409).
+- **TF-U-13 판으로 읽기:** 작업 공간에만 있는 판은 김서연만 읽고 박도윤 · 정하윤은 못 읽는다(`assertRefVisible` 404). main 의 판은 누구나. 없는 판 · 어느 가지에도 없는 판은 아무도.
+- **TF-U-14 파일 멘션:** 박도윤이 김서연의 작업 공간 id · 그 판 · 초안의 블롭으로 초안을 멘션하면 404, 양식은 main 의 판으로 바뀐다. 김서연은 자기 작업 공간의 판으로 멘션한다. 작업 공간을 가리키는 멘션 카드는 박도윤에게 「없음」(변형 정보 없음), 김서연에게는 「열기」.
+- **TF-U-15 git:** 클러스터 토큰의 `ls-remote` 에 main 은 있고 `var/t/` 가지와 그 판은 없다. 데스크톱 일 토큰은 그 프로젝트의 사람(김서연)의 일일 때만 그 작업 공간 가지 하나가 보이고(`!refs/heads/var/t/…`), 다른 사람의 일 · 다른 폴더에는 보이지 않는다.
+- **TF-U-16 프로세스 단계:** `var:<작업 공간 가지>` 를 기준으로 한 deepagents · cli-agent 단계는 변형을 만들지 않는다. 템플릿 프로젝트에서 시작한 인스턴스의 에이전트 단계에는 폴더가 붙지 않는다(`projectStepFolders`).
+- **TF-U-17 보내는 파일:** `merge-file` 의 종료 상태(0 깨끗 · 1 이상 충돌 · 그 밖은 실패). 링크(120000)로 바뀐 양식은 400(`tpl_not_plain`). 이름에 줄바꿈이 든 템플릿 파일은 한 파일로 보내지고 요청 변형에 그 파일 하나만 바뀐다.
+- **TF-U-18 가지 이름:** 앞 8자가 같은 두 프로젝트의 작업 공간 가지가 다르다(프로젝트 id 전체). 다음 프로젝트의 이름으로 남아 있던 가지는 넘겨받지 않고 `-2` 를 쓰며, 템플릿 main 에서 시작한다.
+- **TF-U-19 지정 · 참조 자리:** 작업 폴더 · 연결형은 템플릿으로 지정할 수 없다(400). 김서연의 작업 공간에 있는 경로(`산출물`)에 참조 자리를 더해도 작업 공간을 들여다보거나 프로젝트 이름을 대며 거절하지 않는다.
+- **TF-U-08 에 더함:** 반영 요청 변형의 `source.request` 에는 `note` · `paths` 만 있고 작업 공간 id · 프로젝트 id 가 없다.
+
+함께 돌린 기존 시험: `test/threadFolders.test.js`(7) · `test/folderRefs.test.js`(37) · `test/fileMention.test.js`(11) · `test/fileMention.integration.test.js`(12) · `test/folderGitRemote.test.js`(13) · `test/championFolders.test.js`(18) · `test/localAgents.test.js`(33) · `test/mailWork.integration.test.js`(10) · `test/i18n-dictionary.test.js`(3) — 모두 통과.
 
 ## 화면 · HTTP (Playwright)
 
@@ -39,5 +49,6 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/templ
 | F-TF-04 | 「원본에 반영 요청」 시트(템플릿 파일 「제안서 양식.md」 체크 · 초안은 「보내지 않아요」) → 「1개 보내기」 → 「주인에게 반영 요청을 보냈어요」, 결과물 경로는 400, 정하윤의 알림 → 그 변형(바뀐 파일 양식 하나) → 「이 변형 반영」 · 「반영 시작」 → main 양식이 새 주소, `산출물/` 없음 | `results/f-tf-04-sheet.png` · `results/f-tf-04-owner.png` |
 | F-TF-05 | 박도윤의 「새 프로젝트」 › 「폴더 고르기」에 「템플릿」 표시 → 칩 「· 템플릿으로 시작」 → 프로젝트 막대, 작업 공간의 양식은 새 주소 · 결과물 없음, 김서연의 작업 공간은 404 | `results/f-tf-05-new-project.png` · `results/f-tf-05-next.png` |
 | F-TF-06 | 390px 밝은 · 어두운 테마: 막대와 시트가 화면 안, 옆으로 밀리지 않음 | `results/f-tf-06-phone-bar-{light,dark}.png` · `results/f-tf-06-phone-sheet-{light,dark}.png` |
+| F-TF-07 | 박도윤이 김서연의 작업 공간 id 를 새 변형의 기준으로 주면 404, 김서연 자신은 409, 가지 이름 · `refs/heads/…` · `:/제안서` · `main~1` · `HEAD` 는 400, 작업 공간의 판도 404, `main` 은 200. 그 판으로 raw · publish · tree 는 박도윤 · 정하윤 404, 김서연 200. 정하윤이 받은 반영 요청에 작업 공간 id · 프로젝트 id 없음. 김서연의 PATCH 템플릿 403, 작업 폴더 지정 400, 보기 권한자의 「템플릿으로 시작」 403(프로젝트 안 생김) | — |
 
 첫 실행에서 F-TF-04 가 찾은 결함: 프로젝트 막대 안에 둔 시트가 유리 막대(`backdrop-filter`)를 기준으로 그려져 대화 줄 아래에 갇히고 「보내기」를 누를 수 없었다 → 시트를 `Teleport to="body"` 로 옮김(막대 · 작업 공간 화면 둘 다). 두 번째 실행 6/6 통과(46.7초).
