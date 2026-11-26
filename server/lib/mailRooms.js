@@ -320,8 +320,9 @@ export async function stopRoom(user, actionId, roomId, what) {
       for (const [k, r] of (row.messages?.pgpt?.refs || []).entries()) {
         if (r?.type !== 'mail' || String(r.actionId) !== String(card.id) || String(r.owner) !== String(user.id)) continue
         await q(`update chats set messages = jsonb_set(messages, $2::text[], $3::jsonb) where uuid=$1 and tenant_id=$4`, [row.uuid, ['pgpt', 'refs', String(k)], JSON.stringify({ ...r, share: null, sharedAt: null }), T()])
+          .catch((e) => console.warn('[mail rooms] stop body', e.message))
       }
-      await deliver(row.uuid)
+      await deliver(row.uuid, { force: true, update: true })
     }
   } else if (what === 'files') {
     const MA = await import('./mailAttachments.js')

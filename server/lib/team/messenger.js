@@ -462,24 +462,26 @@ export async function message(me, uuid) {
 const sentRows = new Map() // chats uuid -> the content last delivered (its messages, hashed)
 const SENT_KEEP = 2000
 const contentOf = (row) => crypto.createHash('sha1').update(JSON.stringify(row.messages ?? null)).digest('base64')
-export async function pushRow(row, people) {
+// force: send even when this content went out before (a state change the row's own content may not show — a mail mention's share,
+// lib/mailRooms.js · routes/team.js); update: an old message brought up to date — the page does not count it as news
+export async function pushRow(row, people, { force = false, update = false } = {}) {
   const c = contentOf(row)
-  if (sentRows.get(row.uuid) === c) return false
+  if (!force && sentRows.get(row.uuid) === c) return false
   sentRows.delete(row.uuid)
   sentRows.set(row.uuid, c)
   if (sentRows.size > SENT_KEEP) sentRows.delete(sentRows.keys().next().value)
   const ps = await resolved(people)
   const by = Object.fromEntries(ps.map((p) => [p.email, { id: p.id, name: p.name }]))
   // (each person's copy: their language, and the file mentions in their own access — lib/fileRefs.js decorate)
-  for (const p of ps) emit(p.id, 'team', { type: 'message', threadId: row.id, message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: p.name }, row, by)) })
+  for (const p of ps) emit(p.id, 'team', { type: 'message', threadId: row.id, ...(update ? { update: true } : {}), message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: p.name }, row, by)) })
   return true
 }
 // a row this server just wrote into a room (inserted or updated), to the room's people at once — not left to the
 // room feed, which a development server (PRO_BACKGROUND=0) does not run and which can be reconnecting
-export async function deliver(uuid) {
+export async function deliver(uuid, opts = {}) {
   try {
     const [row] = await q('select c.uuid, c.id, c.messages, r.participants from chats c join chat_rooms r on r.id=c.id where c.uuid=$1', [uuid])
-    return row ? await pushRow(row, split(row.participants).humans) : false
+    return row ? await pushRow(row, split(row.participants).humans, opts) : false
   } catch (e) { console.warn('[rooms] deliver', e.message); return false }
 }
 

@@ -1,7 +1,7 @@
 // 메일을 대화방에 (2026-11-27 사용자: 「메일이 왔을때 그걸 대화방에 공유하는 기능도 필요.」 — 스펙 openspec/specs/mail-room-share, 서버 lib/mailRooms.js).
 // 메일 시트의 「대화방에 공유」(모든 시트에 있음)를 누르면 시트 안에서 대화방을 고른다: 판정 모델이 고른 방이 먼저(「추천」 · 까닭), 그다음 내 대화방,
 // 대화가 없는 팀원. 한마디 · 「본문도 공유」 · 「앞으로 오는 메일도 이 방에 올리기」(보낸 사람 · 회사)를 정하고, 방에 무엇이 보일지 읽은 뒤 「보내기」.
-// 약속을 정하면 그 회사의 새 메일은 들어올 때 그 방에 저절로 올라간다(「메일 자동 공유」, 요약만).
+// 약속을 정하면 그 회사의 새 메일은 들어올 때 그 방에 저절로 올라간다(「메일 자동 공유」, 본문은 약속을 정할 때의 「본문도 공유」대로 — 화면에서는 켜짐이 기본).
 // 서버는 가짜 모델(PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59961>/v1)로 띄운다 — 이 파일이 띄운다. 메일함은 데모 메일함(보내지 않음).
 // 사람 이름 · 회사 · 메일은 지어낸 것이다(에이스정밀 김하늘 · 이준호).
 import http from 'node:http'
@@ -329,6 +329,21 @@ test.describe('메일을 대화방에 — 고르기 · 보내기 · 들어올 �
       await expect(ms.locator('[data-test="mail-ref-body"]')).toContainText('베어링 하우징')
       // the owner's 「공유 그만두기」 on the second (newer) mention's card — the request that card sends
       expect((await u.post('/team/refs/share', { messageId: second.body.message, index: 0, on: false })).status).toBe(200)
+      for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'summary')
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toHaveCount(0)
+      // again: the same mail posted anew (the body on — the default) shares it once more; the colleague opens the oldest one's body;
+      // the owner stops it on the newest — the older ones, already stored as not shared, are sent again all the same
+      const third = await u.post(`/actions/${a.id}/rooms`, { room: dm, body: true, note: '다시 올려요' })
+      expect(third.status).toBe(200)
+      await mate.reload()
+      await mate.locator('.msg-btn').click()
+      await ms.locator('.tabs button').filter({ hasText: '대화' }).first().click()
+      await ms.locator('.th').filter({ hasText: u.name || '회귀-mr-cardoff' }).first().click()
+      await expect(cards).toHaveCount(3)
+      await expect(cards.first()).toHaveAttribute('data-state', 'shared')
+      await cards.first().getByText('본문 보기').click()
+      await expect(ms.locator('[data-test="mail-ref-body"]')).toContainText('베어링 하우징')
+      expect((await u.post('/team/refs/share', { messageId: third.body.message, index: 0, on: false })).status).toBe(200)
       for (const c of await cards.all()) await expect(c).toHaveAttribute('data-state', 'summary')
       await expect(ms.locator('[data-test="mail-ref-body"]')).toHaveCount(0)
       expect(mate.errors).toEqual([])
