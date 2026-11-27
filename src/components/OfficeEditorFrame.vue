@@ -334,20 +334,16 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
 }
 // Is there something to save? Our own count of edits, the agent's, or the editor's own 저장 switched on (every IeumOffice editor turns
 // it off while it has nothing new). The editor's word that it is clean is taken over our count only where its flag follows every edit
-// (the text · html · mind-map editors) and nothing is being typed in: a spreadsheet's cell being typed in, a slide's text box being
-// written in, hold their text until they are left — their 저장 is off meanwhile (review #107: a cell typed and left by ↓ was lost).
+// as it is made (the text · html · mind-map editors); a spreadsheet's cell being typed in, a slide's text box being written in, hold
+// their text until they are left — their 저장 is off meanwhile (review #107: a cell typed and left by ↓ was lost).
 // Asked where it matters (closing, flush, 내려받기, 다른 이름으로 저장, 저장) — never on a timer.
 const LIVE_DIRTY = new Set(['markdown', 'html', 'mindmap'])
-function editingNow(doc) {
-  const el = doc?.activeElement
-  return !!el && el !== doc.body && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || ''))
-}
 function dirty() {
   const doc = frame.value?.contentDocument
   const clean = editorClean(doc)
   if (clean === false || agentEdits.value) return true
   if (!edited.value) return false
-  if (clean !== true || unsavedCopy || inFlight || pressTimer || !LIVE_DIRTY.has(editor()) || editingNow(doc)) return true
+  if (clean !== true || unsavedCopy || inFlight || pressTimer || !LIVE_DIRTY.has(editor())) return true
   edited.value = false
   emit('edited', false)
   return false
@@ -428,7 +424,15 @@ async function badgeAction() {
   const a = badge.value?.action
   if (a === 'reopen') return reopen()
   if (a !== 'retry') return
-  if (retryFn) { const again = retryFn; retryFn = null; saveState.value = { kind: 'saving' }; return again() }
+  if (retryFn) {
+    const again = retryFn
+    retryFn = null
+    saveState.value = { kind: 'saving' }
+    await again()
+    // (a retry that did nothing — the document changed meanwhile — leaves no 「저장하는 중…」 behind)
+    if (saveState.value.kind === 'saving' && !inFlight && !pressTimer) saveState.value = { kind: 'idle' }
+    return
+  }
   // the editor's copy went up, the host's own step did not: that step again
   if (!edited.value && !agentEdits.value && lastSaved) return afterSave(lastSaved)
   await saveNow(SAVE_WAIT_MS, { any: true, force: true })

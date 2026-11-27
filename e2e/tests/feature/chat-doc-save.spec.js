@@ -21,6 +21,8 @@
 //   F-CS-14 공유 폴더의 시트: 칸을 치고 ↓ 로 마치면 손을 멈춘 뒤 저절로 편집기의 저장을 누른다
 //   F-CS-15 「다른 이름으로 저장」에서 편집기가 답하지 않으면 다시 시도는 같은 이름으로 다시(원래 카드에 쓰지 않음)
 //   F-CS-16 (RT_REAL_SHEETS=1) 실제 엑셀 편집기: 칸을 치고 ↓ 로 마친 뒤 닫으면 묻는다
+//   F-CS-17 열린 문서의 카드를 다시 눌러도 같은 열기 — 그 뒤 「다른 이름으로 저장」해도 원래 카드는 저장한 판 그대로
+//   F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 문서는 열고 바로 닫아도 묻지 않는다
 //   (F-CS-09 안에서) 패널 반영 실패는 그 열기의 것만 — 다시 연 시트를 닫아도 옛 사본을 다시 보내지 않고, 고쳤으면 묻는다
 // 자기 스택(lib/localStack.js — 회사 chat-save, BFF 8983 · Vite 5383 부터 빈 포트), 실제 이음오피스 편집기: RT_OFFICE_HOST_URL(운영 이미지 컨테이너,
 // 스펙 e2e/README) 또는 빌드된 호스트(lib/officeHost.js, 5403 부터). 모델 · deepagents 는 부르지 않는다. 사람은 지어낸 이름(정하윤 · 김서연).
@@ -32,6 +34,7 @@ import path from 'node:path'
 import { startStack, freePort, REPO } from '../../lib/localStack.js'
 import { startOfficeHost, officeHostDir } from '../../lib/officeHost.js'
 import http from 'node:http'
+import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import ExcelJS from 'exceljs'
 
@@ -809,7 +812,8 @@ test('F-CS-16 (실제 엑셀 편집기, RT_REAL_SHEETS=1) 칸을 치고 ↓ 로 
   await card(p, '휴가_실제.xlsx').click()
   await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 120_000 })
   const shown = async () => (await Promise.all(p.frames().filter((f) => f.url().includes('/office/')).map((f) => f.evaluate(() => document.body?.innerText || '').catch(() => '')))).join(' ')
-  await expect.poll(shown, { timeout: 120_000 }).toContain('통합 문서를 모두 로드했습니다')
+  // (the editor's status line: 「통합 문서를 모두 로드했습니다」, or while it streams rows 「… N행 사용 가능」)
+  await expect.poll(shown, { timeout: 120_000 }).toMatch(/통합 문서를 모두 로드했습니다|행 사용 가능/)
   await p.waitForTimeout(2500)
   // a cell of the grid (its own canvas): a click selects it, typing opens the cell editor
   const grid = ed(p).locator('canvas').first()
@@ -824,5 +828,77 @@ test('F-CS-16 (실제 엑셀 편집기, RT_REAL_SHEETS=1) 칸을 치고 ↓ 로 
   await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요', { timeout: 10_000 })
   await ask(p).locator('[data-testid="oef-ask-discard"]').click()
   await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
+  await p.context().close()
+})
+
+test('F-CS-17 열린 문서의 카드를 다시 눌러도 같은 열기 — 그 뒤 「다른 이름으로 저장」해도 원래 카드는 저장한 판 그대로, 막대가 멈추지 않음', async ({ browser }) => {
+  const c = await draftCard('답장초안_재클릭_김서연.txt')
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, c.name).click()
+  await textReady(p)
+  await typeAtEnd(p, ' 첫판')
+  await pressSave(p)
+  await expect(badge(p)).toHaveAttribute('data-state', 'saved', { timeout: 30_000 })
+  await expect.poll(async () => (await cardOf(c.id)).url || '', { timeout: 20_000 }).toMatch(/\/edited-[^/]+\.txt$/)
+  const v1 = (await cardOf(c.id)).url
+  // the card in the chat follows (its address is the edited copy now), and is pressed again: nothing is asked, nothing reloads
+  await p.waitForTimeout(1500)
+  await card(p, c.name).click()
+  await p.waitForTimeout(1500)
+  await expect(ask(p)).toHaveCount(0)
+  await expect(badge(p)).toHaveAttribute('data-state', 'saved')
+  await expect.poll(() => editorText(p)).toContain('첫판')
+  await typeAtEnd(p, ' 둘째판')
+  await ed(p).locator('.qa-save-as').click()
+  await ask(p).locator('[data-testid="oef-ask-name"]').fill('재클릭 사본')
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(oef(p).locator('.bar .name')).toHaveText('재클릭 사본.txt', { timeout: 40_000 })
+  await expect(badge(p)).toHaveCount(0)
+  // the card I saved from: the version it was saved as (첫판), not the edits that went to the new name
+  const orig = await cardOf(c.id)
+  const text = await textAt(orig.url)
+  expect(text).toContain('첫판')
+  expect(text).not.toContain('둘째판')
+  expect(orig.url === v1 || (orig.versions || []).length > 0).toBe(true)
+  const [made] = await S.q(`select content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '재클릭 사본.txt'])
+  expect(await textAt(made.content.url)).toContain('둘째판')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+// a .pptx of one slide (python-pptx), written for the test
+function PPTX() {
+  const out = path.join(os.tmpdir(), `rt-cs-${process.pid}-${Date.now()}.pptx`)
+  execFileSync('python3', ['-c', 'import sys\nfrom pptx import Presentation\np=Presentation()\ns=p.slides.add_slide(p.slide_layouts[1])\ns.shapes.title.text="12월 일정"\ns.placeholders[1].text="본사 3층 · 정하윤"\np.save(sys.argv[1])', out])
+  const b = fs.readFileSync(out)
+  fs.rmSync(out, { force: true })
+  return b
+}
+test('F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 문서는 열고 바로 닫아도 묻지 않는다(편집기가 열자마자 「고친 것 있음」이라 하지 않음)', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const files = [
+    { name: '회의록_시험.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', bytes: fs.readFileSync(path.join(REPO, 'e2e/fixtures/meeting-minutes-template.docx')), ready: (p) => expect(ed(p).locator('.ProseMirror').first()).toBeVisible({ timeout: 90_000 }) },
+    { name: '일정_시험.pptx', type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', bytes: PPTX(), ready: (p) => expect(ed(p).locator('.stage-wrap, .slide-list').first()).toBeVisible({ timeout: 90_000 }) },
+    { name: '제안서_시험.hwpx', type: 'application/hwp+zip', bytes: fs.readFileSync(path.join(REPO, 'server/fixtures/interior-proposal-template.hwpx')), ready: (p) => expect(ed(p).locator('iframe').first()).toBeVisible({ timeout: 90_000 }) },
+  ]
+  for (const f of files) {
+    const a = await rawPost(ME.token, '/attachments', f.bytes, { 'Content-Type': f.type, 'X-File-Name': encodeURIComponent(f.name) })
+    await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2)`, [mainId, { name: f.name, url: a.url, type: f.type }])
+  }
+  const p = await page(browser)
+  await openChat(p)
+  for (const f of files) {
+    await card(p, f.name).click()
+    await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 120_000 })
+    await f.ready(p)
+    // (the editor settles: fonts, layout, the 한글 studio's own page)
+    await p.waitForTimeout(6000)
+    await expect(badge(p)).toHaveCount(0)
+    await oef(p).locator('.tb.ic[title="닫기"]').click()
+    await expect(ask(p)).toHaveCount(0)
+    await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
+  }
+  expect(p.errors).toEqual([])
   await p.context().close()
 })

@@ -94,6 +94,8 @@ cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright t
 | 시트의 칸을 치고 ↓ 나 다른 칸 누르기로 마친 뒤 닫는다 | F-CS-13(시험용 시트 편집기 — 칸을 치는 동안 저장 단추가 꺼져 있는 IeumOffice 시트처럼, 1차 검토판에서는 실패) · F-CS-16(실제 엑셀 편집기, `RT_REAL_SHEETS=1`) |
 | 시트의 칸을 치고 ↓ 로 마친다(폴더 자동 저장) | F-CS-14 |
 | 반영하지 못한 시트를 닫고 다시 연다 | F-CS-09 뒷부분 |
+| 열린 문서의 카드를 다시 누른 뒤 다른 이름으로 저장한다 | F-CS-17 |
+| 손대지 않은 문서를 닫는다 | F-CS-18(실제 워드 · 파워포인트 · 한글 편집기) |
 
 `results/` (채팅의 문서):
 - `chat-doc-save-server.txt` · `chat-doc-save-e2e.txt`: 서버 · 화면 시험 출력.

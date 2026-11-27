@@ -62,9 +62,10 @@ export function saveAsHideCss({ saveAs = false } = {}) {
   return `${sel.join(', ')} { display: none !important; }`
 }
 
-// The editors' own controls around the document (IeumOffice: the ribbon and its quick-access row, the search panel, the status bar; the
-// 한글 studio: its style bar, menu and status bar; any toolbar or dialog)
-export const EDITOR_CHROME = '.ribbon, .ribbon-tabs, .ribbon-collapsible, .find-panel, .status-bar, #status-bar, #style-bar, .md-menu, [role="toolbar"], [role="dialog"], [role="menu"]'
+// The editors' own controls around the document that change nothing in it (IeumOffice: the ribbon and its quick-access row, the search
+// panel, the status bar; the 한글 studio: its menu and status bar; any toolbar or dialog). Not the 한글 studio's style bar (#style-bar):
+// a font, size or style set there changes the document, and that editor has no 저장 of its own to tell (review #107).
+export const EDITOR_CHROME = '.ribbon, .ribbon-tabs, .ribbon-collapsible, .find-panel, .status-bar, #status-bar, .md-menu, [role="toolbar"], [role="dialog"], [role="menu"]'
 
 // press 저장 in the editor; false when the frame is not there. force: also when the editor's button says there is nothing to save
 // (a retry after the editor's upload failed — the editor took that save as done): its own ⌘S writes the file again.

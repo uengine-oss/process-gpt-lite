@@ -1,23 +1,24 @@
-# 운영 이미지 55d0a6f (로컬 컨테이너 :5403) + F-CS-11 은 고친 office host 빌드(RT_FIXED_HOST_DIR), F-CS-16 은 실제 엑셀 편집기(RT_REAL_SHEETS=1) — 2차 검토 반영 뒤
-  ✓   1 [feature] › tests/feature/chat-doc-save.spec.js:214:1 › F-CS-01 채팅 TXT: 고치고 💾 → 막대 「저장했어요 · 시각」, 카드가 고친 판을 열고 다시 열면 고친 내용 (17.9s)
-  ✓   2 [feature] › tests/feature/chat-doc-save.spec.js:255:1 › F-CS-02 편집기 연결이 끊긴 뒤 💾 → 곧바로 「저장하지 못했어요」 · 「연결 끊김 · 다시 열기」 → 다시 열면 저장된다 (16.0s)
-  ✓   3 [feature] › tests/feature/chat-doc-save.spec.js:292:1 › F-CS-03 손대지 않고 둔 편집기도(40초 동안 조용하면 끊는 중계 — 운영의 Cloudflare 처럼) 연결이 살아 있어 저장된다 (1.4m)
-  ✓   4 [feature] › tests/feature/chat-doc-save.spec.js:315:1 › F-CS-04 「다른 이름으로 저장」 → 이름을 묻고 같은 대화의 새 파일로 저장해 연다 · 원래 카드는 마지막으로 저장한 판 그대로 (16.7s)
-  ✓   5 [feature] › tests/feature/chat-doc-save.spec.js:356:1 › F-CS-05 고친 채 닫기 · 다른 카드 → 「저장하고 닫기 · 저장하지 않고 닫기 · 취소」 (18.5s)
-  ✓   6 [feature] › tests/feature/chat-doc-save.spec.js:394:1 › F-CS-06 편집기가 올리기에 실패하면 「저장하지 못했어요 · 다시 시도」와 까닭, 다시 시도하면 저장 (12.6s)
-  ✓   7 [feature] › tests/feature/chat-doc-save.spec.js:426:1 › F-CS-07 휴대폰 390px · 밤 테마: 짧은 표시가 화면 안, 닫을 때 묻기도 화면 안 · 옆으로 넘치지 않음 (17.8s)
-  ✓   8 [feature] › tests/feature/chat-doc-save.spec.js:461:1 › F-CS-08 검색 칸에 친 것 · 문서 밖에서 누른 키는 고침이 아니다 — 편집기 저장이 꺼져 있으면 닫을 때 묻지 않고, ⌘S 도 「저장 실패」가 없다 (13.8s)
-  ✓   9 [feature] › tests/feature/chat-doc-save.spec.js:494:1 › F-CS-09 패널 앱의 시트: 저장하고 닫기 → 패널 반영이 실패하면 닫지 않고 까닭, 다시 닫으면 반영한 뒤 닫히고 다시 열리지 않음 (27.6s)
-  ✓  10 [feature] › tests/feature/chat-doc-save.spec.js:583:1 › F-CS-10 「다른 이름으로 저장」의 새 카드가 만들어지지 않으면 — 막대가 말하고, 원래 카드 그대로, 닫으면 묻고, 다시 시도는 같은 편집본으로 (13.0s)
-  ✓  11 [feature] › tests/feature/chat-doc-save.spec.js:645:1 › F-CS-11 (고친 호스트) 실제로 올리기에 실패한 저장: 편집기는 저장됐다고 여기고 단추가 꺼지지만, 다시 시도로 다시 올라감 (18.0s)
-  ✓  12 [feature] › tests/feature/chat-doc-save.spec.js:683:1 › F-CS-12 PC 의 텍스트 편집기: Shift+→ ×5 · Shift+End 로 캐럿에서 고르고 그 줄에서 보이며, 치면 고른 것을 바꾼다 · Shift+클릭도 캐럿에서 고른다 (16.9s)
-  ✓  13 [feature] › tests/feature/chat-doc-save.spec.js:721:1 › F-CS-13 시트의 칸을 치고 ↓ 나 다른 칸 누르기로 마친 뒤 닫으면 묻는다(칸을 치는 동안 편집기의 저장은 꺼져 있음) (17.0s)
-  ✓  14 [feature] › tests/feature/chat-doc-save.spec.js:748:1 › F-CS-14 공유 폴더의 시트: 칸을 치고 ↓ 로 마치면 손을 멈춘 뒤 저절로 편집기의 저장을 누른다 (15.0s)
-  ✓  15 [feature] › tests/feature/chat-doc-save.spec.js:768:1 › F-CS-15 「다른 이름으로 저장」에서 편집기가 답하지 않으면 다시 시도는 같은 이름으로 다시 — 원래 카드에 쓰지 않는다 (42.8s)
-  ✓  16 [feature] › tests/feature/chat-doc-save.spec.js:801:1 › F-CS-16 (실제 엑셀 편집기, RT_REAL_SHEETS=1) 칸을 치고 ↓ 로 마친 뒤 닫으면 묻는다 (15.7s)
-  16 passed (6.3m)
+# 운영 이미지 55d0a6f (로컬 컨테이너 :5403) + F-CS-11 고친 office host(RT_FIXED_HOST_DIR) · F-CS-16 실제 엑셀 편집기(RT_REAL_SHEETS=1) — 3차 검토 반영 뒤
+  ✓   1 [feature] › tests/feature/chat-doc-save.spec.js:217:1 › F-CS-01 채팅 TXT: 고치고 💾 → 막대 「저장했어요 · 시각」, 카드가 고친 판을 열고 다시 열면 고친 내용 (16.2s)
+  ✓   2 [feature] › tests/feature/chat-doc-save.spec.js:258:1 › F-CS-02 편집기 연결이 끊긴 뒤 💾 → 곧바로 「저장하지 못했어요」 · 「연결 끊김 · 다시 열기」 → 다시 열면 저장된다 (16.5s)
+  ✓   3 [feature] › tests/feature/chat-doc-save.spec.js:295:1 › F-CS-03 손대지 않고 둔 편집기도(40초 동안 조용하면 끊는 중계 — 운영의 Cloudflare 처럼) 연결이 살아 있어 저장된다 (1.4m)
+  ✓   4 [feature] › tests/feature/chat-doc-save.spec.js:318:1 › F-CS-04 「다른 이름으로 저장」 → 이름을 묻고 같은 대화의 새 파일로 저장해 연다 · 원래 카드는 마지막으로 저장한 판 그대로 (14.5s)
+  ✓   5 [feature] › tests/feature/chat-doc-save.spec.js:359:1 › F-CS-05 고친 채 닫기 · 다른 카드 → 「저장하고 닫기 · 저장하지 않고 닫기 · 취소」 (17.1s)
+  ✓   6 [feature] › tests/feature/chat-doc-save.spec.js:397:1 › F-CS-06 편집기가 올리기에 실패하면 「저장하지 못했어요 · 다시 시도」와 까닭, 다시 시도하면 저장 (9.3s)
+  ✓   7 [feature] › tests/feature/chat-doc-save.spec.js:429:1 › F-CS-07 휴대폰 390px · 밤 테마: 짧은 표시가 화면 안, 닫을 때 묻기도 화면 안 · 옆으로 넘치지 않음 (15.3s)
+  ✓   8 [feature] › tests/feature/chat-doc-save.spec.js:464:1 › F-CS-08 검색 칸에 친 것 · 문서 밖에서 누른 키는 고침이 아니다 — 편집기 저장이 꺼져 있으면 닫을 때 묻지 않고, ⌘S 도 「저장 실패」가 없다 (13.3s)
+  ✓   9 [feature] › tests/feature/chat-doc-save.spec.js:497:1 › F-CS-09 패널 앱의 시트: 저장하고 닫기 → 패널 반영이 실패하면 닫지 않고 까닭, 다시 닫으면 반영한 뒤 닫히고 다시 열리지 않음 (26.1s)
+  ✓  10 [feature] › tests/feature/chat-doc-save.spec.js:586:1 › F-CS-10 「다른 이름으로 저장」의 새 카드가 만들어지지 않으면 — 막대가 말하고, 원래 카드 그대로, 닫으면 묻고, 다시 시도는 같은 편집본으로 (9.7s)
+  ✓  11 [feature] › tests/feature/chat-doc-save.spec.js:648:1 › F-CS-11 (고친 호스트) 실제로 올리기에 실패한 저장: 편집기는 저장됐다고 여기고 단추가 꺼지지만, 다시 시도로 다시 올라감 (12.2s)
+  ✓  12 [feature] › tests/feature/chat-doc-save.spec.js:686:1 › F-CS-12 PC 의 텍스트 편집기: Shift+→ ×5 · Shift+End 로 캐럿에서 고르고 그 줄에서 보이며, 치면 고른 것을 바꾼다 · Shift+클릭도 캐럿에서 고른다 (7.7s)
+  ✓  13 [feature] › tests/feature/chat-doc-save.spec.js:724:1 › F-CS-13 시트의 칸을 치고 ↓ 나 다른 칸 누르기로 마친 뒤 닫으면 묻는다(칸을 치는 동안 편집기의 저장은 꺼져 있음) (13.4s)
+  ✓  14 [feature] › tests/feature/chat-doc-save.spec.js:751:1 › F-CS-14 공유 폴더의 시트: 칸을 치고 ↓ 로 마치면 손을 멈춘 뒤 저절로 편집기의 저장을 누른다 (13.0s)
+  ✓  15 [feature] › tests/feature/chat-doc-save.spec.js:771:1 › F-CS-15 「다른 이름으로 저장」에서 편집기가 답하지 않으면 다시 시도는 같은 이름으로 다시 — 원래 카드에 쓰지 않는다 (40.1s)
+  15 passed (7.7m)
+  ✓ F-CS-16 — 다시 돌림(시트 편집기의 상태 줄이 「…행 사용 가능」일 때도 준비로 봄): 1 passed
 
 # 재현 확인(고치기 전에는 실패)
-  F-CS-03: Lite 의 30초 보내기를 끄면 중계가 편집기 연결을 끊음 — expect(R.dropped - dropped).toBe(0): Received 1
-  F-CS-12: Lite 의 선택 CSS 없이 — 고른 줄과 안 고른 줄이 같게 보임: Received true
-  F-CS-13: 1차 검토판(586096c)의 Lite 화면 — 칸을 치고 ↓ 로 마친 뒤 닫아도 묻지 않음: 「저장하지 않은 내용이 있어요」 element(s) not found
+  F-CS-03: Lite 의 30초 보내기를 끄면 중계가 편집기 연결을 끊음 — Received 1
+  F-CS-12: Lite 의 선택 CSS 없이 — 고른 줄과 안 고른 줄이 같게 보임
+  F-CS-13: 1차 검토판(586096c) — 칸을 치고 ↓ 로 마친 뒤 닫아도 묻지 않음
+  F-CS-17: 2차 검토판(8b1afbd) — 카드를 다시 누른 뒤 「다른 이름으로 저장」하자 원래 카드가 「둘째판」을 엶

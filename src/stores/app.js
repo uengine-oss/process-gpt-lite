@@ -187,6 +187,10 @@ export const useApp = defineStore('app', {
     // Replacing or closing the open document: the sheet saves what is left in it first (OfficeSheet
     // registers onOfficeLeave; it answers false to stay open — a save that did not finish, said on the sheet).
     async setOfficeDoc(doc) {
+      // the card of the document already open, pressed again: nothing to open — the same opening goes on (its saves, its 이력 line, what
+      // 「다른 이름으로 저장」 keeps of it; review #107 — a new opening of the same frame forgot the copy the card stood on)
+      const cur = this.officeDoc
+      if (doc && cur && doc.msgId && doc.msgId === cur.msgId && doc.url === cur.url && !!doc.readOnly === !!cur.readOnly) return true
       if (this.officeDoc && officeLeave) {
         const ok = await Promise.resolve(officeLeave()).catch(() => true)
         if (!ok) return false

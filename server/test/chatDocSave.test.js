@@ -10,7 +10,7 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { saveBadge, saveAsName, saveAsSuggestion, hhmm, KEEPALIVE_MS, SAVE_WAIT_MS } from '../../src/officeSave.js'
-import { saveKindOf, saveKeyOf, editorClean, saveAsHideCss } from '../../src/officeAutosave.js'
+import { saveKindOf, saveKeyOf, editorClean, saveAsHideCss, EDITOR_CHROME } from '../../src/officeAutosave.js'
 
 test('막대의 저장 표시: 고친 뒤 · 저장 중 · 저장함(시각) · 실패(까닭 · 다시 시도) · 연결 끊김', () => {
   assert.equal(saveBadge({ kind: 'idle' }), null)
@@ -93,6 +93,9 @@ test('편집기의 저장 · 다른 이름으로 저장을 알아본다(편집�
   assert.doesNotMatch(saveAsHideCss({ saveAs: true }), /qa-save-as|"file:save-as"\]/)
   assert.match(saveAsHideCss({ saveAs: false }), /\.qa-save-as/)
   assert.match(saveAsHideCss({ saveAs: false }), /data-cmd="file:save-as"\]/)
+  // the editor's own controls are not edits — but the 한글 studio's style bar (font, size, style) changes the document
+  assert.match(EDITOR_CHROME, /\.find-panel/)
+  assert.doesNotMatch(EDITOR_CHROME, /style-bar/)
   const key = (o) => ({ code: 'KeyS', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, repeat: false, ...o })
   assert.equal(saveKeyOf(key({ metaKey: true })), 'save')
   assert.equal(saveKeyOf(key({ ctrlKey: true })), 'save')

@@ -257,7 +257,12 @@ async function savedMailAtt(job) {
     cardFail = null
     if (app.officeDoc?.opening === d?.opening) app.officeDoc = { ...app.officeDoc, msgId: r.message.id }
     flash('ok', '편집본을 내 채팅에 파일로 저장했어요 · 나만 볼 수 있어요', 6000)
-  } catch (e) { cardFail = { job, why: e.message, mail: true, key: docKey(d) }; flash('err', `편집본을 저장하지 못했어요: ${e.message}`, 8000) }
+  } catch (e) {
+    // (this opening's: a save of an attachment closed meanwhile is not the next one's)
+    if (app.officeDoc?.opening !== d?.opening) return
+    cardFail = { job, why: e.message, mail: true, key: docKey(d) }
+    flash('err', `편집본을 저장하지 못했어요: ${e.message}`, 8000)
+  }
 }
 function saved({ url, name, copy = false }) {
   // (「다른 이름으로 저장」's save: a copy for the new card — the card stays; saveAs takes it from here)
@@ -401,8 +406,10 @@ async function saveAsTo(d, name) {
     await f.whenIdle()
     await savedChain
     if (app.officeDoc?.opening !== d.opening) return
-    // the card stands on this opening's copy, which the editor is about to write the new name's content into: the card keeps a copy of its own
-    if (sessionUrl && app.officeDoc.url === sessionUrl) await api(`/messages/${encodeURIComponent(d.msgId)}/keep-version`, { method: 'POST' })
+    // the card stands on the editor's copy, which the editor is about to write the new name's content into: the card keeps a copy of its own
+    // (this opening's saves, or the frame's — the frame's copy is the one it writes)
+    const last = f.lastSaved?.() || ''
+    if ((sessionUrl && app.officeDoc.url === sessionUrl) || (last && app.officeDoc.url === last)) await api(`/messages/${encodeURIComponent(d.msgId)}/keep-version`, { method: 'POST' })
     // what is copied: the editor's copy of the content now — saved for this (a copy: the card does not move), or, with nothing new since
     // the editor's last save, that save's copy when the card did not take it; else the card's own version (url null)
     let url = null
@@ -415,8 +422,8 @@ async function saveAsTo(d, name) {
       url = r.url || null
       if (!url && !r.clean) return failed('편집본을 찾지 못했어요')
     }
-    const last = f.lastSaved?.() || ''
-    if (!url && last && (cardFail || app.officeDoc.url !== last)) url = last
+    const lastNow = f.lastSaved?.() || ''
+    if (!url && lastNow && (cardFail || app.officeDoc.url !== lastNow)) url = lastNow
     await postSaveAs(d, { url, name })
   } catch (e) {
     failed(e.message)
@@ -425,6 +432,8 @@ async function saveAsTo(d, name) {
 // the copy becomes the new card, which opens; when it does not, the bar says so and 다시 시도 posts the same copy again
 async function postSaveAs(d, { url, name }) {
   const f = officeFrame.value
+  // (another opening meanwhile: this one's copy is not posted for it)
+  if (app.officeDoc?.opening !== d.opening) return
   try {
     const m = await api(`/messages/${encodeURIComponent(d.msgId)}/save-as`, { method: 'POST', body: { url, name, conversationId: app.convOf?.[d.msgId] || null } })
     if (app.officeDoc?.opening !== d.opening) return
