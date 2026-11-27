@@ -1,5 +1,5 @@
 // A variation's working copy on its person's computer (작업본은 한 곳에 P1 — spec openspec/specs/variation-seats, folders/seats.js; desktop
-// 0.2.6 desktop/src/runner/seats.js). The user's request (2026-11-26): 「폴더내 작업실을 누르면 일렉트론에 연결된 모바일이나 일렉트론내 해당
+// 0.2.7 desktop/src/runner/seats.js). The user's request (2026-11-26): 「폴더내 작업실을 누르면 일렉트론에 연결된 모바일이나 일렉트론내 해당
 // 워크트리를 클론하여 작업할 수 있고 로컬 폴더 작업 결과를 서버로 동기화 할 수 있다. 작업본이 여러군데 흩어져서는 안되니 잘 설계해」.
 // The seat moves to a computer (seats.claimDevice, state moving) and the computer is told over its link (localAgents/hub.js) to make the
 // working copy — a clone of the folder and a git worktree of the variation's branch under the app's data folder. Once it says ready the seat

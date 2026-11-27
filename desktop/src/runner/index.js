@@ -15,7 +15,7 @@ const { WorkingCopies } = require('./seats')
 // Node runner) — it says so in its caps (browser: true, desktop 0.2.3) and takes the server's browser operations over this same link
 // folders: the person's folders of this computer kept as Lite folders (챔피언 폴더 — ./sync.js; 0.2.5): the app's record of them for this
 // server and person (settings.folderStore) — their messages (sync:*) go over this same link, for the person the pairing is for (userId)
-// seats: the variations' working copies this computer holds (작업본 — ./seats.js; 0.2.6): the app's record of them for this server and person
+// seats: the variations' working copies this computer holds (작업본 — ./seats.js; 0.2.7): the app's record of them for this server and person
 // (settings.seatStore) — their messages (seat:*) go over this same link too · seatOpts: the engine's timings (tests)
 function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, log = () => {}, searchPath = C.augmentedPath(), WS, maxJobs = 2, runMs, mode, sessionEnv, settleMs, browser = null,
   folders: folderStore = null, seats: seatStore = null, seatOpts = {}, userId = '' } = {}) {
@@ -30,9 +30,10 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     // CLI (0.2.2 — the composer's agent picker; only in a terminal)
     caps: { clis: Object.fromEntries(Object.entries(caps).map(([k, c]) => [k, { installed: c.installed, version: c.version, loggedIn: c.loggedIn, runnable: c.runnable }])), maxJobs, terminal: runner.interactive(), conversation: runner.interactive(), chat: runner.interactive(),
       // (0.2.3: browser tasks may run in this PC's browser — the server's 「브라우저 작업은 내 PC에서」 · 0.2.5: folders of this PC kept
-      // as Lite folders — 「내 PC 폴더 올리기」)
-      // (0.2.6: a variation's working copy on this PC — 「이 PC 에서 작업」)
-      browser: !!browser, folders: !!folderStore, seats: !!seatStore },
+      // as Lite folders — 「내 PC 폴더 올리기」 · 0.2.6: that browser keeps off the Lite app and marks its requests to it — the server
+      // sends browser tasks only to a desktop that says so)
+      // (0.2.7: a variation's working copy on this PC — 「이 PC 에서 작업」)
+      browser: !!browser, browserGuard: !!browser, folders: !!folderStore, seats: !!seatStore },
     prefs: prefs(),
     active: runner.activeIds(),
   })

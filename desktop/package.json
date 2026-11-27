@@ -1,7 +1,7 @@
 {
   "name": "process-gpt-lite-desktop",
   "productName": "Process GPT Lite",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "description": "Process GPT Lite desktop app: a window around a Lite server (company address or a local install)",
   "author": "uEngine",
@@ -19,6 +19,7 @@
     "postinstall": "node scripts/pty-helper.js"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "electron": "45.3.2",
     "electron-builder": "26.18.0"
   },

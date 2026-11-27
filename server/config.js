@@ -93,6 +93,9 @@ export const config = {
   gitTokenHours: Math.max(1, Number(get('PRO_GIT_TOKEN_HOURS', '72')) || 72),
   // when the nightly pass packs the folders' repositories (lib/folders/gc.js): a KST cron expression, or 'off'
   folderGcCron: get('PRO_FOLDER_GC_CRON', '0 3 * * *'),
+  // the copies 「다른 이름으로 저장」 leaves that nothing names any more (lib/cardCopies.js): off · dry (logs what it would remove) · on
+  copiesGc: get('PRO_COPIES_GC', 'dry'),
+  copiesGcCron: get('PRO_COPIES_GC_CRON', '30 3 * * *'),
   claudeBin: get('PRO_CLAUDE_BIN', 'claude'),
   // fast page-state / goal-done checks in the browser loop through the router's /decide
   browserGates: get('PRO_BROWSER_GATES', 'on') !== 'off',
@@ -185,6 +188,9 @@ export const config = {
   vaultKeyringFile: get('PRO_VAULT_KEYRING', path.join(here, '.vault-keyring.json')),
   vaultKekFile: path.join(here, '.vault-kek'),
   mailPollSeconds: Number(get('PRO_MAIL_POLL_SECONDS', 300)),
+  // the address(es) this installation's auth server sends its sign-in mail from (comma separated; the Compose install: its
+  // SMTP_ADMIN_EMAIL): a browser task never types in a code from such a mail (lib/mailCode.js pickCode ownSenders). Empty: none.
+  authMailFrom: String(get('PRO_AUTH_MAIL_FROM', '')).split(',').map((s) => s.trim()).filter(Boolean),
   // pg_cron fires schedules by calling back into this server through pg_net.
   cronCallbackBase: get('PRO_CRON_CALLBACK', 'http://host.docker.internal:8787'),
   // 'server': this server checks the schedules every minute instead (lib/scheduler.js)

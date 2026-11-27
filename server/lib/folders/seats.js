@@ -7,7 +7,7 @@
 //   server · workroom             서버 작업실에서 — its person, in the web workroom's files and shell (<root>/.people/<who>/<variation>)
 //   server · agent                서버 에이전트가 — a server agent run's checkout (a project turn, a chat change, a step, a handover receiver)
 //   device                        ○○의 PC 에서 — one computer of its person: a chat's 「내 PC」 run on a project's variation (its job), or the
-//                                 desktop's own working copy (「이 PC 에서 작업」 — seatLink.js, desktop 0.2.6)
+//                                 desktop's own working copy (「이 PC 에서 작업」 — seatLink.js, desktop 0.2.7)
 //   moving · returning            넘기는 중 — nobody changes it until it ends (MOVE_MS; past it the seat is gone: 보관 중)
 // Moving a seat commits what the old place holds as it is (nothing reset, nothing thrown away) and takes that place off disk before the next
 // place gets it, so there is never a moment with two places that can change the variation. Every change of seat raises the variation's

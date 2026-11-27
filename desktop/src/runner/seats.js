@@ -350,7 +350,7 @@ class WorkingCopies extends Uploader {
     this.root = path.join(this.dataDir, 'folders', SY.serverKey(this.server), SY.personKey(this.userId))
     // (the trash sits beside the working copies, under the same folder: moving one there is a rename on the same disk)
     this.trashRoot = path.join(this.root, 'trash')
-    this.oldTrash = path.join(this.dataDir, 'trash') // (where an earlier 0.2.6 build put it: only emptied after its 30 days)
+    this.oldTrash = path.join(this.dataDir, 'trash') // (where an earlier development build put it: only emptied after its 30 days)
     this.netCache = new Map() // server address → {at, pairs}
     this.prepAt = new Map() // variation → the server's time on the seat:prepare this computer last had
     this.lastListAt = 0

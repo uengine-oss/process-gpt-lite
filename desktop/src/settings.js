@@ -2,7 +2,10 @@
 // What the app remembers, in <userData>/desktop-settings.json:
 //   server       — the Lite server's base address (https://acme.process-gpt.io/lite, http://localhost:18080)
 //   recent       — servers used before (setup page list), newest first
-//   authOrigins  — the server's Supabase sign-in origin(s) (server.js authOriginsOf), refreshed on every start
+//   authOrigins  — the server's Supabase sign-in origin(s) (server.js authOriginsOf): every one it has named, added to on every start
+//   authSeen     — { [server]: [origin…] }: the sign-in origins each server has named (authOrigins is the chosen server's)
+//   appOrigins · appSeen — the same for the server's own addresses by its own account (server.js appOriginsOf — 0.2.6: the agent browser
+//                  keeps off them too)
 //   gate         — { user, pass } basic-auth pair for a server published behind one; pass encrypted with the
 //                  OS keychain (safeStorage) when it is available
 //   window       — { x, y, width, height, maximized }
@@ -18,6 +21,10 @@
 //   seats        — { [server]: [{variationId, userId, folderId, folderName, title, branch, dir, epoch, head, pushedAt, autoSave, state, why, dirty,
 //                  ahead, branchOk, flagged, person}] }: the variations' working copies this computer holds (작업본 — runner/seats.js), per
 //                  server and person. The working copy's path (dir — always under the app's data folder) is kept here only
+//   webSession   — { [origin]: {v, enc: true} }: the web app's sign-in on that server's origin (0.2.6 — the page's src/sessionStore.js, its
+//                  session tokens), sealed with the OS keychain; kept here only when it can be sealed (canSealWeb) — otherwise the page keeps
+//                  it in its own storage, as a browser does
+//   webSessionKept — [origin…]: origins whose sign-in has been kept here (stays after a sign-out: the page's storage is not read again)
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -33,22 +40,47 @@ function init(dir, safeStorage) {
   return data
 }
 
+// → whether it is on the disk now
 function save() {
-  if (!file) return
+  if (!file) return false
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     const tmp = `${file}.tmp`
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 })
     fs.renameSync(tmp, file)
-  } catch (e) { console.warn('[settings]', e.message) }
+    return true
+  } catch (e) { console.warn('[settings]', e.message); return false }
 }
 
 const get = () => data
 function set(patch) { data = { ...data, ...patch }; save(); return data }
+// the same, only when it reaches the disk (→ true); otherwise nothing changes (→ false)
+function setSaved(patch) {
+  const was = data
+  data = { ...data, ...patch }
+  if (save()) return true
+  data = was
+  return false
+}
 
-function useServer(server, authOrigins = []) {
+// A server's sign-in origins (and its own addresses): every one it has named is kept (a server just started may name none yet) — at
+// most 10 a server
+const MAX_AUTH_ORIGINS = 10
+function seen(key, server, origins = []) {
+  const had = ((data[key] || {})[server] || []).filter((o) => typeof o === 'string')
+  return [...new Set([...had, ...(Array.isArray(origins) ? origins : []).filter((o) => typeof o === 'string' && o)])].slice(-MAX_AUTH_ORIGINS)
+}
+function noteAuthOrigins(server, origins = [], appOrigins = []) {
+  if (!server) return data
+  const here = data.server === server
+  const auth = seen('authSeen', server, here ? [...(data.authOrigins || []), ...origins] : origins)
+  const app = seen('appSeen', server, here ? [...(data.appOrigins || []), ...appOrigins] : appOrigins)
+  return set({ authSeen: { ...(data.authSeen || {}), [server]: auth }, appSeen: { ...(data.appSeen || {}), [server]: app }, ...(here ? { authOrigins: auth, appOrigins: app } : {}) })
+}
+function useServer(server, authOrigins = [], appOrigins = []) {
   const recent = [server, ...(data.recent || []).filter((s) => s !== server)].slice(0, 6)
-  return set({ server, recent, authOrigins })
+  const auth = seen('authSeen', server, authOrigins), app = seen('appSeen', server, appOrigins)
+  return set({ server, recent, authOrigins: auth, appOrigins: app, authSeen: { ...(data.authSeen || {}), [server]: auth }, appSeen: { ...(data.appSeen || {}), [server]: app } })
 }
 
 const canEncrypt = () => { try { return !!safe && safe.isEncryptionAvailable() } catch { return false } }
@@ -101,6 +133,41 @@ const browserPrefOf = (v) => (BROWSER_PREFS.includes(v) ? v : 'own')
 const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true, finishMinutes: finishMinutesOf(data.runnerPrefs?.finishMinutes),
   browser: browserPrefOf(data.runnerPrefs?.browser) })
 
+// ---------- the web app's sign-in (0.2.6 — main.js pgl:session:*) ----------
+// Only sealed: when the keychain cannot be used (some Linux — no keyring, or the 'basic_text' store, whose key is the same everywhere)
+// nothing is kept here and the page keeps its sign-in as it did before. noSeal: tests only (main.js — an app that is not packaged).
+let noSeal = false
+const setNoSeal = (v) => { noSeal = !!v }
+function canSealWeb() {
+  if (noSeal || !canEncrypt()) return false
+  try { if (process.platform === 'linux' && safe.getSelectedStorageBackend?.() === 'basic_text') return false } catch { /* older Electron */ }
+  return true
+}
+const MAX_WEB_SESSION = 64 * 1024
+function webSession(origin) {
+  const x = (data.webSession || {})[origin]
+  if (!x?.enc || !canSealWeb()) return null
+  try { return safe.decryptString(Buffer.from(x.v || '', 'base64')) || null } catch { return null }
+}
+// → false when it was not kept (the keychain refused, too long, or the settings file could not be written): the page then holds it for
+// this load only, and a copy in its own storage stays there
+function setWebSession(origin, value) {
+  const v = String(value ?? '')
+  if (!origin || !canSealWeb() || !v || v.length > MAX_WEB_SESSION) return false
+  let sealed
+  try { sealed = safe.encryptString(v).toString('base64') } catch { return false }
+  const kept = [...new Set([...(data.webSessionKept || []).filter((o) => o !== origin), origin])].slice(-50)
+  return setSaved({ webSession: { ...(data.webSession || {}), [origin]: { v: sealed, enc: true } }, webSessionKept: kept })
+}
+// this origin's sign-in has been kept here before (a sign-out since does not change it)
+const webSessionKept = (origin) => !!origin && (data.webSessionKept || []).includes(origin)
+function forgetWebSession(origin) {
+  if (!(data.webSession || {})[origin]) return true
+  const all = { ...data.webSession }
+  delete all[origin]
+  return setSaved({ webSession: all })
+}
+
 // ---------- the folders of this computer kept as Lite folders (runner/sync.js) — one person's on one server ----------
 // put(entry) adds or replaces that person's entry for entry.folderId; another person's entries on the same server are never seen or changed
 function folderStore(server, userId) {
@@ -142,5 +209,5 @@ function seatStore(server, userId) {
   }
 }
 
-module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS, folderStore,
-  seatStore }
+module.exports = { init, get, set, useServer, noteAuthOrigins, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS, folderStore,
+  seatStore, canSealWeb, setNoSeal, webSession, setWebSession, forgetWebSession, webSessionKept, MAX_WEB_SESSION }

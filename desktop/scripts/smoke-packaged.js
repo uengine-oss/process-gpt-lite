@@ -61,6 +61,16 @@ async function main() {
     return `${all.length} prebuild files`
   })
 
+  // the fuses the build flips (scripts/adhoc-sign.js FUSES — 0.2.6): cookies on disk sealed with the system's keychain
+  await check('fuses', async () => {
+    const { getCurrentFuseWire, FuseV1Options } = require('@electron/fuses')
+    const wire = await getCurrentFuseWire(MAC ? app : exe)
+    // (the wire's bytes: '1' on, '0' off)
+    const on = wire[FuseV1Options.EnableCookieEncryption] === '1'.charCodeAt(0)
+    must(on, `EnableCookieEncryption is ${String.fromCharCode(wire[FuseV1Options.EnableCookieEncryption])} — cookies on disk are not sealed`)
+    return 'EnableCookieEncryption on'
+  })
+
   // the first start of a binary is slow once (macOS checks its signature; on Apple Silicon, Rosetta translates an Intel app — over a
   // minute on a CI runner): it is done here, untimed, so the checks below measure the app
   await check('warm-up (first start)', () => {

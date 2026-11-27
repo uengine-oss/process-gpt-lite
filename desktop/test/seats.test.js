@@ -1,5 +1,5 @@
 'use strict'
-// 작업본은 한 곳에 — a variation's working copy on this computer (src/runner/seats.js, desktop 0.2.6; spec openspec/specs/variation-seats).
+// 작업본은 한 곳에 — a variation's working copy on this computer (src/runner/seats.js, desktop 0.2.7; spec openspec/specs/variation-seats).
 // The link is a fake (the test plays the server: seat:prepare → ready → held, seat:token for this variation at this epoch, seat:pushed →
 // the variation's branch moves forward, seat:release → released, seat:left → a variation of its own, as server/lib/folders/seatLink.js
 // does); the folder's git server is real (git http-backend behind a Bearer token — test/helpers/gitServer.js) over a bare repository that
@@ -1565,7 +1565,7 @@ test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이
     r.link.send = (m) => { out.push(m); const k = { 'seat:ready': 'ready' }[m.type]; const ans = k && plays[k](m); if (ans) setImmediate(() => r.link.emit('message', ans)); return true }
     wc = r.seats
     assert.ok(r.seats)
-    assert.equal(r.link.helloFn().caps.seats, true, '0.2.6: 이 PC 에서 작업할 수 있다')
+    assert.equal(r.link.helloFn().caps.seats, true, '0.2.7: 이 PC 에서 작업할 수 있다')
     r.link.emit('welcome', { user: { id: USER, name: '박작업' }, device: { id: crypto.randomUUID(), name: 'x' } })
     assert.equal(r.seats.connected, true)
     const v = variation('페이지에서 열기')

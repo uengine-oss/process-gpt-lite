@@ -1,6 +1,9 @@
 import * as SO from './lib/sendOnce.js'
 import express from 'express'
 import { apiHeaders } from './lib/apiHeaders.js'
+import { refuseAgentBrowser, guardUpgrades, fromAgentBrowser } from './lib/agentBrowserGuard.js'
+import { ownOrigins } from './lib/liteOwn.js'
+import { noteSignInMail } from './lib/mailCode.js'
 import nodeFs from 'node:fs'
 import nodePath from 'node:path'
 import path from 'node:path'
@@ -68,7 +71,7 @@ import { mailReplyRoutes } from './routes/mailReply.js'
 import { mailOutRoutes } from './routes/mailOut.js'
 import { mailAttachmentRoutes } from './routes/mailAttachments.js'
 import { savePrivateCard, saveKindOf } from './lib/mailAttachments.js'
-import { keepVersion, saveCardAs, savedCopyOk } from './lib/cardCopies.js'
+import { keepVersion, saveCardAs, savedCopyOk, startCopiesGc } from './lib/cardCopies.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
@@ -117,6 +120,9 @@ import * as llmKeys from './lib/llmKeys.js'
 import * as llmUsage from './lib/llmUsage.js'
 
 const app = express()
+// the browser the agent drives on the person's PC is never served here — not the API and its sign-in, not the MCP endpoints, not the
+// ArtCraft apps: every request, ahead of every route (lib/agentBrowserGuard.js)
+app.use(refuseAgentBrowser)
 // ArtCraft web apps (static WebAssembly builds) on this origin: their postMessage bridge only
 // answers a parent page on the same origin. Hashed assets are immutable; index.html is not.
 // the wasm/js are served gzipped (prepared next to them as .gz): VectorCraft's wasm is 70 MB raw, 25 MB gzipped
@@ -221,7 +227,10 @@ app.get('/api/config', async (req, res) => {
   ])
   const at = tools || { tools: shape(none(), () => false), via: shape(none()) }
   res.json({ google, googleLogin: google && !config.tenantFromHeader, sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl,
-    agentTools: at.tools, agentToolsVia: at.via, transcribe: transcribeHealth() })
+    agentTools: at.tools, agentToolsVia: at.via, transcribe: transcribeHealth(),
+    // this server's own addresses (its public one — a tunnel's when that is it — and the tenant's): the desktop app's agent browser keeps
+    // off them by whichever address the app is connected at (desktop/src/server.js appOriginsOf)
+    appOrigins: ownOrigins() })
 })
 
 // ---------- Google: the installed sign-in, and connecting a signed-in person's account (lib/googleConnect.js) ----------
@@ -307,6 +316,9 @@ app.get('/api/auth/google/callback', async (req, res) => {
   clearStateCookie(res, st.base)
   res.set('Cache-Control', 'no-store')
   res.set('Referrer-Policy', 'no-referrer')
+  // (an agent's browser — this server's own, marked — comes back here only from a connection it was given: never a sign-in, nor a
+  // connection started on the person's phone; lib/agentBrowserGuard.js)
+  if (fromAgentBrowser(req) && st.mode !== 'browser') return withLang(st.lang || 'ko', () => googlePage(res, { ok: false, status: 403, text: L('에이전트 브라우저에서는 로그인하지 않아요.', 'The agent\'s browser does not sign in.') }))
   await withLang(st.lang || 'ko', async () => {
     const fail = (message) => {
       if (st.mode === 'login') return res.redirect(`${st.base}/login?error=${encodeURIComponent(message)}`)
@@ -386,6 +398,8 @@ app.delete('/api/admin/google-client', auth, adminOnly, async (req, res) => {
 const tenantEmail = async (email) => !config.tenantFromHeader || isMemberEmail(email, config.tenantId)
 app.post('/api/auth/email/start', async (req, res) => {
   if (!(await tenantEmail(req.body.email))) return res.json({ sent: true, demo: demoLogin })
+  // (a sign-in code mailed to this address now: a browser task watching that mailbox does not type it in — lib/mailCode.js)
+  noteSignInMail(req.body.email)
   const r = await fetch(`${config.supabaseUrl}/auth/v1/otp`, {
     method: 'POST', headers: { apikey: config.anonKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: req.body.email, create_user: !config.tenantFromHeader }),
@@ -1397,6 +1411,7 @@ const server = app.listen(config.port, async () => {
   startFolderSteps()
   // the folders' repositories packed at night, one at a time (lib/folders/gc.js)
   startFolderGc()
+  startCopiesGc()
   // shared folders' documents the old image could not read get their cards now (lib/folders/indexer.js)
   setTimeout(() => retryUnreadCards().then((n) => n && console.log(`[folders] cards again in ${n} folder(s)`)).catch((e) => console.warn('[folders] cards again', e.message)), 30_000)
   startConstraintSweep()
@@ -1410,6 +1425,9 @@ const server = app.listen(config.port, async () => {
 // A folder going up request by request gives up on its own when a body stops coming (lib/folders/batchBody.js, 30 s).
 server.requestTimeout = 15 * 60 * 1000
 
+// a websocket from the browser the agent drives on the person's PC is refused before any of the links below sees it
+// (lib/agentBrowserGuard.js)
+guardUpgrades(server)
 // terminals in the agent workroom (websocket upgrade on /api/workroom/term)
 workroom.attachTerminal(server)
 // the desktops' links for local CLI agents (websocket upgrade on /api/local-agents/link) and their step worker — like the business

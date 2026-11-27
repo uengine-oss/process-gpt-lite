@@ -164,10 +164,11 @@ export function capsOf(raw = {}) {
   }
   // (chat: it runs chat messages for its person's CLI — desktop 0.2.2, the composer's agent picker · browser: it has a browser the
   // server's browser agent can drive — desktop 0.2.3, lib/browserRemote.js)
-  // (folders: it uploads folders its person picked — champion folders, desktop 0.2.5 · seats: it keeps working copies of variations —
-  // 「이 PC 에서 작업」, desktop 0.2.6, folders/seatLink.js)
+  // (folders: it uploads folders its person picked — champion folders, desktop 0.2.5 · browserGuard: that browser keeps off the Lite app and
+  // marks its requests to it — desktop 0.2.6; browser tasks go only to such a desktop, lib/browserRemote.js browsesHere · seats: it keeps
+  // working copies of variations — 「이 PC 에서 작업」, desktop 0.2.7, folders/seatLink.js)
   return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true, conversation: raw?.conversation === true, chat: raw?.chat === true,
-    browser: raw?.browser === true, folders: raw?.folders === true, seats: raw?.seats === true }
+    browser: raw?.browser === true, browserGuard: raw?.browserGuard === true, folders: raw?.folders === true, seats: raw?.seats === true }
 }
 // browser: 「브라우저 작업은 내 PC에서」 — this PC's own setting (desktop 0.2.3): 'own' (the person's own tasks, the default) · 'all' (also tasks
 // nobody watches) · 'off' (lib/browserRemote.js routeOf)

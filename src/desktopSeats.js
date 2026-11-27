@@ -1,4 +1,4 @@
-// 「이 PC 에서 작업」 (작업본은 한 곳에 P1 — spec openspec/specs/variation-seats): in the desktop app (0.2.6) a variation's working copy can
+// 「이 PC 에서 작업」 (작업본은 한 곳에 P1 — spec openspec/specs/variation-seats): in the desktop app (0.2.7) a variation's working copy can
 // be on this very computer. The page asks the server for the seat (POST …/seat {to:'device', deviceId} — the server tells the app over its
 // link to fetch the variation and make the working copy in the app's data folder), then waits on the app (window.pglDesktop.seats,
 // desktop/src/preload.js) until it holds it. The page never sends or receives a path — only the variation's id: 「폴더 열기」 · 「터미널

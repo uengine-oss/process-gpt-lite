@@ -127,7 +127,7 @@ before(async () => {
   await startPc()
   // another person's desktop is on too (a fake link): nothing of this person's may ever go there
   const t2 = (await D.issue({ id: other }, { name: '남의 PC' })).token
-  const otherLink = await H.open({ send: () => {}, close: () => {} }, { type: 'hello', token: t2, caps: { browser: true }, prefs: {} })
+  const otherLink = await H.open({ send: () => {}, close: () => {} }, { type: 'hello', token: t2, caps: { browser: true, browserGuard: true }, prefs: {} })
   tap(otherLink)
   ;[{ id: threadId }] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat','local browser test') returning id`, [user])
 })
@@ -441,7 +441,7 @@ test('이어진 PC 의 브라우저가 거듭 열리지 않으면 3번까지만 
       : { type: 'browser-reply', id: m.id, ok: true, value: m.op === 'navigate' ? { ok: true, partial: false, ms: 5 } : m.op === 'open' ? { shown: false } : null, at }
     setImmediate(() => H.receive(link, reply))
   }
-  link = await H.open({ send: (text) => answer(JSON.parse(text)), close: () => {} }, { type: 'hello', token: tok, caps: { browser: true }, prefs: { enabled: true, browser: 'own' } })
+  link = await H.open({ send: (text) => answer(JSON.parse(text)), close: () => {} }, { type: 'hello', token: tok, caps: { browser: true, browserGuard: true }, prefs: { enabled: true, browser: 'own' } })
   const goal = '고장 난 PC 에서'
   scripts[goal] = { i: 0, moves: [['note', { text: '아무거나' }]] }
   const cardOf = async () => (await q(`select id, content from pro_messages where thread_id=$1 and kind='task' and content->>'goal'=$2 order by created_at desc limit 1`, [th, goal]))[0]
@@ -524,4 +524,20 @@ test('사람이 시키지 않은 작업(own: false — 회사 루틴의 자동 �
     assert.match(r.notes.at(-1), /refused: this task runs with nobody watching/)
     assert.ok(!opsSent().some((m) => m.op === 'navigate' && /127\.0\.0\.1/.test(m.args.url)))
   } finally { await setPc({ browser: 'own' }) }
+})
+
+test('PC 의 브라우저는 그 데스크톱이 연결한 Lite 서버의 주소를 열지 않는다 — 이 PC 의 다른 이름으로도, 에이전트는 까닭을 받는다 (데스크톱 0.2.6)', { skip }, async () => {
+  const goal = 'PC 에서 Lite 열기'
+  const r = await run(goal, [
+    ['goto', { url: `${hubUrl}/login` }],
+    ['goto', { url: `${hubUrl.replace('127.0.0.1', 'localhost')}/chat` }],
+    (b) => ['note', { text: `${lastSnap(b).url} | ${b.messages.filter((m) => m.role === 'tool').map((m) => String(m.content)).join(' | ')}` }],
+    ['finish', { summary: '열지 않았어요.' }],
+  ])
+  assert.equal(r.state, 'done', JSON.stringify(r).slice(0, 300))
+  assert.equal(r.where.kind, 'local')
+  const [where, ...told] = r.notes.at(-1).split(' | ')
+  assert.equal(where, `${site.url}/shop`, '페이지는 시작한 사이트 그대로')
+  assert.equal(told.length, 2)
+  for (const t of told) assert.match(t, /^error: could not open .*this browser does not open the Process GPT Lite app/)
 })

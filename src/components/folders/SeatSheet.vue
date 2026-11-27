@@ -1,6 +1,6 @@
 <script setup>
 // 「작업실」 — where to open it (작업본은 한 곳에 P1, spec variation-seats): a variation is changed in one place at a time, so the button first
-// asks where. In the desktop app (0.2.6) 「이 PC 에서 작업」 comes first and is the default (Enter): the server moves the seat to this computer
+// asks where. In the desktop app (0.2.7) 「이 PC 에서 작업」 comes first and is the default (Enter): the server moves the seat to this computer
 // and the app makes the working copy in its data folder (Finder · the person's terminal · their own CLI work on it there); 「서버 작업실에서
 // 열기」 is the web workroom. In a browser only the server workroom — with a word on where the PC way is (the desktop app).
 //   variation: one variation (its screen's 「작업실」) · none: the folder header's — my variations of this folder, a new one, and main
@@ -33,7 +33,7 @@ const checked = new Map()
 const desktop = inDesktop()
 const old = oldDesktop()
 const pcReady = computed(() => !!bridge() && !!dev.value?.deviceId && dev.value.connected)
-const pcWhy = computed(() => (old ? '데스크톱 앱을 새 판(0.2.6)으로 바꾸면 이 PC 에서 작업할 수 있어요.'
+const pcWhy = computed(() => (old ? '데스크톱 앱을 새 판(0.2.7)으로 바꾸면 이 PC 에서 작업할 수 있어요.'
   : !dev.value?.deviceId ? '이 PC 가 내 계정에 연결돼 있지 않아요 — 설정 › 내 컴퓨터의 에이전트에서 연결해 주세요.'
     : !dev.value.connected ? '이 PC 가 서버에 이어져 있지 않아요 — 다시 이어지면 할 수 있어요.' : ''))
 const rows = computed(() => (props.variation ? [props.variation] : (choices.value?.mine || [])))

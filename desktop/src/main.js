@@ -76,6 +76,8 @@ if (HOOK_AT > 0) {
 
 function start() {
   settings.init(app.getPath('userData'), safeStorage)
+  // (tests only — an app that is not packaged: as on a computer whose keychain cannot be used — the page keeps its sign-in itself)
+  if (!app.isPackaged && process.env.PGL_DESKTOP_NO_SEAL === '1') settings.setNoSeal(true)
   if (!settings.get().lang) settings.set({ lang: /^ko\b/i.test(app.getLocale()) ? 'ko' : 'en' })
   app.setAboutPanelOptions({ applicationName: 'Process GPT Lite', applicationVersion: app.getVersion(), copyright: '© uEngine' })
   if (MAC && !app.isPackaged) { try { app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png')) } catch { /* no icon yet */ } }
@@ -84,9 +86,10 @@ function start() {
   createWindow()
   startTray()
   startRunner()
-  // the server's Supabase sign-in address may change (or was never read): ask again quietly
+  // the server's Supabase sign-in address may change (or was never read): ask again quietly — added to the ones seen before, never
+  // put in their place (a server that has just started may not say it yet)
   const s = settings.get().server
-  if (s) server.check(s, { fetch: net.fetch, ...(settings.gate() || {}) }).then((r) => { if (r.ok && r.server === s) settings.set({ authOrigins: r.authOrigins }) }).catch(() => {})
+  if (s) server.check(s, { fetch: net.fetch, ...(settings.gate() || {}) }).then((r) => { if (r.ok && r.server === s) settings.noteAuthOrigins(s, r.authOrigins, r.appOrigins) }).catch(() => {})
 }
 
 // ---------- the window ----------
@@ -108,7 +111,8 @@ function mainPrefs() {
     additionalArguments: [`--pgl-insets=${insets().join(',')}`, `--pgl-version=${app.getVersion()}`],
   }
 }
-// windows the page opens on its own address (a file it shows, 원본 받기): an ordinary framed window, no preload
+// windows the page opens on the server's other addresses (a file it shows, 원본 받기 — policy.windowFor 'child'): an ordinary framed
+// window, no preload
 const childPrefs = () => ({ contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, devTools: DEV })
 
 function restoreBounds(saved) {
@@ -145,6 +149,10 @@ function createWindow() {
 
   const wc = win.webContents
   guard(wc)
+  // (a new document: its router listens again once the web app has started — showInWindow)
+  wc.on('did-start-navigation', (e, url, inPlace, isMain) => {
+    if ((e?.isMainFrame ?? isMain) && !(e?.isSameDocument ?? inPlace)) navListening = false
+  })
   for (const [ev, on] of [['enter-full-screen', true], ['leave-full-screen', false]]) win.on(ev, () => wc.send('pgl:fullscreen', on))
   wc.on('did-finish-load', () => {
     if (win.isFullScreen()) wc.send('pgl:fullscreen', true)
@@ -183,7 +191,8 @@ function saveWindow() {
 }
 
 const serverUrl = () => settings.get().server || ''
-const ctx = () => ({ server: serverUrl(), authOrigins: settings.get().authOrigins || [] })
+// (appOrigins: the server's own addresses by its own account — only the agent browser's rules read them, browser/host.js)
+const ctx = () => ({ server: serverUrl(), authOrigins: settings.get().authOrigins || [], appOrigins: settings.get().appOrigins || [] })
 const isServerPage = (url) => !!serverUrl() && policy.kind(url, ctx()) === 'app' && !String(url).startsWith('about:')
 
 function loadServer(sub = '/chat') {
@@ -232,16 +241,59 @@ function guard(wc) {
   wc.on('will-redirect', onNav)
   wc.on('will-attach-webview', (e) => e.preventDefault())
   wc.setWindowOpenHandler(({ url }) => {
-    const k = policy.kind(url, ctx())
-    if (k === 'app' && url !== 'about:blank') {
+    const w = policy.windowFor(url, ctx())
+    if (w === 'child') {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 1100, height: 800, backgroundColor: '#ffffff', autoHideMenuBar: true, webPreferences: childPrefs() } }
     }
-    if (k === 'external' || k === 'auth') openExternal(url)
+    // a screen of the web app (a link in the chat to a project, a folder): this window goes there by the web app's own router (nothing
+    // reloads — a meeting, an open document, a reply on its way stay); a new window would have no bridge to the sign-in the app keeps
+    if (w === 'main') showInWindow(url)
+    if (w === 'outside') openExternal(url)
     return { action: 'deny' }
   })
   wc.on('did-create-window', (child) => guard(child.webContents))
   wc.on('context-menu', (_e, p) => contextMenu(wc, p))
 }
+
+// the web app's screen at url, in the app's window: its router goes there (pgl:navigate — preload onNavigate); a window that does not show
+// the web app now (the setup or offline page) loads it
+// - the window shows one of the web app's screens and its router listens (pgl:navigate:listening — preload onNavigate): it goes there
+// - it shows one and the router does not listen yet (the page is still starting): it goes there once it does — or, when it has not
+//   within NAV_WAIT_MS (a web app too old to listen), the window loads the address
+// - it shows anything else (the setup or offline page, ProcessGPT's own pages at the origin's root, a file): the window loads the address
+// Never the web app's sign-in return page (/auth/…).
+let navListening = false
+let navPending = null // { to, url, timer }
+const NAV_WAIT_MS = 3000
+function showInWindow(url) {
+  if (!win || win.isDestroyed()) createWindow()
+  let to = ''
+  try {
+    const u = new URL(url), root = new URL(serverUrl()).pathname.replace(/\/+$/, '')
+    to = `${u.pathname.slice(root.length) || '/'}${u.search}${u.hash}`
+  } catch { return }
+  if (/^\/auth(\/|$|\?|#)/.test(to) || policy.windowFor(url, ctx()) !== 'main') return
+  const wc = win.webContents
+  clearTimeout(navPending?.timer)
+  navPending = null
+  if (policy.windowFor(wc.getURL(), ctx()) !== 'main') win.loadURL(url).catch(() => { /* did-fail-load shows the offline page */ })
+  else if (navListening) wc.send('pgl:navigate', to)
+  else {
+    navPending = { to, url, timer: setTimeout(() => { if (navPending?.url === url) { navPending = null; win?.loadURL(url).catch(() => {}) } }, NAV_WAIT_MS) }
+  }
+  if (win.isMinimized()) win.restore()
+  win.focus()
+}
+ipcMain.on('pgl:navigate:listening', (e) => {
+  if (!fromServerPage(e) || e.senderFrame !== e.sender.mainFrame) return
+  navListening = true
+  if (!navPending) return
+  clearTimeout(navPending.timer)
+  e.sender.send('pgl:navigate', navPending.to)
+  navPending = null
+})
+// (tests — an app that is not packaged, PGL_DESKTOP_EXTERNAL=log: what a link to a screen does, from the main process)
+if (!app.isPackaged && process.env.PGL_DESKTOP_EXTERNAL === 'log') global.__pglShowInWindow = (u) => showInWindow(u)
 
 // what a right click offers where the page does not handle it: editing, copying, a link
 function contextMenu(wc, p) {
@@ -355,7 +407,7 @@ ipcMain.handle('pgl:connect', async (e, v) => {
   const pass = v?.pass ? String(v.pass).slice(0, 500) : (old && old.user === user ? old.pass : '')
   const r = await server.check(input, { fetch: net.fetch, user, pass })
   if (!r.ok) return r
-  settings.useServer(r.server, r.authOrigins)
+  settings.useServer(r.server, r.authOrigins, r.appOrigins)
   settings.setGate(user, pass)
   // the count was the last server's (its page sends its own once it loads)
   trayBadge?.set(0)
@@ -416,8 +468,18 @@ let cliCache = null
 let browserHost = null
 const localBrowser = () => {
   if (process.env.PGL_DESKTOP_BROWSER === '0') return null
-  browserHost ||= createBrowserHost({ electron: require('electron'), log: (...a) => runnerLog(a.join(' ')) })
+  // (never the Lite app this window shows, nor its sign-in: the server chosen now and its Supabase sign-in — policy.js agentMay)
+  browserHost ||= createBrowserHost({ electron: require('electron'), log: (...a) => runnerLog(a.join(' ')), appServer: ctx, notice: browserNotice })
   return browserHost
+}
+// a window of that browser shown on this PC did not open the Lite app or its sign-in: the person is told why, in a box on that window
+// (tests — an app that is not packaged, PGL_DESKTOP_EXTERNAL=log: global.__pglBrowserNotices instead of the box)
+function browserNotice({ origin, win: w }) {
+  const ko = settings.get().lang !== 'en'
+  const message = ko ? '이 주소는 에이전트 브라우저에서 열지 않아요' : 'This address does not open in the agent\'s browser'
+  const detail = ko ? `${origin}\nProcess GPT Lite 는 앱 창에서 쓰세요.` : `${origin}\nUse Process GPT Lite in the app's own window.`
+  if (!app.isPackaged && process.env.PGL_DESKTOP_EXTERNAL === 'log') { (global.__pglBrowserNotices ||= []).push({ origin, message }); return }
+  dialog.showMessageBox(w && !w.isDestroyed() ? w : undefined, { type: 'info', message, detail, buttons: [ko ? '확인' : 'OK'], noLink: true }).catch(() => {})
 }
 const runnerLog = (s) => { if (DEV || process.env.PGL_RUNNER_LOG === '1') console.log(s) }
 // (PGL_RUNNER_DEVICE_NAME: a name of one's own — the tests' screenshots carry no machine name)
@@ -526,6 +588,20 @@ ipcMain.handle('pgl:runner:detect', async (e) => {
   return runnerStatus()
 })
 
+// ---------- the web app's sign-in, sealed with the system's keychain (0.2.6) ----------
+// The page's session (src/sessionStore.js — its access and refresh tokens) is kept by main in desktop-settings.json, sealed with
+// safeStorage (settings.webSession) per origin, not in the page's localStorage. Only the chosen server's own pages, in the main window's
+// top frame; synchronous (the page reads it as it starts and keeps it in its preload). {sealed: false}: it cannot be sealed here
+// (settings.canSealWeb) — the page keeps it itself, as a browser does. kept: the app has kept this origin's sign-in before — a copy in the
+// page's storage is then not taken (src/sessionStore.js)
+const sessionOrigin = (e) => policy.originOf(String(e.senderFrame?.url || ''))
+const sessionCall = (e, fn) => {
+  try { e.returnValue = fromServerPage(e) && e.senderFrame === e.sender.mainFrame && sessionOrigin(e) ? fn(sessionOrigin(e)) : null } catch { e.returnValue = null }
+}
+ipcMain.on('pgl:session:get', (e) => sessionCall(e, (o) => (settings.canSealWeb() ? { sealed: true, value: settings.webSession(o), kept: settings.webSessionKept(o) } : { sealed: false })))
+ipcMain.on('pgl:session:set', (e, v) => sessionCall(e, (o) => (typeof v === 'string' && settings.setWebSession(o, v))))
+ipcMain.on('pgl:session:clear', (e) => sessionCall(e, (o) => settings.forgetWebSession(o)))
+
 // ---------- 챔피언 폴더: a folder of this computer kept as a Lite folder (runner/sync.js — desktop 0.2.5) ----------
 // The page asks (pglDesktop.folders); main picks the folder in the system's own dialog, and asks the person once more in a system dialog
 // before the first upload — the page's click alone uploads nothing. The page never sends or receives a path: it gets a pick id, a label
@@ -608,7 +684,7 @@ ipcMain.handle('pgl:folders:reveal', async (e, id) => {
   return err ? { ok: false, why: 'folder_missing' } : { ok: true }
 })
 
-// ---------- 작업본: a variation's working copy on this computer (runner/seats.js — desktop 0.2.6) ----------
+// ---------- 작업본: a variation's working copy on this computer (runner/seats.js — desktop 0.2.7) ----------
 // The page asks the server for the seat (POST …/seat {to:'device'}); what to fetch and where comes from the server over the link
 // (seat:prepare) — the page's word alone clones nothing. The page sends and gets ids only: main finds the working copy's folder in the
 // app's record and opens it in Finder · Explorer or in the system's terminal (a fixed list of programs; the folder is their only argument).
@@ -811,5 +887,7 @@ function openHome() {
 }
 // only the chosen server's own pages, in the main window, say the count
 ipcMain.on('pgl:badge', (e, n) => { if (fromServerPage(e)) trayBadge?.set(n) })
+// a panel app's link (src/components/PanelFrame.vue — a sandboxed app in the page): the system browser, never this window
+ipcMain.on('pgl:open-outside', (e, url) => { if (fromServerPage(e) && /^https?:/i.test(String(url || ''))) openExternal(String(url).slice(0, 4000)) })
 
 app.on('before-quit', () => { browserHost?.quit(); stopRunner(); trayBadge?.destroy() })

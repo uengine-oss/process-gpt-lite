@@ -26,7 +26,7 @@ import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } fr
 import { judge } from './judge.js'
 import { STEP, StepError, isStop, bounded, pause, watchdog } from './browserSteps.js'
 import { ServerDriver, within, blankOf, lookAt } from './browserServer.js'
-import { RemoteDriver, routeFor, privateAddress } from './browserRemote.js'
+import { RemoteDriver, routeFor, privateAddress, browsesHere } from './browserRemote.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
 import { BLOCK, HARD, turnOf, progressOf, budgetAfter } from './browserProgress.js'
@@ -170,10 +170,11 @@ async function localDriver(userId, s, link) {
 }
 // Where this task runs, decided when it gets the browser (lib/browserRemote.js routeFor): the person's PC when their desktop is on, has
 // a browser and its own setting lets this task there (own: the person's own task; one nobody watches only when that PC says 'all'),
-// else this server. A PC that does not open its browser in time leaves the task to this server (said on the card: where.why). The page
+// else this server; one that starts on a page of this Lite server itself stays on this server (startUrl: why 'lite-page'). A PC that does
+// not open its browser in time leaves the task to this server (said on the card: where.why). The page
 // has to answer before it is used; a task nobody watches is kept off that PC's own network (begin noPrivate).
-async function takeBrowser(userId, s, { own = true, unattended = false } = {}) {
-  const r = await routeFor(userId, { own }).catch((e) => { console.warn('[browser] route', e.message); return { kind: 'server', why: 'error' } })
+async function takeBrowser(userId, s, { own = true, unattended = false, startUrl = '' } = {}) {
+  const r = await routeFor(userId, { own, startUrl }).catch((e) => { console.warn('[browser] route', e.message); return { kind: 'server', why: 'error' } })
   let why = r.why || null
   if (r.kind === 'local') {
     try {
@@ -431,7 +432,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   let notTaken = null
   // (nobody watches it: unattended, or not the person's own — not their PC's own network)
   const guarded = !!unattended || !own
-  const ready = idle ? takeBrowser(userId, s, { own, unattended }).then((w) => { where = w }, (e) => { notTaken = e; console.warn('[browser] take', e.message) }) : null
+  const ready = idle ? takeBrowser(userId, s, { own, unattended, startUrl }).then((w) => { where = w }, (e) => { notTaken = e; console.warn('[browser] take', e.message) }) : null
   // (not this PC's own network for a task nobody watches: the start page waits for the check below)
   const early = startUrl && idle
     ? (emit(userId, 'status', { threadId, text: L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`) }),
@@ -505,7 +506,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // the browser could not be had (this server's Chromium did not start): the card says so and the next task in line goes on — never a
   // card left running and a queue held (2026-11-25 review)
   if (!where) {
-    try { where = await takeBrowser(userId, s, { own, unattended }) } catch (err) { notTaken = err }
+    try { where = await takeBrowser(userId, s, { own, unattended, startUrl }) } catch (err) { notTaken = err }
   }
   if (!where) {
     console.warn(`[browser] task ${card.id}: no browser — ${notTaken?.message}`)
@@ -1502,7 +1503,7 @@ async function whenOffline(s, task, messages) {
   const device = was.device || {}
   const tenant = config.tenantId
   const host = hostOf(url)
-  let link = H.linksOf(tenant, task.userId).find((l) => l.id === device.id && l.caps?.browser) || null
+  let link = H.linksOf(tenant, task.userId).find((l) => l.id === device.id && browsesHere(l)) || null
   // the PC is still linked but its browser keeps failing to open: after MAX_REOPENS tries the task pauses as if it were off (the person
   // chooses this server's browser, or waits for the app to come back) — never a loop of reopening (2026-11-25 review)
   let broken = false

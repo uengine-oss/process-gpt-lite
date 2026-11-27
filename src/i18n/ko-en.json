@@ -3455,7 +3455,7 @@
   "main 을 서버 작업실에서 열기": "Open main in the server workroom",
   "여럿이 합친 줄이에요. PC 에서는 변형으로 고치고 반영해요.": "It is where everyone's work meets. On a PC you change a variation and merge it.",
   "내 PC 의 Finder · 터미널 · Claude Code · Codex 로 고치려면 데스크톱 앱에서 「작업실」 → 「이 PC 에서 작업」을 눌러 주세요.": "To change it with Finder, a terminal, Claude Code or Codex on your PC, press \"Workroom\" → \"Work on this PC\" in the desktop app.",
-  "데스크톱 앱을 새 판(0.2.6)으로 바꾸면 이 PC 에서 작업할 수 있어요.": "Update the desktop app (0.2.6) to work on this PC.",
+  "데스크톱 앱을 새 판(0.2.7)으로 바꾸면 이 PC 에서 작업할 수 있어요.": "Update the desktop app (0.2.7) to work on this PC.",
   "이 PC 가 내 계정에 연결돼 있지 않아요 — 설정 › 내 컴퓨터의 에이전트에서 연결해 주세요.": "This PC isn't linked to your account — link it in Settings › Agents on my computer.",
   "이 PC 가 서버에 이어져 있지 않아요 — 다시 이어지면 할 수 있어요.": "This PC isn't connected to the server — you can once it is back.",
   "이 PC 가 서버에 이어져 있지 않아요 — 다시 이어지면 해 주세요.": "This PC isn't connected to the server — try again once it is back.",

@@ -243,7 +243,9 @@ let sessionUrl = ''
 let savingAs = false
 // what belongs to one opening (app.setOfficeDoc gives each its own `opening`): a new one starts clean — a failure, a 「한 번 더 닫으면」, the
 // session of the one before never carry over (review #107: a panel save that failed was replayed into the next opening)
-watch(() => app.officeDoc?.opening, () => { session = newSession(); lastFail = null; lastFailWhy = ''; cardFail = null; panelFail = null; closeArmed = false; sessionUrl = '' })
+// the card was moved to a copy of its own for a 「다른 이름으로 저장」 (keep-version) and has not taken a save since: not again (a retry of it)
+let versionKept = false
+watch(() => app.officeDoc?.opening, () => { session = newSession(); lastFail = null; lastFailWhy = ''; cardFail = null; panelFail = null; closeArmed = false; sessionUrl = ''; versionKept = false })
 // A mail's attachment opened from its own private copy (src/mailAttach.js — not a folder's: that one is the folder's file above): its first
 // save becomes my own private file card in my chat (server lib/mailAttachments.js saved), later saves keep that card on the newest copy.
 // No address is ever put on it — the sheet keeps the signed one it opened with.
@@ -292,7 +294,7 @@ async function postSave(job) {
   lastFailWhy = lastFail ? failed || '' : ''
   // a chat's card (mine, private or not) that did not take the save: it still opens the version before — said, and tried again
   if (here && !app.officeDoc.folder) cardFail = failed != null ? { job, why: failed || (app.officeDoc.private ? '' : '채팅의 파일 카드가 고친 버전으로 바뀌지 않았어요'), key: job.id } : null
-  if (here && failed == null) sessionUrl = job.url
+  if (here && failed == null) { sessionUrl = job.url; versionKept = false }
   if (!here) return
   // (a private card keeps the signed address it opened with: an editor's saved address is never one to load from — server lib/mailAttachments.js)
   if (m?.error == null) app.officeDoc = { ...app.officeDoc, url: app.officeDoc.private ? app.officeDoc.url : job.url, name: job.name || app.officeDoc.name, ...(m?.content?.folder ? { folder: m.content.folder } : {}) }
@@ -347,7 +349,7 @@ async function leave() {
   let r = { clean: true }
   if (autoSave.value && !pic.value && f?.flush && (f.saving || f.dirty?.())) {
     flash('info', '닫기 전에 저장하는 중…', 25000)
-    r = await f.flush(20000)
+    r = await f.flush(SAVE_WAIT_MS)
   }
   await savedChain
   if (lastFail) { const job = lastFail; savedChain = savedChain.then(() => postSave(job)); await savedChain }
@@ -409,7 +411,10 @@ async function saveAsTo(d, name) {
     // the card stands on the editor's copy, which the editor is about to write the new name's content into: the card keeps a copy of its own
     // (this opening's saves, or the frame's — the frame's copy is the one it writes)
     const last = f.lastSaved?.() || ''
-    if ((sessionUrl && app.officeDoc.url === sessionUrl) || (last && app.officeDoc.url === last)) await api(`/messages/${encodeURIComponent(d.msgId)}/keep-version`, { method: 'POST' })
+    if (!versionKept && ((sessionUrl && app.officeDoc.url === sessionUrl) || (last && app.officeDoc.url === last))) {
+      await api(`/messages/${encodeURIComponent(d.msgId)}/keep-version`, { method: 'POST' })
+      versionKept = true
+    }
     // what is copied: the editor's copy of the content now — saved for this (a copy: the card does not move), or, with nothing new since
     // the editor's last save, that save's copy when the card did not take it; else the card's own version (url null)
     let url = null

@@ -69,7 +69,7 @@ cd e2e && PGPT_URL=http://localhost:<Vite> API_URL=http://localhost:<BFF> RT_WOR
 | F-WL-04 | 390px 변형 화면 · 폴더 목록 · 읽기 전용 작업실의 알약, 가로로 넘치지 않음 — 밝은 · 어두운 테마 | `results/f-wl-04-*-390-light.png` · `-dark.png` |
 | F-WL-05 | 세 사람: 남의 반영은 409(`why: held`), 지난 회차의 돌려놓기는 409, 옮기기 전의 터미널 표는 4409, 본인이 반영하면 저장하지 않은 파일까지 main에 반영, 자리 기록은 open · held · recall · release | — |
 
-## 1단계 — 내 PC 에서 작업(데스크톱 앱 0.2.6)
+## 1단계 — 내 PC 에서 작업(데스크톱 앱 0.2.7)
 
 SQL 은 더하지 않았다(063 의 `dirty` · `ahead` · `auto_save` · `head` · `pushed_at` 을 쓴다). 서버는 링크 메시지 `seat:*`(`server/lib/folders/seatLink.js`)와 공개 git 경로의 범위 `seat` · `left`(`gitHttp.js`, `devices.js` 의 `seatAccess` · `leftAccess`)를 더했고, 데스크톱은 작업본 엔진(`desktop/src/runner/seats.js`)과 챔피언 폴더와 함께 쓰는 올리기 엔진(`desktop/src/runner/upload.js` — `sync.js` 에서 꺼냄)을 더했다.
 

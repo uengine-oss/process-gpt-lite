@@ -4,7 +4,8 @@
 //     buttons take at its top (--pgl-tb-left: macOS traffic lights, --pgl-tb-right: Windows · Linux caption buttons).
 //     The web app's src/styles/desktop.css only acts under html.pgl-desktop; in a browser nothing changes.
 //   - tells the main process the web app's theme (light / dark) — the window background and caption buttons follow it
-//   - window.pglDesktop: what the page may know about the app (read only), and the count of Home cards for the Dock · tray
+//   - window.pglDesktop: what the page may know about the app (read only), and the count of Home cards for the Dock · tray, and its
+//     sign-in, which the app keeps sealed (session)
 //   - window.pglLocal: only on the app's own local pages (setup, offline)
 const { contextBridge, ipcRenderer } = require('electron')
 
@@ -84,7 +85,7 @@ const folders = local ? undefined : Object.freeze({
     return () => ipcRenderer.removeListener('pgl:folders:state', h)
   },
 })
-// 작업본 (0.2.6 — main's runner/seats.js): a variation's working copy on this computer. The page never sends or receives a path — only the
+// 작업본 (0.2.7 — main's runner/seats.js): a variation's working copy on this computer. The page never sends or receives a path — only the
 // variation's id. It asks the server for the seat itself (POST …/seat {to:'device'}); open(id) waits until this computer holds it (main
 // fetches and adds the working copy when the server says so over the link). reveal · openTerminal open the working copy in Finder ·
 // Explorer or the system's terminal; saveNow · release (돌려놓기) · setAuto (자동으로 올리기); leftovers · dropLeft (asks in a system dialog).
@@ -111,7 +112,9 @@ const seats = local ? undefined : Object.freeze({
   },
 })
 // the count of Home cards waiting (the web app's src/browserNotify.js setBadge): main's Dock · taskbar · tray (src/tray.js), a whole
-// number 0…9999 — main checks it again. onOpenHome: the tray's 「알림 N개 — 열기」 asks the page for its Home.
+// number 0…9999 — main checks it again. onOpenHome: the tray's 「알림 N개 — 열기」 asks the page for its Home. onNavigate: a link to one of
+// the web app's screens that would open a new window shows it here (main.js showInWindow — the path under the app's address).
+// openOutside: a panel app's link goes to the system browser.
 const badge = local ? {} : {
   setBadge: (n) => { const v = Math.floor(Number(n)); ipcRenderer.send('pgl:badge', v > 0 ? Math.min(v, 9999) : 0) },
   onOpenHome: (cb) => {
@@ -119,9 +122,44 @@ const badge = local ? {} : {
     ipcRenderer.on('pgl:open-home', h)
     return () => ipcRenderer.removeListener('pgl:open-home', h)
   },
+  // (main holds a screen asked for before this listens, and gives it now: the router listens from here on)
+  onNavigate: (cb) => {
+    const h = (_e, to) => { try { cb(String(to || '')) } catch { /* the page's own */ } }
+    ipcRenderer.on('pgl:navigate', h)
+    ipcRenderer.send('pgl:navigate:listening')
+    return () => ipcRenderer.removeListener('pgl:navigate', h)
+  },
+  openOutside: (url) => ipcRenderer.send('pgl:open-outside', String(url || '')),
 }
+// the web app's sign-in (0.2.6 — src/sessionStore.js): kept by main, sealed with the system's keychain, not in the page's localStorage.
+// Read from main once a page, when the page first asks (main answers only the chosen server's own pages), and held here; set · clear
+// wait for main to have kept it. sealed() false: it cannot be sealed on this computer — the page keeps it itself, as a browser does.
+// keptBefore(): the app has kept this server's sign-in before — a copy in the page's storage is then not taken.
+let held // undefined: not asked yet · null: main does not keep it for this page · {sealed, value}
+const heldNow = () => {
+  if (held === undefined) { try { held = ipcRenderer.sendSync('pgl:session:get') || null } catch { held = null } }
+  return held
+}
+const session = local ? undefined : Object.freeze({
+  sealed: () => heldNow()?.sealed === true,
+  keptBefore: () => heldNow()?.sealed === true && heldNow().kept === true,
+  get: () => (heldNow()?.sealed ? heldNow().value ?? null : null),
+  // (kept for this page even when main could not keep it — the keychain said no: signed in until the window loads again)
+  set: (v) => {
+    const h = heldNow()
+    if (!h?.sealed) return false
+    h.value = String(v ?? '')
+    try { return ipcRenderer.sendSync('pgl:session:set', h.value) === true } catch { return false }
+  },
+  clear: () => {
+    const h = heldNow()
+    if (!h?.sealed) return false
+    h.value = null
+    try { return ipcRenderer.sendSync('pgl:session:clear') === true } catch { return false }
+  },
+})
 contextBridge.exposeInMainWorld('pglDesktop', Object.freeze({ app: 'process-gpt-lite', version: arg('version'), platform: process.platform, ...badge, ...(localRunner ? { localRunner } : {}),
-  ...(folders ? { folders } : {}), ...(seats ? { seats } : {}) }))
+  ...(folders ? { folders } : {}), ...(seats ? { seats } : {}), ...(session ? { session } : {}) }))
 
 if (local) {
   contextBridge.exposeInMainWorld('pglLocal', Object.freeze({
