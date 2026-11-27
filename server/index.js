@@ -67,7 +67,7 @@ import { telegramRoutes } from './routes/telegram.js'
 import { mailReplyRoutes } from './routes/mailReply.js'
 import { mailAttachmentRoutes } from './routes/mailAttachments.js'
 import { savePrivateCard, saveKindOf } from './lib/mailAttachments.js'
-import { keepVersion, saveCardAs } from './lib/cardCopies.js'
+import { keepVersion, saveCardAs, savedCopyOk } from './lib/cardCopies.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
@@ -932,6 +932,8 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
   // gets an address — and every other card goes on as before)
   const way = saveKindOf(own, url)
   if (way === 'refuse') return res.status(400).json({ error: L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy.") })
+  // (any other card: the editor's edited copy beside the card's own file, or a file of this person's — lib/cardCopies.js)
+  if (way !== 'private' && !savedCopyOk(req.user, own, url)) return res.status(400).json({ error: L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy.") })
   if (way === 'private') {
     try {
       const pm = await savePrivateCard(req.user, own, { url, session: req.body.session })

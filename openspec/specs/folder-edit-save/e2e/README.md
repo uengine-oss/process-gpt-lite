@@ -86,6 +86,11 @@ cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright t
 | 휴대폰 · 밤 테마 | F-CS-07 |
 | 고친 채 닫는다 · 고치는 중에 다른 카드를 누른다(채팅의 문서) · 저장하지 않고 닫는다 | F-CS-05 |
 | 저장한 뒤 더 고치고 다른 이름으로 저장한다 | F-CS-04 · `chatDocSave.test.js`(새 카드는 같은 방 · 같은 대화, 판 지키기, 거절) |
+| 새 카드가 만들어지지 않는다 | F-CS-10 |
+| 검색 칸에 친 글 | F-CS-08 · `chatDocSave.test.js` 「편집기의 저장 · 다른 이름으로 저장을 알아본다」(editorClean) |
+| 패널 앱의 시트를 고친 채 닫는다 | F-CS-09(시험용 시트 편집기) |
+| 편집기는 저장됐다고 여기는데 올리기에 실패했다 | F-CS-11(고친 호스트 `RT_FIXED_HOST_DIR`, 저장소 앞에 한 번 거절하는 중계) · office host `host/documents.test.mjs` |
+| Shift+→ 다섯 번과 Shift+End · Shift+클릭 | F-CS-12 — 고치기 전(운영 이미지 그대로, Lite 의 CSS 없이)에는 「그 줄에서 고른 것과 안 고른 것이 같아 보임」으로 실패 |
 
 `results/` (채팅의 문서):
 - `chat-doc-save-server.txt` · `chat-doc-save-e2e.txt`: 서버 · 화면 시험 출력.
@@ -95,3 +100,7 @@ cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright t
 - `f-cs-05-ask-close.png`: 고친 채 닫을 때 묻기.
 - `f-cs-06-failed.png`: 올리기 실패 — 「저장하지 못했어요 · 다시 시도」.
 - `f-cs-07-phone-dark-edited.png` · `f-cs-07-phone-dark-ask.png` · `f-cs-07-phone-dark-saved.png`: 휴대폰 390 · 밤 테마.
+- `f-cs-09-panel-not-applied.png`: 패널 앱의 시트 — 반영하지 못해 닫지 않음.
+- `f-cs-10-save-as-failed.png`: 「다른 이름으로 저장」의 새 카드를 만들지 못함 — 막대 「저장하지 못했어요 · 다시 시도」.
+- `f-cs-11-real-upload-failed.png`: 실제로 올리기에 실패한 저장(편집기 단추는 꺼짐).
+- `f-cs-12-shift-selection.png`: Shift+End 로 고른 첫 줄이 그 줄에서도 보임.

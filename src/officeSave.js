@@ -1,6 +1,6 @@
 // Saving a document open in IeumOffice that the person saves (a chat's document — a shared folder's saves by itself, src/officeAutosave.js):
 // what the sheet's bar says about it, how long a save may take, and the name 「다른 이름으로 저장」 gives the copy. No browser state here:
-// tested in server/test/officeSave.test.js (spec openspec/specs/folder-edit-save 「채팅의 문서」).
+// tested in server/test/chatDocSave.test.js (spec openspec/specs/folder-edit-save 「채팅의 문서」).
 //
 // 2026-11-27 production recording: a chat's TXT edited in the editor, 저장 pressed — the editor's own status bar said 「저장 중…」 for good
 // and nothing else said anything. The editor talks to its host over one WebSocket (/lite/office/__ipc); in production Cloudflare closes a
@@ -56,12 +56,13 @@ export function saveAsSuggestion(original, { english = false } = {}) {
 
 /**
  * The name typed for 「다른 이름으로 저장」 → the file's name, or null when there is none. The format stays the document's (the editor
- * saves in it): a name without that extension gets it. Path signs and control characters go; at most 120 characters before it.
+ * saves in it): a name without that extension gets it. Path signs, control characters and direction controls (U+202A–202E,
+ * U+2066–2069 — a name that reads other than it is) go; at most 120 characters before it.
  */
 export function saveAsName(input, original) {
   const ext = extOf(original)
   // (a path's 「..」 · 「.」 parts go with its separators)
-  let n = String(input ?? '').replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, ' ').split(/\s+/).filter((t) => t && !/^\.+$/.test(t)).join(' ')
+  let n = String(input ?? '').replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069<>:"/\\|?*]/g, ' ').split(/\s+/).filter((t) => t && !/^\.+$/.test(t)).join(' ')
   if (ext && n.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) n = n.slice(0, -(ext.length + 1)).trim()
   n = n.replace(/^\.+/, '').slice(0, 120).trim()
   if (!n) return null

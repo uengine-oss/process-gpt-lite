@@ -3360,7 +3360,10 @@
   "다른 이름으로 저장": "Save as",
   "지금 내용을 이 대화에 새 파일로 저장해요. 지금 파일은 마지막으로 저장한 그대로 남아요.": "Saves the current content as a new file in this conversation. This file stays as it was last saved.",
   "파일 이름을 적어 주세요": "Enter a file name",
-  "문서를 다시 열었어요": "The document was reopened"
+  "문서를 다시 열었어요": "The document was reopened",
+  "저장한 곳을 확인하지 못했어요": "Couldn't confirm where it was saved",
+  "다른 이름으로 저장하지 못했어요": "Couldn't save under another name",
+  "다른 이름으로 저장하지 못했어요 — 편집본을 찾지 못했어요": "Couldn't save under another name — the edited copy wasn't found"
  },
  "patterns": [
   [
@@ -7670,6 +7673,26 @@
   [
    "다른 이름으로 저장하지 못했어요: {0}",
    "Couldn't save under another name: {0}"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요: {1}",
+   "Couldn't apply it to the '{0}' panel: {1}"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요 ({1})",
+   "Couldn't apply it to the '{0}' panel ({1})"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요",
+   "Couldn't apply it to the '{0}' panel"
+  ],
+  [
+   "저장하지 못했어요 — {0}. 한 번 더 닫으면 저장하지 않고 닫아요.",
+   "Couldn't save — {0}. Close again to close without saving."
+  ],
+  [
+   "다른 이름으로 저장하지 못했어요 — {0}",
+   "Couldn't save under another name — {0}"
   ]
  ],
  "context": [

@@ -40,7 +40,7 @@ import { freshToken } from '../api.js'
 import { BASE } from '../base.js'
 import { kindOf, kindLabel } from '../artifacts.js'
 import { openLiveLink } from '../liveLink.js'
-import { watchEdits, pressSave } from '../officeAutosave.js'
+import { watchEdits, pressSave, editorClean, saveAsHideCss } from '../officeAutosave.js'
 import { installSheetTouchPan } from '../officeTouchPan.js'
 import { KEEPALIVE_MS, SAVE_WAIT_MS, saveBadge } from '../officeSave.js'
 
@@ -149,6 +149,11 @@ const COMPACT_CSS = [
   'html.pgpt-compact .status-bar .zoom-slider { width: 64px; }',
   'html.pgpt-no-thumbs .slide-list, html.pgpt-no-thumbs .thumb-resizer { display: none !important; }',
 ].join('\n')
+// The text editor (a .txt · .json, CodeMirror) paints the line under the caret in an opaque colour above its selection, which it draws
+// behind the text: a selection on that line — Shift+→, Shift+End — was there (typing replaced it) but could not be seen (2026-11-27 사용자
+// 「shift 누른상태로 커서 이동하면 해당 캐럿에서 선택이 되어야 하는데 안되더군」). The line's colour is made see-through, in either theme.
+// (IeumOffice apps/markdown/src/renderer/source/PlainTextEditor.tsx — '.cm-activeLine'; the office host carries the same rule)
+const TEXT_SELECTION_CSS = '.cm-editor .cm-line.cm-activeLine { background-color: rgba(127, 127, 127, .08) !important; }'
 const coarseMq = window.matchMedia?.('(pointer: coarse)')
 const coarse = ref(!!coarseMq?.matches)
 const onCoarse = (e) => (coarse.value = e.matches)
@@ -167,7 +172,7 @@ function dressEditor() {
   if (!doc.getElementById('pgpt-compact')) {
     const st = doc.createElement('style')
     st.id = 'pgpt-compact'
-    st.textContent = COMPACT_CSS
+    st.textContent = `${COMPACT_CSS}\n${TEXT_SELECTION_CSS}`
     doc.head.appendChild(st)
     for (const ev of ['click', 'dblclick', 'keydown']) doc.addEventListener(ev, syncSoon, true)
   }
@@ -259,6 +264,7 @@ const edited = ref(false)   // an edit not saved yet
 const saving = ref(false)
 let editSeq = 0
 let idleTimer = null
+let cleanTimer = null
 let unwatch = null
 let hinted = false
 let settle = null           // the save in flight: answered by the editor's saved / save-failed
@@ -272,6 +278,11 @@ function onEdit() {
   editSeq++
   if (!edited.value) emit('edited', true)
   edited.value = true
+  // (a 「다른 이름으로 저장」 that did not become a card is not tried again with older content: the bar goes back to 「저장 안 됨」)
+  if (retryFn) { retryFn = null; if (saveState.value.kind === 'failed') saveState.value = { kind: 'idle' } }
+  // (a key the editor took for something else — nothing of the document changed: its 저장 stays off)
+  clearTimeout(cleanTimer)
+  cleanTimer = setTimeout(syncClean, 400)
   if (!props.autoSave) return
   clearTimeout(idleTimer)
   idleTimer = setTimeout(idleSave, IDLE_MS)
@@ -282,32 +293,69 @@ function idleSave() {
   if (editor() === 'slides' && doc?.activeElement?.isContentEditable) { idleTimer = setTimeout(idleSave, IDLE_MS); return }
   saveNow()
 }
-// press 저장 and wait for the editor's answer: {saved, url?} | {saved:false, error|timeout}
+// press 저장 and wait for the editor's answer: {saved, url?, clean?} | {saved:false, error|timeout}
 // (any: a document that does not save by itself — 「내려받기」, closing, 다시 시도 and 「다른 이름으로 저장」 ask for its edits to be saved;
-// force: also when the editor's 저장 says there is nothing new — a retry after its upload failed)
-function saveNow(timeoutMs = 25000, { any = false, force = false } = {}) {
+// force: also when the editor's 저장 says there is nothing new — a retry after its upload failed;
+// copy: 「다른 이름으로 저장」's — what the editor saves goes to the sheet as a copy: the card does not move, the bar and the edits stay)
+function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false } = {}) {
   if ((!props.autoSave && !any) || props.readOnly || !frame.value) return Promise.resolve({ saved: false })
   // (the editor's connection is gone: its save would never be answered)
-  if (gone.value) { failSave(GONE); return Promise.resolve({ saved: false, error: GONE }) }
-  if (inFlight) return inFlight.then(() => (edited.value || agentEdits.value ? saveNow(timeoutMs, { any, force }) : { saved: true }))
+  if (gone.value) { if (!copy) failSave(GONE); return Promise.resolve({ saved: false, error: GONE }) }
+  if (inFlight) return inFlight.then(() => (edited.value || agentEdits.value ? saveNow(timeoutMs, { any, force, copy }) : { saved: true, clean: true }))
+  // the editor has nothing new since its save for 「다른 이름으로 저장」, which is up (the new card was not made): that copy is this card's save
+  if (unsavedCopy && lastSaved && editorClean(frame.value?.contentDocument) === true) return copy ? Promise.resolve({ saved: true, url: lastSaved }) : saveFromCopy()
+  // (the editor's 저장 is switched off: nothing changed since its last save — it would write nothing and say nothing)
+  if (!force && syncClean()) return Promise.resolve({ saved: true, clean: true })
   clearTimeout(idleTimer)
   const seq = editSeq
   const aseq = agentSeq
   saving.value = true
-  if (!props.autoSave) { clearTimeout(pressTimer); saveState.value = { kind: 'saving' } }
+  if (!props.autoSave && !copy) { clearTimeout(pressTimer); pressTimer = null; retryFn = null; saveState.value = { kind: 'saving' } }
   inFlight = new Promise((resolve) => {
     const t = setTimeout(() => done({ saved: false, timeout: true }), timeoutMs)
     function done(r) {
       clearTimeout(t); settle = null; inFlight = null; saving.value = false
-      if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
-      if (r.saved && agentSeq === aseq) agentEdits.value = false
-      if (!r.saved) failSave(r.timeout ? `편집기가 ${Math.round(timeoutMs / 1000)}초 안에 저장을 마치지 못했어요` : r.error || '')
+      const wasCopy = copySave
+      copySave = false
+      // (a copy whose answer comes after all is still the copy's — not a save of the card)
+      if (wasCopy && r.timeout) copyLate = Date.now()
+      if (!wasCopy) {
+        if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
+        if (r.saved && agentSeq === aseq) agentEdits.value = false
+        if (!r.saved && !r.reloaded) failSave(r.timeout ? `편집기가 ${Math.round(timeoutMs / 1000)}초 안에 저장을 마치지 못했어요` : r.error || '')
+      }
       resolve(r)
     }
     settle = done
+    copySave = copy
     if (!pressSave(frame.value, { force })) done({ saved: false, error: '편집기가 열려 있지 않아요' })
   })
   return inFlight
+}
+// The editor says it has nothing to save (its own 저장 is switched off — an edit undone, a search typed): nothing is waiting to be saved.
+// → true when so (edited cleared), false otherwise or when the editor does not say (no such button)
+function syncClean() {
+  // (after a save for 「다른 이름으로 저장」 the editor is clean, but this card has not taken those edits; while a save waits for its
+  // answer the editor is clean before the host has the copy — that save's answer settles it)
+  if (unsavedCopy || inFlight || pressTimer || editorClean(frame.value?.contentDocument) !== true) return false
+  if (edited.value) { edited.value = false; emit('edited', false) }
+  agentEdits.value = false
+  return true
+}
+// this card takes the copy saved for 「다른 이름으로 저장」 (its content is the editor's now): as a save of the editor's own
+function saveFromCopy() {
+  const url = lastSaved
+  unsavedCopy = false
+  if (edited.value) { edited.value = false; emit('edited', false) }
+  agentEdits.value = false
+  emit('saved', { url, name: props.name })
+  afterSave(url)
+  return Promise.resolve({ saved: true, url })
+}
+// no save waiting for its answer (a 「다른 이름으로 저장」 starts after the one in flight — 💾, 내려받기)
+async function whenIdle(ms = SAVE_WAIT_MS + 2000) {
+  const t0 = Date.now()
+  while ((inFlight || pressTimer) && Date.now() - t0 < ms) await (inFlight || new Promise((r) => setTimeout(r, 200)))
 }
 
 // ---- the person's own 저장 (a document that does not save by itself): what the bar says ----
@@ -316,6 +364,13 @@ const GONE = '편집기와 연결이 끊겼어요 — 고친 내용을 복사해
 const gone = ref(false)
 const saveState = ref({ kind: 'idle' }) // {kind: 'idle'|'saving'|'saved'|'failed', at?, why?, where?}
 let pressTimer = null
+// the save in flight is a copy (saveNow copy) · a copy gave up waiting at this time (its late answer is still the copy's, for 2 minutes)
+let copySave = false
+let copyLate = 0
+// a copy for 「다른 이름으로 저장」 went up and this card has not taken it (the editor is clean; the edits are unsaved here)
+let unsavedCopy = false
+// the sheet's own 다시 시도 for a failure it reported (markFailed — 「다른 이름으로 저장」 posts its copy again)
+let retryFn = null
 const badge = computed(() => {
   if (props.readOnly) return null
   if (gone.value) return saveBadge({}, { gone: true })
@@ -325,8 +380,10 @@ const badge = computed(() => {
 function pressed() {
   if (props.readOnly || props.autoSave || inFlight) return
   if (gone.value) return failSave(GONE)
+  if (unsavedCopy && lastSaved && editorClean(frame.value?.contentDocument) === true) { saveFromCopy(); return }
   // nothing new: the editor writes nothing and says nothing
-  if (!edited.value && !agentEdits.value) return
+  if (syncClean() || (!edited.value && !agentEdits.value)) return
+  retryFn = null
   saveState.value = { kind: 'saving' }
   clearTimeout(pressTimer)
   pressTimer = setTimeout(() => failSave(`편집기가 ${Math.round(SAVE_WAIT_MS / 1000)}초 안에 저장을 마치지 못했어요`), SAVE_WAIT_MS)
@@ -337,13 +394,20 @@ function failSave(why) {
   saveState.value = { kind: 'failed', why: String(why || '') }
   show('error', `저장하지 못했어요${why ? ` — ${why}` : ''}`, 10000)
 }
+// a failure the sheet found in its own step (「다른 이름으로 저장」's copy did not become a card): said on the bar; 다시 시도 runs retry
+function markFailed(why, { retry = null } = {}) {
+  failSave(why)
+  retryFn = retry
+}
 // the editor saved: the host's own step (the chat card, the folder's commit) decides whether it is saved
 async function afterSave(url) {
   clearTimeout(pressTimer); pressTimer = null
   if (props.autoSave || props.readOnly) return
   saveState.value = { kind: 'saving' }
-  const c = props.saveCheck ? await props.saveCheck().catch((e) => ({ ok: false, why: e?.message || '' })) : { ok: true }
+  const limit = new Promise((r) => setTimeout(() => r({ ok: false, why: '저장한 곳을 확인하지 못했어요' }), SAVE_WAIT_MS))
+  const c = props.saveCheck ? await Promise.race([props.saveCheck().catch((e) => ({ ok: false, why: e?.message || '' })), limit]) : { ok: true }
   if (!c?.ok) return failSave(c?.why || '')
+  retryFn = null
   saveState.value = { kind: 'saved', at: Date.now(), where: c.where || '' }
   if (!props.quietSave) show('success', c.where ? `저장했어요 · ${c.where}` : url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.', 4000)
 }
@@ -352,6 +416,7 @@ async function badgeAction() {
   const a = badge.value?.action
   if (a === 'reopen') return reopen()
   if (a !== 'retry') return
+  if (retryFn) { const again = retryFn; retryFn = null; saveState.value = { kind: 'saving' }; return again() }
   // the editor's copy went up, the host's own step did not: that step again
   if (!edited.value && !agentEdits.value && lastSaved) return afterSave(lastSaved)
   await saveNow(SAVE_WAIT_MS, { any: true, force: true })
@@ -417,10 +482,10 @@ let lastSaved = ''
 async function prepareDownload() {
   if (props.readOnly) return { ok: true, version: 'current' }
   let version = 'current'
-  if (edited.value || agentEdits.value || inFlight) {
+  if (!syncClean() && (edited.value || agentEdits.value || inFlight)) {
     const r = await saveNow(25000, { any: true })
     if (!r.saved) return { ok: false, why: r.timeout ? '편집기가 답하지 않았어요' : r.error || '' }
-    version = 'saved'
+    if (!r.clean) version = 'saved'
   }
   // (also with nothing new: an earlier save that never reached the folder or my card is said, not passed off as the newest)
   const c = props.saveCheck ? await props.saveCheck() : { ok: true }
@@ -435,17 +500,19 @@ async function downloadSource({ last = false } = {}) {
 }
 const onHide = () => { if (document.visibilityState === 'hidden' && edited.value && !inFlight) saveNow() }
 // leaving the page with edits not saved (any editable document — a chat's one is saved only by 저장): the browser asks first
-const onLeave = (e) => { if (!props.readOnly && (edited.value || agentEdits.value || inFlight)) { e.preventDefault(); e.returnValue = '' } }
+const onLeave = (e) => { if (!props.readOnly && !syncClean() && (edited.value || agentEdits.value || inFlight)) { e.preventDefault(); e.returnValue = '' } }
 function startWatching() {
   unwatch?.()
-  unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs })
-  const doc = frame.value?.contentDocument
+  unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs, onDoc: dressSaving })
+}
+// each page of the editor (the 한글 studio's comes later, in a frame of its own)
+function dressSaving(doc) {
   if (!doc?.head || doc.getElementById('pgpt-autosave')) return
   const rules = []
   // the editor's own 자동 저장 switch (off on the web host) would contradict the bar's 자동 저장
   if (props.autoSave) rules.push('.autosave-toggle { display: none !important; }')
-  // 다른 이름으로 저장 only where the sheet can name the copy (the web host cancels the editor's own file dialog)
-  if (!props.saveAs) rules.push('.qa-save-as { display: none !important; }')
+  // 다른 이름으로 저장 only where the sheet can name the copy (the web host cancels the editor's own file dialog); never another format
+  rules.push(saveAsHideCss({ saveAs: !!props.saveAs }))
   const st = doc.createElement('style')
   st.id = 'pgpt-autosave'
   st.textContent = rules.join('\n')
@@ -459,6 +526,9 @@ defineExpose({
   agentEdits,
   gone,
   saveNow,
+  syncClean,
+  whenIdle,
+  markFailed,
   ask: askPerson,
   editor,
   reconnect,
@@ -471,9 +541,10 @@ async function load() {
   stopLive()
   unwatch?.(); unwatch = null; clearTimeout(idleTimer); edited.value = false; hinted = false; agentEdits.value = false; lastSaved = ''
   ready = false
+  // (a save of the page being replaced is not this one's: it ends quietly, before the new page's state is set)
+  settle?.({ saved: false, error: '문서를 다시 열었어요', reloaded: true })
   stopKeepAlive(); gone.value = false; clearTimeout(pressTimer); pressTimer = null; saveState.value = { kind: 'idle' }; answer()
-  // (a save of the page being replaced is not this one's)
-  settle?.({ saved: false, error: '문서를 다시 열었어요' })
+  copySave = false; copyLate = 0; retryFn = null; unsavedCopy = false; clearTimeout(cleanTimer)
   pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
@@ -511,6 +582,8 @@ function hideAiDock(tries = 20) {
 }
 function onMessage(event) {
   if (!isOfficeEditorMessage(event, frame.value?.contentWindow)) return
+  // (and from the editor's own origin — the page this frame loaded)
+  if (!frameSrc.value || event.origin !== new URL(frameSrc.value, location.href).origin) return
   const m = event.data
   if (m.type === 'ready') {
     ready = true; gone.value = false; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly || props.autoSave) hideAiDock(); startLive(); startWatching()
@@ -541,15 +614,22 @@ function onMessage(event) {
     m.ok ? w.resolve(m.result) : w.reject(new Error(m.error || '편집기가 거절했어요'))
   }
   else if (m.type === 'saved') {
+    // (a host that says so when the same bytes were saved again — an edit undone before 저장: only an answer to a save waiting for it)
+    if (m.unchanged && !settle && !pressTimer) return
     if (m.url) { savedUrls.add(m.url); lastSaved = m.url }
-    if (!settle) agentEdits.value = false
     if (m.name) link?.rename(m.name)
+    // 「다른 이름으로 저장」's save — or its late answer, unless the person pressed 저장 since: a copy for the sheet; the card and the bar stay
+    let copy = !!settle && copySave
+    if (!settle && copyLate && !pressTimer && Date.now() - copyLate < 120_000) copy = true
+    if (!settle || !copySave) copyLate = 0
+    if (!settle && !copy) agentEdits.value = false
     // saved by the editor's own 저장 too: everything up to now is in
-    if (settle) settle({ saved: true, url: m.url || '' })
-    else if (edited.value) { edited.value = false; emit('edited', false) }
-    emit('saved', { url: m.url || '', name: m.name || props.name })
+    if (settle) settle({ saved: true, url: m.url || '', ...(m.unchanged && !m.url ? { clean: true } : {}) })
+    else if (!copy && edited.value) { edited.value = false; emit('edited', false) }
+    unsavedCopy = copy
+    emit('saved', { url: m.url || '', name: m.name || props.name, ...(copy ? { copy: true } : {}) })
     // (after the host heard it: its own step — the card, the folder — is part of 「저장했어요」)
-    afterSave(m.url || '')
+    if (!copy) afterSave(m.url || '')
   } else if (m.type === 'agent') {
     const label = { write: '내용을 쓰는 중', replace: '내용을 바꾸는 중', ops: '서식·구조를 고치는 중', save: '저장했어요' }[m.action]
     show('agent', `에이전트가 ${label || '작업하는 중'}${m.text ? ` · ${m.text}` : ''}`)
@@ -588,7 +668,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive()
   document.removeEventListener('visibilitychange', onHide); window.removeEventListener('beforeunload', onLeave); unwatch?.(); clearTimeout(idleTimer); opened()
   coarseMq?.removeEventListener?.('change', onCoarse); boxObserver?.disconnect(); stopDeck()
-  stopKeepAlive(); clearTimeout(pressTimer); answer()
+  stopKeepAlive(); clearTimeout(pressTimer); clearTimeout(cleanTimer); answer()
 })
 </script>
 
@@ -600,7 +680,7 @@ onBeforeUnmount(() => {
       <span v-if="readOnly" class="badge ro">보기 전용</span>
       <!-- how the person's save went (src/officeSave.js saveBadge): 저장 안 됨 · 저장하는 중… · 저장했어요 · 10:42 · 저장하지 못했어요 · 다시 시도 · 연결 끊김 -->
       <button v-else-if="badge" class="badge sv press" :class="badge.kind" data-testid="oef-save" :data-state="badge.kind" :title="badge.title" :aria-label="badge.title"
-        :disabled="!badge.action" aria-live="polite" @click="badgeAction"><i /><span class="t-long">{{ badge.text }}</span><span class="t-short">{{ badge.short }}</span></button>
+        :aria-disabled="badge.action ? 'false' : 'true'" aria-live="polite" @click="badgeAction"><i /><span class="t-long">{{ badge.text }}</span><span class="t-short">{{ badge.short }}</span></button>
       <span v-else-if="autoSave" class="badge auto" :class="{ on: saving || edited }" :title="saving ? '저장하는 중' : edited ? '잠시 뒤 저장해요' : '고친 내용은 저절로 저장돼요'">{{ saving ? '저장하는 중…' : edited ? '고치는 중' : '자동 저장' }}</span>
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i /><span class="t">{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span></span>
       <button v-else-if="relinking" class="badge relink press" data-testid="oef-relinking" title="대화와의 연결이 잠깐 끊겨 다시 잇는 중이에요 — 저절로 이어져요 · 눌러서 지금 다시 연결" @click="reconnect"><i /><span class="t">다시 연결하는 중…</span></button>
@@ -723,7 +803,7 @@ onBeforeUnmount(() => {
 .badge.sv.saving i { animation: livepulse 1s ease-in-out infinite; }
 .badge.sv.saved { background: rgba(40, 160, 90, .12); color: #1e7a45; }
 .badge.sv.failed, .badge.sv.gone { background: rgba(200, 60, 50, .12); color: #b3261e; cursor: pointer; font-weight: 600; }
-.badge.sv:disabled { opacity: 1; }
+.badge.sv[aria-disabled="true"] { cursor: default; }
 /* the bar beside the chat (~860–960px on a laptop) holds the name, the badges and eight buttons: there the badge says it short, and the
    pointing · ribbon buttons keep their icons only, so the name keeps its room and 닫기 stays in sight (their titles say what they are) */
 @container (max-width: 1000px) { .badge.sv .t-long { display: none; } .badge.sv .t-short { display: inline; } }

@@ -12,6 +12,10 @@
 //           다른 카드를 눌러도 먼저 묻는다
 //   F-CS-06 편집기가 올리기에 실패하면 「저장하지 못했어요 · 다시 시도」와 까닭, 다시 시도하면 저장
 //   F-CS-07 휴대폰 390px · 밤 테마: 짧은 표시(저장 안 됨 → 저장됨 시각)가 화면 안, 닫을 때 묻기도 화면 안 · 옆으로 넘치지 않음
+//   F-CS-08 편집기의 검색 칸에 친 것 · 문서 밖에서 누른 키는 고침이 아니다 — 편집기의 저장이 꺼져 있으면 닫을 때 묻지 않고, ⌘S 도 「저장 실패」를 만들지 않음
+//   F-CS-09 패널 앱의 시트(시험용 시트 편집기): 저장하고 닫기 → 패널 반영이 실패하면 닫지 않고 까닭, 다시 닫으면 반영한 뒤 닫히고 다시 열리지 않음
+//   F-CS-10 「다른 이름으로 저장」의 새 카드가 만들어지지 않으면: 막대 「저장하지 못했어요 · 다시 시도」, 원래 카드 그대로, 닫으면 묻고, 다시 시도는 같은 편집본으로
+//   F-CS-11 (고친 호스트 RT_FIXED_HOST_DIR) 실제로 올리기에 실패한 저장: 편집기는 저장됐다고 여기고 단추가 꺼지지만, 다시 시도(⌘S)로 다시 올라감
 // 자기 스택(lib/localStack.js — 회사 chat-save, BFF 8983 · Vite 5383 부터 빈 포트), 실제 이음오피스 편집기: RT_OFFICE_HOST_URL(운영 이미지 컨테이너,
 // 스펙 e2e/README) 또는 빌드된 호스트(lib/officeHost.js, 5403 부터). 모델 · deepagents 는 부르지 않는다. 사람은 지어낸 이름(정하윤 · 김서연).
 //   cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright test --project=feature tests/feature/chat-doc-save.spec.js
@@ -21,6 +25,9 @@ import net from 'node:net'
 import path from 'node:path'
 import { startStack, freePort, REPO } from '../../lib/localStack.js'
 import { startOfficeHost, officeHostDir } from '../../lib/officeHost.js'
+import http from 'node:http'
+import os from 'node:os'
+import ExcelJS from 'exceljs'
 
 test.use({ channel: 'chromium' })
 test.describe.configure({ mode: 'serial' })
@@ -30,13 +37,25 @@ const NOWHERE = 'http://127.0.0.1:9'
 const DESK = { viewport: { width: 1400, height: 860 }, locale: 'ko-KR' }
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ko-KR' }
 const DRAFT = '김서연 님께\n\n요청하신 일정 확인했습니다.\n\n1. 일정: 12월 3일\n2. 장소: 본사 3층\n\n정하윤 드림\n'
+// The panel app (F-CS-09) is made with the server's own service in this process, as panel-apps.spec.js does: its folders and company
+// must be the stack's — set before any server module is loaded (run this file in a worker of its own)
+const FOLDERS = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-chat-save-folders-'))
+process.env.PRO_FOLDERS_ROOT = FOLDERS
+process.env.PRO_TENANT_ID = TENANT
+// a spreadsheet editor stand-in (as file-download.spec.js): its 저장 says it saved the copy the test hands it (window.__saveUrl)
+const SHEETS_STUB = `<!doctype html><html><head><meta charset="utf-8"><title>시트 편집기(시험용)</title></head><body style="margin:0;font:14px sans-serif">
+<div id="root"><div class="ribbon-tabs" style="padding:8px"><button class="qa-btn" aria-label="저장 (⌘S)">저장</button></div>
+<div id="cell" contenteditable="true" style="margin:12px;padding:8px;border:1px solid #bbb">사용일수 3</div></div>
+<script>const q=new URLSearchParams(location.search);document.querySelector('.qa-btn').addEventListener('click',()=>{const url=window.__saveUrl||q.get('src');
+setTimeout(()=>parent.postMessage({source:'ieum-office',type:'saved',name:q.get('name'),url},'*'),300)});
+parent.postMessage({source:'ieum-office',type:'ready',editor:'sheets'},'*')</script></body></html>`
 
 // Between Vite and the editor host: a relay that can drop every connection (a host restart, the network) and, given idleMs, drops one that
 // carried nothing for that long — what Cloudflare does in production to an idle WebSocket.
 function relay(target, { idleMs = 0 } = {}) {
   const socks = new Set()
   const stats = { dropped: 0 }
-  const t = new URL(target)
+  let t = new URL(target)
   const server = net.createServer((c) => {
     const s = net.connect(Number(t.port), t.hostname)
     const pair = { c, s, timer: null, ws: null }
@@ -54,6 +73,8 @@ function relay(target, { idleMs = 0 } = {}) {
     server.listen(port, '127.0.0.1', () => resolve({
       url: `http://127.0.0.1:${port}`,
       set idle(ms) { idleMs = ms },
+      // (new connections go to another host from now on)
+      set target(u) { t = new URL(u) },
       get dropped() { return stats.dropped },
       dropAll() { for (const p of [...socks]) { p.c.destroy(); p.s.destroy() } },
       close: () => new Promise((r) => { for (const p of [...socks]) { p.c.destroy(); p.s.destroy() } server.close(r) }),
@@ -128,7 +149,7 @@ test.beforeAll(async () => {
   fs.mkdirSync(SHOTS, { recursive: true })
   R = await relay(hostUrl)
   S = await startStack({ tenant: TENANT, apiFrom: Number(process.env.RT_API_FROM) || 8983, webFrom: Number(process.env.RT_WEB_FROM) || 5383, officeTarget: R.url,
-    env: { PRO_OFFICE_HOST_URL: hostUrl, PRO_DEEPAGENTS_URL: NOWHERE, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: '', PRO_MEMENTO_URL: NOWHERE,
+    env: { PRO_FOLDERS_ROOT: FOLDERS, PRO_OFFICE_HOST_URL: hostUrl, PRO_DEEPAGENTS_URL: NOWHERE, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: '', PRO_MEMENTO_URL: NOWHERE,
       PRO_MCP_HUB_URL: NOWHERE, PRO_JUDGE_URL: '', PRO_ONTOLOGY_BOLT_URL: '' } })
   ME = await S.person(`pro-rt-cs-${TENANT}@uengine.org`, '정하윤')
   await S.join(ME)
@@ -140,17 +161,20 @@ test.beforeAll(async () => {
 async function cleanData() {
   if (!ME) return
   const { admin } = await import(path.join(REPO, 'server/lib/supa.js'))
-  for (const dir of [`pgpt-pro/${ME.id}/att`]) {
+  for (const dir of [`pgpt-pro/${ME.id}/att`, `pgpt-pro/${ME.id}/copies`]) {
     const l = await admin.storage.from('files').list(dir, { limit: 1000 }).catch(() => ({ data: [] }))
     if (l.data?.length) await admin.storage.from('files').remove(l.data.map((o) => `${dir}/${o.name}`)).catch(() => {})
   }
   await S.q('delete from pro_messages where thread_id in (select id from pro_threads where user_id=$1)', [ME.id]).catch(() => {})
 }
 test.afterAll(async () => {
+  for (const done of panelCleanup.splice(0)) await done().catch(() => {})
   if (S) { await cleanData().catch(() => {}); await S.stop() }
   await R?.close()
   await host?.stop()
+  fs.rmSync(FOLDERS, { recursive: true, force: true })
 })
+const panelCleanup = []
 
 test('F-CS-01 채팅 TXT: 고치고 💾 → 막대 「저장했어요 · 시각」, 카드가 고친 판을 열고 다시 열면 고친 내용', async ({ browser }) => {
   const c = await draftCard('답장초안_시험_김서연.txt')
@@ -277,6 +301,9 @@ test('F-CS-04 「다른 이름으로 저장」 → 이름을 묻고 같은 대�
   await textReady(p)
   await expect.poll(() => editorText(p)).toContain('새이름에만')
   await expect(p.locator('.office-sheet .pnote')).toContainText('「김서연 회신 최종.txt」 이름으로 저장했어요')
+  // the save for the copy said nothing of its own (no 「저장했어요 · 채팅의 파일 카드…」 over the sheet's line), and the new file has nothing unsaved
+  await expect(p.locator('[data-testid="oef-notice"]')).toHaveCount(0)
+  await expect(badge(p)).toHaveCount(0)
   await shot(p, 'f-cs-04-saved-as')
   const [made] = await S.q(`select id, content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '김서연 회신 최종.txt'])
   expect(made.content.savedAs.from).toBe(c.id)
@@ -392,6 +419,235 @@ test('F-CS-07 휴대폰 390px · 밤 테마: 짧은 표시가 화면 안, 닫을
   await expect(badge(p).locator('.t-short')).toHaveText(/저장됨 \d\d:\d\d/)
   expect(await inView(p, badge(p))).toBe(true)
   await shot(p, 'f-cs-07-phone-dark-saved')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-08 검색 칸에 친 것 · 문서 밖에서 누른 키는 고침이 아니다 — 편집기 저장이 꺼져 있으면 닫을 때 묻지 않고, ⌘S 도 「저장 실패」가 없다', async ({ browser }) => {
+  const c = await draftCard('답장초안_검색_김서연.txt')
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, c.name).click()
+  await textReady(p)
+  // the editor's own search box: typing there changes nothing
+  await ed(p).locator('.qa-btn[aria-label^="찾기"]').click()
+  const find = ed(p).locator('.find-panel .find-input').first()
+  await expect(find).toBeVisible()
+  // (typed, not Enter: the editor's Enter there selects the match in the document, and the next key would replace it)
+  await find.pressSequentially('일정', { delay: 40 })
+  await p.waitForTimeout(800)
+  await expect(ed(p).locator('.qa-btn[aria-label^="저장"]').first()).toBeDisabled()
+  await expect(badge(p)).toHaveCount(0)
+  await p.keyboard.press('Escape')
+  // a key pressed with nothing of the document in focus (the page counts it, the editor changes nothing — its 저장 stays off)
+  await ed(p).locator('.status-bar').click()
+  await p.keyboard.press('x')
+  await expect(ed(p).locator('.qa-btn[aria-label^="저장"]').first()).toBeDisabled()
+  // ⌘S with the editor's 저장 off: nothing waits, nothing fails
+  await p.keyboard.press('Meta+s')
+  await p.waitForTimeout(2500)
+  await expect(p.locator('[data-testid="oef-save"][data-state="saving"], [data-testid="oef-save"][data-state="failed"]')).toHaveCount(0)
+  // closing: no question (the editor has nothing to save) — closed at once
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toHaveCount(0)
+  await expect(oef(p)).toHaveCount(0, { timeout: 5_000 })
+  expect((await cardOf(c.id)).url).toBe(c.url)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-09 패널 앱의 시트: 저장하고 닫기 → 패널 반영이 실패하면 닫지 않고 까닭, 다시 닫으면 반영한 뒤 닫히고 다시 열리지 않음', async ({ browser }) => {
+  const { config } = await import(path.join(REPO, 'server/config.js'))
+  test.skip(config.defaultTenantId !== TENANT || config.foldersRoot !== FOLDERS, '서버 모듈이 다른 설정으로 이미 불려 있음 — 이 파일만 따로 돌리세요')
+  const P = await import(path.join(REPO, 'server/lib/panelApps/service.js'))
+  const def = (await import(path.join(REPO, 'server/lib/panelApps/sheet.js'))).normalizeDef({
+    title: '시험 휴가 일수', icon: '🏖',
+    fields: [{ key: 'name', label: '이름', type: 'text', required: true }, { key: 'granted', label: '부여일수', type: 'number', required: true }, { key: 'used', label: '사용일수', type: 'number', default: 0 }],
+    computed: [{ key: 'left', label: '남은 일수', expr: 'granted - used' }],
+    views: { list: { title: 'name', value: 'left', valueSuffix: '일' }, summary: [{ label: '인원', agg: 'count', suffix: '명' }] },
+  }, { strict: true })
+  const who = { id: ME.id, name: '정하윤', email: ME.email, jwt: ME.token }
+  const app = await P.createApp(who, { description: '', def, rows: [] })
+  panelCleanup.push(async () => { await P.remove(who, app.id).catch(() => {}); await S.q('delete from pro_folders where slug=$1', [app.folder.slug]).catch(() => {}) })
+  await S.api(ME.token, `/panel-apps/${app.id}/rows`, { method: 'POST', body: { values: { name: '김서연', granted: 15, used: 3 } } })
+  // the sheet's copy as the editor would save it: 사용일수 3 → 6
+  const sheet = await S.api(ME.token, `/panel-apps/${app.id}/sheet`, { method: 'POST' })
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(Buffer.from(await (await fetch(sheet.url)).arrayBuffer()))
+  const ws = wb.worksheets[0]
+  ws.getRow(2).getCell(ws.getRow(1).values.indexOf('사용일수')).value = 6
+  const saved = await rawPost(ME.token, '/attachments', Buffer.from(await wb.xlsx.writeBuffer()), { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'X-File-Name': encodeURIComponent('시트.xlsx') })
+  const used = async () => (await S.api(ME.token, `/panel-apps/${app.id}/rows`)).rows[0].used
+
+  const p = await page(browser)
+  await p.context().route(/\/office\/sheets\/\?/, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: SHEETS_STUB }))
+  await openChat(p)
+  const panel = p.locator('.pa').filter({ hasText: app.title }).first()
+  await expect(panel).toBeVisible({ timeout: 20_000 })
+  await panel.locator('.foot button', { hasText: '시트 열기' }).click()
+  await expect(oef(p).locator('iframe.frm')).toHaveAttribute('src', /\/office\/sheets\/\?src=/, { timeout: 30_000 })
+  await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 30_000 })
+  await p.waitForTimeout(1500)
+  const stub = p.frames().find((fr) => fr.url().includes('/office/sheets/'))
+  await stub.evaluate((u) => { window.__saveUrl = u }, saved.url)
+  await ed(p).locator('#cell').click()
+  await p.keyboard.type(' 6', { delay: 30 })
+  // the panel's server does not take it (yet)
+  let refuse = true
+  await p.route('**/api/panel-apps/*/sheet-saved', (r) => (refuse ? r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '패널 서버가 잠시 멈췄어요(시험)' }) }) : r.continue()))
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요')
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(p.locator('.office-sheet .pnote')).toContainText('패널에 반영하지 못했어요', { timeout: 30_000 })
+  await expect(oef(p)).toHaveCount(1)
+  await expect(badge(p)).toHaveAttribute('data-state', 'failed')
+  await shot(p, 'f-cs-09-panel-not-applied')
+  expect(await used()).toBe(3)
+  // the server takes it now: closing applies it first, then the sheet closes — and stays closed
+  refuse = false
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
+  await p.waitForTimeout(3000)
+  await expect(oef(p)).toHaveCount(0)
+  expect(await used()).toBe(6)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-10 「다른 이름으로 저장」의 새 카드가 만들어지지 않으면 — 막대가 말하고, 원래 카드 그대로, 닫으면 묻고, 다시 시도는 같은 편집본으로', async ({ browser }) => {
+  const c = await draftCard('답장초안_사본실패_김서연.txt')
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, c.name).click()
+  await textReady(p)
+  await typeAtEnd(p, ' 새카드로만')
+  const posted = []
+  let refuse = true
+  await p.route('**/api/messages/*/save-as', (r) => {
+    posted.push(r.request().postDataJSON())
+    return refuse ? r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '새 카드를 만들지 못했어요(시험)' }) }) : r.continue()
+  })
+  await ed(p).locator('.qa-save-as').click()
+  await ask(p).locator('[data-testid="oef-ask-name"]').fill('김서연 회신 사본')
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 40_000 })
+  await expect(badge(p)).toHaveAttribute('title', /새 카드를 만들지 못했어요\(시험\)/)
+  await expect(p.locator('[data-testid="oef-notice"]')).toContainText('다른 이름으로 저장하지 못했어요')
+  await expect(p.locator('[data-testid="oef-notice"]')).not.toContainText('채팅의 파일 카드에서 이 버전이 열려요')
+  await shot(p, 'f-cs-10-save-as-failed')
+  // the editor did save (the copy is up), the card did not move, and the edit still counts as not saved here
+  expect(posted[0].url).toMatch(/\/edited-[^/]+\.txt$/)
+  expect((await cardOf(c.id)).url).toBe(c.url)
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요')
+  await ask(p).locator('[data-testid="oef-ask-cancel"]').click()
+  // 다시 시도: the same copy, now made into the new card
+  refuse = false
+  await badge(p).click()
+  await expect(oef(p).locator('.bar .name')).toHaveText('김서연 회신 사본.txt', { timeout: 30_000 })
+  expect(posted.length).toBe(2)
+  expect(posted[1]).toEqual(posted[0])
+  const [made] = await S.q(`select content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '김서연 회신 사본.txt'])
+  expect(await textAt(made.content.url)).toContain('새카드로만')
+  expect((await cardOf(c.id)).url).toBe(c.url)
+  expect(await textAt(c.url)).not.toContain('새카드로만')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+// what a real failed upload looks like: storage refuses the editor's copy once (a stand-in in front of the local storage)
+function storageProxy(target = 'http://127.0.0.1:54321') {
+  const tu = new URL(target)
+  const state = { failNext: false, failed: 0 }
+  const server = http.createServer((req, res) => {
+    if (state.failNext && req.method === 'POST' && /^\/storage\/v1\/object\/files\/.*edited-/.test(req.url)) {
+      state.failNext = false; state.failed++
+      req.resume()
+      res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'storage unavailable (test)' }))
+      return
+    }
+    const up = http.request({ host: tu.hostname, port: tu.port, path: req.url, method: req.method, headers: { ...req.headers, host: tu.host } }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res) })
+    up.on('error', () => res.destroy())
+    req.pipe(up)
+  })
+  return new Promise((resolve) => {
+    const port = freePort(5470)
+    server.listen(port, '127.0.0.1', () => resolve({ url: `http://127.0.0.1:${port}`, state, close: () => new Promise((r) => server.close(r)) }))
+  })
+}
+
+test('F-CS-11 (고친 호스트) 실제로 올리기에 실패한 저장: 편집기는 저장됐다고 여기고 단추가 꺼지지만, 다시 시도로 다시 올라감', async ({ browser }) => {
+  test.skip(!process.env.RT_FIXED_HOST_DIR, '올리지 못한 저장을 다시 올리는 이음오피스 호스트 빌드가 필요(RT_FIXED_HOST_DIR — process-gpt-office-host fix/ipc-keepalive)')
+  const proxy = await storageProxy()
+  const was = process.env.RT_OFFICE_HOST_DIR
+  process.env.RT_OFFICE_HOST_DIR = process.env.RT_FIXED_HOST_DIR
+  const fixed = await startOfficeHost({ from: 5406, env: { SUPABASE_URL: proxy.url, IEUM_ALLOWED_SOURCES: 'http://127.0.0.1:54321' } })
+  if (was == null) delete process.env.RT_OFFICE_HOST_DIR; else process.env.RT_OFFICE_HOST_DIR = was
+  R.target = fixed.url
+  try {
+    const c = await draftCard('답장초안_재시도_김서연.txt')
+    const p = await page(browser)
+    await openChat(p)
+    await card(p, c.name).click()
+    await textReady(p)
+    await typeAtEnd(p, ' 다시올림')
+    proxy.state.failNext = true
+    await pressSave(p)
+    await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 30_000 })
+    expect(proxy.state.failed).toBe(1)
+    await expect(badge(p)).toHaveAttribute('title', /편집기가 문서를 올리지 못했어요/)
+    // the editor itself took the save as done: its 저장 is off — 다시 시도 still writes it again (its ⌘S) and it goes up this time
+    await expect(ed(p).locator('.qa-btn[aria-label^="저장"]').first()).toBeDisabled()
+    await shot(p, 'f-cs-11-real-upload-failed')
+    await badge(p).click()
+    await expect(badge(p)).toHaveAttribute('data-state', 'saved', { timeout: 30_000 })
+    await expect.poll(async () => textAt((await cardOf(c.id)).url), { timeout: 20_000 }).toContain('다시올림')
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  } finally {
+    R.target = hostUrl
+    await fixed.stop()
+    await proxy.close()
+  }
+})
+
+// 2026-11-27 사용자: 「PC 에서 shift 누른상태로 커서 이동하면 해당 캐럿에서 선택이 되어야 하는데 안되더군... 이음오피스 텍스트파일」. The selection was made
+// (getSelection · typing over it worked, here and on the host alone) but not seen: the text editor paints the caret's line opaque over the
+// selection it draws behind the text. So: the line with its selection must look different from the same line without it.
+test('F-CS-12 PC 의 텍스트 편집기: Shift+→ ×5 · Shift+End 로 캐럿에서 고르고 그 줄에서 보이며, 치면 고른 것을 바꾼다 · Shift+클릭도 캐럿에서 고른다', async ({ browser }) => {
+  const c = await draftCard('답장초안_선택_김서연.txt')
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, c.name).click()
+  await textReady(p)
+  const editorPage = p.frames().find((fr) => fr.url().includes('/office/markdown/'))
+  const picked = () => editorPage.evaluate(() => String(window.getSelection()))
+  await ed(p).locator('.cm-line').first().click({ position: { x: 3, y: 6 } })
+  await p.keyboard.press('Home')
+  for (let i = 0; i < 5; i++) await p.keyboard.press('Shift+ArrowRight')
+  expect(await picked()).toBe('김서연 님')
+  await p.keyboard.press('Shift+End')
+  expect(await picked()).toBe('김서연 님께')
+  // seen on the caret's own line: the line with the selection and without it (the caret hidden, so its blinking does not count)
+  await editorPage.evaluate(() => { const st = document.createElement('style'); st.id = 'rt-no-caret'; st.textContent = '.cm-cursorLayer { display: none !important; }'; document.head.appendChild(st) })
+  const line = ed(p).locator('.cm-line.cm-activeLine')
+  const withSel = await line.screenshot()
+  await shot(p, 'f-cs-12-shift-selection')
+  await p.keyboard.press('End')
+  const without = await line.screenshot()
+  expect(withSel.equals(without)).toBe(false)
+  await p.keyboard.press('Shift+Home')
+  expect(await picked()).toBe('김서연 님께')
+  await editorPage.evaluate(() => document.getElementById('rt-no-caret')?.remove())
+  await p.keyboard.type('X')
+  await expect.poll(() => editorText(p)).toMatch(/^X\n/)
+  // Shift+click: from the caret to where it is clicked
+  await ed(p).locator('.cm-line').nth(2).click({ position: { x: 3, y: 6 } })
+  await p.keyboard.press('Home')
+  await p.keyboard.down('Shift')
+  await ed(p).locator('.cm-line').nth(4).click()
+  await p.keyboard.up('Shift')
+  expect(await picked()).toMatch(/^요청하신 일정 확인했습니다\.\n\n1\. 일정/)
   expect(p.errors).toEqual([])
   await p.context().close()
 })

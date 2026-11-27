@@ -26,9 +26,12 @@ export function saveButton(doc) {
 // of the editor, not anything a person wrote): 'save' (저장 · Save), 'saveAs' (다른 이름으로 저장… · Save As…, or the quick-access
 // .qa-save-as) or null. 2026-11-27 production: the text editor's 「다른 이름으로 저장…」 did nothing (the web host answers every
 // file dialog with 「cancelled」), so the sheet takes it (OfficeEditorFrame) — and watches 저장 to say how the save went.
+// The 한글 editor's studio names its menu entries by command (data-cmd="file:save" · "file:save-as" · "file:save-as-hwp(x)").
 export function saveKindOf(el) {
   if (!el?.getAttribute) return null
   if (el.classList?.contains('qa-save-as')) return 'saveAs'
+  const cmd = el.getAttribute('data-cmd')
+  if (cmd) return /^file:save-as/.test(cmd) ? 'saveAs' : cmd === 'file:save' ? 'save' : null
   const named = String(el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('data-tip') || '').replace(/\s+/g, ' ').trim()
   const label = named || String(el.textContent || '').replace(/\s+/g, ' ').trim()
   if (/^(다른 이름으로 저장|save as)/i.test(label)) return 'saveAs'
@@ -41,6 +44,22 @@ export function saveKindOf(el) {
 export function saveKeyOf(e) {
   if (!e || !(e.ctrlKey || e.metaKey) || e.altKey || e.repeat || e.code !== 'KeyS') return null
   return e.shiftKey ? 'saveAs' : 'save'
+}
+
+// The editor says there is nothing to save: its own 저장 is there and switched off (the text editor's is while nothing changed since
+// its last save — a search typed, an edit undone before any save is not a change to it). true / false (switched on) / null (no such button).
+export function editorClean(doc) {
+  const b = saveButton(doc)
+  return b ? b.disabled === true || b.getAttribute('aria-disabled') === 'true' : null
+}
+
+// CSS that hides the editor's 「다른 이름으로 저장」 entries (the quick-access button, the 한글 studio's menu) — and, always, the studio's
+// 「HWP 형식으로 저장」 · 「HWPX 형식으로 저장」 (another format: not what the sheet's 「다른 이름으로 저장」 does). saveAs: the sheet takes
+// 「다른 이름으로 저장」 itself, so that entry stays.
+export function saveAsHideCss({ saveAs = false } = {}) {
+  const sel = ['.md-item[data-cmd="file:save-as-hwp"]', '.md-item[data-cmd="file:save-as-hwpx"]']
+  if (!saveAs) sel.unshift('.qa-save-as', '.md-item[data-cmd="file:save-as"]')
+  return `${sel.join(', ')} { display: none !important; }`
 }
 
 // press 저장 in the editor; false when the frame is not there. force: also when the editor's button says there is nothing to save
@@ -64,7 +83,9 @@ export function pressSave(frame, { force = false } = {}) {
 // slow phone builds well after the page says it is ready: frames added later are watched as they come);
 // returns a function that stops listening. A drag on a slide (moving a shape) counts as an edit too.
 // hooks.onSave: the person pressed the editor's 저장 (its button or ⌘S); hooks.onSaveAs: its 「다른 이름으로 저장」 — a press on the
-// control is taken here (the editor never sees it); its ⌘⇧S reaches the editor first, which does nothing with it in the web host.
+// control, or ⌘⇧S, is taken here (the 한글 studio's own handler, on its text box, never sees it; the text editor's, on its window,
+// sees ⌘⇧S first and does nothing with it in the web host); hooks.onDoc(doc): each page watched (the 한글 studio's comes later).
+// What is typed in the editor's own fields (<input>: its search box, font size, zoom) is not an edit of the document.
 export function watchEdits(frame, onEdit, hooks = {}) {
   const offs = []
   const seen = new WeakSet()
@@ -82,17 +103,21 @@ export function watchEdits(frame, onEdit, hooks = {}) {
     seen.add(doc)
     let down = null
     const on = (type, fn) => { doc.addEventListener(type, fn, true); offs.push(() => doc.removeEventListener(type, fn, true)) }
-    for (const t of ['input', 'paste', 'cut', 'drop', 'compositionend']) on(t, () => onEdit(t))
+    const field = (e) => /^(INPUT|SELECT)$/.test(e.target?.tagName || '')
+    for (const t of ['input', 'paste', 'cut', 'drop', 'compositionend']) on(t, (e) => { if (!field(e)) onEdit(t) })
     on('keydown', (e) => {
-      if (editingKey(e)) return onEdit('key')
+      if (editingKey(e)) return field(e) ? undefined : onEdit('key')
       const k = saveKeyOf(e)
       if (k === 'save') hooks.onSave?.('key')
-      else if (k === 'saveAs') hooks.onSaveAs?.('key')
+      else if (k === 'saveAs' && hooks.onSaveAs) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
+        hooks.onSaveAs('key')
+      }
     })
     // (capture on the document: before the editor's own handler on its root)
     on('click', (e) => {
-      const el = e.target?.closest?.('button, [role="button"], [role="menuitem"]')
-      if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return
+      const el = e.target?.closest?.('button, [role="button"], [role="menuitem"], [data-cmd]')
+      if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList?.contains('disabled')) return
       const k = saveKindOf(el)
       if (k === 'save') hooks.onSave?.('button')
       else if (k === 'saveAs' && hooks.onSaveAs) {
@@ -106,6 +131,7 @@ export function watchEdits(frame, onEdit, hooks = {}) {
       if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6 && doc.querySelector('.slide-list, .stage-wrap')) onEdit('drag')
       down = null
     })
+    try { hooks.onDoc?.(doc) } catch { /* the page went away */ }
     for (const f of doc.querySelectorAll('iframe')) hook(f)
     const MO = doc.defaultView?.MutationObserver
     if (MO) {

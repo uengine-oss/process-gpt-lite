@@ -1,16 +1,20 @@
-# 운영 이미지 55d0a6f (로컬 컨테이너 :5403), 2026-11-27
-  ✓  1 [feature] › tests/feature/chat-doc-save.spec.js:155:1 › F-CS-01 채팅 TXT: 고치고 💾 → 막대 「저장했어요 · 시각」, 카드가 고친 판을 열고 다시 열면 고친 내용 (14.1s)
-  ✓  2 [feature] › tests/feature/chat-doc-save.spec.js:196:1 › F-CS-02 편집기 연결이 끊긴 뒤 💾 → 곧바로 「저장하지 못했어요」 · 「연결 끊김 · 다시 열기」 → 다시 열면 저장된다 (12.2s)
-  ✓  3 [feature] › tests/feature/chat-doc-save.spec.js:233:1 › F-CS-03 손대지 않고 둔 편집기도(40초 동안 조용하면 끊는 중계 — 운영의 Cloudflare 처럼) 연결이 살아 있어 저장된다 (1.4m)
-  ✓  4 [feature] › tests/feature/chat-doc-save.spec.js:256:1 › F-CS-04 「다른 이름으로 저장」 → 이름을 묻고 같은 대화의 새 파일로 저장해 연다 · 원래 카드는 마지막으로 저장한 판 그대로 (12.8s)
-  ✓  5 [feature] › tests/feature/chat-doc-save.spec.js:294:1 › F-CS-05 고친 채 닫기 · 다른 카드 → 「저장하고 닫기 · 저장하지 않고 닫기 · 취소」 (14.5s)
-  ✓  6 [feature] › tests/feature/chat-doc-save.spec.js:332:1 › F-CS-06 편집기가 올리기에 실패하면 「저장하지 못했어요 · 다시 시도」와 까닭, 다시 시도하면 저장 (7.5s)
-  ✓  7 [feature] › tests/feature/chat-doc-save.spec.js:364:1 › F-CS-07 휴대폰 390px · 밤 테마: 짧은 표시가 화면 안, 닫을 때 묻기도 화면 안 · 옆으로 넘치지 않음 (13.9s)
-  7 passed (2.7m)
+# 운영 이미지 55d0a6f (로컬 컨테이너 :5403) + F-CS-11 은 고친 office host 빌드(RT_FIXED_HOST_DIR, process-gpt-office-host fix/ipc-keepalive), 2026-11-27 검토 반영 뒤
+  ✓   1 [feature] › tests/feature/chat-doc-save.spec.js:179:1 › F-CS-01 채팅 TXT: 고치고 💾 → 막대 「저장했어요 · 시각」, 카드가 고친 판을 열고 다시 열면 고친 내용 (14.7s)
+  ✓   2 [feature] › tests/feature/chat-doc-save.spec.js:220:1 › F-CS-02 편집기 연결이 끊긴 뒤 💾 → 곧바로 「저장하지 못했어요」 · 「연결 끊김 · 다시 열기」 → 다시 열면 저장된다 (12.2s)
+  ✓   3 [feature] › tests/feature/chat-doc-save.spec.js:257:1 › F-CS-03 손대지 않고 둔 편집기도(40초 동안 조용하면 끊는 중계 — 운영의 Cloudflare 처럼) 연결이 살아 있어 저장된다 (1.4m)
+  ✓   4 [feature] › tests/feature/chat-doc-save.spec.js:280:1 › F-CS-04 「다른 이름으로 저장」 → 이름을 묻고 같은 대화의 새 파일로 저장해 연다 · 원래 카드는 마지막으로 저장한 판 그대로 (15.2s)
+  ✓   5 [feature] › tests/feature/chat-doc-save.spec.js:321:1 › F-CS-05 고친 채 닫기 · 다른 카드 → 「저장하고 닫기 · 저장하지 않고 닫기 · 취소」 (15.5s)
+  ✓   6 [feature] › tests/feature/chat-doc-save.spec.js:359:1 › F-CS-06 편집기가 올리기에 실패하면 「저장하지 못했어요 · 다시 시도」와 까닭, 다시 시도하면 저장 (8.3s)
+  ✓   7 [feature] › tests/feature/chat-doc-save.spec.js:391:1 › F-CS-07 휴대폰 390px · 밤 테마: 짧은 표시가 화면 안, 닫을 때 묻기도 화면 안 · 옆으로 넘치지 않음 (13.7s)
+  ✓   8 [feature] › tests/feature/chat-doc-save.spec.js:426:1 › F-CS-08 검색 칸에 친 것 · 문서 밖에서 누른 키는 고침이 아니다 — 편집기 저장이 꺼져 있으면 닫을 때 묻지 않고, ⌘S 도 「저장 실패」가 없다 (10.3s)
+  ✓   9 [feature] › tests/feature/chat-doc-save.spec.js:459:1 › F-CS-09 패널 앱의 시트: 저장하고 닫기 → 패널 반영이 실패하면 닫지 않고 까닭, 다시 닫으면 반영한 뒤 닫히고 다시 열리지 않음 (12.4s)
+  ✓  10 [feature] › tests/feature/chat-doc-save.spec.js:517:1 › F-CS-10 「다른 이름으로 저장」의 새 카드가 만들어지지 않으면 — 막대가 말하고, 원래 카드 그대로, 닫으면 묻고, 다시 시도는 같은 편집본으로 (8.2s)
+  ✓  11 [feature] › tests/feature/chat-doc-save.spec.js:579:1 › F-CS-11 (고친 호스트) 실제로 올리기에 실패한 저장: 편집기는 저장됐다고 여기고 단추가 꺼지지만, 다시 시도로 다시 올라감 (9.7s)
+  ✓  12 [feature] › tests/feature/chat-doc-save.spec.js:617:1 › F-CS-12 PC 의 텍스트 편집기: Shift+→ ×5 · Shift+End 로 캐럿에서 고르고 그 줄에서 보이며, 치면 고른 것을 바꾼다 · Shift+클릭도 캐럿에서 고른다 (6.2s)
+  12 passed (3.6m)
 
-# 고친 office host (process-gpt-office-host fix/ipc-keepalive, 로컬 빌드), RT_HOST_HEARTBEAT=1 — 편집기 상태 줄도 「저장 실패」
-  7 passed (F-CS-01~07)
-# 같은 호스트, Lite 의 30초 보내기를 끄고 F-CS-03: 호스트의 heartbeat 만으로 연결 유지
-  1 passed
-# 운영 이미지, Lite 의 30초 보내기를 끄고 F-CS-03: 중계가 편집기 연결을 끊음(재현)
-  1 failed — expect(R.dropped - dropped).toBe(0): Received 1
+# 재현 확인(고치기 전에는 실패)
+  F-CS-03: Lite 의 30초 보내기를 끄면 중계가 편집기 연결을 끊음 — expect(R.dropped - dropped).toBe(0): Received 1
+  F-CS-12: Lite 의 선택 CSS 없이(운영 이미지 그대로) — 고른 줄과 안 고른 줄이 같게 보임: expect(withSel.equals(without)).toBe(false): Received true
+# 고친 office host 만(Lite 없이, 편집기 페이지 직접): 운영 이미지는 「선택이 그 줄에서 보임 false」, 고친 호스트는 true
+# 고친 호스트 + RT_HOST_HEARTBEAT=1: 연결이 끊긴 뒤 편집기 상태 줄도 「저장 실패」(F-CS-02), Lite 의 보내기를 꺼도 호스트 heartbeat 만으로 F-CS-03 통과
