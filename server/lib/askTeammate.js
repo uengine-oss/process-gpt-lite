@@ -35,7 +35,7 @@ import { CATALOG_ID } from './stepUi/catalogInfo.js'
 import { checkSurface } from './stepUi/validate.js'
 import { readSubmit } from './stepUi/values.js'
 import { notifyUser } from './notify.js'
-import { withTenant } from './tenant.js'
+import { withTenant, watchedTenants } from './tenant.js'
 
 export const SKILL = 'ask-teammate'
 const T = () => config.tenantId
@@ -162,7 +162,8 @@ const usedOffers = new Set() // offers this server already turned into a card (t
  *  or null when this offer already made one */
 export async function postOffer({ user, threadId, offer, files = [], tag = {}, source = null }) {
   if (usedOffers.has(offer.jti)) return null
-  const [had] = await q(`select 1 from pro_messages where kind='ask_team' and content->'ask'->>'jti'=$1 limit 1`, [offer.jti]).catch(() => [])
+  // (this person's threads only — an offer is theirs: the check reads their messages, not everyone's)
+  const [had] = await q(`select 1 from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$2 and m.kind='ask_team' and m.content->'ask'->>'jti'=$1 limit 1`, [offer.jti, user.id]).catch(() => [])
   if (had) { console.warn(`[ask-teammate] an offer used before, no second card (${String(offer.jti).slice(0, 8)})`); return null }
   usedOffers.add(offer.jti)
   if (usedOffers.size > 5000) usedOffers.delete(usedOffers.values().next().value)
@@ -270,20 +271,30 @@ async function postRequest(me, card, { message, fields, reason }) {
   const m = await M.post(me, room.id, { kind: 'askteam', body: message, ask })
   return { room: room.id, chat: m.id, askedAt: ask.askedAt }
 }
-// claim a card for sending (from one of `from`, or a 「sending」 one a stopped server left behind) → true when this call has it
+// claim a card for sending (from one of `from`, or a 「sending」 one a stopped server left behind while it went from one of those — a 「다시
+// 묻기」 left half way is 다시 묻기's to take up, not 물어보기's) → true when this call has it
 async function claimSending(id, from) {
-  const [won] = await q(`update pro_messages set content = content || jsonb_build_object('state', 'sending', 'sendingFrom', content->>'state', 'sendingAt', now())
+  const [won] = await q(`update pro_messages set content = content || jsonb_build_object('state', 'sending', 'sendingAt', now(),
+                           'sendingFrom', case when content->>'state' = 'sending' then content->>'sendingFrom' else content->>'state' end)
                          where id=$1 and kind='ask_team' and (content->>'state' = any($2::text[])
-                           or (content->>'state' = 'sending' and (content->>'sendingAt')::timestamptz < now() - ($3::int * interval '1 millisecond')))
+                           or (content->>'state' = 'sending' and coalesce(content->>'sendingFrom', 'offered') = any($2::text[])
+                               and (content->>'sendingAt')::timestamptz < now() - ($3::int * interval '1 millisecond')))
                          returning id`, [id, from, SENDING_STALE_MS])
   return !!won
 }
 const unclaim = (id, back) => q(`update pro_messages set content = content || jsonb_build_object('state', $2::text) where id=$1 and content->>'state'='sending'`, [id, back]).catch(() => {})
+// (the sweep's: only while it is still left behind, by the database's clock at the moment of the update — a send that took it up again since
+// the sweep read it has a fresh sendingAt)
+const unclaimStale = (id, back) => q(`update pro_messages set content = content || jsonb_build_object('state', $2::text)
+                                       where id=$1 and content->>'state'='sending' and (content->>'sendingAt')::timestamptz < now() - ($3::int * interval '1 millisecond')`,
+[id, back, SENDING_STALE_MS]).catch(() => {})
 
 /** 「물어보기」 · 「고쳐서 물어보기」 (reason, fields: what was changed on the card; message: only when the person wrote the words themselves —
  *  otherwise they are made again from the template with what was changed) → the card */
 export async function send(me, cardId, { message, fields, reason } = {}) {
   const card = await ownCard(me.id, cardId)
+  // (a 「다시 묻기」 a stopped server left half way: taken up the way it started — the card's request as it was)
+  if (card.content.state === 'sending' && card.content.sendingFrom && card.content.sendingFrom !== 'offered') return again(me, cardId)
   if (!['offered', 'sending'].includes(card.content.state)) throw fail(409, L('이미 물어봤거나 취소한 요청이에요.', 'This was already asked or cancelled.'))
   const sk = await askSkill()
   const a = card.content.ask
@@ -333,7 +344,8 @@ export async function decline(me, cardId) {
 /** 「다시 묻기」 (no answer yet, or the colleague did not know): the same request once more in the room, the earlier one taken back → the card */
 export async function again(me, cardId) {
   const card = await ownCard(me.id, cardId)
-  const was = card.content.state
+  // (a 「다시 묻기」 a stopped server left 「sending」: where it came from — claimSending takes it up only once it is stale)
+  const was = card.content.state === 'sending' ? card.content.sendingFrom : card.content.state
   if (!['asked', 'late', 'unknown'].includes(was)) throw fail(409, L('지금은 다시 물을 수 없어요.', "This can't be asked again now."))
   // (claimed: an answer to the earlier request finds the card no longer waiting for it — 409)
   if (!(await claimSending(card.id, ['asked', 'late', 'unknown']))) throw fail(409, L('지금은 다시 물을 수 없어요.', "This can't be asked again now."))
@@ -427,13 +439,13 @@ export async function onRoomMessage(me, roomId, m, opts = {}) {
   if (!m?.id || looked.has(m.id) || (m.kind && m.kind !== 'text') || !String(m.body || '').trim()) return null
   looked.add(m.id)
   if (looked.size > 5000) looked.delete(looked.values().next().value)
-  // the open requests in this room for the one who wrote — the newest first (a request to someone else is never answered by this)
-  const [row] = await q(`select uuid, id, messages from chats where id=$1 and tenant_id=$2 and messages->'pgpt'->>'kind'='askteam'
-                           and messages->'pgpt'->'ask'->>'member'=$3 and messages->'pgpt'->'ask'->>'state' = any($4::text[])
-                         order by coalesce(public.pro_chat_ts(messages), now()) desc limit 1`, [roomId, T(), String(me.id), OPEN]).catch(() => [])
-  if (!row) return null
-  // the card's own request, still open (as answerTarget)
-  const t = await answerTarget(me, row.uuid).catch(() => null)
+  // the open requests in this room for the one who wrote — the newest first (a request to someone else is never answered by this); the first
+  // that is a card's own open request (answerTarget) is the one — a row written by hand that only looks like one is passed over
+  const rows = await q(`select uuid, id, messages from chats where id=$1 and tenant_id=$2 and messages->'pgpt'->>'kind'='askteam'
+                          and messages->'pgpt'->'ask'->>'member'=$3 and messages->'pgpt'->'ask'->>'state' = any($4::text[])
+                        order by coalesce(public.pro_chat_ts(messages), now()) desc limit 20`, [roomId, T(), String(me.id), OPEN]).catch(() => [])
+  let t = null
+  for (const row of rows) { t = await answerTarget(me, row.uuid).catch(() => null); if (t) break }
   if (!t) return null
   const ca = t.card.content.ask
   const r = await readReply({ ...ca, memberName: ca.member?.name }, m.body, opts).catch((e) => { console.warn('[ask-teammate] read', e.message); return null })
@@ -494,7 +506,8 @@ export const settled = () => Promise.all([...pending])
 // What goes into a draft: one line (a value is the teammate's — line breaks and control characters would add lines to the draft), and
 // written the way the file reads it: HTML escaped in an HTML file, a CSV cell quoted when it must be, a formula's first character defused.
 export function oneLine(v) {
-  return String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ').trim()
+  // (C0 and C1 controls, and the direction marks that turn text around — embedding · override · isolate)
+  return String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ').trim()
 }
 const HTML = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 export function encodeFor(ext, v) {
@@ -519,15 +532,41 @@ function changed(find, rep) {
   while (s < find.length - p && s < rep.length - p && find[find.length - 1 - s] === rep[rep.length - 1 - s]) s++
   return { from: find.slice(p, find.length - s), to: rep.slice(p, rep.length - s) }
 }
-// An edit of the model is taken only when it changes one short span (a blank marker — at most blankChars, no line break), the line count stays,
-// and what it puts there is the values themselves plus, at most, text of the span it took out (a label kept between two blanks) or spaces.
+// the changed span widened to hold a value whole: a value that shares characters with what it replaces (「19__-__-__」 → 「1990-01-01」 — the
+// shared 「19」 is outside the bare difference) is still seen as the value. find and replace agree outside the span, so it may grow.
+function changedAround(find, rep, values) {
+  let p = 0
+  while (p < find.length && p < rep.length && find[p] === rep[p]) p++
+  let s = 0
+  while (s < find.length - p && s < rep.length - p && find[find.length - 1 - s] === rep[rep.length - 1 - s]) s++
+  for (const v of values) {
+    if (!v) continue
+    for (let i = rep.indexOf(v); i >= 0; i = rep.indexOf(v, i + 1)) {
+      const end = i + v.length
+      // (an occurrence touching the change — not the same text standing elsewhere on the line)
+      if (end < p || i > rep.length - s) continue
+      const np = Math.min(p, i), ns = Math.min(s, rep.length - end)
+      if (np <= find.length - ns) { p = np; s = ns }
+      break
+    }
+  }
+  return { from: find.slice(p, find.length - s), to: rep.slice(p, rep.length - s) }
+}
+// An edit of the model is taken only when it changes one short span (at most blankChars, no line break), the line count stays, what it puts
+// there is the values themselves plus, at most, text of the span it took out (a label kept between two blanks) or spaces — and, when the
+// text still has a blank marker of this request (the item's own, else the other items'), the span it took out holds one: an edit that
+// leaves 「[확인 필요]」 standing and rewrites some other number is not a fill. (markers: the request's markers still in the text)
 // → the items it fills, or [] (refused)
-function editFills(find, rep, rest, values, R) {
+function editFills(find, rep, rest, values, R, markers = []) {
   if (find.split('\n').length !== rep.split('\n').length) return []
-  const { from, to } = changed(find, rep)
+  const { from, to } = changedAround(find, rep, rest.map((f) => values[f.key]))
   if (!from || from.length > R.blankChars || /\n/.test(from) || /\n/.test(to)) return []
   const items = rest.filter((f) => to.includes(values[f.key]))
   if (!items.length) return []
+  for (const f of items) {
+    const own = f.blank && markers.includes(f.blank) ? [f.blank] : markers
+    if (own.length && !own.some((m) => from.includes(m))) return []
+  }
   let left = to
   for (const f of items) left = left.replace(values[f.key], '\u0000')
   const parts = left.split('\u0000').map((x) => x.trim()).filter(Boolean)
@@ -568,7 +607,9 @@ export async function fillText(text, fields, values, { skill = null, chatFn = ch
       if (occurrences(out, find) !== 1) continue
       const at = out.indexOf(find)
       if (!wholeLines(out, at, find.length)) continue
-      const items = editFills(find, rep, rest.filter((f) => !done.has(f.key)), values, R)
+      // (the request's blank markers still in the text — what an edit must take out)
+      const markers = [...new Set((fields || []).map((f) => f.blank).filter((m) => m && out.includes(m)))]
+      const items = editFills(find, rep, rest.filter((f) => !done.has(f.key)), values, R, markers)
       if (!items.length) continue
       out = out.slice(0, at) + rep + out.slice(at + find.length)
       became.set(said, rep)
@@ -701,13 +742,16 @@ export async function fillDoc(me, session, cardId) {
 /** One query for every company: requests asked over a while ago and still open, and cards left 「sending」. Each company's own rule
  *  (remindAfterHours) decides in its own context; the card says so (다시 묻기 · 직접 채우기) and the person hears of it once.
  *  (ids: only these cards — a test on the shared database) → how many were marked late */
-export async function sweep({ now = Date.now(), ids = null } = {}) {
+export async function sweep({ now = Date.now(), ids = null, tenants = null } = {}) {
+  // (the companies this server serves — behind the gateway every one that uses Lite: lib/tenant.js watchedTenants)
+  const served = tenants || await watchedTenants()
   const rows = await q(`select m.id, m.thread_id, m.content, t.user_id, m.content->'ask'->>'tenant' as tenant from pro_messages m join pro_threads t on t.id=m.thread_id
-                        where m.kind='ask_team' and (
+                        where m.kind='ask_team' and m.content->'ask'->>'tenant' = any($4::text[]) and (
                           (m.content->>'state'='asked' and (m.content->'ask'->>'askedAt')::timestamptz < $1::timestamptz)
                           or (m.content->>'state'='sending' and (m.content->>'sendingAt')::timestamptz < $2::timestamptz))
-                          and ($3::uuid[] is null or m.id = any($3::uuid[])) limit 200`,
-  [new Date(now - 3600_000).toISOString(), new Date(now - SENDING_STALE_MS).toISOString(), ids])
+                          and ($3::uuid[] is null or m.id = any($3::uuid[]))
+                        order by coalesce(m.content->>'sendingAt', m.content->'ask'->>'askedAt') limit 200`,
+  [new Date(now - 3600_000).toISOString(), new Date(now - SENDING_STALE_MS).toISOString(), ids, served.map(String)])
   const byTenant = new Map()
   for (const r of rows) { if (!byTenant.has(r.tenant)) byTenant.set(r.tenant, []); byTenant.get(r.tenant).push(r) }
   let n = 0
@@ -722,7 +766,7 @@ async function lateIn(list, now) {
   const before = now - sk.rules.remindAfterHours * 3600_000
   let n = 0
   for (const r of list) {
-    if (r.content.state === 'sending') { await unclaim(r.id, r.content.sendingFrom || 'offered'); continue }
+    if (r.content.state === 'sending') { await unclaimStale(r.id, r.content.sendingFrom || 'offered'); continue }
     if (new Date(r.content.ask?.askedAt).getTime() >= before) continue
     const a = r.content.ask
     const { won, row } = await tx(async (c) => {

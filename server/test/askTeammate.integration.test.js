@@ -38,7 +38,7 @@ const SKILL = path.join(here, '../../skills/ask-teammate/prompts')
 const PROMPT = Object.fromEntries(['extract', 'fill', 'read-answer'].map((k) => [k, fs.readFileSync(path.join(SKILL, `${k}.md`), 'utf8').replace(/\s+$/, '')]))
 
 // ---- the fake model ----
-const script = { read: [], extract: [], fillHook: null }
+const script = { read: [], extract: [], fillHook: null, route: [] }
 const seen = { read: 0, extract: 0, fill: 0 }
 const listen = (srv) => new Promise((ok) => srv.listen(0, '127.0.0.1', () => ok(srv.address().port)))
 const bodyOf = (req) => new Promise((ok) => { let raw = ''; req.on('data', (c) => { raw += c }); req.on('end', () => { try { ok(JSON.parse(raw)) } catch { ok({}) } }) })
@@ -58,7 +58,7 @@ const llm = http.createServer(async (req, res) => {
   const text = (b.messages || []).map((m) => (typeof m.content === 'string' ? m.content : '')).join('\n')
   const sys = String(b.messages?.[0]?.content || '')
   const user = String(b.messages?.at(-1)?.content || '')
-  const reply = (content) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }] })) }
+  const reply = (content, extra = {}) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content, ...extra }, finish_reason: 'stop' }] })) }
   if (b.logprobs) {
     const options = [...text.matchAll(/^([A-Z])\) (.+)$/gm)].map((m) => ({ letter: m[1], label: m[2] }))
     let hit = options.at(-1) || { letter: 'A' }
@@ -72,6 +72,8 @@ const llm = http.createServer(async (req, res) => {
   }
   if (sys === PROMPT.extract) { seen.extract++; return reply(JSON.stringify(script.extract.shift() || { values: {} })) }
   if (sys === PROMPT.fill) { seen.fill++; if (script.fillHook) await script.fillHook(); return reply(JSON.stringify(fakeFill(JSON.parse(user)))) }
+  // (the router: a scripted tool call when the test gave one — 검토 2차 D)
+  if (b.tools && script.route.length) { const t = script.route.shift(); return reply('', { tool_calls: [{ id: 'call_r', type: 'function', function: { name: t.name, arguments: JSON.stringify(t.args) } }] }) }
   if (b.tools) return reply('DELEGATE')
   if (sys.includes('what you understood')) return reply(JSON.stringify({ understood: '말씀대로 할게요.', steps: ['처리'], tier: 'light', certainty: 'sure' }))
   return reply(b.response_format ? '{}' : 'OK')
@@ -105,6 +107,7 @@ const { mainThread } = await import('../lib/store.js')
 const { publishBuffer } = await import('../lib/office.js')
 const { storageKey } = await import('../lib/mailReply.js')
 const { findMembers, resolveMember } = await import('../lib/team.js')
+const { recipientsOf } = await import('../lib/scenarios/mail.js')
 
 const users = [], rooms = new Set(), actions = [], closers = []
 const OTHER_TENANT = `pro-at-other-${crypto.randomBytes(3).toString('hex')}`
@@ -488,16 +491,15 @@ test('AT-I-09 (검토 #2) 답은 카드가 보낸 그 요청에만: 「아니요
   await q(`insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4)`, [forged, c2.content.ask.room, { uuid: forged, role: 'user', content: '채워 주세요', userId: HY.id, email: HY.email,
     pgpt: { kind: 'askteam', ask: { card: a2.id, owner: HY.id, member: DY.id, memberName: '박도윤', fields: [{ key: 'f1', label: '박도윤 연락처' }], state: 'asked' } } }, TENANT])
   assert.equal((await call(DY, 'POST', `/team/asks/${forged}/answer`, { values: { f1: '010-0000-0012' }, a2ui: { action: { name: 'answer', surfaceId: surface(a2.id) } } })).status, 404)
-  // a reply in words goes to the newest open request of the room — the forged one: not taken either
-  script.read.push('answer'); script.extract.push({ values: { f1: '010-0000-0013' } })
-  assert.equal((await call(DY, 'POST', `/team/threads/${c2.content.ask.room}/messages`, { text: '연락처 010-0000-0013' })).status, 200)
-  await new Promise((ok) => setTimeout(ok, 500))
+  // (검토 2차 G) a reply in words: the forged row (the newest) is passed over, the card's own request takes it; the forged row stays as it was
+  script.read.push('answer'); script.extract.push({ values: { f1: '010-0000-0014' } })
+  assert.equal((await call(DY, 'POST', `/team/threads/${c2.content.ask.room}/messages`, { text: '연락처 010-0000-0014' })).status, 200)
+  await until(async () => (await cardOf(a2.id)).content.state === 'answered')
   await AT.settled()
   script.read.length = 0; script.extract.length = 0
-  assert.equal((await cardOf(a2.id)).content.state, 'asked')
+  assert.deepEqual((await cardOf(a2.id)).content.ask.values, { f1: '010-0000-0014' })
+  assert.equal((await q('select messages from chats where uuid=$1', [forged]))[0].messages.pgpt.ask.state, 'asked')
   // (c) the real request answered, then its row put back to 「asked」 (replayed): a second answer is refused, nothing is filled again
-  assert.equal((await call(DY, 'POST', `/team/asks/${c2.content.ask.chat}/answer`, { values: { f1: '010-0000-0014' }, a2ui: { action: { name: 'answer', surfaceId: surface(a2.id) } } })).status, 200)
-  await AT.settled()
   const filled = (await cardOf(file.id)).content.versions?.length || 0
   assert.ok(filled >= versions)
   await q(`update chats set messages = jsonb_set(messages, '{pgpt,ask,state}', '"asked"') where uuid=$1`, [c2.content.ask.chat])
@@ -561,9 +563,18 @@ test('AT-I-11 (검토 #7) 이름 찾기: 맞는 사람이 여럿이면 후보와
     assert.deepEqual((await findMembers('김서연')).map((x) => x.id), [SY.id], '정확한 이름이 하나면 그 사람')
     assert.equal((await resolveMember('서연')), null)
     assert.equal((await resolveMember('pm'))?.id, SY.id)
-    assert.deepEqual(await findMembers('pmkim@customer.com'), [])
-    assert.equal((await AT.offerFor(HY, { ...ARGS(), member: 'pmkim@customer.com' })).ok, false)
+    assert.deepEqual(await findMembers('pmkim@example.test'), [])
+    assert.equal((await AT.offerFor(HY, { ...ARGS(), member: 'pmkim@example.test' })).ok, false)
     assert.equal((await resolveMember(LS.email.toUpperCase()))?.id, LS.id)
+    // (검토 2차 D) 「팀원에게 알려줘」 and a mail's recipient: several who fit are named with their addresses, not 「찾지 못했어요」
+    script.route.push({ name: 'notify_member', args: { member: '서연', title: '확인 부탁', message: '견적서 확인 부탁드려요', ack: '알릴게요' } })
+    await runTurn({ user: HY, session: { access_token: 'test' }, threadId: thread, text: '서연님께 견적서 확인해 달라고 알려줘' })
+    const said = (await rowsOf(thread)).filter((m) => m.role === 'agent' && m.kind === 'text').at(-1)
+    assert.match(said.content.text, /'서연' 에 맞는 팀원이 여럿이에요: /)
+    assert.ok(said.content.text.includes(`김서연(${SY.email})`) && said.content.text.includes(`이서연(${LS.email})`), said.content.text)
+    assert.equal((await q(`select count(*)::int n from notifications where type='mention' and user_id = any($1)`, [[SY.id, LS.id]]))[0].n, 0, '알림은 가지 않음')
+    await assert.rejects(recipientsOf(['서연']), (e) => /여럿이에요: .*김서연\(.*이서연\(/.test(e.message))
+    assert.deepEqual(await recipientsOf(['김서연']), [SY.email.toLowerCase()])
   } finally {
     await q(`delete from pro_role_assignments where tenant_id=$1`, [TENANT])
   }
@@ -583,7 +594,32 @@ test('AT-I-12 (검토 #9) 제안 하나에 카드 하나(같은 턴에 두 번 �
   // a card a stopped server left 「sending」
   const card = (await rowsOf(thread)).filter((m) => m.kind === 'ask_team').at(-1)
   await q(`update pro_messages set content = content || jsonb_build_object('state','sending','sendingFrom','offered','sendingAt', now() - interval '10 minutes') where id=$1`, [card.id])
+  // (검토 2차 B) only the companies this server serves
+  assert.equal(await AT.sweep({ ids: [card.id], tenants: ['some-other-company'] }), 0)
+  assert.equal((await cardOf(card.id)).content.state, 'sending')
   await AT.sweep({ ids: [card.id] })
   assert.equal((await cardOf(card.id)).content.state, 'offered')
+  // (검토 2차 C) a 「sending」 taken up again after the sweep read it is not put back: the sweep reads it as stale (its clock is ahead here),
+  // the update re-checks against the database's clock at that moment
+  await q(`update pro_messages set content = content || jsonb_build_object('state','sending','sendingFrom','offered','sendingAt', now()) where id=$1`, [card.id])
+  await AT.sweep({ ids: [card.id], now: Date.now() + 10 * 60_000 })
+  assert.equal((await cardOf(card.id)).content.state, 'sending')
+  await q(`update pro_messages set content = content || '{"state":"offered"}'::jsonb where id=$1`, [card.id])
+  // 「물어보기」 on a card a 「다시 묻기」 left half way goes the 다시 묻기 way (the request as it was, not a fresh offer's)
+  assert.equal((await call(HY, 'POST', `/asks/${card.id}/send`, {})).status, 200)
+  const asked = await roomOfCard(card.id)
+  await q(`update pro_messages set content = content || jsonb_build_object('state','sending','sendingFrom','asked','sendingAt', now() - interval '10 minutes') where id=$1`, [card.id])
+  const r2 = await call(HY, 'POST', `/asks/${card.id}/send`, { message: '새로 쓴 글' })
+  assert.equal(r2.status, 200, JSON.stringify(r2.body))
+  const again2 = await roomOfCard(card.id)
+  assert.notEqual(again2.content.ask.chat, asked.content.ask.chat)
+  assert.equal(again2.content.ask.asks, 2)
+  const [row2] = await q('select messages from chats where uuid=$1', [again2.content.ask.chat])
+  assert.notEqual(row2.messages.content, '새로 쓴 글')
+  assert.equal((await q('select messages from chats where uuid=$1', [asked.content.ask.chat]))[0].messages.pgpt.ask.state, 'superseded')
+  // a fresh 「sending」 of a 다시 묻기 is not taken by 물어보기
+  await q(`update pro_messages set content = content || jsonb_build_object('state','sending','sendingFrom','asked','sendingAt', now()) where id=$1`, [card.id])
+  assert.equal((await call(HY, 'POST', `/asks/${card.id}/send`, {})).status, 409)
+  await q(`update pro_messages set content = content || '{"state":"asked"}'::jsonb where id=$1`, [card.id])
   await call(HY, 'POST', `/asks/${card.id}/decline`, {})
 })

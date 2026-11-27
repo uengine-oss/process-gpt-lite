@@ -3372,7 +3372,8 @@
   "요청이 취소됐어요": "The request was cancelled",
   "모르면 누가 아는지 적어 주셔도 돼요": "If you don't know, who might",
   "문서에 채우기": "Fill the document",
-  "메일 답장 초안이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.": "The mail reply draft changed meanwhile, so it was not filled. Put the values in yourself."
+  "메일 답장 초안이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.": "The mail reply draft changed meanwhile, so it was not filled. Put the values in yourself.",
+  "값이 길어요 — 내용을 확인하고 채우세요": "A long value — check what it says before filling"
  },
  "patterns": [
   [

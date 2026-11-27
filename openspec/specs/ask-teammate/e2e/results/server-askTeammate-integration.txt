@@ -1,107 +1,112 @@
-[turn-plan] model=fake ms=8 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 300 ms (hints 297 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=149303ce items=3 file mail-card
+[turn-plan] model=fake ms=9 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 241 ms (hints 239 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=c5787e19 items=3 file mail-card
 [team] deepagents worktree: no — continue hands the branch files over as attachments
-[ask-teammate] asked card=149303ce room=4f014002 items=3
-[ask-teammate] answer card=149303ce via=form items=3
-✔ AT-I-01 빈칸 → 동의 카드 → 물어보기 → 메신저 요청 → 양식으로 답 → 「답했어요」 · 초안의 새 판 · 메일 답장 초안 (보내지 않음) (2450.458208ms)
-[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 41 ms (hints 40 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=0f64a338 items=3 file
-[ask-teammate] asked card=0f64a338 room=4f014002 items=3
-✔ AT-I-02 대신 답하려는 사람은 거절 — 방에 없는 팀원 404 · 물어본 사람 403 · 물어본 사람이 방에 쓴 말도 답이 아님 (1064.326333ms)
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 24 ms (hints 22 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=dc34080f items=3 file
-[ask-teammate] asked card=dc34080f room=4f014002 items=3
-[ask-teammate] reply in room=4f014002 → other 1.00 via logprob
-[ask-teammate] reply in room=4f014002 → answer 1.00 via logprob
-[ask-teammate] answer card=dc34080f via=chat items=2
-✔ AT-I-03 말로 한 답: 판정이 답으로 읽고 값을 뽑아 채운다, 인사는 답이 아님 (968.765084ms)
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
+[ask-teammate] asked card=c5787e19 room=8504450b items=3
+[ask-teammate] answer card=c5787e19 via=form items=3
+✔ AT-I-01 빈칸 → 동의 카드 → 물어보기 → 메신저 요청 → 양식으로 답 → 「답했어요」 · 초안의 새 판 · 메일 답장 초안 (보내지 않음) (2318.347625ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 28 ms (hints 27 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=0c70dbbd items=3 file
+[ask-teammate] asked card=0c70dbbd room=8504450b items=3
+✔ AT-I-02 대신 답하려는 사람은 거절 — 방에 없는 팀원 404 · 물어본 사람 403 · 물어본 사람이 방에 쓴 말도 답이 아님 (993.93025ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 38 ms (hints 37 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=a321ef95 items=3 file
+[ask-teammate] asked card=a321ef95 room=8504450b items=3
+[ask-teammate] reply in room=8504450b → other 1.00 via logprob
+[ask-teammate] reply in room=8504450b → answer 1.00 via logprob
+[ask-teammate] answer card=a321ef95 via=chat items=2
+✔ AT-I-03 말로 한 답: 판정이 답으로 읽고 값을 뽑아 채운다, 인사는 답이 아님 (875.819708ms)
+[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 8 ms (hints 6 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=0c2cbf7b items=3 file
+✔ AT-I-04 「아니요(직접 채울게요)」: 아무것도 보내지 않고, 그 뒤 물어보기는 409 (166.509042ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 9 ms (hints 7 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=5ba7ffad items=3 file
+[ask-teammate] asked card=5ba7ffad room=8504450b items=2 (edited)
+[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 12 ms (hints 11 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=141999de items=3 file
+[ask-teammate] asked card=141999de room=8504450b items=1 (edited)
+✔ AT-I-05 답 없음: 하루 뒤 「아직 답하지 않았어요」 → 다시 묻기 → 직접 채우기(방의 요청도 거둠) (660.727916ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 12 ms (hints 10 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=20376c8e items=3 file
+[ask-teammate] asked card=20376c8e room=8504450b items=3
+[ask-teammate] unknown card=20376c8e via=form items=0
+✔ AT-I-06 「잘 모르겠어요」: 그 말 그대로 알린다 (416.122625ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 13 ms (hints 10 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=78b329e8 items=3 file
+✔ AT-I-07 같은 회사 팀원에게만: 다른 회사 · 자기 자신 · 팀에서 빠진 사람은 거절, 남의 카드 404 (319.755333ms)
+[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=7ce263a8
 [router] model=fake 11 ms (hints 9 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=c7f99e9f items=3 file
-✔ AT-I-04 「아니요(직접 채울게요)」: 아무것도 보내지 않고, 그 뒤 물어보기는 409 (206.413125ms)
-[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 33 ms (hints 32 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=c1e4ea71 items=3 file
-[ask-teammate] asked card=c1e4ea71 room=4f014002 items=2 (edited)
-[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 13 ms (hints 12 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=9144b401 items=3 file
-[ask-teammate] asked card=9144b401 room=4f014002 items=1 (edited)
-✔ AT-I-05 답 없음: 하루 뒤 「아직 답하지 않았어요」 → 다시 묻기 → 직접 채우기(방의 요청도 거둠) (889.574584ms)
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 16 ms (hints 15 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=35935055 items=3 file
-[ask-teammate] asked card=35935055 room=4f014002 items=3
-[ask-teammate] unknown card=35935055 via=form items=0
-✔ AT-I-06 「잘 모르겠어요」: 그 말 그대로 알린다 (422.08475ms)
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 10 ms (hints 8 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=226195b1 items=3 file
-✔ AT-I-07 같은 회사 팀원에게만: 다른 회사 · 자기 자신 · 팀에서 빠진 사람은 거절, 남의 카드 404 (194.579791ms)
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 10 ms (hints 9 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=5668c129 items=1 file
-[ask-teammate] asked card=5668c129 room=4f014002 items=1
-[ask-teammate] answer card=5668c129 via=form items=1
-✔ AT-I-08 (검토 #1) 문서(docx) 초안: 답만으로는 아무 턴도 시작하지 않고, 사람이 「문서에 채우기」를 눌러야 좁힌 턴이 그 문서만 채운다 (805.726375ms)
-[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 9 ms (hints 7 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=8e1116d6 items=3 file
-[ask-teammate] asked card=8e1116d6 room=4f014002 items=3
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 11 ms (hints 10 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=a28a3b0b items=3 file
-[ask-teammate] asked card=a28a3b0b room=4f014002 items=3
-[ask-teammate] answer card=a28a3b0b via=form items=1
-✔ AT-I-09 (검토 #2) 답은 카드가 보낸 그 요청에만: 「아니요」 뒤의 답 · 손으로 쓴(위조) 요청 · 되살린 요청은 카드를 다시 열지 않는다 (1127.474666ms)
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 9 ms (hints 7 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=d16a18a9 items=1 file
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 9 ms (hints 8 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=0140efdd items=1 file
-[ask-teammate] asked card=d16a18a9 room=4f014002 items=1
-[ask-teammate] asked card=0140efdd room=7e32cb75 items=1
-[ask-teammate] answer card=0140efdd via=form items=1
-[ask-teammate] answer card=d16a18a9 via=form items=1
-[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 8 ms (hints 7 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=dd6bf7aa items=1 mail-card
-[ask-teammate] asked card=dd6bf7aa room=4f014002 items=1
-[ask-teammate] answer card=dd6bf7aa via=form items=1
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 11 ms (hints 10 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=c0c428ad items=1 mail-card
-[ask-teammate] asked card=c0c428ad room=4f014002 items=1
-[ask-teammate] answer card=c0c428ad via=form items=1
-✔ AT-I-10 (검토 #5) 겹친 답: 같은 초안의 두 요청이 거의 같이 답해져도 두 값이 다 들어가고, 고쳐지는 중의 메일 답장 초안은 새 글에 채운다 (1441.705709ms)
-✔ AT-I-11 (검토 #7) 이름 찾기: 맞는 사람이 여럿이면 후보와 함께 거절, 주소는 그 주소만(역할 이름이 들어 있어도) (100.608708ms)
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
-[router] model=fake 16 ms (hints 14 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-[ask-teammate] offered thread=445ab0d6 card=cecf299b items=3 file
-[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=445ab0d6
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=3ac83ac8 items=1 file
+[ask-teammate] asked card=3ac83ac8 room=8504450b items=1
+[ask-teammate] answer card=3ac83ac8 via=form items=1
+✔ AT-I-08 (검토 #1) 문서(docx) 초안: 답만으로는 아무 턴도 시작하지 않고, 사람이 「문서에 채우기」를 눌러야 좁힌 턴이 그 문서만 채운다 (849.807583ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
 [router] model=fake 14 ms (hints 13 ms) → DELEGATE
-[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=445ab0d6
-✔ AT-I-12 (검토 #9) 제안 하나에 카드 하나(같은 턴에 두 번 · 다음 턴에 다시 와도), 「보내는 중」에 멈춘 카드는 되돌림 (296.311833ms)
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=d381fee3 items=3 file
+[ask-teammate] asked card=d381fee3 room=8504450b items=3
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 10 ms (hints 7 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=7f537965 items=3 file
+[ask-teammate] asked card=7f537965 room=8504450b items=3
+[ask-teammate] reply in room=8504450b → answer 1.00 via logprob
+[ask-teammate] answer card=7f537965 via=chat items=1
+✔ AT-I-09 (검토 #2) 답은 카드가 보낸 그 요청에만: 「아니요」 뒤의 답 · 손으로 쓴(위조) 요청 · 되살린 요청은 카드를 다시 열지 않는다 (749.591125ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 11 ms (hints 8 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=3e5edb15 items=1 file
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 10 ms (hints 9 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=d2ff138c items=1 file
+[ask-teammate] asked card=3e5edb15 room=8504450b items=1
+[ask-teammate] asked card=d2ff138c room=da386e8a items=1
+[ask-teammate] answer card=3e5edb15 via=form items=1
+[ask-teammate] answer card=d2ff138c via=form items=1
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 20 ms (hints 18 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=0125d5ae items=1 mail-card
+[ask-teammate] asked card=0125d5ae room=8504450b items=1
+[ask-teammate] answer card=0125d5ae via=form items=1
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 10 ms (hints 9 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=ae666f4d items=1 mail-card
+[ask-teammate] asked card=ae666f4d room=8504450b items=1
+[ask-teammate] answer card=ae666f4d via=form items=1
+✔ AT-I-10 (검토 #5) 겹친 답: 같은 초안의 두 요청이 거의 같이 답해져도 두 값이 다 들어가고, 고쳐지는 중의 메일 답장 초안은 새 글에 채운다 (1630.475334ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 10 ms (hints 8 ms) → notify_member
+[turn-plan] handler=action plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+✔ AT-I-11 (검토 #7) 이름 찾기: 맞는 사람이 여럿이면 후보와 함께 거절, 주소는 그 주소만(역할 이름이 들어 있어도) (216.321042ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 10 ms (hints 9 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] offered thread=7ce263a8 card=3e5a968f items=3 file
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=7ce263a8
+[router] model=fake 8 ms (hints 7 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=7ce263a8
+[ask-teammate] asked card=3e5a968f room=8504450b items=3
+✔ AT-I-12 (검토 #9) 제안 하나에 카드 하나(같은 턴에 두 번 · 다음 턴에 다시 와도), 「보내는 중」에 멈춘 카드는 되돌림 (487.013958ms)
 ℹ tests 12
 ℹ suites 0
 ℹ pass 12
@@ -109,4 +114,4 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 12558.191542
+ℹ duration_ms 12721.100792

@@ -142,6 +142,8 @@ export async function resolveMember(text) {
   const list = await findMembers(text)
   return list.length === 1 ? list[0] : null
 }
+// 「김서연(kim@…), 이서연(lee@…)」 — the candidates when the words fit several, for a message that asks which one
+export const candidateList = (list, max = 5) => list.slice(0, max).map((p) => `${p.name}${p.email ? `(${p.email})` : ''}`).join(', ') + (list.length > max ? ` …` : '')
 
 // Human roles the tenant's processes use (agents' roles excluded), with the processes they appear in.
 export async function roleCatalog() {

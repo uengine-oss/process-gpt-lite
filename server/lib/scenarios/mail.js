@@ -22,7 +22,7 @@ import { q } from '../supa.js'
 import { config } from '../../config.js'
 import { registerExecutor, guard } from '../policy/pep.js'
 import { addMessage, mainThread } from '../store.js'
-import { resolveMember } from '../team.js'
+import { findMembers, candidateList } from '../team.js'
 import { L } from '../lang.js'
 import { oddsOf } from '../decide.js'
 import { ADDR, findPii, maskPii } from '../policy/pii.js'
@@ -41,11 +41,14 @@ const domainOf = (a) => String(a).split('@').pop().toLowerCase()
 export const isInternal = (addr, domains = companyDomains()) => { const d = domainOf(addr); return domains.some((c) => d === c || d.endsWith(`.${c}`)) }
 
 // "kim@globex.com, 김민지" / ["이도윤 <doyun@…>"] → addresses; a teammate's name or role resolves to their address
-async function recipientsOf(to) {
+export async function recipientsOf(to) {
   const said = [].concat(to || []).flatMap((x) => String(x).split(/[,;\n]/)).map((s) => s.trim()).filter(Boolean)
   const out = []
   for (const s of said) {
-    const addr = s.match(ADDR)?.[0] || (await resolveMember(s).catch(() => null))?.email
+    const found = s.match(ADDR) ? [] : await findMembers(s).catch(() => [])
+    // (a name that fits several teammates is not guessed: they are named)
+    if (found.length > 1) throw bad(L(`받는 사람 「${s}」에 맞는 팀원이 여럿이에요: ${candidateList(found)}. 누구인지 주소로 알려 주세요.`, `Several teammates match "${s}": ${candidateList(found)}. Please give the e-mail address.`))
+    const addr = s.match(ADDR)?.[0] || found[0]?.email
     if (!addr) throw bad(L(`받는 사람 「${s}」의 메일 주소를 모르겠어요. 주소로 알려 주세요.`, `I don't know the address of "${s}". Please give me the e-mail address.`))
     if (!out.includes(addr.toLowerCase())) out.push(addr.toLowerCase())
   }

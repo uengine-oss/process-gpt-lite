@@ -269,3 +269,27 @@ test('AT-U-10 (검토 #4) 초안에 들어가는 값: 한 줄로 · HTML 파일�
   assert.equal(AT.encodeFor('csv', '010-0000-0000'), '010-0000-0000')
   assert.equal(AT.encodeFor('md', '**굵게**'), '**굵게**')
 })
+
+test('AT-U-11 (검토 2차 A · F) 고침이 빈칸을 뺀 것이어야 함 · 값이 둘레와 글자를 나눠 써도 받음 · 한 줄 값에서 C1 제어 · 방향 표시를 뺌', async () => {
+  const TEXT = ['박도윤 연락처 : [확인 필요]', '입금 계좌 : 000-00-0000', '박도윤 생년월일 : 19__-__-__'].join('\n')
+  const run = (fields, values, edits) => AT.fillText(TEXT, fields, values, { skill, chatFn: async () => ({ edits }) })
+  const phone = { key: 'f1', label: '박도윤 연락처', blank: '[확인 필요]' }
+  // steered: the account number rewritten while the real blank stays — refused (the item's own marker is still in the text)
+  const steer = await run([phone], { f1: '010-0000-0000' }, [{ find: '입금 계좌 : 000-00-0000', replace: '입금 계좌 : 010-0000-0000' }])
+  assert.deepEqual([steer.count, steer.text], [0, TEXT])
+  // an item with no marker of its own: the other items' markers decide
+  const noMark = await run([phone, { key: 'f2', label: '박도윤 메모' }], { f2: '999-99-9999' }, [{ find: '입금 계좌 : 000-00-0000', replace: '입금 계좌 : 999-99-9999' }])
+  assert.equal(noMark.count, 0)
+  // the real blank: taken
+  assert.equal((await run([phone], { f1: '010-0000-0000' }, [{ find: '박도윤 연락처 : [확인 필요]', replace: '박도윤 연락처 : 010-0000-0000' }])).count, 1)
+  // a value sharing characters with what it replaces (「19__-__-__」 → 「1990-01-01」): taken, with or without the marker known
+  const birth = { key: 'f3', label: '박도윤 생년월일', blank: '19__-__-__' }
+  const e = [{ find: '박도윤 생년월일 : 19__-__-__', replace: '박도윤 생년월일 : 1990-01-01' }]
+  const b1 = await run([birth], { f3: '1990-01-01' }, e)
+  assert.equal(b1.count, 1)
+  assert.match(b1.text, /박도윤 생년월일 : 1990-01-01$/)
+  assert.equal((await run([{ key: 'f3', label: '박도윤 생년월일' }], { f3: '1990-01-01' }, e)).count, 1)
+  // F: C1 controls and the direction marks go
+  assert.equal(AT.oneLine('010\u0085-0000\u009b-0000'), '010-0000-0000')
+  assert.equal(AT.oneLine('‮1234‬ ⁦abc⁩ ‪‫‭'), '1234 abc')
+})

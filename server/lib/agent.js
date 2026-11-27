@@ -22,7 +22,7 @@ import { valuesFromText } from './panelApps/sheet.js'
 import { emit } from './bus.js'
 import { listDefinitions, listInstances, myTodos, getDefinition } from './processes.js'
 import { systemGuide } from './systems.js'
-import { listTeam, listAssignments, resolveMember } from './team.js'
+import { listTeam, listAssignments, findMembers, candidateList } from './team.js'
 import { notifyMember } from './notify.js'
 import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, officeHint, parseToolOutput, publish } from './office.js'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -922,7 +922,14 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       await processTurn(userId, threadId, args)
       break
     case 'notify_member': {
-      const member = await resolveMember(args.member)
+      // (exactly one teammate — lib/team.js findMembers: several who fit are named, not guessed)
+      const found = await findMembers(args.member)
+      const member = found.length === 1 ? found[0] : null
+      if (found.length > 1) {
+        await addMessage(userId, threadId, 'agent', 'text', { text: L(`'${args.member}' 에 맞는 팀원이 여럿이에요: ${candidateList(found)}. 누구인지 전체 이름이나 이메일로 다시 말씀해 주세요.`,
+          `Several teammates match '${args.member}': ${candidateList(found)}. Say which one by full name or e-mail.`) })
+        break
+      }
       if (!member || member.id === userId) {
         await addMessage(userId, threadId, 'agent', 'text', { text: member ? L('본인에게는 알림을 보내지 않아요.', "I don't send notifications to yourself.") : L(`'${args.member}' 팀원을 찾지 못했어요. 설정 → 팀·역할에서 팀원을 추가해 주세요.`, `I couldn't find a teammate called '${args.member}'. Add them in Settings → Team & roles.`) })
         break

@@ -59,6 +59,10 @@ function openFile() {
   if (m) openArtifact(app, router, m).catch(() => {})
 }
 const openMail = () => app.openMailCard({ actionId: c.value.mail?.actionId || a.value.actionId }, app.instance ? 'instance' : 'chat').catch(() => {})
+// a long value next to 「문서에 채우기」: said plainly so the person reads it before an agent writes it into the document (its length only —
+// the words are not read)
+const LONG_VALUE = 120
+const longValue = computed(() => (c.value.items || []).some((it) => String(it.value || '').length > LONG_VALUE))
 const values = computed(() => (a.value.fields || []).filter((f) => a.value.values?.[f.key]).map((f) => ({ label: f.label, value: a.value.values[f.key] })))
 const fileLine = computed(() => {
   const f = c.value.file
@@ -104,6 +108,7 @@ const stateLine = computed(() => ({
       <small class="sub">메일은 보내지 않았어요.</small>
       <div class="btns">
         <button v-if="c.file?.state === 'doc'" class="pill yes press" :disabled="!!busy" data-testid="ask-team-fill-doc" @click="fillDoc">{{ busy === 'fill-doc' ? '시작하는 중…' : '문서에 채우기' }}</button>
+        <small v-if="c.file?.state === 'doc' && longValue" class="warn" data-testid="ask-team-long">값이 길어요 — 내용을 확인하고 채우세요</small>
         <button v-if="c.file?.msgId && ['filled', 'none', 'doc', 'running', 'agent_done', 'conflict'].includes(c.file.state)" class="pill press" data-testid="ask-team-open-file" @click="openFile">초안 열기</button>
         <button v-if="c.mail?.actionId" class="pill press" data-testid="ask-team-open-mail" @click="openMail">메일 열기</button>
       </div>
@@ -205,4 +210,5 @@ textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radiu
 .pill:disabled { opacity: .55; }
 .sub { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
 .err { font-size: 12.5px; color: var(--color-error); }
+.warn { align-self: center; font-size: 12.5px; color: var(--color-error); }
 </style>
