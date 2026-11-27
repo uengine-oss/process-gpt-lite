@@ -40,7 +40,7 @@ import { freshToken } from '../api.js'
 import { BASE } from '../base.js'
 import { kindOf, kindLabel } from '../artifacts.js'
 import { openLiveLink } from '../liveLink.js'
-import { watchEdits, pressSave, editorClean, saveAsHideCss } from '../officeAutosave.js'
+import { watchEdits, pressSave, editorClean, saveAsHideCss, saveKindOf } from '../officeAutosave.js'
 import { installSheetTouchPan } from '../officeTouchPan.js'
 import { KEEPALIVE_MS, SAVE_WAIT_MS, saveBadge } from '../officeSave.js'
 
@@ -293,7 +293,8 @@ function idleSave() {
 // (any: a document that does not save by itself — 「내려받기」, closing, 다시 시도 and 「다른 이름으로 저장」 ask for its edits to be saved;
 // force: also when the editor's 저장 says there is nothing new — a retry after its upload failed;
 // copy: 「다른 이름으로 저장」's — what the editor saves goes to the sheet as a copy: the card does not move, the bar and the edits stay)
-function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false } = {}) {
+// (waits SAVE_WAIT_MS by default: longer than the office host gives an upload, so 「failed」 here is the host's word — the upload stopped)
+function saveNow(timeoutMs = SAVE_WAIT_MS, { any = false, force = false, copy = false } = {}) {
   if ((!props.autoSave && !any) || props.readOnly || !frame.value) return Promise.resolve({ saved: false })
   // (the editor's connection is gone: its save would never be answered)
   if (gone.value) { if (!copy) failSave(GONE); return Promise.resolve({ saved: false, error: GONE }) }
@@ -305,20 +306,32 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
   clearTimeout(idleTimer)
   const seq = editSeq
   const aseq = agentSeq
+  const tseq = touchSeq
+  // (an answer that comes after this save gave up is still this save's: it covers what was there when it was pressed)
+  if (!copy) pressMark = { edit: seq, agent: aseq, touch: tseq }
   saving.value = true
   if (!props.autoSave && !copy) { clearTimeout(pressTimer); pressTimer = null; retryFn = null; saveState.value = { kind: 'saving' } }
   inFlight = new Promise((resolve) => {
-    const t = setTimeout(() => done({ saved: false, timeout: true }), timeoutMs)
+    const t0 = Date.now()
+    let t = setTimeout(() => done({ saved: false, timeout: true }), timeoutMs)
+    // (the office host announces an upload that may take longer — a large file: this save waits that long; office:saving)
+    waitLonger = (ms) => { clearTimeout(t); t = setTimeout(() => done({ saved: false, timeout: true }), ms) }
     function done(r) {
-      clearTimeout(t); settle = null; inFlight = null; saving.value = false
+      clearTimeout(t); settle = null; inFlight = null; saving.value = false; waitLonger = null
       const wasCopy = copySave
       copySave = false
       // (a copy whose answer comes after all is still the copy's — not a save of the card)
       if (wasCopy && r.timeout) copyLate = true
+      // a save that failed or got no answer: what the editor holds is not saved, whatever its own 저장 says now (it is off after an
+      // upload that failed — review #111: closing did not ask, and 「다른 이름으로 저장」's 다시 시도 made the new card from the older file)
+      if (!r.saved && !r.reloaded) markUnlanded({ edit: seq, agent: aseq, touch: tseq })
+      if (r.saved) unlanded = false
       if (!wasCopy) {
+        if (r.saved) pressMark = null
         if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
         if (r.saved && agentSeq === aseq) agentEdits.value = false
-        if (!r.saved && !r.reloaded) failSave(r.timeout ? `편집기가 ${Math.round(timeoutMs / 1000)}초 안에 저장을 마치지 못했어요` : r.error || '')
+        if (r.saved && touchSeq === tseq) touched = false
+        if (!r.saved && !r.reloaded) failSave(r.timeout ? `편집기가 ${Math.round((Date.now() - t0) / 1000)}초 안에 저장을 마치지 못했어요` : r.error || '')
       }
       resolve(r)
     }
@@ -326,20 +339,33 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
     copySave = copy
     // (this press is the frame's own: not the person's 저장 — pressed() leaves it alone)
     selfPress = true
-    let pressedOk = false
-    try { pressedOk = pressSave(frame.value, { force }) } finally { selfPress = false }
-    if (!pressedOk) done({ saved: false, error: '편집기가 열려 있지 않아요' })
+    const republish = canRepublish ? () => frame.value?.contentWindow?.postMessage({ source: 'process-gpt', type: 'republish' }, '*') : null
+    // (nothing edited since the write that failed: that write is what there is to send up, whatever the editor)
+    const quiet = unlanded && !!failMark && editSeq === failMark.edit && touchSeq === failMark.touch && agentSeq === failMark.agent
+    pressSave(frame.value, { republish, editor: editor(), quiet })
+      .then((how) => { if (!how) done({ saved: false, error: '편집기가 열려 있지 않아요' }) }, () => done({ saved: false, error: '편집기가 열려 있지 않아요' }))
+      .finally(() => { selfPress = false })
   })
   return inFlight
 }
 // Is there something to save? Our own count of edits, the agent's, or the editor's own 저장 switched on (every IeumOffice editor turns
 // it off while it has nothing new). The editor's word that it is clean is taken over our count only where its flag follows every edit
-// as it is made (the text · html · mind-map editors); a spreadsheet's cell being typed in, a slide's text box being written in, hold
+// as it is made (the text · html editors); a spreadsheet's cell being typed in, a slide's text box being written in, hold
 // their text until they are left — their 저장 is off meanwhile (review #107: a cell typed and left by ↓ was lost).
+// The mind map's 저장 is off only while it loads (on for good after), so it says nothing either way: our own count, the agent's, and
+// any press in the map (its edits are mostly made with the mouse — a topic dragged, a tool of its bar; `touched`, below; a press that
+// only moved the view asks too, which is the safer way to be wrong). Once the editor's fork turns its 저장 off while nothing is new
+// (apps/mindmap Toolbar `disabled={p.disabled || !(p.dirty || p.typing)}` — on while a title is still being typed) and that build is the
+// office host's, the mind map goes to LIVE_DIRTY and `touched` goes; until then a 저장 that says off is already taken as clean (no press
+// of an off button that would never be answered).
 // Asked where it matters (closing, flush, 내려받기, 다른 이름으로 저장, 저장) — never on a timer.
-const LIVE_DIRTY = new Set(['markdown', 'html', 'mindmap'])
+const LIVE_DIRTY = new Set(['markdown', 'html'])
+const BUTTON_SAYS_NOTHING = new Set(['mindmap'])
 function dirty() {
   const doc = frame.value?.contentDocument
+  // (a save of this opening failed or got no answer, and none has landed since: the editor's 저장 being off says nothing then)
+  if (unlanded) return true
+  if (BUTTON_SAYS_NOTHING.has(editor())) return edited.value || agentEdits.value || unsavedCopy || (touched && editorClean(doc) !== true)
   const clean = editorClean(doc)
   if (clean === false || agentEdits.value) return true
   if (!edited.value) return false
@@ -352,8 +378,10 @@ function dirty() {
 function saveFromCopy() {
   const url = lastSaved
   unsavedCopy = false
+  unlanded = false
   if (edited.value) { edited.value = false; emit('edited', false) }
   agentEdits.value = false
+  touched = false
   emit('saved', { url, name: props.name })
   afterSave(url)
   return Promise.resolve({ saved: true, url })
@@ -377,6 +405,36 @@ let copyLate = false
 let selfPress = false
 // a copy for 「다른 이름으로 저장」 went up and this card has not taken it (the editor is clean; the edits are unsaved here)
 let unsavedCopy = false
+// the mind map was pressed since its last save: it may have been edited (dirty()). Anywhere — its map, its tools, its 실행 취소 · 다시 실행
+// (on the ribbon's top row: review #111) — but its 저장, 다른 이름으로 저장 and 자동 저장 switch
+let touched = false
+let touchSeq = 0
+function onPointer(e) {
+  if (props.readOnly || !BUTTON_SAYS_NOTHING.has(editor())) return
+  const el = e?.target?.closest?.('button, [role="button"], [role="menuitem"], [data-cmd], label')
+  if (el && (saveKindOf(el) || el.closest('.autosave-toggle'))) return
+  touched = true
+  touchSeq++
+}
+// a save failed or was not answered, and no save has landed since (dirty() says so whatever the editor's 저장 says); failMark: the counts
+// when that save was pressed (nothing edited since then — pressSave's quiet)
+let unlanded = false
+let failMark = null
+function markUnlanded(mark = pressMark) {
+  unlanded = true
+  failMark = mark || { edit: editSeq, agent: agentSeq, touch: touchSeq }
+}
+// the save awaited now waits longer (saveNow's own wait; the person's press has pressTimer)
+let waitLonger = null
+// a press of the person's own 저장 not answered in time: failed (its wait grows like saveNow's)
+function armPressTimer(ms) {
+  clearTimeout(pressTimer)
+  pressTimer = setTimeout(() => { markUnlanded(); failSave(`편집기가 ${Math.round(ms / 1000)}초 안에 저장을 마치지 못했어요`) }, ms)
+}
+// what the save awaited now covered when it was pressed: its answer clears only that ({edit, agent, touch} counts; null: none)
+let pressMark = null
+// the office host sends the editor's last write up again when asked (its 'ready' says so — host/documents.mjs republish)
+let canRepublish = false
 // the sheet's own 다시 시도 for a failure it reported (markFailed — 「다른 이름으로 저장」 posts its copy again)
 let retryFn = null
 const badge = computed(() => {
@@ -392,9 +450,9 @@ function pressed() {
   // nothing new: the editor writes nothing and says nothing
   if (!dirty()) return
   retryFn = null
+  pressMark = { edit: editSeq, agent: agentSeq, touch: touchSeq }
   saveState.value = { kind: 'saving' }
-  clearTimeout(pressTimer)
-  pressTimer = setTimeout(() => failSave(`편집기가 ${Math.round(SAVE_WAIT_MS / 1000)}초 안에 저장을 마치지 못했어요`), SAVE_WAIT_MS)
+  armPressTimer(SAVE_WAIT_MS)
 }
 function failSave(why) {
   clearTimeout(pressTimer); pressTimer = null
@@ -433,8 +491,8 @@ async function badgeAction() {
     if (saveState.value.kind === 'saving' && !inFlight && !pressTimer) saveState.value = { kind: 'idle' }
     return
   }
-  // the editor's copy went up, the host's own step did not: that step again
-  if (!edited.value && !agentEdits.value && lastSaved) return afterSave(lastSaved)
+  // the editor's copy went up, the host's own step did not: that step again (not when the upload itself failed — unlanded)
+  if (!unlanded && !edited.value && !agentEdits.value && lastSaved) return afterSave(lastSaved)
   await saveNow(SAVE_WAIT_MS, { any: true, force: true })
 }
 // a new connection: the editor opens the version saved last (edits not saved in this one are lost — asked first)
@@ -499,7 +557,7 @@ async function prepareDownload() {
   if (props.readOnly) return { ok: true, version: 'current' }
   let version = 'current'
   if (inFlight || dirty()) {
-    const r = await saveNow(25000, { any: true })
+    const r = await saveNow(SAVE_WAIT_MS, { any: true })
     if (!r.saved) return { ok: false, why: r.timeout ? '편집기가 답하지 않았어요' : r.error || '' }
     if (!r.clean) version = 'saved'
   }
@@ -519,7 +577,7 @@ const onHide = () => { if (document.visibilityState === 'hidden' && edited.value
 const onLeave = (e) => { if (!props.readOnly && (inFlight || dirty())) { e.preventDefault(); e.returnValue = '' } }
 function startWatching() {
   unwatch?.()
-  unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs, onDoc: dressSaving })
+  unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs, onDoc: dressSaving, onPointer })
 }
 // each page of the editor (the 한글 studio's comes later, in a frame of its own)
 function dressSaving(doc) {
@@ -562,7 +620,7 @@ async function load() {
   // (a save of the page being replaced is not this one's: it ends quietly, before the new page's state is set)
   settle?.({ saved: false, error: '문서를 다시 열었어요', reloaded: true })
   stopKeepAlive(); gone.value = false; clearTimeout(pressTimer); pressTimer = null; saveState.value = { kind: 'idle' }; answer()
-  copySave = false; copyLate = false; retryFn = null; unsavedCopy = false
+  copySave = false; copyLate = false; retryFn = null; unsavedCopy = false; touched = false; unlanded = false; failMark = null; pressMark = null; canRepublish = false
   pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
@@ -604,6 +662,7 @@ function onMessage(event) {
   if (!frameSrc.value || event.origin !== new URL(frameSrc.value, location.href).origin) return
   const m = event.data
   if (m.type === 'ready') {
+    if (m.republish) canRepublish = true
     ready = true; gone.value = false; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly || props.autoSave) hideAiDock(); startLive(); startWatching()
     dressEditor(); syncSoon(); keepAlive()
     if (deck.value && !deckTimer) deckTimer = setInterval(readDeck, 600)
@@ -615,6 +674,7 @@ function onMessage(event) {
     if (!ready || gone.value) return
     gone.value = true; stopKeepAlive()
     const waiting = !!settle || !!pressTimer
+    if (pressTimer) markUnlanded()
     if (settle) settle({ saved: false, error: GONE })
     else if (pressTimer) failSave(GONE)
     if (!props.readOnly && (props.autoSave || !waiting)) show('error', edited.value || agentEdits.value ? '편집기와 연결이 끊겨 지금은 저장할 수 없어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요.' : '편집기와 연결이 끊겼어요 — 「다시 열기」로 다시 열어 주세요.', 12000)
@@ -625,6 +685,12 @@ function onMessage(event) {
   // (an editable document joined to the chat only: a read-only preview has nothing to ask about)
   else if (m.type === 'selection') { if (props.assistant && !props.readOnly) emit('selection', m.selection || null) }
   else if (m.type === 'page-live') pagePictures.value = !!m.pictures
+  // the office host is sending a save up that may take longer than the page waits (a large file — its limit grows with the size): the
+  // save awaited waits that long, and a little more for the answer to come (never past 10 minutes)
+  else if (m.type === 'saving') {
+    const ms = Math.min(Math.max(Number(m.limitMs) || 0, 0), 10 * 60_000) + 5000
+    if (ms > SAVE_WAIT_MS) { if (settle) waitLonger?.(ms); else if (pressTimer) armPressTimer(ms) }
+  }
   else if (m.type === 'reply') {
     const w = waiting.get(m.requestId)
     if (!w) return
@@ -640,10 +706,19 @@ function onMessage(event) {
     let copy = !!settle && copySave
     if (!settle && copyLate && !pressTimer) copy = true
     if (!settle || !copySave) copyLate = false
-    if (!settle && !copy) agentEdits.value = false
-    // saved by the editor's own 저장 too: everything up to now is in
     if (settle) settle({ saved: true, url: m.url || '', ...(m.unchanged && !m.url ? { clean: true } : {}) })
-    else if (!copy && edited.value) { edited.value = false; emit('edited', false) }
+    else if (!copy) {
+      // the editor's own save (the person's 저장 · ⌘S, a late answer to one that gave up, the agent's): the editor's last write is up. It
+      // covers what there was when it was pressed — an edit or a press after that is not in it (review #111). A save nobody pressed here
+      // (the editor's own 자동 저장) leaves the marks: asked once more on closing, never an edit taken as saved.
+      unlanded = false
+      const mark = pressMark
+      pressMark = null
+      // (the agent's own save may answer before the frame hears of it: a save nobody pressed here clears the agent's edits, as before)
+      if (!mark || agentSeq === mark.agent) agentEdits.value = false
+      if (mark && touchSeq === mark.touch) touched = false
+      if (mark && editSeq === mark.edit && edited.value) { edited.value = false; emit('edited', false) }
+    }
     unsavedCopy = copy
     emit('saved', { url: m.url || '', name: m.name || props.name, ...(copy ? { copy: true } : {}) })
     // (after the host heard it: its own step — the card, the folder — is part of 「저장했어요」)
@@ -653,11 +728,15 @@ function onMessage(event) {
     show('agent', `에이전트가 ${label || '작업하는 중'}${m.text ? ` · ${m.text}` : ''}`)
     busy.value = m.action !== 'save'
     if (busy.value && !props.readOnly) { agentSeq++; agentEdits.value = true }
+    // (the agent saves the document as it is: its 「saved」 covers everything up to now)
+    if (m.action === 'save' && !settle && !pressTimer) pressMark = { edit: editSeq, agent: agentSeq, touch: touchSeq }
     clearTimeout(busyTimer)
     busyTimer = setTimeout(() => (busy.value = false), 4000)
     emit('agent', m)
   } else if (m.type === 'save-failed') {
     const why = `편집기가 문서를 올리지 못했어요${m.error ? ` (${m.error})` : ''}`
+    // (the editor took its save as done — its 저장 goes off — but nothing reached storage: the opening stays unsaved until a save lands)
+    markUnlanded()
     if (props.autoSave || props.readOnly) show('error', `저장한 문서를 올리지 못했어요: ${m.error || ''}`)
     // (a save the frame asked for — 「내려받기」, closing — says the editor's own words in its own sentence)
     if (settle) settle({ saved: false, error: m.error || '' })

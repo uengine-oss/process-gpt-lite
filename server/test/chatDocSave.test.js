@@ -10,7 +10,7 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
 import { saveBadge, saveAsName, saveAsSuggestion, hhmm, KEEPALIVE_MS, SAVE_WAIT_MS } from '../../src/officeSave.js'
-import { saveKindOf, saveKeyOf, editorClean, saveAsHideCss, EDITOR_CHROME } from '../../src/officeAutosave.js'
+import { saveKindOf, saveKeyOf, editorClean, saveAsHideCss, EDITOR_CHROME, pressSave, undoKeyOf } from '../../src/officeAutosave.js'
 
 test('막대의 저장 표시: 고친 뒤 · 저장 중 · 저장함(시각) · 실패(까닭 · 다시 시도) · 연결 끊김', () => {
   assert.equal(saveBadge({ kind: 'idle' }), null)
@@ -104,6 +104,75 @@ test('편집기의 저장 · 다른 이름으로 저장을 알아본다(편집�
   assert.equal(saveKeyOf(key({ metaKey: true, altKey: true })), null)
   assert.equal(saveKeyOf(key({ metaKey: true, repeat: true })), null)
   assert.equal(saveKeyOf(key({ metaKey: true, code: 'KeyP' })), null)
+  // an undo or a redo by key is an edit (the mind map's are not typed — review #111)
+  assert.equal(undoKeyOf(key({ metaKey: true, code: 'KeyZ' })), true)
+  assert.equal(undoKeyOf(key({ metaKey: true, shiftKey: true, code: 'KeyZ' })), true)
+  assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyY' })), true)
+  assert.equal(undoKeyOf(key({ code: 'KeyZ' })), false)
+  assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyS' })), false)
+  // other layouts: the key's own letter where it is a Latin one (AZERTY's Ctrl+Z is on QWERTY's W, its Ctrl+W on QWERTY's Z; Dvorak's
+  // Ctrl+S on QWERTY's ;), the key's place where the layout gives none (a Korean one)
+  assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyW', key: 'z' })), true)
+  assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyZ', key: 'w' })), false)
+  assert.equal(undoKeyOf(key({ metaKey: true, code: 'KeyZ', key: 'ㅋ' })), true)
+  assert.equal(saveKeyOf(key({ ctrlKey: true, code: 'Semicolon', key: 's' })), 'save')
+  assert.equal(saveKeyOf(key({ metaKey: true, code: 'KeyS', key: 'ㄴ' })), 'save')
+  assert.equal(saveKeyOf(key({ ctrlKey: true, code: 'KeyS', key: 'o' })), null)
+})
+
+// the editor's 저장 switched off is never pressed (a press of it is never answered — review #111): the host sends the editor's last write up
+// again (republish), or, without that or while a sheet's cell is being typed in, the editor's own Ctrl+S
+test('편집기의 저장이 꺼져 있으면 누르지 않는다: 호스트에 마지막 저장을 다시 올려 달라고 하거나 편집기의 Ctrl+S', async () => {
+  const fake = ({ disabled = false, button = true, typing = false } = {}) => {
+    const sent = []
+    let clicks = 0
+    const body = { dispatchEvent: (e) => sent.push(e) }
+    const btn = { disabled, getAttribute: (k) => (k === 'aria-label' ? '저장 (⌘S)' : null), classList: { contains: () => false }, textContent: '', click: () => { clicks++ } }
+    // (the cell editor: on the cell while typed in; parked off the page once the cell is left, still focused — Univer)
+    const at = typing === 'parked' ? { left: -1000, top: -1038, right: -1000, bottom: -1020 } : { left: 55, top: 51, right: 55, bottom: 69 }
+    const field = { isContentEditable: true, tagName: 'DIV', dispatchEvent: (e) => sent.push(e), getBoundingClientRect: () => at }
+    const doc = { querySelectorAll: (s) => (s === '.qa-btn' && button ? [btn] : []), querySelector: () => null, body, activeElement: typing ? field : body, defaultView: { innerWidth: 1200, innerHeight: 800 } }
+    const contentWindow = { KeyboardEvent: class { constructor(type, init) { Object.assign(this, { type, ...init }) } } }
+    return { frame: { contentWindow, contentDocument: doc }, sent, clicks: () => clicks }
+  }
+  let asked = 0
+  const republish = () => { asked++ }
+  let f = fake()
+  assert.equal(await pressSave(f.frame, { republish }), 'button')
+  assert.equal(f.clicks(), 1)
+  f = fake({ disabled: true })
+  assert.equal(await pressSave(f.frame, { republish, editor: 'docs' }), 'republish')
+  assert.equal(asked, 1)
+  assert.equal(f.clicks(), 0)
+  assert.deepEqual(f.sent, [])
+  // only where 저장 off can be taken at its word: a slide's text box keeps text that is not written — the editor's Ctrl+S, unless nothing
+  // was edited since the write that failed
+  f = fake({ disabled: true })
+  assert.equal(await pressSave(f.frame, { republish, editor: 'slides' }), 'key')
+  assert.equal(asked, 1)
+  assert.equal(await pressSave(f.frame, { republish, editor: 'slides', quiet: true }), 'republish')
+  assert.equal(asked, 2)
+  for (const editor of ['markdown', 'html', 'mindmap']) assert.equal(await pressSave(fake({ disabled: true }).frame, { republish, editor }), 'republish')
+  asked = 1
+  f = fake({ disabled: true })
+  assert.equal(await pressSave(f.frame, { editor: 'markdown' }), 'key')
+  assert.equal(f.clicks(), 0)
+  assert.deepEqual(f.sent.map((e) => [e.type, e.key, e.ctrlKey]), [['keydown', 's', true]])
+  // a sheet's cell still being typed in: its text is not written yet — never 「the last write is up」
+  f = fake({ disabled: true, typing: true })
+  assert.equal(await pressSave(f.frame, { republish, editor: 'sheets' }), 'key')
+  assert.equal(asked, 1)
+  assert.equal(await pressSave(f.frame, { republish, editor: 'sheets', quiet: true }), 'republish')
+  asked = 1
+  // the cell left: its editor stays focused, parked off the page — written; the host sends it up
+  f = fake({ disabled: true, typing: 'parked' })
+  assert.equal(await pressSave(f.frame, { republish, editor: 'sheets' }), 'republish')
+  assert.equal(asked, 2)
+  // the 한글 editor has no 저장 button: its Ctrl+S, as always
+  f = fake({ button: false })
+  assert.equal(await pressSave(f.frame, { republish, editor: 'hwp' }), 'key')
+  assert.equal(asked, 2)
+  assert.equal(await pressSave({ contentWindow: null, contentDocument: null }), null)
 })
 
 // ---------- server: lib/cardCopies.js against the local DB and storage ----------
@@ -143,6 +212,7 @@ after(async () => {
   if (keys.length) await admin.storage.from('files').remove([...new Set(keys)]).catch(() => {})
   await q('delete from pro_messages where thread_id = any($1::uuid[])', [threads])
   await q('delete from pro_threads where id = any($1::uuid[])', [threads])
+  await q(`delete from pro_followups where tenant_id='chat-save-test'`).catch(() => {})
   await pool.end()
 })
 
@@ -258,4 +328,89 @@ test('거절: 다른 형식의 이름 · 카드 옆이 아닌 사본 · 남의 �
   // a name that reads other than it is
   assert.equal(C.copyName('메모\u202e.txt', '메모.txt'), '메모 .txt')
   assert.equal(C.copyName('메모.txt\u2066', '메모.txt'), '메모.txt')
+})
+
+test('판 지키기를 다시 불러도(다른 이름으로 저장의 다시 시도) 이미 자기 사본에 선 카드는 그대로', { skip: !store && '로컬 Supabase 없음' }, async () => {
+  const dir = `pgpt-pro/${me.id}/att`
+  const id = crypto.randomUUID()
+  await put(`${dir}/${id}.txt`, '처음 판\n')
+  const session = await put(`${dir}/edited-${id}_20261128010000.txt`, '처음 판\n저장한 고침\n')
+  const tid = await room(me)
+  const c = await card(tid, { name: '메모 다시.txt', url: session })
+  const kept = await C.keepVersion(me, c.id)
+  assert.ok(kept.content.url.startsWith(copiesOf(me)))
+  const again = await C.keepVersion(me, c.id)
+  assert.equal(again.content.url, kept.content.url)
+})
+
+test('판 지키기: 사본에서 연 카드를 💾 한 뒤(copies/edited-…) — 편집기의 사본이라 내 자리의 새 사본으로 옮긴다', { skip: !store && '로컬 Supabase 없음' }, async () => {
+  const prefix = `pgpt-pro/${me.id}/copies/`
+  const u = crypto.randomUUID()
+  await put(`${prefix}${u}.txt`, '다른 이름으로 저장한 판\n')
+  const session = await put(`${prefix}edited-${u}_20261128020000.txt`, '다른 이름으로 저장한 판\n💾 한 고침\n')
+  const tid = await room(me)
+  const c = await card(tid, { name: '사본에서 연 메모.txt', url: session })
+  const kept = await C.keepVersion(me, c.id)
+  assert.notEqual(kept.content.url, session)
+  assert.ok(kept.content.url.startsWith(copiesOf(me)))
+  assert.doesNotMatch(kept.content.url, /edited-/)
+  // the editor writes over its copy now; the card keeps its 💾 version
+  await put(`${prefix}edited-${u}_20261128020000.txt`, '다른 이름으로 저장한 판\n💾 한 고침\n저장 안 한 고침\n')
+  assert.equal(await read(kept.content.url), '다른 이름으로 저장한 판\n💾 한 고침\n')
+})
+
+test('아무것도 가리키지 않는 사본 정리: 한 달 지난(마지막으로 쓴 때 기준) · 이 기능의 이름 · 아무도 안 가리키는 것만, dry 는 남기고 on 은 지움, 한 번에 한 서버', { skip: !store && '로컬 Supabase 없음' }, async () => {
+  const prefix = `pgpt-pro/${me.id}/copies/`
+  const keyOf = (u) => decodeURIComponent(/\/object\/public\/files\/(.+)$/.exec(u)[1])
+  const tid = await room(me)
+  const onCard = await put(`${prefix}${crypto.randomUUID()}.txt`, '카드가 선 판\n')
+  const inVersions = await put(`${prefix}${crypto.randomUUID()}.txt`, '이전 판\n')
+  const editedNamed = await put(`${prefix}edited-${crypto.randomUUID()}_20261128030000.txt`, '공유가 가리킴\n')
+  const orphan = await put(`${prefix}${crypto.randomUUID()}.txt`, '아무도 안 가리킴\n')
+  const orphanEdited = await put(`${prefix}edited-${crypto.randomUUID()}_20261128030000.txt`, '편집기 사본, 아무도 안 가리킴\n')
+  const notOurs = await put(`${prefix}메모-${crypto.randomUUID()}.txt`.replace('메모-', 'notes-'), '이 기능이 만든 이름이 아님\n')
+  const rewritten = await put(`${prefix}${crypto.randomUUID()}.txt`, '오래 전에 만들었지만 요즘 다시 씀\n')
+  const upperExt = await put(`${prefix}${crypto.randomUUID()}.TXT`, '이 기능은 확장자를 소문자로만 만든다\n')
+  // named only percent-encoded (%2F) — and in a 후행 습관's files: kept; named only as the start of a longer name: not named
+  const encodedNamed = await put(`${prefix}${crypto.randomUUID()}.txt`, '퍼센트로 적힌 주소가 가리킴\n')
+  const inFollowup = await put(`${prefix}${crypto.randomUUID()}.txt`, '후행 습관의 파일\n')
+  const longerOnly = await put(`${prefix}${crypto.randomUUID()}.txt`, '더 긴 이름의 앞부분으로만 적힘\n')
+  const fresh = await put(`${prefix}${crypto.randomUUID()}.txt`, '아직 새것\n')
+  // more old copies that cards still name than one page holds: the orphans behind them are still found
+  const named = []
+  for (let n = 0; n < 5; n++) named.push(await put(`${prefix}${crypto.randomUUID()}.txt`, `카드 ${n}\n`))
+  await card(tid, { name: '정리 시험.txt', url: onCard, versions: [inVersions, ...named] })
+  await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2)`, [tid, { text: `공유한 주소: ${editedNamed}` }])
+  await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2)`, [tid, { text: `${encodeURIComponent(keyOf(encodedNamed))} · ${keyOf(longerOnly)}x` }])
+  await q(`insert into pro_followups(tenant_id, user_id, event_cls, action, files) values ('chat-save-test', $1, 'doc', '시험', $2::jsonb)`, [me.id, JSON.stringify([{ name: '로고.txt', url: inFollowup }])])
+  const old = [onCard, inVersions, editedNamed, orphan, orphanEdited, notOurs, rewritten, upperExt, encodedNamed, inFollowup, longerOnly, ...named].map(keyOf)
+  // (storage keeps updated_at itself on every update: set past it for this transaction only)
+  const back = await pool.connect()
+  try {
+    await back.query('begin')
+    await back.query("set local session_replication_role = replica")
+    await back.query(`update storage.objects set created_at = now() - interval '40 days', updated_at = now() - interval '40 days' where bucket_id='files' and name = any($1::text[])`, [old])
+    await back.query(`update storage.objects set updated_at = now() where bucket_id='files' and name = $1`, [keyOf(rewritten)])
+    await back.query('commit')
+  } catch (e) { await back.query('rollback'); throw e } finally { back.release() }
+  const unused = await C.unusedCopies({ prefix, page: 2 })
+  assert.deepEqual(unused.map((c) => c.key).sort(), [keyOf(orphan), keyOf(orphanEdited), keyOf(longerOnly)].sort())
+  assert.ok(unused.every((c) => c.size > 0))
+  // another server runs it: this one does nothing
+  const other = await pool.connect()
+  try {
+    await other.query("select pg_advisory_lock(hashtext('pgpt-lite/copies-gc'))")
+    assert.equal((await C.cleanCopies({ mode: 'on', prefix })).busy, true)
+  } finally { await other.query("select pg_advisory_unlock(hashtext('pgpt-lite/copies-gc'))"); other.release() }
+  // off: nothing; dry: says what, removes nothing
+  assert.equal((await C.cleanCopies({ mode: 'off', prefix })).count, 0)
+  const dry = await C.cleanCopies({ mode: 'dry', prefix })
+  assert.equal(dry.count, 3)
+  assert.equal(await read(orphan), '아무도 안 가리킴\n')
+  // on: removes those three only
+  const on = await C.cleanCopies({ mode: 'on', prefix })
+  assert.equal(on.count, 3)
+  for (const u of [orphan, orphanEdited, longerOnly]) assert.ok((await fetch(u)).status >= 400)
+  for (const [u, t] of [[onCard, '카드가 선 판\n'], [inVersions, '이전 판\n'], [editedNamed, '공유가 가리킴\n'], [notOurs, '이 기능이 만든 이름이 아님\n'], [rewritten, '오래 전에 만들었지만 요즘 다시 씀\n'], [fresh, '아직 새것\n'],
+    [upperExt, '이 기능은 확장자를 소문자로만 만든다\n'], [encodedNamed, '퍼센트로 적힌 주소가 가리킴\n'], [inFollowup, '후행 습관의 파일\n']]) assert.equal(await read(u), t)
 })
