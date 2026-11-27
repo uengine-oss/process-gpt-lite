@@ -301,7 +301,8 @@ export function teamRoutes(auth) {
       files = await S.copiesFor(req.user, shareIds)
       threadId = (await mainThread(req.user.id)).id
     }
-    runTurn({ user: req.user, session: req.session, threadId, text: shown, context, files })
+    // (composed here from a teammate's message: the room's judge does not take it as this person's rule or plan — review PR #105 #8)
+    runTurn({ user: req.user, session: req.session, threadId, text: shown, context, files, composed: true })
       .catch((e) => console.warn('[team continue]', e.message))
     M.markRead(req.user, m.threadId).catch(() => {})
     return { threadId, files: files.length, branch: !!mine }
@@ -330,7 +331,7 @@ export function teamRoutes(auth) {
     }
     const shown = `팀원들이 돌려준 결과를 모아 이어서 할게요${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`
     const files = (await agentWorktree()) ? [] : await S.branchAttachments(req.user, W.roomOf(threadId))
-    runTurn({ user: req.user, session: req.session, threadId, text: shown, context: `(모은 갈래 ${g.merged}개의 결과가 작업 폴더에 있어요.)`, files })
+    runTurn({ user: req.user, session: req.session, threadId, text: shown, context: `(모은 갈래 ${g.merged}개의 결과가 작업 폴더에 있어요.)`, files, composed: true })
       .catch((e) => console.warn('[team gather]', e.message))
     return { threadId, merged: g.merged, branch: true }
   }

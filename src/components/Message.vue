@@ -122,6 +122,11 @@ async function ruleChoose(choice) {
 // 「되돌리기」 on a change of the project's plan (server lib/projectNote.js undoChange): the plan goes back to the one before it
 const planBusy = ref(false)
 const planErr = ref('')
+async function replacePlan(index) {
+  planBusy.value = true
+  planErr.value = ''
+  try { await api(`/threads/${props.msg.thread_id}/note/replace`, { method: 'POST', body: { messageId: props.msg.id, index } }) } catch (e) { planErr.value = e.message } finally { planBusy.value = false }
+}
 async function undoPlan() {
   planBusy.value = true
   planErr.value = ''
@@ -247,6 +252,17 @@ onMounted(async () => {
         <small v-else data-testid="rule-confirm-done">{{ c.ruleConfirm.state === 'replaced' ? '규칙을 바꿨어요' : '이번 작업에만 적용했어요' }}</small>
         <p v-if="ruleErr" class="aerr">{{ ruleErr }}</p>
       </div>
+      <!-- 「계획의 … 이 가득 찼어요」 (server lib/projectNote.js addFromMessage full): the item the person said replaces the one they pick -->
+      <div v-if="c.planFull" class="planfull" data-testid="plan-full">
+        <template v-if="c.planFull.state === 'pending'">
+          <button v-for="(it, i) in c.planFull.items" :key="i" class="press pf" :disabled="planBusy" data-testid="plan-full-replace" @click="replacePlan(i)">
+            <small>이 항목과 바꾸기</small><span data-no-i18n>{{ it }}</span>
+          </button>
+          <button class="press pf sub" data-testid="plan-full-open" @click="app.planOpen = msg.thread_id">계획 보기</button>
+        </template>
+        <small v-else data-testid="plan-full-done">바꿔 넣었어요</small>
+        <p v-if="planErr" class="aerr">{{ planErr }}</p>
+      </div>
       <div v-if="replies" class="replies">
         <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
       </div>
@@ -353,7 +369,8 @@ onMounted(async () => {
       <Icon name="plan" :size="16" /> <span class="ct" data-testid="plan-change-text">{{ c.text }}</span>
       <span class="pacts">
         <small v-if="c.planChange.undone" class="pdone" data-testid="plan-change-undone">되돌렸어요</small>
-        <button v-else-if="!c.planChange.backfill" class="pbtn press" :disabled="planBusy" data-testid="plan-change-undo" @click="undoPlan">되돌리기</button>
+        <!-- (a change whose row left the plan's history — more than 20 changes since — cannot be taken back: no button, not a 404) -->
+        <button v-else-if="!c.planChange.backfill && !c.planChange.gone" class="pbtn press" :disabled="planBusy" data-testid="plan-change-undo" @click="undoPlan">되돌리기</button>
         <button class="pbtn press" data-testid="plan-change-open" @click="app.planOpen = msg.thread_id">계획 보기</button>
       </span>
       <small v-if="planErr" class="aerr">{{ planErr }}</small>
@@ -498,6 +515,13 @@ button.uref { text-align: left; }
 .chip.planchg .pbtn:disabled { opacity: .5; }
 .chip.planchg .pdone { align-self: center; color: var(--text-tertiary); font-size: 12.5px; }
 .chip.planchg .aerr { flex-basis: 100%; margin: 0; font-size: 12.5px; color: var(--color-error); }
+.planfull { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 424px; }
+.planfull .pf { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 12px; border-radius: 14px; background: var(--cell-bg); color: var(--text-primary); font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.planfull .pf small { color: var(--text-tertiary); font-size: 11.5px; }
+.planfull .pf.sub { align-self: flex-start; padding: 6px 12px; }
+.planfull .pf:disabled { opacity: .5; }
+.planfull > small { color: var(--text-tertiary); font-size: 12.5px; }
+.planfull .aerr { margin: 0; font-size: 12.5px; color: var(--color-error); }
 .replies { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .reply { height: 36px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); font-size: 14px; font-weight: 500; box-shadow: 0 2px 10px rgba(0 0 0 / .06); animation: pop-in .4s var(--spring) both; }
 .list { width: 424px; max-width: 100%; border-radius: 24px; padding: 8px; display: flex; flex-direction: column; --regular-bg: var(--bubble-agent-bg); }

@@ -72,6 +72,7 @@ cd server && PRO_JUDGE_URL= node <scratchpad>/live-plan.mjs                     
 | room-rules: 스킬 없는 규칙(막대) | F-PP-03 · PP-I-07 · F-NB-06 |
 | project-room: 미션 뒤로 64개 메시지가 쌓인 방(휘발되지 않는다) | PP-I-09 · 실제 모델(66개 방, 아래) |
 | project-room: 방에서 넣고, 직접 고치고, 기록에서 되돌린다(바뀐 기록) | F-PP-08 · PP-I-10 · PP-U-11 |
+| project-room: 계획은 안전하게 쓰이고 고쳐진다(검토 PR #105) — 구매를 말하는 계획 · 시트를 연 뒤 방에서 넣음 · 가득 찬 목록 | PP-I-11~20 · PP-U-12~14 · F-PP-09 · F-PP-10 |
 
 결과: `results/project-plan-unit.txt` · `results/project-plan-integration.txt` · `results/project-plan-e2e.txt` · `results/project-plan-live.txt`, 화면 사진 `results/f-pp-*.png`.
 

@@ -118,12 +118,12 @@ export async function ruleAction(arg) {
 }
 
 // What a run of the rule is asked to do: the rule's work, then what the person gave, as they gave it
-// (a link is in their own words; nothing is pulled out of them), then the project's plan (lib/projectNote.js noteText — background)
-export function roomGoal(action, text, files = [], plan = '') {
+// (a link is in their own words; nothing is pulled out of them). The project's plan is never part of it: a browser task gets the plan as
+// background apart from its goal, a delegated run as every project turn does (review PR #105 #1)
+export function roomGoal(action, text, files = []) {
   return [cap(action),
     L(`사용자가 이 방에 준 것: ${cap(text, 2000)}`, `What the person put in this room: ${cap(text, 2000)}`),
     files.length ? L(`첨부 파일: ${names(files)}`, `Attached files: ${names(files)}`) : '',
-    plan ? `\n${plan}` : '',
   ].filter(Boolean).join('\n')
 }
 

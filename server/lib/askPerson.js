@@ -194,7 +194,7 @@ export function chatAnswerer({ runTurn, busy, sessionOf = sessionOfUser }) {
     if (!user?.id || String(user.id) !== String(who.id) || !session?.access_token) throw new Error('the session is not this person\'s')
     const person = { id: who.id, email: user.email, name: who.name }
     // (in the person's language, tenant and usage — as their own request would be: lib/lang.js asUser)
-    asUser(who.id, () => runTurn({ user: person, session, threadId: thread.id, text: label }))
+    asUser(who.id, () => runTurn({ user: person, session, threadId: thread.id, text: label, composed: true }))
       .catch(async (e) => {
         console.warn('[push] chat answer', e.message)
         // (the turn failed before the person's message was written: the question still waits — so does its notice)

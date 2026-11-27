@@ -95,7 +95,7 @@ test('PP-U-02 고정한 항목은 모델이 고치거나 빼도 낱말 그대로
   assert.ok(N.noteForModel(prev).includes('(고정)'))
 })
 
-test('PP-U-03 1,200자를 넘으면 고정하지 않은 가장 오래된 「정한 것」부터 빠지고 고정한 항목은 남는다', () => {
+test('PP-U-03 1,200자를 넘으면(프롬프트에 넣을 때만) 고정하지 않은 가장 오래된 「정한 것」부터 빠지고 고정한 항목은 남는다', () => {
   const note = N.normalize({ intent: '목적', constraints: Array.from({ length: 6 }, (_, i) => ({ text: `지킬 것 ${i} ${long('라', 100)}`, pinned: i === 0 })),
     decisions: Array.from({ length: 6 }, (_, i) => ({ text: `정한 것 ${i} ${long('마', 100)}`, pinned: i === 0 })) })
   const fitted = N.fit(note, 1200)
@@ -195,16 +195,13 @@ test('PP-U-07 규칙 받아 적기는 계획과 최근 대화를 함께 읽는�
   assert.equal(llmCalls.at(-1).messages[1].content, '올리는 파일은 요약해 줘')
 })
 
-test('PP-U-08 규칙 실행의 할 일: 규칙의 일 + 준 것 + 첨부 + 계획(배경)', () => {
+test('PP-U-08 규칙 실행의 할 일: 규칙의 일 + 준 것 + 첨부 — 계획은 할 일에 섞이지 않는다(배경으로 따로)', () => {
   const plan = N.noteText(PLAN)
-  const g = R.roomGoal(RULE.action, 'https://a.example/x', [{ name: '메모.pdf' }], plan)
-  const lines = g.split('\n')
-  assert.equal(lines[0], RULE.action)
-  assert.equal(lines[1], '사용자가 이 방에 준 것: https://a.example/x')
-  assert.equal(lines[2], '첨부 파일: 메모.pdf')
-  assert.ok(g.endsWith(plan))
+  const g = R.roomGoal(RULE.action, 'https://a.example/x', [{ name: '메모.pdf' }])
+  assert.deepEqual(g.split('\n'), [RULE.action, '사용자가 이 방에 준 것: https://a.example/x', '첨부 파일: 메모.pdf'])
+  assert.ok(!g.includes('[프로젝트 계획]'))
   assert.ok(plan.startsWith('[프로젝트 계획]') && plan.includes('지킬 것:\n- A 사이트의 글은'))
-  assert.equal(R.roomGoal(RULE.action, 'https://a.example/y').split('\n').length, 2, '계획이 없으면 예전 그대로')
+  assert.equal(R.roomGoal(RULE.action, 'https://a.example/y').split('\n').length, 2)
 })
 
 test('PP-U-09 앞단 계획: 프로젝트 방은 계획을 배경으로 받고 memory 를 답한다 — 아니면 예전 그대로', () => {
@@ -258,3 +255,52 @@ test('PP-U-11 바뀐 기록의 한 줄: 무엇이(글) · 누가 · 종류 · �
   assert.deepEqual(N.undoOn(later, c).constraints.map((x) => x.text), ['하나', '셋'])
   assert.deepEqual(N.undoOn(later, c).deliverables, [])
 })
+
+test('PP-U-12 (검토 #10) 고정한 항목은 1,200자를 넘어도 프롬프트에서 잘리지 않는다 — 고정하지 않은 것을 먼저 줄이고 뺀다', () => {
+  const pinnedOnes = Array.from({ length: 6 }, (_, i) => ({ text: `고정한 정한 것 ${i} ${long('바', 100)}`, pinned: true }))
+  const note = N.normalize({ intent: long('목', 180), constraints: pinnedOnes.map((x) => ({ ...x, text: x.text.replace('정한', '지킬') })), decisions: pinnedOnes,
+    tools: [{ name: '긴 도구', how: long('쓰', 120) }] })
+  const t = N.noteText(note)
+  for (const x of [...note.constraints, ...note.decisions]) assert.ok(t.includes(x.text), '고정한 항목은 모두 그대로')
+  assert.ok(t.length > 1200, '고정한 것만으로 넘으면 넘긴 채로(잘라 내지 않는다)')
+  assert.ok(!t.includes('긴 도구'), '고정하지 않은 도구는 먼저 빠진다')
+  assert.ok(!t.endsWith('…') || t.includes('목목'), '끝을 잘라 내지 않는다')
+})
+
+test('PP-U-13 (검토 #3 · #10) 모델의 답: 고정 표시는 받지 않고, 빠뜨린 칸은 그대로, 한꺼번에 여럿을 지우는 답은 받지 않는다 · 다른 변경 위에 얹기', () => {
+  const a = N.fromModel({ intent: '목적', intentPinned: true, pinned: true, constraints: [{ text: '하나', pinned: true }, '둘'], tools: [{ name: 'X', pinned: true }] })
+  assert.equal(a.intentPinned, undefined)
+  assert.deepEqual(a.constraints, [{ text: '하나' }, '둘'])
+  assert.deepEqual(a.tools, [{ name: 'X' }])
+  assert.equal(N.normalize(a).intentPinned, undefined)
+  assert.ok(N.normalize(a).constraints.every((x) => !x.pinned), '처음 채우기(앞 계획 없음)에서도 모델은 고정하지 못한다')
+  const prev = N.normalize({ intent: '원래 목적', constraints: ['가', '나', '다'], decisions: ['라'] })
+  // {intent} only: the lists stay as they were
+  const kept = N.normalize(N.keepMissing({ intent: '새 목적' }, prev))
+  assert.equal(kept.intent, '새 목적')
+  assert.deepEqual(kept.constraints.map((x) => x.text), ['가', '나', '다'])
+  assert.deepEqual(kept.decisions.map((x) => x.text), ['라'])
+  // three of four items out at once: not taken; one out: taken
+  assert.equal(N.dropsTooMuch(prev, N.diff(prev, N.normalize({ intent: '원래 목적', constraints: [] }))), true)
+  assert.equal(N.dropsTooMuch(prev, N.diff(prev, N.normalize({ intent: '원래 목적', constraints: ['가', '나'], decisions: ['라'] }))), false)
+  // a change put onto a plan that moved on: what it added comes in, what came meanwhile stays
+  const d = N.diff(prev, N.normalize({ ...prev, tools: [{ name: 'Fake Notes', ref: 'fake-notes' }] }))
+  const meanwhile = N.normalize({ ...prev, decisions: ['라', '사람이 그사이 더한 것'] })
+  const on = N.applyOn(meanwhile, d)
+  assert.deepEqual(on.decisions.map((x) => x.text), ['라', '사람이 그사이 더한 것'])
+  assert.equal(on.tools[0].ref, 'fake-notes')
+  assert.equal(N.applyOn(prev, N.diff(prev, N.normalize({ ...prev, intent: '바꾼 목적' })), { pin: true }).intentPinned, true)
+})
+
+test('PP-U-14 (검토 #1) 브라우저 작업의 계획은 배경 — 구매를 말하는 계획이어도 할 일(goal)의 구매 판단은 할 일만 본다', async () => {
+  const B = await import('../lib/browser.js')
+  const goal = '이 링크로 노트 사이트에서 요약 카드를 만든다\n사용자가 이 방에 준 것: https://a.example/x'
+  const plan = N.noteText(N.normalize({ intent: '필요한 소모품을 바로 구매하고 정기 구독까지 해 두는 프로젝트', constraints: ['결제까지 해 줘'] }))
+  assert.equal(B.asksToBuy(goal), false)
+  assert.equal(B.asksToBuy(`${goal}\n\n${plan}`), true, '예전처럼 할 일에 계획을 붙이면 구매로 읽혔다')
+  // the background note says it is context only and asks nothing — and it is never what asksToBuy reads
+  const bg = B.backgroundNote(plan)
+  assert.match(bg, /not part of the goal/)
+  assert.ok(bg.includes('필요한 소모품을 바로 구매'))
+})
+

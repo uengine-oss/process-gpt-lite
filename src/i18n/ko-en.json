@@ -3203,7 +3203,10 @@
   "보낸 메시지": "Message",
   "계획을 저장했어요": "Saved the plan",
   "고친 내용을 먼저 저장하거나 닫은 뒤에 되돌려 주세요": "Save or close your edits before undoing",
-  "되돌리지 못했어요": "Couldn't undo"
+  "되돌리지 못했어요": "Couldn't undo",
+  "이 항목과 바꾸기": "Replace this item",
+  "바꿔 넣었어요": "Replaced",
+  "그사이 바뀐 계획에 내가 고친 것만 더했어요": "Added only your edits to the plan that changed meanwhile"
  },
  "patterns": [
   [

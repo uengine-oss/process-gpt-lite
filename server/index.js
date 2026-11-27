@@ -849,7 +849,7 @@ app.post('/api/actions/:id/run', auth, async (req, res) => {
   res.json(a)
   const t = await mainThread(req.user.id)
   // a card that answers a customer mail reviews that mail's drafts: never a shared-folder edit
-  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id })
+  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id, composed: true })
     .then(async () => {
       const [d] = await q(`update pro_actions set status='done' where id=$1 returning *`, [a.id])
       if (a.verb === 'Review') import('./lib/mining/recorder.js').then((m) => m.recordReply(req.user, a)).catch((e) => console.warn('[mining] reply', e.message))

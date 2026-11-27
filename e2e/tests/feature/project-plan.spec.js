@@ -12,6 +12,8 @@
 //   F-PP-07 계획은 방의 주인만 — 다른 사람은 404(읽기 · 고치기 · 되돌리기)
 //   F-PP-08 바뀐 기록(11-27 사용자 「중간중간 방향을 개선하거나 수정한 내용 등이 이 파일에 관리」): 방에서 넣은 것 · 직접 고친 것이 시트의 「바뀐 기록」에
 //           언제 · 누가 · 무엇이 · 보낸 메시지와 함께, 기록에서 되돌리면 그 변경만 빠지고 되돌린 것도 기록 · 채팅의 칩도 「되돌렸어요」
+//   F-PP-09 (검토 #4) 시트에서 고치는 동안 방에서 계획에 넣은 것이 와도, 저장하면 내가 고친 것만 더해진다(그사이 넣은 것은 남는다)
+//   F-PP-10 (검토 #5) 고정한 항목으로 가득 찬 목록 — 「가득 찼어요」와 바꿀 항목 단추, 고르면 그 항목 자리에
 // 자기 스택(lib/localStack.js: 회사 projplan-ui 의 BFF + Vite, 8987 · 5387)을 띄우고 지운다. 가짜 판정 서버 · 모델 · deepagents 는 이 파일이 빈 포트에
 // 띄운다 — 실제 모델 · 에이전트 · 공용 판정 서버는 부르지 않는다. 지어낸 사람: 정하윤 · 김서연.
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/project-plan.spec.js
@@ -339,6 +341,51 @@ test('F-PP-08 바뀐 기록 — 방에서 넣은 것 · 직접 고친 것이 언
   await shot(p, 'f-pp-08-history')
   await sheet.getByTestId('plan-close').click()
   await expect(p.getByTestId('plan-change').last().getByTestId('plan-change-undone')).toHaveText('되돌렸어요')
+  expect(p.errors).toEqual([])
+})
+
+// (a message sent as the page would — POST /api/threads/:id/messages streams its answer; read to the end)
+const say = (tid, text) => fetch(`http://127.0.0.1:${S.apiPort}/api/threads/${tid}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${HY.token}` }, body: JSON.stringify({ text }) }).then((r) => r.text())
+
+test('F-PP-09 (검토 #4) 시트에서 고치는 동안 방에서 계획에 넣은 것이 와도, 저장하면 내가 고친 것만 더해진다', async ({ browser }) => {
+  const id = await room('동시에 고치는 방')
+  const p = await open(browser, DESK)
+  await p.goto(`/projects/${id}`)
+  await p.getByTestId('project-plan-chip').click({ timeout: 20000 })
+  const sheet = p.getByTestId('project-plan-sheet')
+  await sheet.getByTestId('plan-add-deliverables').click()
+  await sheet.getByTestId('plan-deliverables').getByTestId('plan-item-text').last().fill('팟캐스트 MP3')
+  // meanwhile, in the room (another device): 계획에 넣기
+  judge.room.push({ plan: 0.9, other: 0.1 })
+  script.add.push({ to: 'decisions', text: '팟캐스트는 10분 안으로 만든다', replaces: '' })
+  await say(id, '앞으로 팟캐스트는 10분 안으로 하자')
+  await expect.poll(async () => (await noteOf(id)).decisions.map((x) => x.text)).toEqual(['팟캐스트는 10분 안으로 만든다'])
+  await sheet.getByTestId('plan-save').click()
+  await expect(sheet.getByTestId('plan-merged')).toHaveText('그사이 바뀐 계획에 내가 고친 것만 더했어요')
+  const n = await noteOf(id)
+  expect(n.decisions.map((x) => x.text), '그사이 넣은 것은 남는다').toEqual(['팟캐스트는 10분 안으로 만든다'])
+  expect(n.deliverables.map((x) => x.text)).toContain('팟캐스트 MP3')
+  await expect(sheet.getByTestId('plan-decisions').getByTestId('plan-item-text')).toHaveValue('팟캐스트는 10분 안으로 만든다')
+  expect(p.errors).toEqual([])
+})
+
+test('F-PP-10 (검토 #5) 고정한 항목으로 가득 찬 목록 — 「가득」 메시지에서 바꿀 항목을 고르면 그 자리에', async ({ browser }) => {
+  const six = Array.from({ length: 6 }, (_, i) => ({ text: `지킬 것 ${i + 1}`, pinned: true }))
+  const id = await room('가득 찬 방', { plan: { ...PLAN, constraints: six } })
+  const p = await open(browser, DESK)
+  await p.goto(`/projects/${id}`)
+  await expect(p.getByTestId('project-plan-chip')).toBeVisible({ timeout: 20000 })
+  judge.room.push({ plan: 0.9, other: 0.1 })
+  script.add.push({ to: 'constraints', text: '새로 지킬 것', replaces: '' })
+  await send(p, '앞으로 이것도 지키자')
+  const full = p.getByTestId('plan-full')
+  await expect(full.getByTestId('plan-full-replace')).toHaveCount(6, { timeout: 20000 })
+  await expect(p.locator('.row.r-agent.k-text').last()).toContainText('넣을 자리가 없어요')
+  await shot(p, 'f-pp-10-full')
+  await full.getByTestId('plan-full-replace').nth(2).click()
+  await expect(full.getByTestId('plan-full-done')).toHaveText('바꿔 넣었어요')
+  await expect.poll(async () => (await noteOf(id)).constraints.map((x) => x.text)).toEqual(['지킬 것 1', '지킬 것 2', '새로 지킬 것', '지킬 것 4', '지킬 것 5', '지킬 것 6'])
+  await expect(p.getByTestId('plan-change').last()).toContainText('계획에 넣었어요: 새로 지킬 것')
   expect(p.errors).toEqual([])
 })
 

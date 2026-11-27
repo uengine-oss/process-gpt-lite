@@ -26,30 +26,41 @@ const shape = (n) => JSON.stringify({ intent: (n?.intent || '').trim(), delivera
 
 const data = ref(null) // GET /threads/:id/note → {note, id, at, skills: [{name, label}], history: [{id, at, kind, by, text, from, reverted, revertable}]}
 const draft = ref(null)
+// the plan the draft was taken from (its row id and its content): the save sends it, and the server puts only the person's own changes onto
+// a newer plan (review PR #105 #4 — an update, 계획에 넣기 or a revert that came meanwhile is not taken out)
+const base = ref({ id: null, note: null })
+const take = (got) => { draft.value = copy(got?.note); base.value = { id: got?.id || null, note: got?.note || null } }
+const notice = ref('')
 const saving = ref(false)
 const err = ref('')
 const savedAt = ref(0)
 const open = computed(() => !!props.thread && app.planOpen === props.thread)
-const dirty = computed(() => !!draft.value && shape(draft.value) !== shape(data.value?.note))
+const dirty = computed(() => !!draft.value && shape(draft.value) !== shape(base.value.note))
 const note = computed(() => data.value?.note || EMPTY)
 const empty = computed(() => !note.value.intent && LISTS.every((l) => !note.value[l.key]?.length) && !note.value.tools?.length)
 const skillName = (ref0) => data.value?.skills?.find((s) => s.name === ref0)?.label || ref0
 
 async function load() {
-  if (!props.thread) return
+  const thread = props.thread
+  if (!thread) return
   let got = null
-  try { got = await api(`/threads/${props.thread}/note`) } catch { got = null }
-  // (the sheet follows a change that came meanwhile — unless the person has edits of their own in it: compared before the new plan is taken)
-  const clean = !draft.value || shape(draft.value) === shape(data.value?.note)
+  try { got = await api(`/threads/${thread}/note`) } catch { got = null }
+  // (a late answer for the project on screen before: never shown — nor saved — in this one: review PR #105 #10)
+  if (props.thread !== thread) return
+  // (the sheet follows a change that came meanwhile — unless the person has edits of their own in it)
+  const clean = !dirty.value
   data.value = got
-  if (open.value && clean) draft.value = copy(got?.note)
+  if (open.value && clean) take(got)
 }
 // (the server says when the plan changed — an automatic update, 계획에 넣기, an undo: lib/projectNote.js emits projectNote)
 watch(() => [props.thread, app.planTick[props.thread] || 0], load, { immediate: true })
+// another project on screen: nothing of this one's is kept
+watch(() => props.thread, () => { data.value = null; draft.value = null; base.value = { id: null, note: null }; err.value = ''; notice.value = '' })
 watch(open, (o) => {
   if (!o) return
-  draft.value = copy(data.value?.note)
+  take(data.value)
   err.value = ''
+  notice.value = ''
   savedAt.value = 0
   load()
 })
@@ -70,21 +81,29 @@ async function revert(h) {
   try {
     const r = await api(`/threads/${props.thread}/note/revert`, { method: 'POST', body: { noteId: h.id } })
     data.value = { ...(data.value || {}), note: r.note, id: r.id, history: r.history }
-    draft.value = copy(r.note)
+    take(data.value)
   } catch (e) { err.value = e.message || '되돌리지 못했어요' } finally { reverting.value = '' }
 }
 async function save() {
+  const thread = props.thread
   saving.value = true
   err.value = ''
+  notice.value = ''
   try {
     const d = draft.value
     const body = { intent: d.intent, deliverables: d.deliverables.filter((x) => x.text.trim()), constraints: d.constraints.filter((x) => x.text.trim()),
       decisions: d.decisions.filter((x) => x.text.trim()), tools: d.tools.filter((t) => t.name.trim()).map((t) => ({ ...t, kind: t.ref ? 'browser_skill' : t.kind === 'browser_skill' ? 'service' : t.kind })) }
-    const r = await api(`/threads/${props.thread}/note`, { method: 'PUT', body: { note: body } })
+    const r = await api(`/threads/${thread}/note`, { method: 'PUT', body: { note: body, baseId: base.value.id } })
+    if (props.thread !== thread) return
     data.value = { ...(data.value || {}), note: r.note, id: r.id, at: r.at, ...(r.history ? { history: r.history } : {}) }
-    draft.value = copy(r.note)
+    take(data.value)
     savedAt.value = Date.now()
-  } catch (e) { err.value = e.message || '저장하지 못했어요' } finally { saving.value = false }
+    if (r.merged) notice.value = '그사이 바뀐 계획에 내가 고친 것만 더했어요'
+  } catch (e) {
+    err.value = e.message || '저장하지 못했어요'
+    // (its base left the history: the plan as it is now is loaded — the person makes the edit again on it)
+    if (e.status === 409) { data.value = null; base.value = { id: null, note: null }; draft.value = null; await load(); take(data.value) }
+  } finally { saving.value = false }
 }
 </script>
 
@@ -152,7 +171,8 @@ async function save() {
           </section>
         </div>
         <footer>
-          <small v-if="err" class="err" role="alert">{{ err }}</small>
+          <small v-if="err" class="err" role="alert" data-testid="plan-error">{{ err }}</small>
+          <small v-else-if="notice" class="ok" data-testid="plan-merged">{{ notice }}</small>
           <small v-else-if="savedAt && !dirty" class="ok" data-testid="plan-saved">저장했어요</small>
           <button class="save press" :disabled="saving || !dirty" data-testid="plan-save" @click="save">{{ saving ? '저장 중이에요' : '저장' }}</button>
         </footer>
@@ -169,7 +189,7 @@ async function save() {
 .plan-chip .pi::before { content: '·'; margin-right: 6px; color: var(--text-tertiary); }
 .plan-chip .muted { color: var(--text-tertiary); }
 .veil { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, .28); display: grid; place-items: center; padding: 16px; }
-.sheet { width: min(600px, 100%); min-width: 0; box-sizing: border-box; max-height: min(86vh, 860px); border-radius: 28px; padding: 20px 22px 16px; display: flex; flex-direction: column; gap: 8px;
+.sheet { width: min(600px, 100%); min-width: 0; box-sizing: border-box; max-height: min(86vh, 860px); max-height: min(86dvh, 860px); border-radius: 28px; padding: 20px 22px 16px; display: flex; flex-direction: column; gap: 8px;
   background: var(--regular-solid-bg, var(--bubble-agent-bg)); box-shadow: var(--shadow-card); color: var(--text-primary); }
 header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 header > div { min-width: 0; }
@@ -212,7 +232,7 @@ footer { display: flex; align-items: center; justify-content: flex-end; gap: 10p
 .err { color: var(--color-error); font-size: 12.5px; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .veil { place-items: end stretch; padding: 0; }
-  .sheet { width: 100%; max-height: 88vh; border-radius: 26px 26px 0 0; padding: 18px 16px calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .sheet { width: 100%; max-height: 88vh; max-height: 88dvh; border-radius: 26px 26px 0 0; padding: 18px 16px calc(14px + env(safe-area-inset-bottom, 0px)); }
   h2 { font-size: 21px; }
 }
 </style>
