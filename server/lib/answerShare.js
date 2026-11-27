@@ -29,7 +29,18 @@ export const KINDS = ['text', 'doc']
 // ---------- pure ----------
 // the answer as it may leave the chat: a workspace or host path reads as its file name (a link keeps its label), a signed or storage address
 // as its file's name (lib/hidePaths.js) — the room, a notice, the room list's line, a document and a project's first document alike
-export const answerText = (msg) => cleanShared(String(msg?.content?.text || '')).trim()
+// (once per answer row — the picker asks its title, words, preview and length, the room's share its title and words: PR #122 review — again
+// only when its text changed)
+const cleaned = new WeakMap()
+export function answerText(msg) {
+  const raw = String(msg?.content?.text || '')
+  const had = msg && typeof msg === 'object' ? cleaned.get(msg) : null
+  if (had && had.raw === raw) return had.out
+  const out = cleanShared(raw).trim()
+  if (msg && typeof msg === 'object') cleaned.set(msg, { raw, out })
+  return out
+}
+export const cleanedOnce = (msg) => cleaned.has(msg)
 // the answer's title: a document answer's first line; a text answer's first heading or line, its marks taken off
 export function titleOf(msg) {
   const t = answerText(msg)
@@ -94,6 +105,16 @@ export async function holdClaim(userId, rowId, { key, field, done }, mine) {
     where m.id=$1 and m.content->($3::text)->>($4::text) = $6::text and m.content->($3::text)->>($5::text) is null
       and exists (select 1 from pro_threads t where t.id = m.thread_id and t.user_id = $2) returning m.id`, [rowId, userId, key, field, done, String(mine)])
   return !!r
+}
+// A message into the person's conversation right after the re-check: a conversation deleted in between is refused by the database (its key) —
+// that reads 404, as a conversation not found, not a server error (PR #122 review)
+export async function addInto(userId, threadId, role, kind, content) {
+  try {
+    return await addMessage(userId, threadId, role, kind, content)
+  } catch (e) {
+    if (e?.code === '23503') throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."), 'gone')
+    throw e
+  }
 }
 // (with no claim to hold: the conversation is still the person's — the same statement addMessage makes next)
 export async function stillTheirs(userId, threadId) {
@@ -217,7 +238,7 @@ export async function saveDoc(user, id, deps = {}) {
       if (await holdClaim(user.id, msg.id, DOC_CLAIM, mine)) {
         // (the card goes where the answer is: its conversation of the main chat too — aside, so it never moves the one the chat is in)
         const conv = convOfRow(msg)
-        card = await addMessage(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
+        card = await addInto(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
           ...(conv ? { context: { conversationId: conv, action: 'aside' } } : {}) })
         const [row] = await q(`update pro_messages set content = jsonb_set(content, '{answerDoc}', $3::jsonb) where id=$1 and content->'answerDoc'->>'pending' = $2 returning *`,
           [msg.id, mine, JSON.stringify({ messageId: card.id, name: card.content.name, at: new Date().toISOString() })])

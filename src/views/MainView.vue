@@ -19,7 +19,7 @@ import ArtifactStack from '../components/ArtifactStack.vue'
 import ArtifactList from '../components/ArtifactList.vue'
 import Composer from '../components/Composer.vue'
 import Icon from '../components/Icon.vue'
-import { narrow, pageW, wideLayout } from '../viewport.js'
+import { narrow, pageW, wideLayout, keyboardUp } from '../viewport.js'
 import { leftColumnPlace, fitsBeside, leftEdge, overWidth, OVER_X, LEFT_LABEL, LEFT_SHORT } from '../leftColumn.js'
 import { instanceContext } from '../components/ontology/caseView.js'
 import { artifactLayout, sideWidth, pilePlace, pileRoom } from '../artifactScope.js'
@@ -99,7 +99,7 @@ const artLayout = computed(() => (!ready.value || mobileHome.value || threadShee
 const artW = computed(() => sideWidth(artLayout.value))
 const pileAt = (foot) => pilePlace({ gutter: foot.gutter, footTop: foot.top, boxTop: foot.box, noticeH: foot.notice, small: narrow.value })
 // the room the chat leaves under its last message for the pile when it floats over the chat (0 beside the composer)
-const pileRoomAt = (foot) => pileRoom(pileAt(foot))
+const pileRoomAt = (foot) => pileRoom(pileAt(foot), { keyboard: keyboardUp.value })
 // the clock in the bottom-left corner (Home closed): only where the chat, moved over for the files' column, leaves it room
 const clockFits = computed(() => (pageW.value - artW.value - 512) / 2 >= 240)
 // the bar's tabs over the chat column: between the left column and the files' column when they leave the tabs room beside the bar's

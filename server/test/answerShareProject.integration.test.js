@@ -14,8 +14,9 @@
 //   AP-U-03b 팀에서 빠진 보낸 사람은 방 목록 · 보내기 403(1:1 을 만들지 않음) · AP-U-04b 「문서로 남기기」 둘이 동시에 → 카드 하나 · AP-U-05b 같은 답의
 //   카드는 하나 · AP-U-06b 카드에서 고친 목적 · 만들 것 · 배경이 계획에, 「만들기」 둘이 동시에 → 하나만 · AP-U-07b 멈춘 「만들기」를 이어받기 · 「아니요」,
 //   템플릿 작업 공간을 못 만들면 프로젝트도 남지 않음 · AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 이 대화의 답 · 좁혀 본 대화의 답 · 카드는 대답 옆
-//   (PR #118 후속) AP-U-01c 줄 가운데 서명 조각은 남지 않고 평범한 key 주소는 그대로 · 덧붙이기 직전에 다시 확인(한 문장) — AP-U-04c 문서 카드 ·
-//   AP-U-05c 확인 카드 · AP-U-06c 「프로젝트로 옮겼어요」(대화가 그 사람 것이 아니게 되면 404, 이어받혔으면 그쪽 카드) · AP-U-07d 버리는 프로젝트의 작업 공간도 버림
+//   (PR #118 후속 · PR #122 검토) AP-U-01c 줄 가운데 서명 조각은 값만 「…」 · 평범한 key 주소는 그대로 · 덧붙이기 직전에 다시 확인(한 문장) — AP-U-04c 문서 카드 ·
+//   AP-U-05c 확인 카드 · AP-U-06c 「프로젝트로 옮겼어요」(대화가 그 사람 것이 아니게 되면 404, 이어받혔으면 그쪽 카드) · AP-U-07d 버리는 프로젝트의 작업 공간도 버림 ·
+//   AP-U-04d 확인과 덧붙이기 사이에 대화가 사라지면 404(500 아님) · 답의 글은 행마다 한 번 · AP-U-05d 카드를 쓰는 동안 답이 사라지면 곧바로 404, 모델 한 번
 // Run: node --test --test-concurrency=1 test/answerShareProject.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -675,20 +676,26 @@ test('AP-U-07c 느린 「만들기」와 그 사이 이어받기 → 프로젝�
 
 
 // ---------- PR #118 후속 ----------
-test('AP-U-01c 나가는 글: 줄 가운데 홀로 있는 서명 조각은 남지 않고, 지도 · 검색 · 문서의 평범한 key 주소는 그대로', () => {
+test('AP-U-01c 나가는 글: 줄 가운데 서명 조각은 값만 「…」(코드 · 예시는 그대로), 지도 · 검색 · 문서의 평범한 key 주소는 그대로', () => {
+  // (values built when the test runs — nothing in this public file reads as a real key)
+  const rep = (seed, n) => seed.repeat(Math.ceil(n / seed.length)).slice(0, n)
+  const jwt = ['ey' + 'J' + rep('hbGci0iJ', 18), 'ey' + 'J' + rep('zdW1i0iI', 22), rep('Sf1KxwRJ', 32)].join('.')
+  const hex = rep('9f86d081', 32), gkey = 'AI' + 'za' + rep('Sy9-k2Lm', 33)
   const raw = ['# 링크 안내', '',
-    '주소가 길어 나눠 적어요: https://files.example/a/견적서.pdf ?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln',
-    '서명은 &sig=9f86d081884c7d659a2feaa0c55ad015&exp=1767225600 을 뒤에 붙여요.',
-    '`?X-Amz-Signature=deadbeefcafe&X-Amz-Credential=AKIAEXAMPLE` 은 30분 뒤 만료돼요.',
+    `주소가 길어 나눠 적어요: https://files.example/a/견적서.pdf ?token=${jwt}`,
+    `서명은 &sig=${hex}&exp=1767225600 을 뒤에 붙여요.`,
+    `\`?X-Amz-Signature=${hex}&X-Amz-Credential=${rep('AKQ7', 20)}\` 은 30분 뒤 만료돼요.`,
+    '예시: `GET /api/raw?path=a.md&token=YOUR_TOKEN`',
     '지도: https://maps.example/embed?key=seoul-office&zoom=3 · 문서: [안내](https://docs.example.org/view?key=intro)',
     '검색: https://search.example/?key=교육과정',
-    'API: https://maps.example/api/js?key=AIzaSyA-1234567890abcdefghijk'].join('\n')
+    `API: https://maps.example/api/js?key=${gkey}`].join('\n')
   const msg = { kind: 'doc', content: { text: raw } }
   for (const out of [AS.answerText(msg), AS.docBody(msg), AS.sharedText(msg), AS.previewOf(msg, 2000)]) {
-    for (const bad of ['token=', 'sig=', 'X-Amz', 'eyJhbGci', 'AIzaSy', '9f86d081']) assert.ok(!out.includes(bad), `남은 것: ${bad}\n${out}`)
+    for (const bad of [jwt.slice(0, 12), hex.slice(0, 12), gkey.slice(0, 12), 'AKQ7AKQ7']) assert.ok(!out.includes(bad), `남은 것: ${bad}\n${out}`)
   }
   const out = AS.answerText(msg)
-  assert.ok(out.includes('주소가 길어 나눠 적어요: 견적서.pdf') && out.includes('서명은 비공개 주소 을') && out.includes('`비공개 주소` 은 30분'), out)
+  assert.ok(out.includes('주소가 길어 나눠 적어요: 견적서.pdf') && out.includes('서명은 &sig=…&exp=1767225600 을') && out.includes('`?X-Amz-Signature=…&X-Amz-Credential=…` 은 30분'), out)
+  assert.ok(out.includes('`GET /api/raw?path=a.md&token=YOUR_TOKEN`'), '자리만 말한 예시는 그대로')
   assert.ok(out.includes('https://maps.example/embed?key=seoul-office&zoom=3') && out.includes('[안내](https://docs.example.org/view?key=intro)') && out.includes('https://search.example/?key=교육과정'), '평범한 key 는 그대로')
   assert.ok(out.includes('API: 비공개 주소'), out)
 })
@@ -800,4 +807,36 @@ test('AP-U-07d 경쟁에 져서 버리는 프로젝트는 그 프로젝트를 �
   assert.equal(ws.length, 2, JSON.stringify(ws))
   assert.deepEqual(ws.filter((v) => v.status !== 'discarded').map((v) => v.tid), [String(takeover.project.id)], '남은 작업 공간은 이어받은 프로젝트의 것')
   assert.equal(ws.filter((v) => v.status === 'discarded').length, 1, '버린 프로젝트의 작업 공간도 버림')
+})
+
+// ---------- PR #122 review ----------
+test('AP-U-04d 대화가 다시 확인한 뒤 · 덧붙이기 전에 사라지면(데이터베이스가 거절) 500 이 아니라 404 · 답의 글은 한 번만 다듬음', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const gone = await settle(AS.addInto(me.id, crypto.randomUUID(), 'agent', 'file', { name: 'x.md' }))
+  assert.equal(gone.err?.status, 404, gone.err?.message || 'ok')
+  assert.equal(gone.err?.code, 'gone')
+  // the picker asks the answer's title, words, preview and length: its text is cleaned once per row (the same object)
+  const msg = { kind: 'doc', content: { text: `# 한 번\n\n${'?a=1 '.repeat(2000)}` } }
+  const first = AS.answerText(msg)
+  assert.equal(AS.answerText(msg), first)
+  assert.ok(AS.cleanedOnce(msg), '같은 행은 한 번')
+  msg.content.text = '# 바뀐 글'
+  assert.equal(AS.answerText(msg), '# 바뀐 글', '글이 바뀌면 다시')
+})
+
+test('AP-U-05d 「프로젝트로 시작」: 모델이 카드를 쓰는 동안 답이 사라지면 곧바로 404(세 번 돌고 409 가 아님), 모델은 한 번', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const t = await myChat(me, '카드를 쓰는 동안 사라진 답')
+  const a = await myAnswer(t, `# 사라진 답\n\n${'카드를 쓰는 동안 답이 지워졌어요. '.repeat(6)}`)
+  let calls = 0
+  const t0 = Date.now()
+  const r = await settle(CP.offer(me, { threadId: t.id, messageId: a.id }, { templates: async () => [], call: async () => {
+    calls++
+    await q('delete from pro_messages where id=$1', [a.id])
+    return { title: '사라진 답의 프로젝트' }
+  } }))
+  assert.equal(r.err?.status, 404, r.err?.message || 'ok')
+  assert.equal(calls, 1, '모델은 한 번')
+  assert.ok(Date.now() - t0 < 10_000, `기다리지 않음: ${Date.now() - t0} ms`)
+  assert.equal((await msgs(t.id)).filter((m) => m.kind === 'project_offer').length, 0)
 })

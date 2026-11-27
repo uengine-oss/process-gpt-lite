@@ -184,12 +184,16 @@ export async function offer(user, { threadId, messageId = null, said = '', title
   const project = t.kind === 'project'
   const { answer, rows, conv: target } = pickFrom(list, { pressed, conversationId: conversationId ? String(conversationId) : null, lines: R.lines, project })
   // one card per answer: the one still open, or the one another caller is making now (a claim on the answer's row — PR #118 review 2)
+  // (the budget is spent once per card asked for, however many rounds; an answer gone meanwhile is 404 at once — PR #122 review)
+  let charged = false
+  const answerGone = () => fail(404, L('답을 찾지 못했어요.', "I couldn't find that answer."))
   for (let round = 0; round < 3; round++) {
     let claim = null
     if (answer) {
       const open = await openOfferFor(t.id, answer.id)
       if (open) return open
       claim = await claimOffer(answer.id)
+      if (!claim && !(await answerStill(user.id, answer.id))) throw answerGone()
       if (!claim) {
         const got = await AS.waitFor(async () => (await openOfferFor(t.id, answer.id)) || ((await liveClaim(answer.id)) ? null : 'free'), { ms: 45_000 })
         if (got && got !== 'free') return got
@@ -209,11 +213,12 @@ export async function offer(user, { threadId, messageId = null, said = '', title
     // the answer's claim over meanwhile (its card: the next round)
     await release()
     if (!claim || !(await getThread(user.id, t.id))) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
+    if (!(await answerStill(user.id, answer.id))) throw answerGone()
   }
   throw fail(409, L('카드를 준비하고 있어요. 잠시 후 다시 해 주세요.', "The card is being prepared. Please try again in a moment."), 'busy')
   // → the card, or null when it did not go in (the re-check right before it)
   async function draftCard(claim) {
-    offerBudget(user.id)
+    if (!charged) { offerBudget(user.id); charged = true }
     const [mail, templates] = await Promise.all([mailOf(user, [...rows, ...(answer ? [answer] : [])]).catch(() => null), deps.templates ? deps.templates() : templatesFor(user, R.templates)])
     const conversation = rows.map((r) => lineText(r, R.lineChars)).join('\n')
     const answerText = answer ? clip(AS.answerText(answer), R.answerChars) : ''
@@ -259,7 +264,7 @@ export async function offer(user, { threadId, messageId = null, said = '', title
       return null
     }
     console.log(`[chat-project] offer thread=${String(t.id).slice(0, 8)} via=${via} conv=${target ? String(target).slice(0, 12) : '-'} templates=${templates.length} picks=${recs.map((r) => `${r.slug}:${r.p ?? '-'}`).join(',') || '-'} by=${content.read.by} draft=${!!j}`)
-    const card = await addMessage(user.id, t.id, 'agent', 'project_offer', content)
+    const card = await AS.addInto(user.id, t.id, 'agent', 'project_offer', content)
     if (claim) await q(`update pro_messages set content = jsonb_set(content, '{offering}', jsonb_build_object('token', $2::text, 'offerId', $3::text, 'at', now()))
       where id=$1 and content->'offering'->>'token' = $2`, [answer.id, claim, card.id])
     return card
@@ -278,6 +283,11 @@ async function claimOffer(answerId) {
             and o.content->>'state' in ('offered','making'))))
     returning m.id`, [answerId, mine, OFFER_STALE_S])
   return r ? mine : null
+}
+// the answer is still there, in a conversation of the person's
+async function answerStill(userId, answerId) {
+  const [r] = await q(`select 1 from pro_messages m join pro_threads t on t.id = m.thread_id where m.id=$1 and t.user_id=$2`, [answerId, userId])
+  return !!r
 }
 // someone is making the card for this answer now (a claim not yet finished, not stale)
 async function liveClaim(answerId) {

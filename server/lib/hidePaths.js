@@ -29,8 +29,9 @@ const WIN = String.raw`(?:(?<![\w\\/])[A-Za-z]:[\\/](?![\\/])|(?<![\w\\])\\\\[\w
 const WIN_REST = String.raw`[^\s` + B + String.raw`'"<>()|*?]*`
 // a path in backticks may hold spaces ("Moonlight Coffee quote.xlsx"); a bare one ends at a space
 const QUOTED = new RegExp(B + '((?:' + ROOT + '|' + WIN + ')[^' + B + '\\n]*)' + B, 'g')
-// a markdown link to a sandbox or host file goes nowhere: its label stays (the address may be wrapped in <…>, after a space)
-const LINKED = new RegExp(String.raw`\[([^\]\n]+)\]\(\s*(?:<\s*(?:sandbox:|file://)?(?:` + ROOT + '|' + WIN + String.raw`)[^>\n]*>|(?:sandbox:|file://)?(?:` + ROOT + '|' + WIN + String.raw`)[^)\n]*)\s*\)`, 'g')
+// a markdown link to a sandbox or host file goes nowhere: its label stays (the address may be wrapped in <…>, after a space; the label holds no
+// [ — an unclosed run of [ in a long answer is read once, not once per [)
+const LINKED = new RegExp(String.raw`\[([^[\]\n]+)\]\(\s*(?:<\s*(?:sandbox:|file://)?(?:` + ROOT + '|' + WIN + String.raw`)[^>\n]*>|(?:sandbox:|file://)?(?:` + ROOT + '|' + WIN + String.raw`)[^)\n]*)\s*\)`, 'g')
 const BARE_WIN = new RegExp(WIN + WIN_REST, 'g')
 // (after a colon too — 「경로:/workspace/…」 — but never inside an address: a word, a slash or a dot before it)
 const BARE = new RegExp(String.raw`(?<![\w/.~-])(?:sandbox:|file://)?` + ROOT + String.raw`(?:/[^\s` + B + String.raw`'"<>()\[\]*,;]*)*`, 'g')
@@ -56,16 +57,23 @@ export function hidePaths(text) {
 // ---- end of the path rules
 
 // ---------- private addresses ----------
-// What makes an address a key (PR #118 follow-up — narrowed: an ordinary ?key=… is not one):
-//   · what lib/urlTokens.js hides of every page address (maskUrl — read as it reads it, nothing listed twice): its signing and sign-in
-//     parameters by name whatever their value (token · sig · signature · S3 · GCS · CloudFront signing · access_token · api_key · apikey ·
-//     jwt · client_secret …), an OAuth answer's code, an address inside a value, a password in the address, a fragment that holds a session —
-//     but not `key`, nor a user name with no password: ordinary pages use them too (a search's, a map's, a document's key)
-//   · key · auth · secret when the value looks like a secret (secretShape: its length and its characters)
-//   · a value that is one whatever its name: a Google API key (AIza…), a JWT (eyJ….….…)
-const PLAIN = new Set(['key'])
-const SHAPED = new Set(['key', 'auth', 'secret'])
-const SECRET_VALUE = /^(?:AIza[0-9A-Za-z_-]{20,}|eyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]*)$/
+// What makes an address a key, one parameter at a time (PR #118 follow-up, PR #122 review) — the same in a whole address, in a query left on its
+// own (pieces below) and in an address inside a value:
+//   by name, whatever the value  what lib/urlTokens.js hides of every page address (asked of it name by name — its list is never written here
+//                                again: token · sig · signature · S3 · GCS · CloudFront signing · access_token · api_key · client_secret …), but not
+//                                `key` — and auth · secret · password · passwd · pwd and the spellings it does not read (accessToken, auth_token,
+//                                private_token, x-api-key, api-key, subscription-key, q-signature; a Markdown access\_token): NAMES
+//   by its look                  `key` and a name with key · token · secret · auth · pass · session · sig · code in it, when the value — as written or
+//                                decoded — looks like a secret (secretShape: its length and its characters); an OAuth answer's code (a state beside it)
+//   whatever the name            a JWT, a Google API key, a GitHub token (SECRET_VALUE)
+//   the address's own parts      a password; a user name that looks like a secret; a fragment holding a session (a JSON object); an address inside a
+//                                value (once or twice %-encoded) that is a key
+// A value that only names its place — …, ..., YOUR_TOKEN, ${t}, {token}, <값>, xxx, $TOKEN, getToken(), words in Hangul — is no secret (PLACEHOLDER).
+const NAMES = new Set(['auth', 'secret', 'password', 'passwd', 'pwd', 'accesstoken', 'authtoken', 'privatetoken', 'xapikey', 'apikey', 'subscriptionkey',
+  'ocpapimsubscriptionkey', 'qsignature', 'xauthtoken', 'sessiontoken', 'refreshtoken', 'idtoken', 'clientsecret'])
+const SHAPED_NAME = /key|token|secret|auth|pass|session|sig|code/
+const SECRET_VALUE = /^(?:eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}|AIza[0-9A-Za-z_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{30,})$/
+const PLACEHOLDER = /^(?:…+|\.{2,}|\$\{[^}]*\}|\$\w+|\{[^}]*\}|<[^>]*>|[xX*]{3,}|your[\w-]*|[A-Za-z_$][\w$.]*\(\))$/i
 // a secret's look: 20 characters or more of a token's alphabet, letters and digits both, a run of 12 letters or digits in it — 「seoul-office-
 // 2024-11-28」 is not one, a hex digest, a base64 token, a uuid are
 export function secretShape(v) {
@@ -73,32 +81,62 @@ export function secretShape(v) {
   return s.length >= 20 && /^[A-Za-z0-9_\-.~+/=]+$/.test(s) && /\d/.test(s) && /[A-Za-z]/.test(s) && /[A-Za-z0-9]{12}/.test(s)
 }
 const decoded = (x) => { try { return decodeURIComponent(String(x).replace(/\+/g, ' ')) } catch { return String(x) } }
-const nameOf = (piece) => decoded(String(piece).split('=')[0]).trim().toLowerCase()
-// a query or a fragment's name=value pieces, as urlTokens.js splits them (& and ;; a hash route's own query after its ?)
-const piecesOf = (part) => {
-  const q = part.indexOf('?')
-  return (q >= 0 && !part.slice(0, q).includes('=') ? part.slice(q + 1) : part).split(/[&;]/).filter(Boolean)
-}
-const withoutPlain = (part) => {
-  const q = part.indexOf('?')
-  const [head, rest] = q >= 0 && !part.slice(0, q).includes('=') ? [part.slice(0, q + 1), part.slice(q + 1)] : ['', part]
-  return head + rest.split(/[&;]/).filter((p) => !PLAIN.has(nameOf(p))).join('&')
-}
-// a parsed address that is a key (the storage rules aside)
-function keyed(u) {
-  const search = u.search.slice(1), hash = u.hash.slice(1)
-  for (const p of [...piecesOf(search), ...piecesOf(hash)]) {
-    const eq = p.indexOf('=')
-    if (eq <= 0) continue
-    const v = decoded(p.slice(eq + 1))
-    if (SECRET_VALUE.test(v) || (SHAPED.has(nameOf(p)) && secretShape(v))) return true
+// a parameter's name as it is read: decoded, any case, a Markdown escape taken off
+const nameOf = (raw) => decoded(raw).trim().toLowerCase().replace(/\\/g, '')
+const squash = (name) => name.replace(/[-_.\s]/g, '')
+// urlTokens.js's own answer for a name (remembered: one question per name)
+const asked = new Map()
+function urlTokensHides(name) {
+  if (!asked.has(name)) {
+    if (asked.size > 2000) asked.clear()
+    const probe = `http://x.invalid/?${encodeURIComponent(name)}=1`
+    asked.set(name, maskUrl(probe) !== probe)
   }
-  // urlTokens.js's own reading, its plain names left out (and a user name that has no password)
-  const w = new URL(u.href)
-  if (!w.password) w.username = ''
-  const s = withoutPlain(search), h = withoutPlain(hash)
-  const href = `${w.href.slice(0, w.href.length - w.search.length - w.hash.length)}${s ? `?${s}` : ''}${h ? `#${h}` : ''}`
-  return maskUrl(href) !== href
+  return asked.get(name)
+}
+// an address written in a value, once or twice %-encoded (a relative one with its own query too)
+function innerUrl(value) {
+  let v = value
+  for (let i = 0; i < 3 && v; i++) {
+    if (/^(?:https?:)?\/\/[^/\s]/i.test(v)) { try { return new URL(/^\/\//.test(v) ? `https:${v}` : v) } catch { return null } }
+    if (/^\/[^/\s]/.test(v) && /[?#]/.test(v)) { try { return new URL(v, 'http://x.invalid') } catch { return null } }
+    let next
+    try { next = decodeURIComponent(v) } catch { return null }
+    if (next === v) return null
+    v = next
+  }
+  return null
+}
+// one parameter (raw: as written); state: the same part has a state (an OAuth answer)
+function hiddenParam(rawName, raw, { state = false, depth = 0 } = {}) {
+  if (!raw) return false
+  const name = nameOf(rawName)
+  const value = decoded(raw)
+  if (PLACEHOLDER.test(value) || /^[^\x00-\x7f]+$/.test(value)) return false
+  if ((name !== 'key' && urlTokensHides(name)) || NAMES.has(squash(name))) return true
+  if (name === 'code' && state) return true
+  if (SECRET_VALUE.test(value) || SECRET_VALUE.test(raw)) return true
+  if ((name === 'key' || SHAPED_NAME.test(squash(name))) && (secretShape(raw) || secretShape(value))) return true
+  const inner = depth < 2 ? innerUrl(value) : null
+  return !!inner && keyed(inner, depth + 1)
+}
+// a query's (or a fragment's) name=value pieces, as urlTokens.js splits them (& and ;) — a hash route's own query after its ?
+const partOf = (part) => {
+  const q = part.indexOf('?')
+  return q >= 0 && !part.slice(0, q).includes('=') ? part.slice(q + 1) : part
+}
+function partKeyed(part, depth) {
+  const pieces = partOf(part).split(/[&;]/).filter(Boolean)
+  const state = pieces.some((p) => nameOf(p.split('=')[0]) === 'state')
+  return pieces.some((p) => { const eq = p.indexOf('='); return eq > 0 && hiddenParam(p.slice(0, eq), p.slice(eq + 1), { state, depth }) })
+}
+const sessionLike = (hash) => { try { const v = JSON.parse(decodeURIComponent(hash)); return !!v && typeof v === 'object' && Object.keys(v).length > 0 } catch { return false } }
+// a parsed address that is a key (the storage rules aside)
+function keyed(u, depth = 0) {
+  if (u.password) return true
+  if (u.username) { const n = decoded(u.username); if (secretShape(n) || SECRET_VALUE.test(n)) return true }
+  const hash = u.hash.slice(1)
+  return partKeyed(u.search.slice(1), depth) || (!!hash && (partKeyed(hash, depth) || sessionLike(hash)))
 }
 const hostOf = (u) => { try { return new URL(u).host.toLowerCase() } catch { return '' } }
 // this app's own storage hosts (its Supabase, the address the office host gives the documents it makes)
@@ -121,23 +159,37 @@ export function urlName(raw) {
 }
 const URLISH = /^(?:https?:)?\/\//i
 // a Markdown link: its address in <…> (spaces and brackets allowed) or bare (one level of brackets allowed), with or without a title
-const MD_LINK = /\[([^\]\n]*)\]\(\s*(?:<([^>\n]+)>|((?:[^()\s]|\([^()\s]*\))+))(?:\s+"[^"\n]*")?\s*\)/g
-const ANGLED = /<((?:https?:)?\/\/[^\s>]+)>/gi
-// a bare address — with a scheme in any case, or //host/… — and what carries it on when it was broken: a line that starts with its query or
-// its path (「…/report.pdf」 then 「?token=…」), or its query after a space on the same line (「…/report.pdf ?token=…」)
-const TAIL = String.raw`[^\s<>()[\]"'` + '`' + ']*'
+// (its words hold no [ — an unclosed run of [ in a long answer is read once, not once per [: PR #122 review)
+const MD_LINK = /\[([^[\]\n]*)\]\(\s*(?:<([^>\n]+)>|((?:[^()\s]|\([^()\s]*\))+))(?:\s+"[^"\n]*")?\s*\)/g
+const ANGLED = /<((?:https?:)?\/\/[^\s<>]+)>/gi
+// a bare address — with a scheme in any case, or //host/… (one level of brackets in it, as Markdown allows) — and what carries it on when it was
+// broken: a line that starts with its query or its path (「…/report.pdf」 then 「?token=…」), or its query after a space on the same line
+// (「…/report.pdf ?token=…」)
+const CH = String.raw`[^\s<>()[\]"'` + '`' + ']'
+const TAIL = `(?:${CH}|\\(${CH}*\\))*`
 const MORE = String.raw`(?:(?:\r?\n[?&/]|[ \t]+[?&](?=[\w.~%+-]+=))` + TAIL + ')*'
 const BARE_URL = new RegExp(String.raw`(?:\bhttps?:\/\/|(?<![\w:/.])\/\/(?:[\w-]+\.)+[\w-]{2,}(?::\d+)?(?=[/?]))` + TAIL + MORE, 'gi')
-// a query left on its own (PR #118 follow-up): 「?token=…」 · 「&sig=…」 · 「#access_token=…」 in the words, in backticks, after a word or a piece of an
-// address that is no whole address (「files.example/a.pdf?sig=…」) — read as the query of an address on a made-up host (x.invalid), by the same
-// rules (keyed). On its own it reads 「비공개 주소」; after a word only the query goes. (An address kept above is no key: no piece of its query is
-// one either — the same rules, piece by piece.)
-const VALUE = String.raw`[^\s&;#<>()[\]"'` + '`' + ']*'
-const PIECE = new RegExp(String.raw`([?&#;])((?:[\w.~%+-]+=` + VALUE + String.raw`)(?:[&;][\w.~%+-]+=` + VALUE + ')*)', 'g')
-const ALONE = /[\s(<[{"'`「『:,]/
+// A query left on its own (PR #118 follow-up, PR #122 review): 「?token=…」 · 「&sig=…」 · 「#access_token=…」, a pair after a space or at a line's start
+// (「token=…」), in the words, in backticks, after a word or a piece of an address that is no whole address — each value that is a key (hiddenParam)
+// reads 「…」, as urlTokens.js masks it; the rest stays as written (an example, a code sample keeps its shape).
+const VALUE = String.raw`(?:[^\s&;#<>()[\]"'` + '`' + String.raw`]|\([^\s&;#<>()[\]"'` + '`' + String.raw`]*\))*`
+const PAIR = String.raw`[\w.~%+\\-]+=` + VALUE
+const PIECE = new RegExp(String.raw`(?:([?&#;])|(?<![^\s(\[{"'` + '`' + String.raw`,:]))(` + PAIR + String.raw`(?:[&;]` + PAIR + ')*)', 'g')
+function maskPiece(m, lead, body) {
+  const bits = body.split(/([&;])/)
+  const state = bits.some((p, i) => i % 2 === 0 && nameOf(p.slice(0, p.indexOf('='))) === 'state')
+  let changed = false
+  const out = bits.map((p, i) => {
+    const eq = p.indexOf('=')
+    if (i % 2 || eq <= 0 || !hiddenParam(p.slice(0, eq), p.slice(eq + 1), { state })) return p
+    changed = true
+    return `${p.slice(0, eq)}=…`
+  }).join('')
+  return changed ? `${lead || ''}${out}` : m
+}
 export function dropPrivateUrls(text, hosts = storageHosts()) {
   const t = String(text ?? '')
-  if (!/\/\/|[?&#;][\w.~%+-]+=/.test(t)) return t
+  if (!/\/\/|[\w%\\-]=/.test(t)) return t
   return t
     .replace(MD_LINK, (m, label, angled, bare) => {
       const url = (angled || bare || '').trim()
@@ -149,12 +201,7 @@ export function dropPrivateUrls(text, hosts = storageHosts()) {
       const url = m.slice(0, m.length - trail.length).replace(/\s+/g, '')
       return privateUrl(url, hosts) ? urlName(url) + trail : m
     })
-    .replace(PIECE, (m, lead, body, at, all) => {
-      let u = null
-      try { u = new URL(`http://x.invalid/${lead === '#' ? '#' : '?'}${body}`) } catch { return m }
-      if (!keyed(u)) return m
-      return at === 0 || ALONE.test(all[at - 1]) ? L('비공개 주소', 'a private address') : ''
-    })
+    .replace(PIECE, maskPiece)
 }
 
 // both at once: what a shared answer may say (the addresses first — a broken address's next line may look like a path)

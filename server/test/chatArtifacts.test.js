@@ -102,6 +102,9 @@ test('AS-U-05b 더미가 채팅 위에 있으면(입력창 위) 목록이 비워
   // beside the composer (a desktop with a gutter): clear of the list — nothing changes there
   assert.equal(pileRoom(pilePlace({ gutter: 174, footTop: 84 })), 0)
   assert.equal(pileRoom(null), 0)
+  // (PR #122 review) while the on-screen keyboard is up the chat is short: no room kept for the pile then
+  assert.equal(pileRoom(pilePlace({ gutter: 16, footTop: 84, small: true }), { keyboard: true }), 0)
+  assert.equal(pileRoom(pilePlace({ gutter: 16, footTop: 84, small: true }), { keyboard: false }), 144 + 48 + 32)
 })
 
 test('AS-U-06 접은 채인지: 이 브라우저에 「rail」 · 「list」, 저장소가 막혀도 오류 없이 펼침', () => {
