@@ -132,8 +132,10 @@ test('F-DR-11 앱 안에서 폴더를 놓으면 미리 보기 → 올리기 · �
   await page.locator('[data-test="drop-go"]').click()
   await expect(page.locator('[data-test="folder-toast"]')).toContainText('올렸어요 — 파일 2개')
   expect(mainFiles()).toEqual(expect.arrayContaining(['uengine-platform/README.md', 'uengine-platform/docs/a.md']))
-  // 작업실: this server opens no terminal — said; the header clear of the window's own buttons; back to the folder
+  // 작업실: this server opens no terminal — said; the header clear of the window's own buttons; back to the folder. (In the app the
+  // header's 「작업실」 asks where first — spec variation-seats: the owner opens main in the server workroom from that sheet)
   await page.getByRole('button', { name: '작업실' }).click()
+  await page.locator('[data-test="seat-sheet-main"]').click()
   await expect(page.locator('[data-test="workroom-deny"]')).toContainText('여러 회사가 함께 쓰는 이 서버에서는 터미널을 열지 않아요')
   const back = await page.locator('[data-test="workroom-back"]').boundingBox()
   if (MAC) expect(back.x).toBeGreaterThanOrEqual(80)

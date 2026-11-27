@@ -53,8 +53,10 @@ export async function gcFolder(folder, { reflogExpire = '7.days', pruneExpire = 
   return S.serial(folder.id, async () => {
     if (!(await fs.stat(path.join(folder.repo_path, '.git')).catch(() => null))) return { skipped: 'missing' }
     const leftover = await dropQuarantines(folder.repo_path)
+    // (the branches of epochs a PC working copy's seat left behind — seatLink.js: what is still to be packed then is the folder's own)
+    const seatBranches = await import('./seatLink.js').then((m) => m.dropOldSeatBranches(folder)).catch((e) => { console.warn(`[folders gc] seat branches: ${e.message}`); return 0 })
     const before = await countObjects(folder.repo_path)
-    if (!force && littleToDo(before, folder.settings?.gc?.at)) return { skipped: 'little', before, leftover }
+    if (!force && littleToDo(before, folder.settings?.gc?.at)) return { skipped: 'little', before, leftover, seatBranches }
     const t0 = Date.now()
     await G.git(folder.repo_path, ['-c', 'pack.threads=1', '-c', 'pack.windowMemory=256m',
       '-c', `gc.reflogExpireUnreachable=${reflogExpire}`, '-c', `gc.pruneExpire=${pruneExpire}`, 'gc', '--quiet'], { timeout: GC_TIMEOUT })
@@ -62,7 +64,7 @@ export async function gcFolder(folder, { reflogExpire = '7.days', pruneExpire = 
     const gc = { at: new Date().toISOString(), beforeKiB: kib(before), afterKiB: kib(after) }
     // pro_folders.settings is jsonb: the last pass rides along with the folder, no table of its own
     await q(`update pro_folders set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('gc', $2::jsonb) where id=$1`, [folder.id, gc])
-    return { ...gc, ms: Date.now() - t0, before, after, leftover }
+    return { ...gc, ms: Date.now() - t0, before, after, leftover, seatBranches }
   })
 }
 // the quarantine folders a stopped push left (git's receive-pack: objects/tmp_objdir-incoming-XXXXXX) → how many went

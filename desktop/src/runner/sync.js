@@ -22,8 +22,9 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
-const { EventEmitter } = require('node:events')
 const G = require('./git')
+// (the round's engine — link answers, locks, the token kept out of logs, the folder's address — is shared with the working copies: upload.js)
+const { Uploader } = require('./upload')
 const SHAPES = require('./secret-shapes.json')
 const PLACES = require('./kit-places.json')
 const RS = require('./runSettings')
@@ -587,52 +588,38 @@ function uploadQuestion({ files = 0, bytes = 0, folderName = '', host = '', repo
 const stopState = (why) => (why === 'paused' ? 'paused' : 'blocked')
 // store: this server's and this person's entries in the app's settings (settings.folderStore) — the only place a path is kept.
 // send(msg): the link to the server (runner/link.js). Events: 'state' (list()).
-class FolderSync extends EventEmitter {
+class FolderSync extends Uploader {
   constructor({ dataDir, server, userId, store, send = () => false, device = {}, user = () => null, log = () => {}, rules = compileRules(), places = PLACES,
     askMs = ASK_MS, takeMs = TAKE_MS } = {}) {
-    super()
-    this.server = String(server || '').replace(/\/+$/, '')
+    super({ server, send, log, prefix: 'sync:', key: 'folderId', askMs })
     this.userId = String(userId || '')
     this.dataDir = path.resolve(dataDir)
     // <data>/sync/<server10>/<person>/<folderId>.git — and that person's own scratch repository for previews
     this.root = path.join(this.dataDir, 'sync', serverKey(this.server), personKey(this.userId))
     this.store = store
-    this.sendFn = send
     void device
     this.userFn = user
-    this.logFn = log
     this.rules = rules
     this.places = places
-    this.askMs = askMs
     this.takeMs = takeMs
     this.picks = new Map()
-    this.waiters = new Set()
-    this.locks = new Map()
     this.busy = new Set()
-    this.secrets = new Set()
-    this.connected = false
     this.other = false
-    this.stopped = false
   }
 
-  log(...a) { let s = a.join(' '); for (const t of this.secrets) if (t) s = s.split(t).join('***'); this.logFn(s) }
   changed() { this.emit('state', this.list()) }
-  handles(msg) { return typeof msg?.type === 'string' && msg.type.startsWith('sync:') }
   // the link is up: the server says who this desktop is signed in as — another person than the one these folders are for stops them
   linkUp(user) {
-    this.connected = true
+    super.linkUp()
     this.other = !!(user?.id && this.userId && String(user.id) !== this.userId)
     this.changed()
   }
   linkDown() {
-    this.connected = false
-    for (const w of [...this.waiters]) w.done({ why: 'offline' })
+    super.linkDown()
     this.changed()
   }
   stop() {
-    this.stopped = true
-    this.connected = false
-    for (const w of [...this.waiters]) w.done({ why: 'stopped' })
+    super.stop()
     this.picks.clear()
   }
   gitDirOf(folderId) { return path.join(this.root, `${folderId}.git`) }
@@ -647,29 +634,10 @@ class FolderSync extends EventEmitter {
     this.store.put({ ...e, ...patch })
     this.changed()
   }
-  // one thing at a time per folder
-  locked(key, fn) {
-    const prev = this.locks.get(key) || Promise.resolve()
-    const run = prev.catch(() => {}).then(fn)
-    const tail = run.catch(() => {})
-    this.locks.set(key, tail)
-    tail.then(() => { if (this.locks.get(key) === tail) this.locks.delete(key) })
-    return run
-  }
-  // a message to the server and its answer (one of `types`, or sync:refused) for that folder
-  ask(msg, types, ms = this.askMs) {
-    return new Promise((resolve) => {
-      const w = { folderId: String(msg.folderId), types: new Set([...types, 'sync:refused']) }
-      w.done = (m) => { clearTimeout(w.timer); this.waiters.delete(w); resolve(m) }
-      w.timer = setTimeout(() => w.done({ why: 'timeout' }), ms)
-      this.waiters.add(w)
-      if (this.stopped || !this.sendFn(msg)) w.done({ why: 'offline' })
-    })
-  }
   // what the server sends on the link (sync:bound · token · taken · behind · refused · unbound)
   handle(msg) {
     const id = String(msg?.folderId || '')
-    for (const w of this.waiters) if (w.folderId === id && w.types.has(msg.type)) { w.done(msg); return }
+    if (this.answer(msg)) return
     // (an answer that came after its wait, or the server's own word)
     if (msg.type === 'sync:refused') this.mark(id, { state: stopState(msg.why), why: String(msg.why || 'refused'), paths: pathsOf(msg.paths) })
     else if (msg.type === 'sync:taken') this.mark(id, { state: 'synced', why: null, paths: [], taken: this.store.get(id)?.head || null })
@@ -797,7 +765,7 @@ class FolderSync extends EventEmitter {
         if (!['offline', 'timeout', 'stopped'].includes(why)) this.mark(folderId, { state: stopState(why), why })
         return { ok: false, why }
       }
-      this.secrets.add(t.token)
+      this.secret(t.token)
       const url = this.urlOf(t)
       const branch = String(t.branch || e.branch || '')
       G.checkRef(branch)
@@ -833,11 +801,6 @@ class FolderSync extends EventEmitter {
       this.changed()
     }
   }
-  urlOf(t) {
-    const u = String(t.url || t.path || '')
-    return G.checkUrl(u.startsWith('/') ? `${this.server}${u}` : u)
-  }
-
   // 「연결 끊기」: the server's source row, then this computer's record and shadow repository — the picked folder and the Lite folder
   // stay as they are
   async unbind(folderId) {
@@ -859,4 +822,4 @@ class FolderSync extends EventEmitter {
 }
 
 module.exports = { FolderSync, scan, snapshot, fetchServer, pushHead, ensureShadow, shadowGit, compileRules, groupOf, shapeHits, assignmentHit, frontMatter, globMatch, kitOf, uploadQuestion,
-  patternsOf, serverKey, setTap, ALLOWED, GROUPS }
+  patternsOf, serverKey, personKey, looksBinary, setTap, ALLOWED, GROUPS }

@@ -26,6 +26,8 @@ import * as TPL from '../lib/folders/templates.js'
 import * as SECRETS from '../lib/folders/secrets.js'
 import { readBatch } from '../lib/folders/batchBody.js'
 import * as SE from '../lib/folders/seats.js'
+import * as SL from '../lib/folders/seatLink.js'
+import { iga } from '../lib/josa.js'
 import { emit } from '../lib/bus.js'
 
 const MIME = S.MIME
@@ -122,8 +124,7 @@ export function folderRoutes(auth) {
     const thread = await TPL.startProject(user(req), folder, { title: req.body?.title })
     return { id: thread.id, title: thread.title, kind: thread.kind }
   }))
-  // what the header's 「작업실」 sheet needs at once (my variations and their seats, my computers by name) — the sheet comes with the
-  // desktop's working copy (design P1 · P2)
+  // what the 「작업실」 sheet needs at once (my variations and their seats, my computers — on or off, whether they keep working copies)
   r.get('/folders/:slug/workroom', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
     return SE.workroomChoices(folder, req.user, role)
@@ -386,6 +387,9 @@ export function folderRoutes(auth) {
     const v = await S.variationFor(folder, req.params.vid, req.user)
     const row = await SE.seatOf(v.id, { v }).catch(() => null)
     const seat = SE.seatsOn() ? await SE.viewOf(row, v, { me: req.user, role }).catch(() => null) : null
+    // (what the computer holding it said back to 「여기로 가져오기」 — a terminal open in its working copy: seatLink.js pcSays)
+    const says = seat && row && row.place === 'device' && String(row.user_id) === String(req.user.id) ? SL.pcSays(v.id, row) : null
+    if (says) seat.pcSays = says
     const { worktree_path, ...d } = await S.variationDetail(folder, v)
     // (kept: what git does not carry, kept when a place left the disk — listed with a download until it is removed)
     const kept = SE.seatsOn() ? await SE.keptOf(folder, v, { me: req.user, role }).catch(() => []) : []
@@ -420,8 +424,75 @@ export function folderRoutes(auth) {
   }))
   r.post('/folders/:slug/variations/:vid/seat', auth, h(async (req) => {
     if ((req.body?.to || 'server') === 'server') return openHere(req)
-    // a computer's own working copy is the desktop app's next version (design P1: link messages seat:*, git scope 'seat')
-    throw Object.assign(new Error(L('PC 에서 작업본을 여는 것은 데스크톱 앱의 다음 판에서 돼요.', 'Opening a working copy on a PC comes with the next desktop app.')), { status: 501 })
+    return openOnDevice(req)
+  }))
+  // 「이 PC 에서 작업」 (desktop 0.2.7 — lib/folders/seatLink.js): the seat moves to one of my linked computers (my server workroom is
+  // committed as it is and closed first) and that computer is told to make the working copy; it is held there once the computer says
+  // ready (seat:ready — the page watches the seat). Only the variation's own person, only a computer of theirs that is on and new enough.
+  const seatErr = (status, message, why) => Object.assign(new Error(message), { status, why, seat: null })
+  async function openOnDevice(req) {
+    const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
+    const v = await S.variationFor(folder, req.params.vid, req.user)
+    if (['merged', 'discarded'].includes(v.status)) throw Object.assign(new Error(L('반영했거나 버린 변형은 열 수 없어요.', "A merged or discarded variation can't be opened.")), { status: 409 })
+    if (folder.kind !== 'managed') throw Object.assign(new Error(L('이 폴더의 변형은 PC 에서 열 수 없어요.', "This folder's variations can't be opened on a PC.")), { status: 400 })
+    if (!SE.mayHold(v, req.user.id)) throw await SE.refusal({ ok: false, why: 'not-yours', v, seat: await SE.seatOf(v.id) }, folder, { me: req.user, role })
+    const deviceId = String(req.body?.deviceId || '')
+    const [d] = /^[0-9a-f-]{36}$/i.test(deviceId) ? await q('select * from pro_local_devices where id=$1 and tenant_id=$2 and user_id=$3 and revoked_at is null', [deviceId, config.tenantId, String(req.user.id)]) : []
+    if (!d) throw seatErr(404, L('이 PC 가 내 계정에 연결돼 있지 않아요 — 설정에서 다시 연결해 주세요.', "This PC isn't linked to your account — link it again in the settings."), 'no_device')
+    const H = await import('../lib/localAgents/hub.js')
+    const link = H.linkOf(config.tenantId, String(d.id))
+    if (!link) throw seatErr(409, L(`${iga(d.name)} 꺼져 있거나 서버에 이어져 있지 않아요.`, `${d.name} is off or not connected to the server.`), 'offline')
+    if (!link.caps?.seats) throw seatErr(409, L('데스크톱 앱을 새 판(0.2.7)으로 바꿔 주세요 — 이 PC 에서 작업본을 열 수 있어요.', 'Update the desktop app (0.2.7) to open working copies on this PC.'), 'old_app')
+    // (head: the commit the sheet showed the run-by-itself files of — …/trust: the variation moved since, so the sheet looks again first)
+    const asked = /^[0-9a-f]{40}$/.test(String(req.body?.head || '')) ? String(req.body.head) : null
+    if (asked && asked !== await G.head(folder.repo_path, `refs/heads/${v.branch}`)) {
+      throw seatErr(409, L('그사이 이 변형이 바뀌었어요 — 받기 전에 다시 확인할게요.', 'The variation changed meanwhile — it is checked again before it comes here.'), 'moved')
+    }
+    const cur = await SE.seatOf(v.id, { v })
+    const me = { ...user(req), id: req.user.id }
+    let epoch
+    if (cur && cur.place === 'device' && String(cur.device_id) === String(d.id) && String(cur.user_id) === String(req.user.id) && !cur.job_id) {
+      // (already this computer's: held — nothing to do; still moving — said again, the computer takes the same epoch once)
+      if (cur.state === 'held') return { ok: true, already: true, seat: await SE.viewOf(cur, v, { me: req.user, role }) }
+      epoch = cur.epoch
+    } else {
+      const out = await SE.claimDevice(folder, v, { user: me, device: String(d.id), ready: false })
+      if (out.legacy) throw seatErr(409, L('이 서버에는 아직 작업본 자리가 없어요(sql/063).', 'This server has no working-copy seats yet (sql/063).'), 'legacy')
+      epoch = out.epoch
+    }
+    const opened = (await q(`update pro_folder_variations set status='open' where id=$1 and status='ready' returning id`, [v.id])).length > 0
+    // (the seat goes back to none — 보관 중 — when this computer is not told after all; a variation that was ready to review is again)
+    const undo = async (note) => {
+      await SE.transition(v.id, (vv, s) => (s && s.place === 'device' && Number(s.epoch) === Number(epoch) ? { ok: true, next: null, bump: true, action: 'fail' } : { ok: false, why: 'none' }), { by: req.user.id, note })
+      if (opened) await q(`update pro_folder_variations set status='ready', updated_at=now() where id=$1 and status='open'`, [v.id])
+    }
+    // (my server workroom was committed as it was on the way here: what of it runs by itself and was not shown at the checked head — the
+    // sheet looks again first; one that cannot be checked is not sent either)
+    const head = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
+    if (asked && head !== asked) {
+      const { trustAdded } = await import('../lib/folders/seatTrust.js')
+      const added = await trustAdded(folder, asked, head).catch(async (e) => { await undo('could not check what came with the server workroom'); throw e })
+      if (added.length) {
+        await undo('more that runs by itself came with the server workroom')
+        throw seatErr(409, L('그사이 이 변형이 바뀌었어요 — 받기 전에 다시 확인할게요.', 'The variation changed meanwhile — it is checked again before it comes here.'), 'moved')
+      }
+    }
+    const now = await S.variationById(v.id)
+    const seat = await SE.seatOf(v.id, { v: now })
+    if (!(await SL.prepare(link, folder, now, { epoch, autoSave: seat?.auto_save !== false }))) {
+      await undo('the PC did not take it')
+      throw seatErr(409, L(`${d.name}에 보내지 못했어요 — 잠시 뒤에 다시 해 주세요.`, `Couldn't reach ${d.name} — try again in a moment.`), 'offline')
+    }
+    emit(req.user.id, 'folders', { slug: folder.slug, variation: v.id })
+    return { ok: true, seat: await SE.viewOf(seat, now, { me: req.user, role }) }
+  }
+  // before 「이 PC 에서 작업」: what of the variation would run things on a computer by itself (hooks · MCP · .envrc · VS Code tasks · Windows
+  // shell files) and who changed each last — the sheet warns and the person goes on with 「그래도 열기」 (lib/folders/seatTrust.js)
+  r.get('/folders/:slug/variations/:vid/trust', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'runner')
+    const v = await S.variationFor(folder, req.params.vid, req.user)
+    const { trustOf } = await import('../lib/folders/seatTrust.js')
+    return trustOf(folder, v, req.user)
   }))
   // 「돌려놓기」: my server workroom's working copy is saved as it is and put away (보관 중); the variation is ready to review
   r.post('/folders/:slug/variations/:vid/seat/release', auth, h(async (req) => {
@@ -438,7 +509,13 @@ export function folderRoutes(auth) {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
     const v = await S.variationFor(folder, req.params.vid, req.user)
     const seat = await SE.seatOf(v.id, { v })
-    if (seat && seat.place === 'device') throw Object.assign(new Error(L('PC 의 작업본은 그 PC 에서 올려요(데스크톱 앱의 다음 판).', "A PC's working copy is saved from that PC (the next desktop app).")), { status: 501 })
+    // a computer's working copy is saved on that computer: it is asked to make a save point now (seatLink.js seat:save)
+    if (seat && seat.place === 'device') {
+      if (String(seat.user_id) !== String(req.user.id)) throw await SE.refusal({ ok: false, why: 'not-holder', v, seat }, folder, { me: req.user })
+      if (seat.job_id) throw Object.assign(new Error(L('PC 에서 도는 실행이 이 변형을 고치는 중이에요 — 끝나면 저절로 올라와요.', 'A run on the PC is changing this variation — it comes up by itself when done.')), { status: 409 })
+      if (!(await SL.tell(seat.device_id, { type: 'seat:save', variation: v.id }))) throw seatErr(409, L('그 PC 가 꺼져 있어요 — 켜지면 저절로 올라와요.', 'That PC is off — it saves by itself when it is on.'), 'offline')
+      return { ok: true, asked: true }
+    }
     if (seat !== undefined && !(seat && seat.place === 'server' && seat.run === 'workroom' && String(seat.user_id) === String(req.user.id))) throw await SE.refusal({ ok: false, why: seat ? (seat.run === 'agent' ? 'agent' : 'held') : 'none', v, seat }, folder, { me: req.user })
     return { commit: await SE.commitAsIs(folder, v, { author: user(req), message: req.body?.message || L(`${req.user.name}: 저장 지점`, `${req.user.name}: save point`) }) }
   }))
@@ -446,7 +523,20 @@ export function folderRoutes(auth) {
   r.post('/folders/:slug/variations/:vid/seat/take', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
     const v = await S.variationFor(folder, req.params.vid, req.user)
+    // my own computer's working copy while that computer is on: it gives the seat back itself — what is there is committed as it is and
+    // pushed first (seat:recall auto → its 「돌려놓기」); the page sees the seat become 보관 중
+    const cur = await SE.seatOf(v.id, { v })
+    if (cur?.place === 'device' && !cur.job_id && cur.state === 'held' && String(cur.user_id) === String(req.user.id)) {
+      const H = await import('../lib/localAgents/hub.js')
+      const link = H.linkOf(config.tenantId, String(cur.device_id))
+      SL.pcSaysClear(v.id)
+      if (link?.caps?.seats && link.send({ type: 'seat:recall', variation: v.id, epoch: Number(cur.epoch), auto: true })) {
+        return { ok: true, waiting: true, seat: await SE.viewOf(cur, v, { me: req.user, role }) }
+      }
+    }
     await SE.take(folder, v, { ...user(req), id: req.user.id }, { role, epoch: req.body?.epoch ?? null })
+    // (a computer's working copy taken while it is off: when it comes back its list says so — and if it is on after all, now)
+    if (cur?.place === 'device' && !cur.job_id) await SL.refreshList(cur.device_id)
     const now = await S.variationById(v.id)
     return { ok: true, seat: await SE.viewOf(null, now, { me: req.user, role }) }
   }))
@@ -455,6 +545,8 @@ export function folderRoutes(auth) {
     const { folder, role } = await S.access(req.params.slug, req.user, 'editor')
     const v = await S.variationFor(folder, req.params.vid, req.user)
     const out = await SE.recall(folder, v, { ...user(req), id: req.user.id }, { why: String(req.body?.why || '').slice(0, 300), role })
+    // (a computer's working copy: that computer says so too — a notification there; it gives the seat back only when its person does)
+    if (out.seat?.place === 'device' && !out.seat.job_id) await SL.tell(out.seat.device_id, { type: 'seat:recall', variation: v.id, epoch: Number(out.seat.epoch), auto: false, by: req.user.name || '', why: String(req.body?.why || '').slice(0, 300) })
     return { ok: true, seat: await SE.viewOf(out.seat || null, out.v || v, { me: req.user, role }) }
   }))
   // one kept folder as a zip — whoever had that working copy, the variation's own person, or the folder owner; within the download limits
@@ -475,6 +567,8 @@ export function folderRoutes(auth) {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
     const v = await S.variationFor(folder, req.params.vid, req.user)
     const row = await SE.setPrefs(folder, v, req.user, { autoSave: req.body?.autoSave, watch: req.body?.watch })
+    // (a computer's working copy follows the switch at once — its next save point is or is not made by itself)
+    if (row?.place === 'device' && !row.job_id) await SL.tell(row.device_id, { type: 'seat:prefs', variation: v.id, autoSave: row.auto_save !== false })
     return { ok: true, autoSave: row.auto_save, watch: row.watch }
   }))
   // 「변경 저장」 (a commit of my server workroom; release: also put it away). Only from the place that has the working copy.
