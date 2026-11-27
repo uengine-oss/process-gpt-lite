@@ -1,42 +1,5 @@
 {
  "exact": {
-  "보냈는지 확인하지 못했어요": "Couldn't confirm it was sent",
-  "보낸 편지함을 확인해 주세요. 다시 보내면 중복으로 갈 수 있어 「보내기」를 막아 두었어요.": "Check your Sent folder. Send is held, as sending again could deliver it twice.",
-  "보내지 못했어요": "It wasn't sent",
-  "보낸 편지함에 있어요": "It's in my Sent folder",
-  "보낸 편지함에서 확인했어요": "Confirmed in the Sent folder",
-  "받는 사람이 없어요": "No recipient",
-  "· 제목과 받는 사람으로 찾은 메일이에요": "· found by subject and recipient",
-  "답장할 메일을 내 메일함에서 찾지 못해 새 메일로 보내요": "Couldn't find the mail to reply to in your mailbox, so it goes as a new mail",
-  "답장받을 주소(Reply-To)가 보낸 사람 주소와 달라요:": "The reply address (Reply-To) differs from the sender's:",
-  "받는 사람이 이 메일을 주고받은 사람이 아니에요.": "The recipient wasn't part of this mail's conversation.",
-  "내가 올린 파일": "uploaded by me",
-  "이 메일을 위해 만든 초안": "draft made for this mail",
-  "이 메일에는 이미 답장을 보냈어요. 보낸 편지함을 확인해 주세요.": "This mail was already answered. Check your Sent folder.",
-  "받는 사람이 없어요. 「고치기」를 눌러 받는 사람을 적어 주세요.": "No recipient. Press Edit and add one.",
-  "보낼 메일": "Mail to send",
-  "「보내기」를 눌러야 나가요": "It leaves only when you press Send",
-  "「임시 보관함에 넣기」를 눌러야 나가요": "It goes in only when you press Put in Drafts",
-  "아직 보낼 수 없어요": "Can't be sent yet",
-  "연결된 내 메일이 없어요": "None of your mail is connected",
-  "에 이어서": " — continues that thread",
-  "새 메일 — 답장할 받은 메일을 찾지 못했어요": "A new mail — couldn't find the mail it replies to",
-  "· 찾지 못해서 빼고 보내요": "· not found, left out",
-  "본문 모두 보기": "Show the whole body",
-  "메일을 연결하면 내 계정으로 보낼 수 있어요.": "Connect your mail to send it from your own account.",
-  "Gmail의 메일 전송 권한이 없어요. 메일을 다시 연결하면 내 계정으로 보낼 수 있어요.": "Gmail hasn't allowed sending. Connect your mail again to send it from your own account.",
-  "데모 메일함이라 실제로 보내지 않고 기록만 해요.": "This is the demo mailbox, so it's only recorded, not sent.",
-  "이 메일함에서는 바로 보낼 수 없어서 임시 보관함에 넣어요. 메일 앱에서 보내 주세요.": "This mailbox can't send from here, so it goes in Drafts. Send it from your mail app.",
-  "초안으로 두기": "Keep as draft",
-  "다시 연결하기": "Connect again",
-  "임시 보관함에 넣었어요 · 메일 앱에서 보내 주세요": "Put in Drafts · send it from your mail app",
-  "보냈어요": "Sent",
-  "· 받은 메일의 스레드에 이어서": "· in the thread of the mail it answers",
-  "· 새 메일로": "· as a new mail",
-  "고친 초안이 아래에 있어요": "The corrected draft is below",
-  "보내지 않기로 했어요": "Dropped",
-  "초안으로 두었어요": "Kept as a draft",
-  "다시 열기": "Open again",
   "계속 두기": "Keep",
   "오늘의 배경": "Today's background",
   "무드": "Mood",
@@ -3371,13 +3334,113 @@
   "새 프로젝트 이름": "New project name",
   "전용 작업 공간 · 바뀐 것 없음": "Own workspace · nothing changed",
   "PC에 남아 있던 변경": "Changes left on a PC",
-  "작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 볼 수 있어요.": "Changes that came up from a PC after the working copy moved somewhere else. Like this workspace, only you can see them."
+  "작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 볼 수 있어요.": "Changes that came up from a PC after the working copy moved somewhere else. Like this workspace, only you can see them.",
+  "저장 안 됨": "Not saved",
+  "저장 실패": "Save failed",
+  "연결 끊김": "Disconnected",
+  "연결 끊김 · 다시 열기": "Disconnected · Reopen",
+  "저장하지 못했어요 · 다시 시도": "Couldn't save · Try again",
+  "다시 열기": "Reopen",
+  "편집기가 저장 중이에요": "The editor is saving",
+  "편집기와 연결이 끊겨 지금은 저장할 수 없어요. 고친 내용을 복사해 두고 눌러서 다시 여세요.": "The editor lost its connection, so it can't save right now. Copy your edits, then click to reopen.",
+  "저장하지 못했어요 · 눌러서 다시 시도": "Couldn't save · Click to try again",
+  "고친 내용을 아직 저장하지 않았어요 — 💾 저장 또는 ⌘S": "Your edits aren't saved yet — 💾 Save or ⌘S",
+  "편집기와 연결이 끊겼어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요": "The editor lost its connection — copy your edits, then press “Reopen”",
+  "편집기와 연결이 끊겨 지금은 저장할 수 없어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요.": "The editor lost its connection, so it can't save right now — copy your edits, then press “Reopen”.",
+  "편집기와 연결이 끊겼어요 — 「다시 열기」로 다시 열어 주세요.": "The editor lost its connection — open it again with “Reopen”.",
+  "편집기가 문서를 올리지 못했어요": "The editor couldn't upload the document",
+  "채팅의 파일 카드에서 이 버전이 열려요": "The chat’s file card opens this version",
+  "이 문서는 여기서 다른 이름으로 저장할 수 없어요 — 「내려받기」로 받아 두세요.": "This document can't be saved under another name here — keep a copy with “Download”.",
+  "채팅의 파일 카드가 고친 버전으로 바뀌지 않았어요": "The chat's file card didn't switch to the edited version",
+  "편집기를 다시 열까요?": "Reopen the editor?",
+  "편집기와 연결이 끊겨 이 문서는 지금 저장할 수 없어요. 다시 열면 마지막으로 저장한 버전이 열리고, 저장하지 않은 내용은 사라져요. 필요한 부분은 먼저 복사해 두세요.": "The editor lost its connection, so this document can't be saved right now. Reopening opens the last saved version and drops anything unsaved. Copy what you need first.",
+  "저장하지 않은 내용이 있어요": "You have unsaved changes",
+  "저장하고 닫기": "Save and close",
+  "저장하지 않고 닫기": "Close without saving",
+  "다른 이름으로 저장": "Save as",
+  "지금 내용을 이 대화에 새 파일로 저장해요. 지금 파일은 마지막으로 저장한 그대로 남아요.": "Saves the current content as a new file in this conversation. This file stays as it was last saved.",
+  "파일 이름을 적어 주세요": "Enter a file name",
+  "문서를 다시 열었어요": "The document was reopened",
+  "저장한 곳을 확인하지 못했어요": "Couldn't confirm where it was saved",
+  "다른 이름으로 저장하지 못했어요": "Couldn't save under another name",
+  "다른 이름으로 저장하지 못했어요 — 편집본을 찾지 못했어요": "Couldn't save under another name — the edited copy wasn't found",
+  "팀원에게 묻기": "Ask a teammate",
+  "덧붙인 말:": "Added:",
+  "메일은 보내지 않았어요.": "No mail was sent.",
+  "초안 열기": "Open draft",
+  "메일 열기": "Open mail",
+  "직접 채우기": "Fill it in myself",
+  "하루가 지났어요. 다시 물어보거나 직접 채울 수 있어요.": "A day has passed. Ask again, or fill it in yourself.",
+  "묻는 중…": "Asking…",
+  "채울 파일": "File to fill",
+  "이대로 물어보기": "Ask like this",
+  "물어보기": "Ask",
+  "고쳐서 물어보기": "Edit and ask",
+  "아니요(직접 채울게요)": "No (I'll fill it in)",
+  "메신저에서 보기": "View in messenger",
+  "직접 채우기로 했어요.": "You'll fill it in yourself.",
+  "다시 물어봤어요.": "Asked again.",
+  "아직 답이 없어요.": "No answer yet.",
+  "아직 답이 없어요": "No answer yet",
+  "이 방에 답을 적어 주세요.": "Reply in this conversation.",
+  "보냈어요 · 고마워요": "Sent · thank you",
+  "모른다고 보냈어요": "Sent that you don't know",
+  "다시 물어본 요청으로 바뀌었어요": "Replaced by a new request",
+  "AI 가 대신 묻는 중": "AI asking for them",
+  "팀원 답": "Teammate",
+  "메일 답장 초안에서는 채울 빈칸을 찾지 못했어요.": "No blanks to fill were found in the mail reply draft.",
+  "답을 메일 카드에 남겼어요. 「답장도 쓰기」로 초안을 쓰면 이 값이 들어가요.": "The answer is kept on the mail card. Write a draft with \"Write a reply too\" and these values go in.",
+  "이 메일에는 이미 답장을 보냈어요.": "A reply to this mail was already sent.",
+  "덧붙일 말 (선택)": "Anything to add (optional)",
+  "잘 모르겠어요": "I don't know",
+  "하나 이상 채워 주세요.": "Fill in at least one item.",
+  "묻는 이유": "Why ask",
+  "물어볼 항목": "Items to ask",
+  "칸에 적어 보내거나 이 방에 답장으로 적어도 돼요.": "Fill in the form, or just reply in this conversation.",
+  "답을 기다리고 있어요": "Waiting for an answer",
+  "요청이 취소됐어요": "The request was cancelled",
+  "모르면 누가 아는지 적어 주셔도 돼요": "If you don't know, who might",
+  "문서에 채우기": "Fill the document",
+  "메일 답장 초안이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.": "The mail reply draft changed meanwhile, so it was not filled. Put the values in yourself.",
+  "값이 길어요 — 내용을 확인하고 채우세요": "A long value — check what it says before filling",
+  "보냈는지 확인하지 못했어요": "Couldn't confirm it was sent",
+  "보낸 편지함을 확인해 주세요. 다시 보내면 중복으로 갈 수 있어 「보내기」를 막아 두었어요.": "Check your Sent folder. Send is held, as sending again could deliver it twice.",
+  "보내지 못했어요": "It wasn't sent",
+  "보낸 편지함에 있어요": "It's in my Sent folder",
+  "보낸 편지함에서 확인했어요": "Confirmed in the Sent folder",
+  "받는 사람이 없어요": "No recipient",
+  "· 제목과 받는 사람으로 찾은 메일이에요": "· found by subject and recipient",
+  "답장할 메일을 내 메일함에서 찾지 못해 새 메일로 보내요": "Couldn't find the mail to reply to in your mailbox, so it goes as a new mail",
+  "답장받을 주소(Reply-To)가 보낸 사람 주소와 달라요:": "The reply address (Reply-To) differs from the sender's:",
+  "받는 사람이 이 메일을 주고받은 사람이 아니에요.": "The recipient wasn't part of this mail's conversation.",
+  "내가 올린 파일": "uploaded by me",
+  "이 메일을 위해 만든 초안": "draft made for this mail",
+  "이 메일에는 이미 답장을 보냈어요. 보낸 편지함을 확인해 주세요.": "This mail was already answered. Check your Sent folder.",
+  "받는 사람이 없어요. 「고치기」를 눌러 받는 사람을 적어 주세요.": "No recipient. Press Edit and add one.",
+  "보낼 메일": "Mail to send",
+  "「보내기」를 눌러야 나가요": "It leaves only when you press Send",
+  "「임시 보관함에 넣기」를 눌러야 나가요": "It goes in only when you press Put in Drafts",
+  "아직 보낼 수 없어요": "Can't be sent yet",
+  "연결된 내 메일이 없어요": "None of your mail is connected",
+  "에 이어서": " — continues that thread",
+  "새 메일 — 답장할 받은 메일을 찾지 못했어요": "A new mail — couldn't find the mail it replies to",
+  "· 찾지 못해서 빼고 보내요": "· not found, left out",
+  "본문 모두 보기": "Show the whole body",
+  "메일을 연결하면 내 계정으로 보낼 수 있어요.": "Connect your mail to send it from your own account.",
+  "Gmail의 메일 전송 권한이 없어요. 메일을 다시 연결하면 내 계정으로 보낼 수 있어요.": "Gmail hasn't allowed sending. Connect your mail again to send it from your own account.",
+  "데모 메일함이라 실제로 보내지 않고 기록만 해요.": "This is the demo mailbox, so it's only recorded, not sent.",
+  "이 메일함에서는 바로 보낼 수 없어서 임시 보관함에 넣어요. 메일 앱에서 보내 주세요.": "This mailbox can't send from here, so it goes in Drafts. Send it from your mail app.",
+  "초안으로 두기": "Keep as draft",
+  "다시 연결하기": "Connect again",
+  "임시 보관함에 넣었어요 · 메일 앱에서 보내 주세요": "Put in Drafts · send it from your mail app",
+  "보냈어요": "Sent",
+  "· 받은 메일의 스레드에 이어서": "· in the thread of the mail it answers",
+  "· 새 메일로": "· as a new mail",
+  "고친 초안이 아래에 있어요": "The corrected draft is below",
+  "보내지 않기로 했어요": "Dropped",
+  "초안으로 두었어요": "Kept as a draft"
  },
  "patterns": [
-  [
-   "· 빼고 보내요({0})",
-   "· left out ({0})"
-  ],
   [
    "이 폴더에는 실행되는 설정이 있어요: {0} — 이 폴더에서 일하는 사람의 컴퓨터에서 훅 · MCP 서버 · 허용 목록이 돌아요",
    "This folder has settings that run: {0} — hooks, MCP servers and allow lists run on the computer of whoever works in this folder"
@@ -7637,6 +7700,162 @@
   [
    "템플릿 {0} 열기",
    "Open the template {0}"
+  ],
+  [
+   "저장했어요 · {0}",
+   "Saved · {0}"
+  ],
+  [
+   "저장됨 {0}",
+   "Saved {0}"
+  ],
+  [
+   "저장했어요 — {0}",
+   "Saved — {0}"
+  ],
+  [
+   "저장하지 못했어요 — {0} · 눌러서 다시 시도",
+   "Couldn't save — {0} · Click to try again"
+  ],
+  [
+   "저장하지 못했어요 — {0}",
+   "Couldn't save — {0}"
+  ],
+  [
+   "편집기가 {0}초 안에 저장을 마치지 못했어요",
+   "The editor didn't finish saving within {0} seconds"
+  ],
+  [
+   "편집기가 문서를 올리지 못했어요 ({0})",
+   "The editor couldn't upload the document ({0})"
+  ],
+  [
+   "닫기 전에 「{0}」의 고친 내용을 저장할까요? 저장하지 않고 닫으면 고친 내용이 사라져요.",
+   "Save your edits to “{0}” before closing? Closing without saving drops them."
+  ],
+  [
+   "편집기와 연결이 끊겨 「{0}」의 고친 내용을 지금은 저장할 수 없어요. 닫으면 저장하지 않은 내용이 사라져요 — 필요한 부분은 먼저 복사해 두세요.",
+   "The editor lost its connection, so your edits to “{0}” can't be saved right now. Closing drops anything unsaved — copy what you need first."
+  ],
+  [
+   "「{0}」 이름으로 저장 중…",
+   "Saving as “{0}”…"
+  ],
+  [
+   "「{0}」 이름으로 저장했어요 · 이 대화에 새 파일로 남았어요",
+   "Saved as “{0}” · it’s a new file in this conversation"
+  ],
+  [
+   "다른 이름으로 저장하지 못했어요: {0}",
+   "Couldn't save under another name: {0}"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요: {1}",
+   "Couldn't apply it to the '{0}' panel: {1}"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요 ({1})",
+   "Couldn't apply it to the '{0}' panel ({1})"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요",
+   "Couldn't apply it to the '{0}' panel"
+  ],
+  [
+   "저장하지 못했어요 — {0}. 한 번 더 닫으면 저장하지 않고 닫아요.",
+   "Couldn't save — {0}. Close again to close without saving."
+  ],
+  [
+   "다른 이름으로 저장하지 못했어요 — {0}",
+   "Couldn't save under another name — {0}"
+  ],
+  [
+   "{0}님께 보낼 메시지",
+   "Message to {0}"
+  ],
+  [
+   "물어보기를 누르기 전에는 아무에게도 보내지 않아요. {0}님과의 1:1 대화방에 내 이름으로 보내요.",
+   "Nothing is sent until you press Ask. It goes to your one-to-one conversation with {0}, in your name."
+  ],
+  [
+   "항목 {0}",
+   "Item {0}"
+  ],
+  [
+   "「{0}」의 빈칸 {1}곳을 채워 새 판으로 저장했어요.",
+   "Filled {1} blanks in \"{0}\" and saved it as a new version."
+  ],
+  [
+   "「{0}」의 빈칸 {1}곳을 채워 새 판으로 저장했어요. 채우지 못한 항목: {2}",
+   "Filled {1} blanks in \"{0}\" and saved it as a new version. Not filled: {2}"
+  ],
+  [
+   "「{0}」에서 채울 빈칸을 찾지 못했어요. 값을 직접 넣어 주세요.",
+   "No blanks to fill were found in \"{0}\". Put the values in yourself."
+  ],
+  [
+   "「{0}」은 직접 채워 주세요.",
+   "Please fill in \"{0}\" yourself."
+  ],
+  [
+   "메일 답장 초안의 빈칸 {0}곳도 채웠어요. 직접 보내 주세요.",
+   "Also filled {0} blanks in the mail reply draft. Send it yourself."
+  ],
+  [
+   "{0}님께 메신저로 물어볼까요?",
+   "Ask {0} on the messenger?"
+  ],
+  [
+   "{0}님께 메신저로 물어봤어요. 답을 기다리고 있어요.",
+   "Asked {0} on the messenger. Waiting for the answer."
+  ],
+  [
+   "{0}님이 답했어요.",
+   "{0} answered."
+  ],
+  [
+   "{0}님이 답했어요",
+   "{0} answered"
+  ],
+  [
+   "{0}님이 모른다고 했어요.",
+   "{0} doesn't know."
+  ],
+  [
+   "{0}님이 모른다고 했어요",
+   "{0} doesn't know"
+  ],
+  [
+   "{0}님이 아직 답하지 않았어요",
+   "{0} hasn't answered yet"
+  ],
+  [
+   "{0}님이 물어봤어요 · AI 가 대신 묻는 중",
+   "{0} asked you something (AI asking for them)"
+  ],
+  [
+   "「{0}」은 문서라 바로 채우지 않았어요. 값을 확인하고 「문서에 채우기」를 누르면 에이전트가 이 문서만 채워요.",
+   "\"{0}\" is a document, so it was not filled right away. Check the values and press \"Fill the document\" — the agent fills only this document."
+  ],
+  [
+   "에이전트가 「{0}」을 채우고 있어요.",
+   "The agent is filling \"{0}\"."
+  ],
+  [
+   "에이전트가 「{0}」을 채웠어요. 새 판을 확인해 주세요.",
+   "The agent filled \"{0}\". Check the new version."
+  ],
+  [
+   "「{0}」을 채우지 못했어요. 값을 직접 넣어 주세요.",
+   "\"{0}\" could not be filled. Put the values in yourself."
+  ],
+  [
+   "「{0}」이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.",
+   "\"{0}\" changed meanwhile, so it was not filled. Put the values in yourself."
+  ],
+  [
+   "· 빼고 보내요({0})",
+   "· left out ({0})"
   ]
  ],
  "context": [

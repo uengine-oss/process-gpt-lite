@@ -47,8 +47,12 @@ export function officeDocOf(msgId, c) {
   const folder = c?.folder?.slug ? c.folder : null
   // private: a card with no address of its own (a mail's attachment — server lib/mailAttachments.js): it was opened by a short-lived signed
   // one, and an editor's save never puts an address on it
-  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}), ...(c?.private ? { private: true } : {}) }
+  // branch: a received share's file — its saves are commits on that conversation's branch (no 「다른 이름으로 저장」 there, OfficeSheet)
+  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}), ...(c?.private ? { private: true } : {}), ...(c?.branch ? { branch: true } : {}) }
 }
+
+// one opening of a document in the office sheet (setOfficeDoc)
+const newOpening = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
 // an attachment's upload, to stop it (not in the store's state: an AbortController is no data to watch)
 const abortOf = new Map()
@@ -183,11 +187,16 @@ export const useApp = defineStore('app', {
     // Replacing or closing the open document: the sheet saves what is left in it first (OfficeSheet
     // registers onOfficeLeave; it answers false to stay open — a save that did not finish, said on the sheet).
     async setOfficeDoc(doc) {
+      // the card of the document already open, pressed again: nothing to open — the same opening goes on (its saves, its 이력 line, what
+      // 「다른 이름으로 저장」 keeps of it; review #107 — a new opening of the same frame forgot the copy the card stood on)
+      const cur = this.officeDoc
+      if (doc && cur && doc.msgId && doc.msgId === cur.msgId && doc.url === cur.url && !!doc.readOnly === !!cur.readOnly) return true
       if (this.officeDoc && officeLeave) {
         const ok = await Promise.resolve(officeLeave()).catch(() => true)
         if (!ok) return false
       }
-      this.officeDoc = doc
+      // (each opening its own: what the sheet keeps about one — a failed save, a 「한 번 더 닫으면」 — ends with it, OfficeSheet)
+      this.officeDoc = doc ? { ...doc, opening: newOpening() } : null
       return true
     },
     async boot() {

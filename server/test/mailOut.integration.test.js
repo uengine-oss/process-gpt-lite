@@ -241,10 +241,55 @@ test('보인 뒤 카드가 바뀌었거나 확인 값이 없으면 보내지 않
   await assert.rejects(O.sendOut(user, told.card, { confirm: shown.confirm }), (e) => e.code === 'stale')
   assert.match(edited.body, /수량 확인/)
   assert.equal(edited.edited, true)
-  assert.ok(O.confirmOk(user.id, told.card, (await cardRow(told.card)).content.mail_out, edited.confirm))
-  assert.equal(O.confirmOk(user.id, told.card, (await cardRow(told.card)).content.mail_out, edited.confirm, Date.now() + 16 * 60_000), false, '15분이 지나면 다시 보고')
+  const now = await cardRow(told.card)
+  const sender = await O.senderOf(user), files = await O.filesNow(user, now)
+  assert.ok(O.confirmOk(user.id, told.card, now.content.mail_out, sender, files, edited.confirm))
+  assert.equal(O.confirmOk(user.id, told.card, now.content.mail_out, sender, files, edited.confirm, Date.now() + 16 * 60_000), false, '15분이 지나면 다시 보고')
   await O.sendOut(user, told.card, { confirm: edited.confirm })
   assert.equal(sends().length, before + 1)
+})
+
+test('보인 뒤 다른 메일함을 연결했거나 첨부 파일이 바뀌었으면 보내지 않는다(stale)', async () => {
+  const { user, threadId } = await person()
+  const t = agentTurn(user.id, threadId)
+  // another mailbox connected after the card was shown
+  const a = await tool(user, DRAFT, t)
+  const shownA = await O.cardView(user, a.card)
+  await q(`update pro_mail_accounts set address=$2 where user_id=$1`, [user.id, 'other.box@lite.example'])
+  const before = sends().length
+  await assert.rejects(O.sendOut(user, a.card, { confirm: shownA.confirm }), (e) => e.code === 'stale')
+  const again = await O.cardView(user, a.card)
+  assert.equal(again.from, '정하윤 <other.box@lite.example>', '다시 보면 지금 연결된 주소')
+  await q(`update pro_mail_accounts set address=$2 where user_id=$1`, [user.id, ME])
+  // a file swapped under its card after it was shown (same name, another object)
+  const f = await upload(user, threadId, '단가표.pdf', '%PDF-1.4 price list')
+  const b = await tool(user, { ...DRAFT, subject: `Re: ${SUBJECT} (단가표)`, attachments: ['단가표.pdf'] }, t)
+  const shownB = await O.cardView(user, b.card)
+  assert.deepEqual(shownB.files.map((x) => [x.name, x.size]), [['단가표.pdf', 19]])
+  const other = await upload(user, threadId, '임시.pdf', '%PDF-1.4 another, longer file')
+  const [o] = await q(`select content from pro_messages where id=$1`, [other.id])
+  await q(`update pro_messages set content = content || jsonb_build_object('url', $2::text) where id=$1`, [f.id, o.content.url])
+  await assert.rejects(O.sendOut(user, b.card, { confirm: shownB.confirm }), (e) => e.code === 'stale')
+  assert.equal(sends().length, before)
+  const shownB2 = await O.cardView(user, b.card)
+  assert.equal(shownB2.files[0].size, 29, '다시 보면 지금의 파일')
+  await O.sendOut(user, b.card, { confirm: shownB2.confirm })
+  assert.equal(sends().length, before + 1)
+})
+
+test('보내기 전에 실패한 것(토큰을 받지 못함 · 연결 거부)은 「확인하지 못했어요」가 아니라 그냥 실패 — 카드는 다시 보낼 수 있다', async () => {
+  const { user, threadId } = await person()
+  const told = await tool(user, DRAFT, agentTurn(user.id, threadId))
+  // the Google token ran out and cannot be refreshed (its client is gone): nothing was sent
+  await vault.putItem(user.id, 'oauth', 'google', { username: ME, access_token: 'at-old', refresh_token: 'rt-test', expires_at: Date.now() - 60_000,
+    scope: 'openid email https://www.googleapis.com/auth/gmail.compose', client_id: 'no-such-client' }, { actor: 'mail' })
+  const before = sends().length
+  await assert.rejects(press(user, told.card), (e) => e.code !== 'send_unknown')
+  assert.equal((await cardRow(told.card)).content.mail_out.state, 'pending')
+  assert.equal(sends().length, before)
+  assert.equal(R.sendUncertain(Object.assign(new Error('no token'), { beforeSend: true })), false)
+  assert.equal(R.sendUncertain(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })), false)
+  assert.equal(R.sendUncertain(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })), true, '보낸 뒤 끊긴 연결은 모른다')
 })
 
 test('두 번 동시에 눌러도 한 번만 나간다', async () => {

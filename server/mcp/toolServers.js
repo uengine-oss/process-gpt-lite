@@ -13,6 +13,8 @@ export const LITE_TOOL_SERVERS = [
   { key: 'folders', paths: ['folders'] },
   { key: 'panelapps', paths: ['panelapps'] },
   { key: 'improve', paths: ['improve'] },
+  // ask_teammate — the person is asked whether to ask a teammate on the messenger (mcp/team.js · lib/askTeammate.js)
+  { key: 'team', paths: ['team'] },
   ...CRAFT_APP_NAMES.map((app) => ({ key: `craft.${app}`, paths: [app] })),
   { key: 'office', paths: [OFFICE_SERVER_PATH, 'office'] },
   // 「내 계정으로 보내기」 (mcp/mail.js): a mail the agent writes goes out only from the person's own mailbox, after they press 보내기

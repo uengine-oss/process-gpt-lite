@@ -155,16 +155,31 @@ async function filesOf(user, threadId, names, original) {
   }
   return { files, missing }
 }
-async function attachments(user, threadId, files, original) {
+// The card's files as they are now: each one's storage object and size, read again from its card (an upload of this person's in this
+// chat, or a draft made for the mail it answers). What the confirmation is bound to (a file swapped since it was shown is a changed
+// card), and exactly what leaves. → [{name, origin, key, size, ok}] — ok: still a file this card may carry
+export async function filesNow(user, card) {
+  const out = card.content.mail_out || {}
+  const files = out.files || []
+  if (!files.length) return []
+  const mailId = out.reply?.mailId ? String(out.reply.mailId) : null
+  const rows = await q(`select m.id, m.thread_id, m.content from pro_messages m join pro_threads t on t.id=m.thread_id
+                        where m.id = any($1::uuid[]) and t.user_id=$2 and m.kind='file'`, [files.map((f) => f.messageId), user.id])
+  const now = []
+  for (const f of files) {
+    const r = rows.find((x) => x.id === f.messageId)
+    const key = r ? storageKey(r.content?.url || '') : null
+    const ok = !!key && (f.origin === 'upload' ? r.thread_id === card.thread_id && ownUpload(user.id, key) : !!mailId && String(r.content?.mail_id || '') === mailId)
+    now.push({ messageId: f.messageId, name: f.name, origin: f.origin, key: ok ? key : null, size: ok ? await sizeOf(key) : null, ok })
+  }
+  return now
+}
+async function attachments(files) {
   const out = []
   let total = 0
-  const drafts = original ? await filesFor(user.id, String(original.id)).catch(() => []) : []
-  for (const f of files || []) {
-    // checked again when it leaves: still this chat's upload of theirs, or still a draft of the mail it answers
-    const [row] = f.origin === 'upload' ? await q(`select content from pro_messages where id=$1 and thread_id=$2 and kind='file'`, [f.messageId, threadId]) : []
-    const key = f.origin === 'upload' ? storageKey(row?.content?.url || '') : storageKey(drafts.find((d) => d.messageId === f.messageId)?.url || '')
-    if (!key || (f.origin === 'upload' && !ownUpload(user.id, key))) throw fail(409, L(`첨부할 파일 「${f.name}」을 찾지 못했어요.`, `Couldn't find the file "${f.name}" to attach.`), 'file_missing')
-    const got = await download(key, f.name)
+  for (const f of files) {
+    if (!f.ok) throw fail(409, L(`첨부할 파일 「${f.name}」을 찾지 못했어요.`, `Couldn't find the file "${f.name}" to attach.`), 'file_missing')
+    const got = await download(f.key, f.name)
     total += got.buf.length
     if (total > ATTACH_MAX) throw fail(413, L('첨부 파일이 모두 20MB를 넘어요.', 'The attachments are over 20 MB together.'))
     out.push({ filename: f.name, content: got.buf, ...(got.type ? { contentType: got.type } : {}) })
@@ -259,42 +274,46 @@ async function cardOf(user, id) {
 }
 
 // ---------- what was shown is what leaves ----------
-// GET returns a confirmation bound to exactly the card's content (recipients, subject, body, files, the mail it answers) as shown;
-// 보내기 must bring it back. An edit (the person's, on the card) gives a new one; a card changed by anything else since it was shown
-// — or a confirmation older than CONFIRM_MS — is refused (409 stale) and the card is shown again. Kept in memory (one server): a
-// restart only asks for one more look.
+// GET returns a confirmation bound to exactly what is shown: the card's content (recipients, subject, body, the mail it answers), who
+// it goes out as and how (the connected mailbox's address and mode), and each file as it is now (its storage object and size);
+// 보내기 must bring it back. An edit (the person's, on the card) gives a new one; anything else changed since it was shown — the card,
+// another mailbox connected, a file swapped — or a confirmation older than CONFIRM_MS is refused (409 stale) and the card is shown
+// again. Kept in memory (one server): a restart only asks for one more look.
 const SECRET = crypto.randomBytes(32)
 const CONFIRM_MS = 15 * 60_000
-const contentHash = (out) => crypto.createHash('sha256').update(JSON.stringify([out.to || '', out.cc || '', out.subject || '', out.body || '',
-  (out.files || []).map((f) => f.messageId), out.reply?.mailId || null])).digest('hex')
+const contentHash = (out, sender, files) => crypto.createHash('sha256').update(JSON.stringify([out.to || '', out.cc || '', out.subject || '', out.body || '',
+  out.reply?.mailId || null, sender?.address || null, sender?.mode || null, sender?.provider || null,
+  (files || []).map((f) => [f.messageId, f.key || null, f.size ?? null])])).digest('hex')
 const sign = (userId, cardId, hash, at) => crypto.createHmac('sha256', SECRET).update(`${userId}:${cardId}:${hash}:${at}`).digest('base64url')
-export const confirmFor = (userId, cardId, out, at = Date.now()) => `${at}.${sign(userId, cardId, contentHash(out), at)}`
-export function confirmOk(userId, cardId, out, token, now = Date.now()) {
+export const confirmFor = (userId, cardId, out, sender, files, at = Date.now()) => `${at}.${sign(userId, cardId, contentHash(out, sender, files), at)}`
+export function confirmOk(userId, cardId, out, sender, files, token, now = Date.now()) {
   const [at, mac] = String(token || '').split('.')
   const t = Number(at)
   if (!t || !mac || now - t > CONFIRM_MS || t > now + 60_000) return false
-  const want = Buffer.from(sign(userId, cardId, contentHash(out), t)), got = Buffer.from(mac)
+  const want = Buffer.from(sign(userId, cardId, contentHash(out, sender, files), t)), got = Buffer.from(mac)
   return want.length === got.length && crypto.timingSafeEqual(want, got)
 }
 
 const MISSING_WHY = { not_found: ['이 대화에 없는 파일이에요', 'not in this chat'], not_allowed: ['내가 올린 파일이나 이 메일의 초안만 첨부할 수 있어요', 'only your own uploads or drafts for this mail can be attached'],
   ambiguous: ['같은 이름의 파일이 여러 개예요', 'several files have this name'] }
-function viewOf(card, sender) {
+function viewOf(card, sender, files = null) {
   const out = card.content.mail_out || {}
+  const now = files || (out.files || []).map((f) => ({ ...f, ok: true }))
   return {
     id: card.id, state: out.state, mode: sender.mode, provider: sender.provider,
     from: sender.address ? formatAddress({ name: sender.name, address: sender.address }) : null,
     to: out.to, cc: out.cc, subject: out.subject, body: out.body, reply: out.reply || null, replyNotFound: out.replyNotFound || null, answered: out.answered || null,
-    files: (out.files || []).map((f) => ({ name: f.name, origin: f.origin, size: f.size ?? null, at: f.at || null })),
+    files: now.map((f) => ({ name: f.name, origin: f.origin, size: f.size ?? null, ...(f.ok === false ? { gone: true } : {}) })),
     missing: (out.missing || []).map((m) => (typeof m === 'string' ? { name: m, why: 'not_found' } : m)).map((m) => ({ ...m, reason: L(...(MISSING_WHY[m.why] || MISSING_WHY.not_found)) })),
     sent: out.sent || null, unknown: out.unknown || null, edited: !!out.edited_at,
-    confirm: ['pending', 'kept'].includes(out.state) ? confirmFor(card.content.owner, card.id, out) : null,
+    // (only with the files read now: a view made without them cannot be sent from)
+    confirm: files && ['pending', 'kept'].includes(out.state) ? confirmFor(card.content.owner, card.id, out, sender, files) : null,
   }
 }
 // GET /api/mail-out/:id
 export async function cardView(user, id) {
   const card = await cardOf(user, id)
-  return viewOf(card, await senderOf(user))
+  return viewOf(card, await senderOf(user), await filesNow(user, card))
 }
 
 async function setState(user, id, state, from, extra = {}) {
@@ -324,7 +343,7 @@ export async function editOut(user, id, input = {}) {
   }
   const m = await setState(user, card.id, out.state, ['pending', 'kept'], patch)
   if (!m) throw fail(409, L('이미 보냈거나 그만둔 메일이에요.', 'This mail was already sent or dropped.'), 'closed')
-  return viewOf(m, await senderOf(user))
+  return viewOf(m, await senderOf(user), await filesNow(user, m))
 }
 
 // Gmail · IMAP said nothing usable in time: it may have left — the card says 「확인하지 못했어요」 instead of offering 보내기 again
@@ -338,8 +357,9 @@ export async function sendOut(user, id, input = {}) {
   if (['sent', 'drafted', 'sending'].includes(out.state)) throw fail(409, L('이 메일은 이미 보냈거나 보내는 중이에요. 보낸 편지함을 확인해 주세요.', 'This mail was already sent or is being sent. Check your Sent folder.'), 'already')
   if (out.state === 'unknown') throw fail(409, UNKNOWN_TEXT(), 'send_unknown')
   if (!['pending', 'kept'].includes(out.state)) throw fail(409, L('보내기를 그만둔 메일이에요. 보내려면 채팅에서 다시 부탁해 주세요.', 'This mail was dropped. Ask again in the chat to send it.'), 'closed')
-  if (!confirmOk(user.id, card.id, out, input.confirm)) throw fail(409, L('카드 내용이 바뀌었거나 오래됐어요. 카드를 다시 확인하고 「보내기」를 눌러 주세요.', 'The card changed or was shown too long ago. Check it again and press it.'), 'stale')
   const sender = await senderOf(user)
+  const files = await filesNow(user, card)
+  if (!confirmOk(user.id, card.id, out, sender, files, input.confirm)) throw fail(409, L('카드 내용이 바뀌었거나 오래됐어요. 카드를 다시 확인하고 「보내기」를 눌러 주세요.', 'The card changed or was shown too long ago. Check it again and press it.'), 'stale')
   if (sender.mode === 'connect') throw fail(409, L('메일을 연결하면 내 계정으로 보낼 수 있어요.', 'Connect your mail to send it from your own account.'), 'mail_not_connected')
   if (sender.mode === 'none') throw fail(403, L('Gmail의 메일 전송 권한이 없어요. 메일을 다시 연결해 주세요.', "Gmail hasn't allowed sending. Connect your mail again."), 'gmail_scope')
   if (!(sender.mode === 'drafts' || sender.provider === 'gmail' || sender.provider === 'demo')) throw fail(409, L('이 메일함으로는 보낼 수 없어요. 메일을 다시 연결해 주세요.', "This mailbox can't send. Connect your mail again."), 'unknown_provider')
@@ -353,9 +373,9 @@ export async function sendOut(user, id, input = {}) {
   const answered = await answeredOf(user.id, original)
   if (answered) throw fail(409, L(`이 메일에는 이미 답장을 보냈어요${answered.at ? `(${new Date(answered.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })})` : ''}. 보낸 편지함을 확인해 주세요.`,
     'This mail was already answered. Check your Sent folder.'), 'already_answered')
-  const files = await attachments(user, card.thread_id, out.files, original)
+  const attached = await attachments(files)
   const from = { name: sender.name, address: sender.address }
-  const raw = await buildReply({ from, to, cc, subject: subject || (original ? `Re: ${baseSubject(original.subject)}` : ''), body, original, attachments: files })
+  const raw = await buildReply({ from, to, cc, subject: subject || (original ? `Re: ${baseSubject(original.subject)}` : ''), body, original, attachments: attached })
   // one send per card, even when two presses arrive together: the card is claimed before anything leaves
   const claimed = await setState(user, card.id, 'sending', ['pending', 'kept'])
   if (!claimed) throw fail(409, L('이 메일은 이미 보냈거나 보내는 중이에요. 보낸 편지함을 확인해 주세요.', 'This mail was already sent or is being sent. Check your Sent folder.'), 'already')
@@ -377,10 +397,10 @@ export async function sendOut(user, id, input = {}) {
   }
   const via = sender.mode === 'drafts' ? 'drafts' : sender.provider
   const sent = { from: formatAddress(from), to: to.map(formatAddress).join(', '), cc: cc.map(formatAddress).join(', '), subject: subject || out.subject,
-    files: files.map((f) => f.filename), via, thread: !!original, ...(res?.threadId ? { threadId: String(res.threadId) } : {}), at: new Date().toISOString() }
+    files: attached.map((f) => f.filename), via, thread: !!original, ...(res?.threadId ? { threadId: String(res.threadId) } : {}), at: new Date().toISOString() }
   const m = await setState(user, card.id, via === 'drafts' ? 'drafted' : 'sent', ['sending'], { sent })
   if (original) await markAnswered(user.id, original, sent, via)
-  console.log(`[mail out] ${via} card=${card.id.slice(0, 8)} user=${user.id.slice(0, 8)} thread=${original ? 'yes' : 'no'} files=${files.length}`)
+  console.log(`[mail out] ${via} card=${card.id.slice(0, 8)} user=${user.id.slice(0, 8)} thread=${original ? 'yes' : 'no'} files=${attached.length}`)
   return { ok: true, sent, card: m }
 }
 // the mail's Home card (if it made one) is answered now — its sheet must not offer the same reply again
