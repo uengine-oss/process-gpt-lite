@@ -158,7 +158,8 @@ export async function api(path, { method = 'GET', body, raw, signal } = {}) {
     // a JSON error body ({error}) shows its message, not the raw JSON
     const t = await r.text()
     let m = t, extra = {}
-    try { const j = JSON.parse(t); m = j.error || t; if (j.conflicts) extra = { conflicts: j.conflicts }; if (j.code) extra.code = j.code } catch { /* plain text */ }
+    // (a refusal that says where something went or who is concerned — 409 moved {place}, confirm_members {members}: the caller follows it)
+    try { const j = JSON.parse(t); m = j.error || t; if (j.conflicts) extra = { conflicts: j.conflicts }; if (j.code) extra.code = j.code; if (j.place) extra.place = j.place; if (j.members) extra.members = j.members } catch { /* plain text */ }
     // an error page made by something in front of the server (Cloudflare's 502 page, a proxy's): its markup
     // is no message — say the server did not answer, with the status (2026-11-23: the Telegram card showed HTML)
     if (m === t && htmlPage(r, t)) m = `서버가 응답하지 못했어요 (${r.status}). 잠시 후 다시 시도해 주세요.`
@@ -183,9 +184,12 @@ export async function stream(path, body, onEvent, { onAccepted, signal } = {}) {
   if (!r.ok || !sse) {
     const t = await r.text().catch(() => '')
     let m = t
-    try { m = JSON.parse(t).error || t } catch { /* plain text */ }
+    let j = null
+    try { j = JSON.parse(t); m = j.error || t } catch { /* plain text */ }
     if (m === t && (!t || htmlPage(r, t))) m = `서버가 응답하지 못했어요 (${r.status}).`
-    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.ok ? 0 : r.status, accepted: false, ...(r.ok ? { proxyPage: true } : {}) })
+    // (a refusal that says where the conversation went — 409 moved {place}: the store follows it there)
+    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.ok ? 0 : r.status, accepted: false, ...(r.ok ? { proxyPage: true } : {}),
+      ...(j?.code ? { code: j.code } : {}), ...(j?.place ? { place: j.place } : {}) })
   }
   onAccepted?.()
   const reader = r.body.getReader()

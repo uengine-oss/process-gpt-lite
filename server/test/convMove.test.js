@@ -89,3 +89,26 @@ test('TM-U-03 옮기기 전 알림 · 구성원 줄 · 옮긴 뒤 줄', () => {
   assert.equal(W.projectLine({ folder: { name: '교육 과정 템플릿', workspace: true } }), '템플릿 「교육 과정 템플릿」의 전용 작업 공간')
   assert.equal(W.projectLine({ folder: null }), '')
 })
+
+// (PR #125 검토 1 · 3 · 6)
+test('TM-U-04 따로 묶인 줄도 자기 주제로만(서버 = 화면) · 대화를 아직 모르는 턴은 바쁨 · 일하는 브라우저 작업은 바쁨', () => {
+  const room = [
+    { id: 'a1', role: 'agent', kind: 'text', content: { text: '프로젝트의 답', conv: 'own' }, created_at: at(1) },
+    { id: 'm1', role: 'agent', kind: 'text', content: { text: '답장을 보냈어요', conv: 'conv-x', context: { conversationId: 'conv-x', action: 'aside' } }, created_at: at(2) },
+    { id: 'p1', role: 'agent', kind: 'chip', content: { text: '프로젝트 계획을 채웠어요', planChange: { backfill: true } }, created_at: at(3) },
+  ]
+  const server = CV.topicOf(room), page = TOPICS.topicOf(room)
+  assert.deepEqual(server, page)
+  assert.equal(server.m1, 'conv-x')
+  assert.equal(server.p1, 'own', '따로 묶인 줄은 다음 줄을 끌고 가지 않음')
+  const t = (conv, finished = false) => ({ conv, finished })
+  assert.equal(CM.busyTurn([t(null)], 'conv-x'), true, '대화를 아직 모름')
+  assert.equal(CM.busyTurn([t('none:abc')], 'conv-x'), true)
+  assert.equal(CM.busyTurn([t('conv-x')], 'conv-x'), true)
+  assert.equal(CM.busyTurn([t('conv-y')], 'conv-x'), false)
+  assert.equal(CM.busyTurn([t(null, true)], 'conv-x'), false)
+  const rows = [{ id: 'k1', kind: 'task', content: { state: 'running' } }, { id: 'k2', kind: 'task', content: { state: 'done' } }]
+  assert.equal(CM.busyTask(rows, ['k1']), true)
+  assert.equal(CM.busyTask(rows, ['k2']), false)
+  for (const st of ['queued', 'needs_input']) assert.equal(CM.busyTask([{ id: 'k', kind: 'task', content: { state: st } }], ['k']), true, st)
+})

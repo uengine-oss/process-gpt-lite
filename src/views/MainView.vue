@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch, onBeforeUnmount, provide } from 'vue'
+import { computed, onMounted, ref, watch, onBeforeUnmount, provide, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '../components/TopBar.vue'
 import HomeDock from '../components/HomeDock.vue'
@@ -200,6 +200,21 @@ watch(() => app.moved?.at, () => {
     router.replace(`/chat/c/${encodeURIComponent(d.conv)}`)
     app.notice = { text: backNotice(), tone: 'ok' }
   }
+})
+// a message sent from a page still on a conversation that moved meanwhile (app.followMoved): the project's conversation, the words back in
+// its composer once that room is on screen
+watch(() => app.followPlace?.at, async () => {
+  const f = app.followPlace
+  if (!f) return
+  app.followPlace = null
+  const pid = f.place.project.id
+  await router.replace(topicPath(pid, f.place.topic))
+  let done = false
+  const stop = watch(() => app.activeId, (id) => {
+    if (done || id !== pid) return
+    done = true
+    nextTick(() => { app.prefill = f.text; app.notice = { text: `${followedNotice(f.place.project.title)} · 보낸 말은 입력창에 다시 넣었어요`, tone: 'ok' }; stop() })
+  }, { immediate: true })
 })
 // 닫기 on an instance page: back where it was opened from (Home, a chat card, the list), else the list
 function closeInstance() {

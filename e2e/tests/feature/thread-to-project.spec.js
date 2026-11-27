@@ -9,6 +9,8 @@
 //   F-TM-04 휴대폰 390(밝은): 말로 「이 대화 견적 모음 프로젝트로 옮겨 줘」 → 카드(판정 모델이 고른 프로젝트를 권함) → 같은 알림을 거쳐 옮김
 //   F-TM-05 휴대폰 390(밝은 · 어두운) · 1280: 긴 대화를 걸러 보고 맨 아래(최신)로 내려가도 대화 막대가 위에 붙어 있음 — 휴대폰은 한 줄, 글을 쓰는 동안
 //           (키보드)은 이름 · 「다른 대화 ▾」만; 전체 채팅의 막대(알약)는 그대로 흘러감
+//   F-TM-06 휴대폰 390(밝은): 실시간 이벤트를 받지 못한 옛 화면에서 옮긴 대화에 말을 보내면 → 보내기 실패가 아니라 프로젝트의 그 주제로 가고 말은 입력창에
+//           (PR #125 검토 10)
 // 자기 스택(lib/localStack.js: 회사 thread-move-ui 의 BFF + Vite, 8994 · 5394)을 띄우고 지운다. 가짜 모델 · 가짜 deepagents 는 이 파일이 빈 포트에
 // 띄운다 — 실제 모델 · 에이전트 · 판정 서버는 부르지 않는다. 사람 · 회사는 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js
@@ -246,6 +248,16 @@ test('F-TM-01 휴대폰 390(밝은): 걸러 본 대화 → 프로젝트로 옮�
   await inView(sheet(p).locator('[data-test="move-go"]'), p)
   await noSideScroll(p)
   await shot(p, 'f-tm-01-confirm-members')
+  // a short phone: the words scroll, 「옮기기」 stays on the sheet (PR #125 review 4)
+  await p.setViewportSize({ width: 390, height: 560 })
+  await inView(sheet(p).locator('[data-test="move-go"]'), p)
+  await inView(sheet(p).locator('[data-test="move-members-ok"]').first(), p).catch(async () => {
+    await sheet(p).locator('[data-test="move-members-ok"]').scrollIntoViewIfNeeded()
+    await inView(sheet(p).locator('[data-test="move-members-ok"]'), p)
+  })
+  await noSideScroll(p)
+  await shot(p, 'f-tm-01-confirm-short')
+  await p.setViewportSize({ width: 390, height: 844 })
   await sheet(p).locator('[data-test="move-members-ok"]').check()
   await expect(sheet(p).locator('[data-test="move-go"]')).toBeEnabled()
   await sheet(p).locator('[data-test="move-go"]').click()
@@ -438,4 +450,28 @@ test('F-TM-05 긴 대화의 맨 아래에서도 대화 막대가 위에 붙어 �
   await expect(bar(d).getByTestId('cbar-pill')).not.toBeInViewport()
   expect(d.errors).toEqual([])
   await d.context().close()
+})
+
+test('F-TM-06 옛 화면에서 옮긴 대화에 보낸 말은 프로젝트의 그 주제로 따라가고 입력창에 다시 들어감', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const p = await open(browser, HY, PHONE)
+  // this screen hears nothing live (a proxy that held the stream back): the move reaches it only through what the server says
+  await p.context().route('**/api/events**', (r) => r.abort())
+  await toConversation(p, 'B', { phone: true })
+  const moved = await S.api(HY.token, `/conversations/${CONV.B}/move`, { method: 'POST', body: { project: P1.id } })
+  expect(moved.moved).toBe(2)
+  await expect(p).toHaveURL(new RegExp(`/chat/c/${CONV.B}$`))
+  const words = '회의록에 참석자 명단도 넣어 줘'
+  await composer(p).fill(words)
+  await composer(p).press('Enter')
+  await expect(p).toHaveURL(new RegExp(`/projects/${P1.id}/t/${CONV.B}$`), { timeout: 20000 })
+  await expect(p.getByTestId('chat-notice')).toHaveText('이 대화는 프로젝트 「가나정밀 1차 교육」으로 옮겼어요 · 보낸 말은 입력창에 다시 넣었어요')
+  await expect(composer(p)).toHaveValue(words)
+  // not kept as a failed send in the chat
+  await expect(p.locator('[data-test="send-issue"]')).toHaveCount(0)
+  expect((await S.q(`select count(*)::int as n from pro_messages where thread_id=$1 and content->>'text'=$2`, [MAIN.id, words]))[0].n).toBe(0)
+  await noSideScroll(p)
+  await shot(p, 'f-tm-06-followed')
+  expect(p.errors).toEqual([])
+  await p.context().close()
 })

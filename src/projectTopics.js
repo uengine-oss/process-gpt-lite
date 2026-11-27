@@ -24,7 +24,8 @@ export function topicOf(messages = []) {
     const conv = convOfMsg(m)
     // a conversation moved in from the chat (server lib/conversationMove.js): its own sub-topic, and it never takes the messages around it
     // along (a project's own lines between its old ones stay where they were)
-    if (m.content?.moved) { if (conv) out[m.id] = conv; continue }
+    // — and so does a line filed aside into one (a mail's line that followed a moved conversation in: lib/store.js addMessage — PR #125 review 6)
+    if (m.content?.moved || m.content?.context?.action === 'aside') { if (conv) out[m.id] = conv; continue }
     if (m.role === 'user') {
       if (conv) out[m.id] = conv
       else pending.push(m)

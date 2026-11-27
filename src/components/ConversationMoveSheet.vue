@@ -11,7 +11,7 @@ import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { topicPath } from '../projectTopics.js'
-import { moveNotice, membersLine, movedNotice, projectLine } from '../convMove.js'
+import { moveNotice, membersLine, movedNotice, followedNotice, projectLine } from '../convMove.js'
 
 const app = useApp()
 const router = useRouter()
@@ -78,7 +78,8 @@ async function move() {
   } catch (e) {
     // members came meanwhile (or the list was old): they are said, and the box must be ticked
     if (e.code === 'confirm_members') { await load(); const p = data.value?.projects?.find((x) => x.id === picked.value.id); members.value = p?.members || members.value; membersOk.value = false }
-    if (e.code === 'moved' && data.value?.place) return
+    // moved elsewhere meanwhile (another screen): the page follows it there (PR #125 review 10)
+    if (e.code === 'moved' && e.place?.project?.id) { close(); go(e.place, followedNotice(e.place.project.title)); return }
     err.value = e.message
   } finally { busy.value = false }
 }
@@ -93,7 +94,10 @@ async function toNew() {
     close()
     await nextTick()
     document.querySelector(`.row[data-id="${offer.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  } catch (e) { err.value = e.message } finally { busy.value = false }
+  } catch (e) {
+    if (e.code === 'moved' && e.place?.project?.id) { close(); go(e.place, followedNotice(e.place.project.title)); return }
+    err.value = e.message
+  } finally { busy.value = false }
 }
 </script>
 
@@ -142,14 +146,17 @@ async function toNew() {
         </template>
 
         <template v-else>
-          <div class="pv" data-test="move-route"><b><span data-no-i18n>「{{ title }}」</span> → 프로젝트 <span data-no-i18n>「{{ picked?.title }}」</span></b></div>
-          <p class="notice" role="note" data-test="move-notice">{{ notice }}</p>
-          <div v-if="membersSay" class="warn" role="alert" data-test="move-members">
-            <p><Icon name="team" :size="15" /> <span>{{ membersSay }}</span></p>
-            <label class="ok"><input v-model="membersOk" type="checkbox" data-test="move-members-ok" /> 구성원도 볼 수 있다는 것을 확인했어요</label>
+          <!-- (the words scroll on a short phone; 「옮기기」 stays on the sheet — PR #125 review 4) -->
+          <div class="body" data-test="move-body">
+            <div class="pv" data-test="move-route"><b><span data-no-i18n>「{{ title }}」</span> → 프로젝트 <span data-no-i18n>「{{ picked?.title }}」</span></b></div>
+            <p class="notice" role="note" data-test="move-notice">{{ notice }}</p>
+            <div v-if="membersSay" class="warn" role="alert" data-test="move-members">
+              <p><Icon name="team" :size="15" /> <span>{{ membersSay }}</span></p>
+              <label class="ok"><input v-model="membersOk" type="checkbox" data-test="move-members-ok" /> 구성원도 볼 수 있다는 것을 확인했어요</label>
+            </div>
+            <p class="says">프로젝트의 이 대화에서 「채팅으로 되돌리기」를 누르면 다시 채팅으로 가져와요.</p>
+            <p v-if="err" class="err" role="alert" data-test="move-error">{{ err }}</p>
           </div>
-          <p class="says">프로젝트의 이 대화에서 「채팅으로 되돌리기」를 누르면 다시 채팅으로 가져와요.</p>
-          <p v-if="err" class="err" role="alert" data-test="move-error">{{ err }}</p>
           <footer>
             <button class="cancel press" :disabled="busy" @click="back">뒤로</button>
             <button class="go press" :disabled="!canGo" data-test="move-go" @click="move">{{ busy ? '옮기는 중…' : '옮기기' }}</button>
@@ -201,7 +208,8 @@ h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .ok { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
 .ok input { width: 18px; height: 18px; flex: none; accent-color: var(--color-attention); }
 .err { margin: 0; color: var(--color-error, #c62828); font-size: 12.5px; overflow-wrap: anywhere; }
-footer { display: flex; justify-content: flex-end; gap: 8px; }
+.body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
+footer { display: flex; justify-content: flex-end; gap: 8px; flex: none; }
 .cancel { height: 40px; padding: 0 16px; border-radius: 20px; background: var(--field-bg); font-size: 14px; }
 .go { height: 40px; padding: 0 20px; border-radius: 20px; background: var(--text-primary); color: var(--ink-inverse, #fff); font-size: 14.5px; font-weight: 600; }
 .go:disabled { opacity: .45; }

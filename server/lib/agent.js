@@ -1013,7 +1013,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // conversation this turn is in: the one the page narrowed to (a project's sub-topic, a conversation of the main chat), else the one the
       // chat was in (lib/chatProject.js pickFrom); filed where this acknowledgement is
       await CP.offer(user, { threadId, said: text, title: String(args.title || '').trim(), via: 'words', before: said?.id || null,
-        conversationId: topicConv || pinned.get(threadId)?.conversationId || null }).catch(async (e) => {
+        conversationId: topicConv || (mine && conversation?.id ? String(conversation.id) : null) }).catch(async (e) => {
         console.warn('[chat-project] offer', e.message)
         await addMessage(userId, threadId, 'agent', 'text', { text: L('프로젝트 카드를 만들지 못했어요. 답 아래의 「프로젝트로 시작」을 눌러 다시 시도해 주세요.', "I couldn't prepare the project card. Try again with 「Start a project」 under an answer.") })
       })
@@ -1023,7 +1023,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // the card that opens the same picker and notice as the conversation bar's 「프로젝트로 옮기기」 (lib/conversationMove.js): about the
       // conversation the page narrowed to, else the one the chat is in; nothing moves before the person confirms
       const CM = await import('./conversationMove.js')
-      await CM.offerByWords(user, { threadId, conversationId: pinned.get(threadId)?.conversationId || null, project: String(args.project || '').trim(), said: text }).catch(async (e) => {
+      // (the conversation this very message was sent from — checked as the person's own (mine) — never the shared pinned map a router-tool
+      // turn leaves behind: a later message from the whole chat would card that old one — PR #125 review 7)
+      await CM.offerByWords(user, { threadId, conversationId: mine && conversation?.id ? String(conversation.id) : null, project: String(args.project || '').trim(), said: text }).catch(async (e) => {
         console.warn('[conv-move] offer', e.message)
         await addMessage(userId, threadId, 'agent', 'text', { text: L('옮기기 카드를 만들지 못했어요. 대화 위의 「다른 대화 ▾」에서 「프로젝트로 옮기기」를 눌러 주세요.', "I couldn't prepare the move card. Use 「Move to a project」 under 「Other conversations ▾」 above the conversation.") })
       })
@@ -1497,9 +1499,13 @@ export const fileConversation = (user, { conversationId, title, kind = 'conversa
 async function touchContext(user, routing, text, answer) {
   const prev = routing.context || {}
   const title = prev.title || text.trim().split('\n')[0].slice(0, 60)
-  await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at) values ($1,$2,$3,$4,$5,$6,$7,1,now())
+  // (not for a conversation that has since moved into one of this person's projects — lib/conversationMove.js: its row lives under the
+  // project's key now, and a row here would list it in the chat again — PR #125 review 1)
+  await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at)
+           select $1,$2,$3,$4,$5,$6,$7,1,now()
+            where not exists (select 1 from context_threads where tenant_id=$1 and user_id like $8 and conversation_id=$3)
            on conflict (tenant_id,user_id,conversation_id) do update set title=excluded.title, summary=excluded.summary, updated_at=now()`,
-  [config.tenantId, user.id, routing.conversation_id, title.slice(0, 120), L(`최근 요청: ${text.trim().slice(0, 200)}\n최근 답: ${String(answer || '').trim().slice(0, 300)}`, `Latest request: ${text.trim().slice(0, 200)}\nLatest answer: ${String(answer || '').trim().slice(0, 300)}`).slice(0, 600), String(prev.gist || '').slice(0, 200), prev.kind || 'conversation'])
+  [config.tenantId, user.id, routing.conversation_id, title.slice(0, 120), L(`최근 요청: ${text.trim().slice(0, 200)}\n최근 답: ${String(answer || '').trim().slice(0, 300)}`, `Latest request: ${text.trim().slice(0, 200)}\nLatest answer: ${String(answer || '').trim().slice(0, 300)}`).slice(0, 600), String(prev.gist || '').slice(0, 200), prev.kind || 'conversation', PT.scopePattern(user.id)])
     .catch((e) => console.warn('[delegate] context', e.message))
 }
 

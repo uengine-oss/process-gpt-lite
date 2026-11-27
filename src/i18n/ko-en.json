@@ -3650,7 +3650,8 @@
   "만들고 옮기는 중…": "Making and moving…",
   "옮길 대화": "Conversation to move",
   "채팅으로 되돌렸어요 · 채팅 목록에 다시 있어요": "Moved back to the chat · it is in the chat list again",
-  "옮길 프로젝트": "Project to move to"
+  "옮길 프로젝트": "Project to move to",
+  "이 대화는 다른 프로젝트로 옮겼어요": "This conversation moved to another project"
  },
  "patterns": [
   [
@@ -8264,6 +8265,14 @@
   [
    "이 프로젝트는 공유 폴더 「{0}」을 사용해요. 옮긴 뒤 이 대화에서 만드는 파일은 프로젝트 구성원 {1}명({2})도 볼 수 있어요.",
    "This project works in the shared folder \"{0}\". Once moved, files this conversation makes can also be seen by the project's {1} members ({2})."
+  ],
+  [
+   "이 대화는 프로젝트 「{0}」로 옮겼어요 · 보낸 말은 입력창에 다시 넣었어요",
+   "This conversation moved to the project \"{0}\" · what you sent is back in the box"
+  ],
+  [
+   "이 대화는 프로젝트 「{0}」으로 옮겼어요 · 보낸 말은 입력창에 다시 넣었어요",
+   "This conversation moved to the project \"{0}\" · what you sent is back in the box"
   ]
  ],
  "context": [

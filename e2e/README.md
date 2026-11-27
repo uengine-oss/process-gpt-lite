@@ -2029,9 +2029,9 @@ cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.
 사용자 요청(2026-11-28, 휴대폰 화면 — 걸러 본 대화 「이 대화의 메시지 22개」): 「필터링된 채팅방 자체를 프로젝트로 이관하는 기능. 이관 후엔 이 채팅 내용은 프로젝트에서만 볼 수 있음. 기존 채팅 목록에서는 제거됩니다... 라는 알림도 줘야」. 메시지를 복사하지 않고 방을 바꾸며(`content.conv` · `content.moved`), 대화의 `context_threads` 행을 프로젝트의 열쇠로 옮긴다 — 행과 메시지를 한 문장(데이터 수정 CTE)으로. 새 테이블 · SQL 없음. 시험 파일이 자기 스택(회사 `thread-move-ui`, BFF 8994 · Vite 5394 — 다른 것이 듣고 있으면 멈춤, `RT_TM_API_PORT` · `RT_TM_WEB_PORT`)을 띄우고 가짜 모델 · 가짜 deepagents 를 쓴다.
 
 ```bash
-cd server && node --test test/convMove.test.js test/conversations.test.js   # TM-U-01~03 · 서버 = 화면 규칙
-cd server && node --test --test-concurrency=1 test/conversationMove.integration.test.js   # TM-I-01~10 · 실제 DB · 실제 라우트 · 실제 공유 폴더 권한 · 실제 턴(가짜 deepagents)
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js   # F-TM-01~05 (공용 잠금 rec.lock)
+cd server && node --test test/convMove.test.js test/conversations.test.js   # TM-U-01~04 · 서버 = 화면 규칙
+cd server && node --test --test-concurrency=1 test/conversationMove.integration.test.js   # TM-I-01~18 · 실제 DB · 실제 라우트 · 실제 공유 폴더 권한 · 실제 턴(가짜 deepagents)
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js   # F-TM-01~06 (공용 잠금 rec.lock)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2054,6 +2054,16 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/threa
 | 말로 「이 대화 … 프로젝트로 옮겨 줘」 → 라우터 `move_to_project` → 그 대화의 카드(판정 모델이 0.7 이상으로 고른 프로젝트만 권함) → 같은 확인 화면 → 옮기면 카드도 「옮겼어요」 · 「아니요」 · 프로젝트 안에서는 「이미 프로젝트 안에 있어요」 | 브리프(말 길) | F-TM-04 · TM-I-08 | feature · DB | ✅ |
 | 휴대폰 390 밝은 · 어두운: 메뉴 · 시트 · 「옮기기」 · 「채팅으로 되돌리기」가 화면 안, 옆으로 밀리지 않음, 대화 안의 「다른 대화 ▾」 창은 막대 아래 불투명한 판 | 브리프 시험 | F-TM-01 · F-TM-02 · F-TM-04 | feature | ✅ |
 | 걸러 본 대화의 막대가 맨 아래(최신)에서도 위에 붙어 있음 — 휴대폰 한 줄(48px 이하), 키보드가 올라오면 이름 · 「다른 대화 ▾」만(44px 이하), 1280 은 원래 문장 그대로, 맨 위에서는 첫 메시지를 덮지 않음, 전체 채팅의 알약은 흘러감 (스펙 `chat-thread-list`, #124 의 맨 아래에서 열기와 함께 — `chat-thread-view.spec.js` F-TV 도 이 스택에서 다시 돌림) | 07:24 녹화 · 조율 지시 | F-TM-05 · F-TM-01 | feature | ✅ |
+| (PR #125 검토 1) 대화를 아직 모르는 턴(라우터가 답하기 전 · 줄 서 있는 턴)이 있으면 옮기기 · 되돌리기 409 `busy`, 옮긴 대화의 늦은 답은 채팅 열쇠의 행을 다시 만들지 않음 | PR #125 검토 | TM-I-11 · TM-U-04 | DB · 단위 | ✅ |
+| (검토 2) 채팅 열쇠의 행이 다시 생겨도 되돌리기가 막히지 않음 — 행을 합침(큰 턴 수 · 늦은 시각) | PR #125 검토 | TM-I-12 | DB | ✅ |
+| (검토 3) 브라우저 작업이 대기 · 진행 · 입력 기다림이면 옮기기 · 되돌리기 409 `busy_task` | PR #125 검토 | TM-I-13 · TM-U-04 | DB · 단위 | ✅ |
+| (검토 4) 고정된 대화 막대는 불투명한 판(뒤 말풍선이 비치지 않음), 확인 시트의 글은 짧은 휴대폰(390×560)에서 스크롤되고 「옮기기」는 화면에 남음 | PR #125 검토 | F-TM-01 · F-TM-05 · F-TV-04 | feature | ✅ |
+| (검토 5) 「채팅에서 옮겨 온 대화예요」 칩은 옮기는 문장 안에서, 칩이 없어도 옮긴 메시지 표시로 되돌림 | PR #125 검토 | TM-I-14 | DB | ✅ |
+| (검토 6) 따로 묶여 프로젝트로 온 줄은 다음 줄을 끌고 가지 않음(서버 = 화면), 되돌리기는 계획 바뀜 칩을 남김 | PR #125 검토 | TM-I-15 · TM-U-04 | DB · 단위 | ✅ |
+| (검토 7) 말로 한 요청은 그 메시지를 보낸 화면의 대화만(남아 있던 고정 대화가 아니라) — `start_project` 도 | PR #125 검토 | TM-I-18 | DB(실제 턴) | ✅ |
+| (검토 8) 빠진 폴더의 구성원 이름은 보이지 않음 | PR #125 검토 | TM-I-16 | DB | ✅ |
+| (검토 9) 다른 길로 옮긴 대화의 열린 「새 프로젝트로」 카드는 닫히고, 「만들고 옮기기」는 빈 프로젝트를 만들지 않음(409) | PR #125 검토 | TM-I-17 | DB | ✅ |
+| (검토 10) 옛 화면(실시간 이벤트를 못 받음)에서 보낸 말은 409 `moved` → 프로젝트의 그 주제로, 말은 입력창에 다시, 시트도 `moved` 를 따라감 | PR #125 검토 | F-TM-06 | feature | ✅ |
 | 실제 사내 모델이 그 말에 `move_to_project` 를 고르는지 · 실제 판정 모델이 말한 프로젝트를 맞히는지 | — | — (가짜 모델) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

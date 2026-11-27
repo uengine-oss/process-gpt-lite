@@ -84,6 +84,9 @@ export function toStop(list) {
   return started.length ? started : list
 }
 export const waiting = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.started && !x.front && !x.finished)
+// Every turn of this thread not finished yet — in its front stage, waiting its place, or running — whether or not it knows its conversation
+// yet (a routed turn learns it only from the router: lib/conversationMove.js counts one with none as possibly the conversation it moves)
+export const unsettled = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.finished)
 // This person's agent turns under way (delegate marks them: t.agent), oldest first — a tool the agent calls back with only the person's
 // token (lib/mailOut.js: the 「보낼 메일」 card) finds the chat it belongs in here
 export const agentTurnsOf = (userId) => [...live.values()].filter((x) => x.userId === userId && x.agent && x.started && !x.finished).sort((a, b) => a.seq - b.seq)

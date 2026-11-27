@@ -10,7 +10,7 @@ import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { ro } from '../josa.js'
 import { topicPath } from '../projectTopics.js'
-import { moveNewNotice, movedNotice } from '../convMove.js'
+import { moveNewNotice, movedNotice, followedNotice } from '../convMove.js'
 
 const props = defineProps({ msg: Object })
 const app = useApp()
@@ -62,7 +62,11 @@ async function make() {
       router.push(topicPath(r.project.id, r.moved.topic))
       app.notice = { text: movedNotice(r.project.title), tone: 'ok' }
     }
-  } catch (e) { err.value = e.message } finally { busy.value = false }
+  } catch (e) {
+    // (it went into another project meanwhile: the page follows it there)
+    if (e.code === 'moved' && e.place?.project?.id) { router.push(topicPath(e.place.project.id, e.place.topic)); app.notice = { text: followedNotice(e.place.project.title), tone: 'ok' }; return }
+    err.value = e.message
+  } finally { busy.value = false }
 }
 // 「새 프로젝트로」 옮기기 (server lib/conversationMove.js offerNew): the card is about the whole conversation, which goes into the project it makes
 const moving = computed(() => !!c.value.move?.conversationId)
@@ -71,7 +75,10 @@ async function no() {
   busy.value = true; err.value = ''
   try { await app.declineProject(props.msg.id) } catch (e) { err.value = e.message } finally { busy.value = false }
 }
-const open = () => c.value.project?.id && router.push(c.value.moved?.topic ? topicPath(c.value.project.id, c.value.moved.topic) : `/projects/${c.value.project.id}`)
+const open = () => {
+  const topic = c.value.moved?.topic || (c.value.closed === 'moved' ? c.value.move?.conversationId : null)
+  if (c.value.project?.id) router.push(topic ? topicPath(c.value.project.id, topic) : `/projects/${c.value.project.id}`)
+}
 </script>
 
 <template>
@@ -79,7 +86,7 @@ const open = () => c.value.project?.id && router.push(c.value.moved?.topic ? top
     <header>
       <span class="pi"><Icon name="folder" :size="17" /></span>
       <div class="ph">
-        <b v-if="moving">{{ state === 'made' ? (c.moved ? '프로젝트를 만들고 대화를 옮겼어요' : '프로젝트를 만들었어요') : state === 'declined' ? '옮기지 않았어요' : '이 대화를 새 프로젝트로 옮길까요?' }}</b>
+        <b v-if="moving">{{ state === 'made' ? (c.moved ? '프로젝트를 만들고 대화를 옮겼어요' : '프로젝트를 만들었어요') : state === 'declined' ? (c.closed === 'moved' ? '이 대화는 다른 프로젝트로 옮겼어요' : '옮기지 않았어요') : '이 대화를 새 프로젝트로 옮길까요?' }}</b>
         <b v-else>{{ state === 'made' ? '프로젝트를 만들었어요' : state === 'declined' ? '프로젝트를 만들지 않았어요' : '프로젝트로 시작할까요?' }}</b>
         <small v-if="(state === 'offered' || state === 'making') && moving">아직 만들지 않았어요 · 이름과 템플릿을 확인하고 「만들고 옮기기」를 눌러 주세요</small>
         <small v-else-if="state === 'offered' || state === 'making'">아직 만들지 않았어요 · 이름과 템플릿을 확인하고 「만들기」를 눌러 주세요</small>
@@ -137,6 +144,11 @@ const open = () => c.value.project?.id && router.push(c.value.moved?.topic ? top
       </footer>
     </template>
 
+    <!-- closed because the conversation went into another project meanwhile (server lib/conversationMove.js): where it went -->
+    <div v-if="moving && state === 'declined' && c.closed === 'moved'" class="done" data-test="offer-closed-moved">
+      <p>프로젝트 <b data-no-i18n>「{{ c.project?.title }}」</b></p>
+      <button class="go press" data-test="offer-open" @click="open">열기 <Icon name="chevron" :size="13" /></button>
+    </div>
     <!-- made: where it is, and the way there -->
     <div v-else-if="state === 'made'" class="done" data-test="offer-made" :data-project="c.project?.id">
       <p><b data-no-i18n>「{{ c.project?.title || c.title }}」</b><template v-if="startedFrom"> · <span data-test="offer-started-from">{{ startedFrom }}</span></template></p>

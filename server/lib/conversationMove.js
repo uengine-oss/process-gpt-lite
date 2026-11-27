@@ -45,8 +45,10 @@ const RANK = { viewer: 1, runner: 2, editor: 3, owner: 4 }
 
 // ---------- pure ----------
 // What the screen files under each message, without the bodies: the fields src/convOf.js reads (context · scheduleId · whether it carries mails)
+// (and a browser task card's state — a task still at work keeps writing into the conversation: refusal)
 export const SLIM = `jsonb_strip_nulls(jsonb_build_object('context', m.content->'context', 'scheduleId', m.content->'scheduleId',
-  'mails', case when jsonb_typeof(m.content->'mails') = 'array' and jsonb_array_length(m.content->'mails') > 0 then '[1]'::jsonb end))`
+  'mails', case when jsonb_typeof(m.content->'mails') = 'array' and jsonb_array_length(m.content->'mails') > 0 then '[1]'::jsonb end,
+  'state', case when m.kind = 'task' then m.content->'state' end))`
 /** the messages of the main chat filed under conv (src/convOf.js — the screen's own filing), oldest first */
 export function idsOf(rows, conv, { briefId = null } = {}) {
   const of = CV.convOf(rows, { briefId })
@@ -64,6 +66,14 @@ export function kindOf(row, rows = [], conv) {
   for (const r of rows) { const c = r.content?.context; if (c?.conversationId === conv && c.kind) return String(c.kind) }
   return 'conversation'
 }
+// A turn of the room not finished yet that is, or may still turn out to be, this conversation's: one on it, or one that does not know its
+// conversation yet (a routed turn learns it only when the router answers — moved meanwhile, its answer would land in the old room)
+// (PR #125 review 1)
+const unknownConv = (c) => !c || String(c).startsWith('none:')
+export const busyTurn = (list, conv) => (list || []).some((x) => !x.finished && (unknownConv(x.conv) || String(x.conv) === String(conv)))
+// a browser task still at work in it: its later lines (a question, files, its result) go to the room it was started in (PR #125 review 3)
+export const TASK_BUSY = ['queued', 'running', 'needs_input']
+export const busyTask = (rows, ids) => { const set = new Set(ids); return (rows || []).some((r) => set.has(r.id) && r.kind === 'task' && TASK_BUSY.includes(r.content?.state)) }
 // the project a scoped key names (`<user>/project/<thread>` — lib/projectTopics.js scopeKey)
 export const projectOfKey = (key, userId) => {
   const pre = `${userId}${PT.SCOPE}`
@@ -124,7 +134,8 @@ async function projectsOf(user, ids = null) {
     const role = inFolder ? roles.get(String(r.folder_id)) || null : null
     const writable = !inFolder || (!!role && RANK[role] >= RUNNER)
     // (a template's workspace is the project's person's only — folders/templates.js: nobody else sees what it makes)
-    const others = inFolder && !privateWs.has(String(r.variation_id || ''))
+    // (only while the person is still in that folder: a folder they left no longer tells them its members — PR #125 review 8)
+    const others = inFolder && role && !privateWs.has(String(r.variation_id || ''))
       ? (members.get(String(r.folder_id)) || []).filter((m) => m.type === 'user' && !m.is_agent && String(m.id) !== String(user.id)).map((m) => ({ id: String(m.id), name: m.name || m.email || '' }))
       : []
     return {
@@ -155,11 +166,12 @@ function refusal(c, user) {
       ? L('예약 작업의 대화는 옮길 수 없어요. 실행 결과가 계속 채팅으로 와요.', "A scheduled task's conversation can't be moved — its runs keep coming to the chat.")
       : L('브리프 대화는 옮길 수 없어요. 새 브리프가 계속 채팅으로 와요.', "The briefs' conversation can't be moved — new briefs keep coming to the chat."), 'standing')
   }
-  const busy = turns.running({ userId: user.id, threadId: c.main.id, conv: c.convId }).length
-    || turns.waiting({ userId: user.id, threadId: c.main.id }).some((x) => x.conv === c.convId)
-  if (busy) return fail(409, L('이 대화에서 아직 답을 쓰고 있어요. 답이 완성된 뒤에 옮겨 주세요.', 'An answer is still being written in this conversation. Move it once it is done.'), 'busy')
+  if (busyTurn(turns.unsettled({ userId: user.id, threadId: c.main.id }), c.convId)) return BUSY()
+  if (busyTask(c.rows, c.ids)) return TASK()
   return null
 }
+const BUSY = () => fail(409, L('이 대화에서 아직 답을 쓰고 있어요. 답이 완성된 뒤에 옮겨 주세요.', 'An answer is still being written in this conversation. Move it once it is done.'), 'busy')
+const TASK = () => fail(409, L('이 대화에서 브라우저 작업이 아직 진행 중이에요. 작업이 끝난 뒤에 옮겨 주세요.', 'A browser task is still at work in this conversation. Move it once it is done.'), 'busy_task')
 
 // ---------- move ----------
 // One statement: the row (the claim) — the person's, moved to the project's key; or, for a conversation the router never wrote a row for, a
@@ -178,8 +190,14 @@ moved as (
     content = m.content || jsonb_build_object('conv', $3::text, 'moved', jsonb_build_object('from', $8::text, 'conv', $3::text, 'by', $2::text, 'at', now(), 'prevConv', m.content->'conv'))
    where m.id = any($9::uuid[]) and m.thread_id = $8 and exists (select 1 from ok)
   returning m.id
+), note as (
+  -- (the project's chip about the move — 「채팅으로 되돌리기」 — goes in with the claim, never after it: PR #125 review 5)
+  insert into pro_messages (thread_id, role, kind, content)
+  select $7, 'agent', 'chip', $10::jsonb where exists (select 1 from ok)
+  returning id
 )
-select (select count(*) from claim)::int as claimed, (select count(*) from made)::int as made, (select count(*) from moved)::int as moved`
+select (select count(*) from claim)::int as claimed, (select count(*) from made)::int as made, (select count(*) from moved)::int as moved,
+  (select id from note) as note_id`
 // what is left of it in the chat once the row is the project's (a line that came in the instant before): the same marks, while the row stays there
 const SWEEP_SQL = `
 update pro_messages m set thread_id = $3,
@@ -217,7 +235,9 @@ export async function move(user, cid, { project, membersOk = false } = {}) {
       `Members of the project "${clip(p.title, 40)}" will see what this conversation makes from now on. Confirm and move it again.`), 'confirm_members', { members: p.members })
   }
   const scope = PT.scopeKey(user.id, p.id)
-  const [r] = await q(MOVE_SQL, [T(), String(user.id), conv, scope, clip(c.title, 120), !c.row, p.id, c.main.id, c.ids])
+  const chipOf = (count) => ({ icon: 'chat', conv, text: L(`채팅에서 옮겨 온 대화예요 · 메시지 ${count}개`, `A conversation moved from the chat · ${count} messages`),
+    moved: { note: true, conv, from: c.main.id, by: String(user.id), at: new Date().toISOString(), count, title: clip(c.title, 120) } })
+  const [r] = await q(MOVE_SQL, [T(), String(user.id), conv, scope, clip(c.title, 120), !c.row, p.id, c.main.id, c.ids, JSON.stringify(chipOf(c.ids.length))])
   if (!r.claimed && !r.made) {
     // another press or another screen took it first: where it went
     const again = await already()
@@ -225,8 +245,9 @@ export async function move(user, cid, { project, membersOk = false } = {}) {
     throw fail(409, L('다른 곳에서 이 대화를 옮기는 중이에요. 잠시 후 다시 해 주세요.', 'This conversation is being moved elsewhere. Try again in a moment.'), 'moving')
   }
   if (!r.moved) {
-    // (a row made for it while another screen moved its messages elsewhere first: that row goes)
+    // (a row made for it while another screen moved its messages elsewhere first: that row goes, and the chip made with it)
     if (r.made) await q('delete from context_threads where tenant_id=$1 and user_id=$2 and conversation_id=$3', [T(), scope, conv]).catch(() => {})
+    if (r.note_id) await q('delete from pro_messages where id=$1', [r.note_id]).catch(() => {})
     const again = await already()
     if (again) return again
     throw fail(409, L('이 대화를 옮기지 못했어요. 다시 해 주세요.', "Couldn't move this conversation. Please try again."), 'moving')
@@ -238,16 +259,18 @@ export async function move(user, cid, { project, membersOk = false } = {}) {
   // the chat no longer stands in it (an unsure next message of the chat must not go on in it)
   await q('update pro_threads set conversation_id=null where id=$1 and conversation_id=$2', [c.main.id, conv]).catch(() => {})
   await q('update pro_threads set updated_at=now() where id=$1', [p.id]).catch(() => {})
-  // where it came from, in the project (filed under its sub-topic; marked moved, so it never takes the messages after it with it)
-  const at = new Date().toISOString()
-  await addMessage(user.id, p.id, 'agent', 'chip', {
-    icon: 'chat', conv, text: L(`채팅에서 옮겨 온 대화예요 · 메시지 ${count}개`, `A conversation moved from the chat · ${count} messages`),
-    moved: { note: true, conv, from: c.main.id, by: String(user.id), at, count, title: clip(c.title, 120) },
-  }).catch((e) => console.warn('[conv-move] chip', e.message))
+  // where it came from, in the project (filed under its sub-topic; marked moved, so it never takes the messages after it with it) — made in the
+  // statement above; its count said again when a line came in meanwhile
+  const [chip] = r.note_id ? await q(count === c.ids.length ? 'select * from pro_messages where id=$1' : `update pro_messages set content = $2::jsonb where id=$1 returning *`,
+    count === c.ids.length ? [r.note_id] : [r.note_id, JSON.stringify(chipOf(count))]).catch(() => []) : []
+  if (chip) emit(user.id, 'message', chip)
   const ids = [...c.ids, ...stray.map((x) => x.id)]
   // a card that asked about this move (by words — offerByWords) says it is done (it came along with the conversation)
   for (const m of await q(`update pro_messages set content = content || jsonb_build_object('state', 'moved', 'project', jsonb_build_object('id', $3::text, 'title', $4::text))
       where thread_id=$1 and kind='conv_move' and content->'moveOf'->>'id' = $2 and content->>'state' = 'offered' returning *`, [p.id, conv, p.id, p.title]).catch(() => [])) emit(user.id, 'message', m)
+  // …and a 「새 프로젝트로」 card still open for it is closed: it moved elsewhere (its 「만들고 옮기기」 would make an empty project — PR #125 review 9)
+  for (const m of await q(`update pro_messages set content = content || jsonb_build_object('state', 'declined', 'closed', 'moved', 'project', jsonb_build_object('id', $3::text, 'title', $4::text))
+      where thread_id=$1 and kind='project_offer' and content->'move'->>'conversationId' = $2 and content->>'state' = 'offered' returning *`, [p.id, conv, p.id, p.title]).catch(() => [])) emit(user.id, 'message', m)
   emit(user.id, 'conversation.moved', { conv, from: c.main.id, project: { id: p.id, title: p.title }, ids, count })
   console.log(`[conv-move] conv=${conv.slice(0, 12)} → project=${String(p.id).slice(0, 8)} messages=${count} members=${p.members.length}`)
   return { moved: count, project: { id: p.id, title: p.title }, topic: conv, from: c.main.id, ids }
@@ -283,16 +306,34 @@ export async function undo(user, cid, { project } = {}) {
   if (!place || place.project.id !== p.id) throw fail(404, L('이 프로젝트에 그 대화가 없어요.', "That conversation isn't in this project."))
   const rows = await q(`select id, role, kind, created_at, content from pro_messages where thread_id=$1 and kind <> 'note' order by created_at`, [p.id])
   const notes = rows.filter((r) => r.content?.moved?.note && r.content.moved.conv === conv)
+  // what came from the chat: the chip, else (a chip that never got written) the moved lines themselves (PR #125 review 5)
+  const moved = rows.filter((r) => r.content?.moved?.conv === conv)
   // (a sub-topic the project started itself never was in the chat: nothing to take back)
-  if (!notes.length) throw fail(409, L('이 프로젝트에서 시작한 주제라 채팅으로 되돌릴 수 없어요.', 'This topic started in the project, so it cannot go back to the chat.'), 'not_moved')
-  if (!notes.some((n) => String(n.content.moved.by) === String(user.id))) throw fail(403, L('대화를 옮긴 사람만 되돌릴 수 있어요.', 'Only the person who moved it can move it back.'), 'not_mover')
-  const busy = turns.running({ userId: user.id, threadId: p.id, conv }).length || turns.waiting({ userId: user.id, threadId: p.id }).some((x) => x.conv === conv)
-  if (busy) throw fail(409, L('이 대화에서 아직 답을 쓰고 있어요. 답이 끝난 뒤에 되돌려 주세요.', 'An answer is still being written here. Move it back once it is done.'), 'busy')
+  if (!moved.length) throw fail(409, L('이 프로젝트에서 시작한 주제라 채팅으로 되돌릴 수 없어요.', 'This topic started in the project, so it cannot go back to the chat.'), 'not_moved')
+  if (!(notes.length ? notes : moved).some((n) => String(n.content.moved.by) === String(user.id))) throw fail(403, L('대화를 옮긴 사람만 되돌릴 수 있어요.', 'Only the person who moved it can move it back.'), 'not_mover')
+  // (a turn of the project not finished — on this sub-topic, or not yet told which one: PT.routeProject may still pick it — PR #125 review 1)
+  if (busyTurn(turns.unsettled({ userId: user.id, threadId: p.id }), conv)) throw fail(409, L('이 대화에서 아직 답을 쓰고 있어요. 답이 끝난 뒤에 되돌려 주세요.', 'An answer is still being written here. Move it back once it is done.'), 'busy')
   const of = CV.topicOf(rows)
   const noteIds = new Set(notes.map((n) => n.id))
-  const ids = rows.filter((r) => of[r.id] === conv && !noteIds.has(r.id)).map((r) => r.id)
+  // (the project's own lines are never its: a change of the project's plan stays with the project — PR #125 review 6)
+  const ids = rows.filter((r) => of[r.id] === conv && !noteIds.has(r.id) && !r.content?.planChange).map((r) => r.id)
+  if (busyTask(rows, ids)) throw fail(409, L('이 대화에서 브라우저 작업이 아직 진행 중이에요. 작업이 끝난 뒤에 되돌려 주세요.', 'A browser task is still at work here. Move it back once it is done.'), 'busy_task')
   const main = await mainThread(user.id)
-  const [r] = await q(BACK_SQL, [T(), String(user.id), PT.scopeKey(user.id, p.id), conv, main.id, ids, p.id, [...noteIds]])
+  const scope = PT.scopeKey(user.id, p.id)
+  // A row for it under the person's own key — written meanwhile by a late answer of the chat (PR #125 review 2) — would collide with the row
+  // going back: it is folded into the project's row first (the larger turn count, the later time), and once more if one comes in between
+  const fold = () => q(`with stray as (delete from context_threads where tenant_id=$1 and user_id=$2 and conversation_id=$3 returning turns, updated_at)
+    update context_threads c set turns = greatest(c.turns, coalesce((select max(turns) from stray), 0)), updated_at = greatest(c.updated_at, coalesce((select max(updated_at) from stray), c.updated_at))
+    where c.tenant_id=$1 and c.user_id=$4 and c.conversation_id=$3`, [T(), String(user.id), conv, scope])
+  let r = null
+  for (let i = 0; i < 3 && !r; i++) {
+    await fold()
+    try {
+      ;[r] = await q(BACK_SQL, [T(), String(user.id), scope, conv, main.id, ids, p.id, [...noteIds]])
+    } catch (e) {
+      if (e.code !== '23505' || i === 2) throw e
+    }
+  }
   if (!r.claimed) throw fail(409, L('다른 곳에서 이 대화를 옮기는 중이에요. 잠시 후 다시 해 주세요.', 'This conversation is being moved elsewhere. Try again in a moment.'), 'moving')
   // the project no longer stands in it
   await q('update pro_threads set conversation_id=null where id=$1 and conversation_id=$2', [p.id, conv]).catch(() => {})

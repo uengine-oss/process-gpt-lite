@@ -396,6 +396,12 @@ export async function make(user, id, body = {}, deps = {}) {
   const c = row.content || {}
   if (c.state === 'made') throw fail(409, L('이미 만든 프로젝트예요.', 'That project was already made.'), 'made')
   if (c.state === 'declined') throw fail(409, L('이미 닫은 카드예요.', 'This card was closed.'), 'declined')
+  // 「새 프로젝트로」 옮기기 whose conversation went into another project meanwhile: no empty project is made (PR #125 review 9)
+  if (c.move?.conversationId) {
+    const CM = await import('./conversationMove.js')
+    const place = await CM.placeOf(user, c.move.conversationId)
+    if (place) throw Object.assign(fail(409, L(`이 대화는 이미 프로젝트 「${clip(place.project.title, 40)}」에 있어요.`, `This conversation is already in the project "${clip(place.project.title, 40)}".`), 'moved'), { place })
+  }
   const said = confirmed(c, body)
   const name = said.title || L('새 프로젝트', 'New project')
   const template = body.template ? String(body.template) : null

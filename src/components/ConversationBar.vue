@@ -91,10 +91,13 @@ function openMove() { open.value = false; app.moveSheet = { conv: cur.value.id, 
    chat (just under the top bar, 68px) while the conversation scrolls. The list's top padding (96px — ChatColumn .msgs) counts in a sticky
    offset: -24px is 72px from the column's top. (A positive offset pushed the bar down over the first message even at rest.) */
 .cbar.inside { position: sticky; top: -24px; }
-.cbar.inside { padding: 6px; border-radius: 22px; background: var(--composer-bg); -webkit-backdrop-filter: blur(40px) saturate(1.4); backdrop-filter: blur(40px) saturate(1.4); box-shadow: 0 6px 24px rgba(0, 0, 0, .10); }
+/* (a solid sheet under the blur: pinned over the messages, the composer's 55–62% let the bubbles under it show through — PR #125 review 4) */
+.cbar.inside { padding: 6px; border-radius: 22px; background: var(--regular-solid-bg, var(--composer-bg)); -webkit-backdrop-filter: blur(40px) saturate(1.4); backdrop-filter: blur(40px) saturate(1.4); box-shadow: 0 6px 24px rgba(0, 0, 0, .10); }
 .cbar.inside .cur { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 2px 6px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 17px; font-size: 13.5px; color: var(--text-primary); background: var(--composer-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); box-shadow: 0 2px 10px rgba(0, 0, 0, .06); }
 .back { display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 12px; border-radius: 17px; font-size: 13.5px; background: #1d1d1f; color: #fff; }
+/* (dark is the base theme: the solid pinned bar is near-black there, so the ‹ circle turns light to stay visible) */
+:root:not([data-theme="light"]) .back { background: rgb(245 245 247); color: #1d1d1f; }
 .cur { display: flex; flex-direction: column; min-width: 0; flex: 1; padding: 6px 12px; border-radius: 14px; background: var(--composer-bg); -webkit-backdrop-filter: blur(30px); backdrop-filter: blur(30px); }
 .cur b { font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cur small { color: var(--text-secondary); font-size: 12px; }

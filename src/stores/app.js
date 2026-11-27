@@ -97,6 +97,7 @@ export const useApp = defineStore('app', {
     notice: null,              // a short line over the composer: {text, tone?} (새 프로젝트 could not be made, the text is back in the box; tone 'ok': a done move)
     moved: null,               // the last move of a conversation into a project or back (server lib/conversationMove.js): MainView follows it
     moveSheet: null,           // 「프로젝트로 옮기기」 open for a conversation of the chat: {conv, title, count} (components/ConversationMoveSheet.vue)
+    followPlace: null,         // a message sent to a conversation that moved into a project meanwhile: {place, text, at} — MainView goes there
     // Home's dock (the left column on a wide screen, the 홈 tab on a phone) — closed at start when the chat's thread list was left open
     dockOpen: !readListOpen(),
     // the chat's thread list (components/ThreadList.vue): the left column in place of Home on a wide screen, a sheet on a phone; opened
@@ -521,6 +522,7 @@ export const useApp = defineStore('app', {
       if (r.accepted) { tookChips.delete(entry.id); return r.finished }
       // (taken back meanwhile: nothing more)
       if (!this.unsent.some((x) => x.id === entry.id)) return
+      if (this.followMoved(entry, r.error)) return
       if (retryable(r.error)) { this.patchUnsent(entry.id, { state: 'retrying', tries: 1, error: why(r.error) }); this.runUnsent(threadId); return }
       this.failUnsent(entry, r.error)
     },
@@ -585,10 +587,21 @@ export const useApp = defineStore('app', {
           const r = await this.trySend(now)
           if (r.accepted) { tookChips.delete(now.id); continue }
           if (!this.unsent.some((x) => x.id === now.id)) continue
+          if (this.followMoved(now, r.error)) continue
           if (retryable(r.error)) { now.tries = (now.tries || 0) + 1; now.error = why(r.error); this.saveUnsent(); continue }
           this.failUnsent(now, r.error)
         }
       } finally { working.delete(threadId) }
+    },
+    // Sent from a page still open on a conversation that has since moved into a project (409 moved — server lib/conversationMove.js): not a
+    // failure to keep here — the page goes to the project's conversation with the words back in its composer (MainView, this.followPlace)
+    // (PR #125 review 10)
+    followMoved(u, error) {
+      if (error?.code !== 'moved' || !error.place?.project?.id) return false
+      this.dropUnsent(u.id)
+      tookChips.delete(u.id)
+      this.followPlace = { place: error.place, text: u.text, at: Date.now() }
+      return true
     },
     keepUnsent(u) { this.unsent = [...this.unsent.filter((x) => x.id !== u.id), u]; this.saveUnsent() },
     // a kept message changed in its place (the room's order stays)

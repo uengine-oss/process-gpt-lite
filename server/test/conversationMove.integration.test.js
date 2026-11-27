@@ -14,6 +14,15 @@
 //   TM-I-08 말로: 라우터의 move_to_project → 그 대화의 카드(말한 프로젝트는 판정 모델이 고른 것만 권함) → 옮기면 카드가 「옮겼어요」 · 「아니요」
 //   TM-I-09 라우트: GET · POST /conversations/:cid/move · …/undo · …/place(남의 것 404)
 //   TM-I-10 옮긴 대화에서 이어 물으면: 실제 턴(lib/agent.js runTurn) — 그 주제의 deepagents 대화(같은 id, 이어지는 기록)로, 프로젝트 계획과 함께, 답은 그 주제에
+//   (PR #125 검토 — 검토자의 시험 probe.test.mjs 를 진짜 시험으로)
+//   TM-I-11 대화를 아직 모르는 턴(라우터가 답하기 전 · 줄 서 있는 턴)이 있으면 옮기기 · 되돌리기 409 busy · 옮긴 대화의 늦은 답은 채팅 행을 다시 만들지 않음
+//   TM-I-12 채팅 열쇠의 행이 다시 생긴 대화도 되돌리기가 막히지 않음(행을 합쳐 큰 턴 수 · 늦은 시각을 지킴)
+//   TM-I-13 브라우저 작업이 진행 중인 대화는 옮기기 · 되돌리기 409 busy_task
+//   TM-I-14 「채팅에서 옮겨 온 대화예요」 칩은 옮기는 문장 안에서 생김 · 칩이 없어도 옮긴 메시지의 표시로 되돌리기
+//   TM-I-15 따로 묶여 프로젝트로 간 줄이 프로젝트의 다른 줄을 그 주제로 끌고 가지 않음 · 되돌리기는 계획 바뀜 칩을 가져가지 않음
+//   TM-I-16 빠진 폴더의 구성원 이름은 보이지 않음
+//   TM-I-17 열린 「새 프로젝트로」 카드는 다른 길로 옮기면 닫히고, 「만들고 옮기기」는 빈 프로젝트를 만들지 않음
+//   TM-I-18 말로: 걸러 본 화면에서 한 말 뒤에 전체 채팅에서 한 말은 지금 대화의 카드(남아 있던 고정 대화가 아니라)
 // Run: node --test --test-concurrency=1 test/conversationMove.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -70,6 +79,11 @@ globalThis.fetch = async (url, init = {}) => {
     const sys = String(b.messages?.[0]?.content || '')
     if (sys.startsWith('너는 채팅에서 하던 이야기를')) {
       return Response.json({ choices: [{ message: { content: JSON.stringify({ title: '가나정밀 회의록 정리', intent: '주간 회의록을 정리한다', background: '채팅에서 정리하던 회의록', deliverables: ['회의록'] }) }, finish_reason: 'stop' }] })
+    }
+    // the chat's router: 「… 프로젝트로 옮겨 줘」 → move_to_project (TM-I-18)
+    const last = String(b.messages?.at(-1)?.content || '')
+    if (b.tools && last.includes('프로젝트로 옮겨')) {
+      return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'm1', type: 'function', function: { name: 'move_to_project', arguments: JSON.stringify({ ack: '아래 카드에서 프로젝트를 확인하면 옮길게요.' }) } }] }, finish_reason: 'tool_calls' }] })
     }
     return Response.json({ choices: [{ message: { content: '{}' }, finish_reason: 'stop' }] })
   }
@@ -491,4 +505,167 @@ test('TM-I-10 옮긴 대화에서 이어 물으면 그 프로젝트의 맥락으
   assert.equal(of[answer.id], conv.A, '답은 그 주제에')
   // the chat got nothing of it
   assert.ok(!(await msgs(chat.id)).some((x) => x.content?.text === '2일차 실습에 쓸 예제 데이터도 정해 줘'))
+})
+
+// ---------- PR #125 검토 ----------
+// a conversation of its own in 정하윤's chat: two lines, its row (the router's) — newest in the chat
+async function convIn(chatId, me, title, extra = 0) {
+  const X = rid('conv-r')
+  const mk = async (role, kind, content) => (await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,$2,$3,$4) returning *`, [chatId, role, kind, content]))[0]
+  await mk('user', 'text', { text: `${title} 정리해 줘` })
+  const a = await mk('agent', 'text', { text: `${title}을 정리했어요. 세 가지로 나눴어요.`, context: { conversationId: X, action: 'new', title } })
+  for (let i = 0; i < extra; i++) await mk('agent', 'text', { text: `${title} ${i}`, context: { conversationId: X, action: 'continue' } })
+  await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at) values ($1,$2,$3,$4,'','','conversation',2,now())`, [TENANT, me.id, X, title])
+  return { X, a }
+}
+
+test('TM-I-11 대화를 아직 모르는 턴이 있으면 옮기기 · 되돌리기 409 busy, 옮긴 대화의 늦은 답은 채팅 행을 다시 만들지 않음', async () => {
+  const { me, chat, P1 } = await setup()
+  const { X } = await convIn(chat.id, me, '부품 단가 비교')
+  // a routed chat turn already started, the router not answered yet (conv null)
+  const t = turns.enqueue({ userId: me.id, threadId: chat.id, conv: null })
+  t.started = true
+  try {
+    await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.status === 409 && e.code === 'busy')
+    const tg = await CM.targets(me, X)
+    assert.equal(tg.conversation.movable, false)
+    assert.equal(tg.conversation.code, 'busy')
+  } finally { t.finish() }
+  // a turn waiting its place, not knowing its conversation yet: the same
+  const w = turns.enqueue({ userId: me.id, threadId: chat.id, conv: null })
+  try { await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.code === 'busy') } finally { w.finish() }
+  // a turn of another conversation it already knows: not this one's
+  const o = turns.enqueue({ userId: me.id, threadId: chat.id, conv: 'some-other-conv' })
+  o.started = true
+  let r
+  try { r = await CM.move(me, X, { project: P1.id }) } finally { o.finish() }
+  assert.equal(r.moved, 2)
+  // a late answer of the chat for it (lib/agent.js touchContext → fileConversation): no row under the person's key again
+  const { fileConversation } = await import('../lib/agent.js')
+  await fileConversation(me, { conversationId: X, title: '부품 단가 비교' }, '늦은 요청', '늦은 답')
+  assert.equal(await rowOf(me.id, X), null, '채팅 목록에 다시 나오지 않음')
+  assert.ok(await rowOf(PT.scopeKey(me.id, P1.id), X))
+  // undo while a turn of the project does not know its sub-topic yet (PT.routeProject may still pick it): busy
+  const pt = turns.enqueue({ userId: me.id, threadId: P1.id, conv: null })
+  try { await assert.rejects(CM.undo(me, X, { project: P1.id }), (e) => e.status === 409 && e.code === 'busy') } finally { pt.finish() }
+  assert.equal((await CM.undo(me, X, { project: P1.id })).back, 2)
+})
+
+test('TM-I-12 채팅 열쇠의 행이 다시 생긴 대화도 되돌리기가 막히지 않음 — 행을 합침', async () => {
+  const { me, chat, P1 } = await setup()
+  const { X } = await convIn(chat.id, me, '납품 일정 확인')
+  assert.equal((await CM.move(me, X, { project: P1.id })).moved, 2)
+  // the router (another service) writes the chat's row for it again — 7 turns, a later time
+  await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at) values ($1,$2,$3,'납품 일정 확인','','','conversation',7,now() + interval '1 minute')`, [TENANT, me.id, X])
+  const b = await CM.undo(me, X, { project: P1.id })
+  assert.equal(b.back, 2)
+  const rows = await q('select user_id, turns from context_threads where tenant_id=$1 and conversation_id=$2', [TENANT, X])
+  assert.deepEqual(rows.map((x) => [x.user_id, x.turns]), [[me.id, 7]], '행 하나, 큰 턴 수')
+})
+
+test('TM-I-13 브라우저 작업이 진행 중인 대화는 옮기기 · 되돌리기 409 busy_task', async () => {
+  const { me, chat, P1 } = await setup()
+  const { X } = await convIn(chat.id, me, '거래처 사이트 주문')
+  const [task] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','task',$2) returning *`, [chat.id, { title: '주문 넣기', state: 'running', context: { conversationId: X, action: 'aside' } }])
+  await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.status === 409 && e.code === 'busy_task')
+  for (const st of ['needs_input', 'queued']) {
+    await q(`update pro_messages set content = content || $2::jsonb where id=$1`, [task.id, { state: st }])
+    await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.code === 'busy_task', st)
+  }
+  await q(`update pro_messages set content = content || '{"state":"done"}'::jsonb where id=$1`, [task.id])
+  assert.equal((await CM.move(me, X, { project: P1.id })).moved, 3)
+  // in the project, a task of it at work again: undo waits for it
+  await q(`update pro_messages set content = content || '{"state":"running"}'::jsonb where id=$1`, [task.id])
+  await assert.rejects(CM.undo(me, X, { project: P1.id }), (e) => e.code === 'busy_task')
+  await q(`update pro_messages set content = content || '{"state":"done"}'::jsonb where id=$1`, [task.id])
+  assert.equal((await CM.undo(me, X, { project: P1.id })).back, 3)
+})
+
+test('TM-I-14 칩은 옮기는 문장 안에서 생기고, 칩이 없어도 옮긴 메시지의 표시로 되돌림', async () => {
+  const { me, sy, chat, P1 } = await setup()
+  const { X } = await convIn(chat.id, me, '세미나 장소 섭외')
+  const r = await CM.move(me, X, { project: P1.id })
+  const chips = (await msgs(P1.id)).filter((m) => m.content?.moved?.note && m.content.moved.conv === X)
+  assert.equal(chips.length, 1)
+  assert.equal(chips[0].content.text, '채팅에서 옮겨 온 대화예요 · 메시지 2개')
+  assert.equal(chips[0].content.moved.by, me.id)
+  // the chip gone (a process that died, an edit): undo still knows the conversation came from the chat, and who moved it
+  await q('delete from pro_messages where id=$1', [chips[0].id])
+  await assert.rejects(CM.undo(sy, X, { project: P1.id }), (e) => e.status === 404)
+  assert.equal((await CM.undo(me, X, { project: P1.id })).back, r.moved)
+})
+
+test('TM-I-15 따로 묶여 온 줄은 프로젝트의 다른 줄을 끌고 가지 않고, 되돌리기는 계획 바뀜 칩을 가져가지 않음', async () => {
+  const { me, chat, P4 } = await setup()
+  const { X } = await convIn(chat.id, me, '견적 회신 메일')
+  assert.equal((await CM.move(me, X, { project: P4.id })).moved, 2)
+  // a mail's line filed aside into it later (lib/store.js addMessage → the project), then the project's own untagged lines
+  const late = await addMessage(me.id, chat.id, 'agent', 'text', { text: '답장을 보냈어요.', context: { conversationId: X, action: 'aside' } })
+  assert.equal(late.thread_id, P4.id)
+  const own = await addMessage(me.id, P4.id, 'agent', 'text', { text: '프로젝트에 원래 있던 답이에요.' })
+  const plan = await addMessage(me.id, P4.id, 'agent', 'chip', { icon: 'check', text: '프로젝트 계획을 채웠어요', planChange: { noteId: null, backfill: true } })
+  const room = await msgs(P4.id)
+  const of = CV.topicOf(room)
+  assert.equal(of[late.id], X)
+  assert.notEqual(of[own.id], X, '프로젝트의 줄은 그 주제가 아님')
+  assert.notEqual(of[plan.id], X)
+  // (the page files them the same)
+  const TOPICS = await import('../../src/projectTopics.js')
+  assert.deepEqual(TOPICS.topicOf(room), of)
+  const b = await CM.undo(me, X, { project: P4.id })
+  assert.equal(b.back, 3, '두 줄과 늦게 온 줄')
+  const left = (await msgs(P4.id)).map((m) => m.id)
+  assert.ok(left.includes(own.id) && left.includes(plan.id), '프로젝트의 줄 · 계획 칩은 남음')
+})
+
+test('TM-I-16 빠진 폴더의 구성원 이름은 보이지 않음', async () => {
+  const { me, chat, P2, sales } = await setup()
+  const { X } = await convIn(chat.id, me, '영업 자료 요약')
+  const S = await import('../lib/folders/service.js')
+  // 정하윤 leaves 「영업 자료」 (김서연 owns it now)
+  const { sy } = cast
+  await q(`update pro_folder_members set role='owner' where folder_id=$1 and principal_id=$2`, [sales.id, sy.id])
+  await q(`delete from pro_folder_members where folder_id=$1 and principal_id=$2`, [sales.id, me.id])
+  const tg = await CM.targets(me, X)
+  const p2 = tg.projects.find((p) => p.id === P2.id)
+  assert.equal(p2.writable, false)
+  assert.deepEqual(p2.members, [], '구성원 이름 없음')
+  // (back as it was for the other tests)
+  await q(`insert into pro_folder_members (folder_id, principal_type, principal_id, role) values ($1,'user',$2,'owner') on conflict do nothing`, [sales.id, me.id])
+  await q(`update pro_folder_members set role='editor' where folder_id=$1 and principal_id=$2`, [sales.id, sy.id])
+  assert.equal((await S.roleOf(await S.folderById(sales.id), me)), 'owner')
+})
+
+test('TM-I-17 열린 「새 프로젝트로」 카드는 다른 길로 옮기면 닫히고, 「만들고 옮기기」는 빈 프로젝트를 만들지 않음', async () => {
+  const { me, chat, P4 } = await setup()
+  const { X } = await convIn(chat.id, me, '협력사 미팅 준비')
+  const card = await CM.offerNew(me, X)
+  assert.equal(card.content.state, 'offered')
+  // moved by the picker meanwhile
+  assert.equal((await CM.move(me, X, { project: P4.id })).moved, 3)
+  const closed = (await msgs(P4.id)).find((m) => m.id === card.id)
+  assert.equal(closed.content.state, 'declined')
+  assert.equal(closed.content.closed, 'moved')
+  assert.equal(closed.content.project.id, P4.id)
+  const before = (await q(`select count(*)::int as n from pro_threads where user_id=$1 and kind='project'`, [me.id]))[0].n
+  await assert.rejects(CP.make(me, card.id, { title: '빈 프로젝트' }), (e) => e.status === 409)
+  assert.equal((await q(`select count(*)::int as n from pro_threads where user_id=$1 and kind='project'`, [me.id]))[0].n, before, '프로젝트가 늘지 않음')
+})
+
+test('TM-I-18 말로: 걸러 본 화면에서 한 말 뒤에 전체 채팅에서 한 말은 지금 대화의 카드', async () => {
+  const { me, chat } = await setup()
+  const { runTurn } = await import('../lib/agent.js')
+  const session = { access_token: 'test' }
+  const Q = await convIn(chat.id, me, '교육 장비 대여')
+  // from the view narrowed to Q
+  await runTurn({ user: me, session, threadId: chat.id, text: '이 대화 프로젝트로 옮겨 줘', conversation: { id: Q.X, title: '교육 장비 대여' } })
+  const c1 = (await msgs(chat.id)).filter((m) => m.kind === 'conv_move').at(-1)
+  assert.equal(c1.content.moveOf.id, Q.X)
+  await CM.declineCard(me, c1.id)
+  // then the chat goes on in another conversation, and the whole chat asks the same
+  const R = await convIn(chat.id, me, '강사 숙소 예약')
+  await runTurn({ user: me, session, threadId: chat.id, text: '이 대화 프로젝트로 옮겨 줘' })
+  const c2 = (await msgs(chat.id)).filter((m) => m.kind === 'conv_move').at(-1)
+  assert.notEqual(c2.id, c1.id)
+  assert.equal(c2.content.moveOf.id, R.X, '지금 대화(남아 있던 고정 대화가 아니라)')
 })
