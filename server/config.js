@@ -93,6 +93,9 @@ export const config = {
   gitTokenHours: Math.max(1, Number(get('PRO_GIT_TOKEN_HOURS', '72')) || 72),
   // when the nightly pass packs the folders' repositories (lib/folders/gc.js): a KST cron expression, or 'off'
   folderGcCron: get('PRO_FOLDER_GC_CRON', '0 3 * * *'),
+  // the copies 「다른 이름으로 저장」 leaves that nothing names any more (lib/cardCopies.js): off · dry (logs what it would remove) · on
+  copiesGc: get('PRO_COPIES_GC', 'dry'),
+  copiesGcCron: get('PRO_COPIES_GC_CRON', '30 3 * * *'),
   claudeBin: get('PRO_CLAUDE_BIN', 'claude'),
   // fast page-state / goal-done checks in the browser loop through the router's /decide
   browserGates: get('PRO_BROWSER_GATES', 'on') !== 'off',
