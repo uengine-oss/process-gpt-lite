@@ -10,7 +10,7 @@
 // person's own prefix (pgpt-pro/<person>/copies/). savedCopyOk is the same rule for a card's ordinary save (POST /api/messages/:id/file).
 import crypto from 'node:crypto'
 import { config } from '../config.js'
-import { q, admin } from './supa.js'
+import { q, admin, pool } from './supa.js'
 import { objectOfUrl } from './privateStore.js'
 import { extOf, editable } from './office.js'
 import { aside, ownsConversation } from './ownConversations.js'
@@ -96,8 +96,9 @@ async function copyToOwn(user, key, ext) {
  */
 export async function keepVersion(user, id) {
   const { m, c, o, ext } = await plainCard(user, id)
-  // (already on a copy of its own — kept before, e.g. for a 「다른 이름으로 저장」 tried again): nothing to do
-  if (o.bucket === BUCKET && o.key.startsWith(`${ownPrefix(user)}copies/`)) return m
+  // (already on a copy of its own — kept before, e.g. for a 「다른 이름으로 저장」 tried again): nothing to do. Not the editor's own copy of a
+  // file under copies/ (copies/edited-…_<time>: a card opened from a copy and saved) — that one the editor is about to write over: kept
+  if (o.bucket === BUCKET && o.key.startsWith(`${ownPrefix(user)}copies/`) && !EDITED.test(baseOf(o.key))) return m
   if (!EDITED.test(baseOf(o.key))) throw fail(400, L('지킬 편집본이 없어요.', 'There is no edited copy to keep.'))
   const key = await copyToOwn(user, o.key, ext)
   const [u] = await q(`update pro_messages set content = content || jsonb_build_object('url', $2::text) where id=$1 and content->>'url' = $3 returning *`, [m.id, publicUrl(key), c.url])
@@ -125,31 +126,108 @@ export async function saveCardAs(user, id, { url, name, conversationId } = {}) {
 }
 
 // ---------- copies nothing points at any more ----------
-// A copy made here (pgpt-pro/<person>/copies/) is left behind when its card moves on — a save after keepVersion, the card removed. Once a
-// month old and pointed at by nothing that carries a file's address (a message — a file card's address or its versions —, a share's object,
-// a meeting's material, a context share, a reference), it goes: the nightly folders pass (lib/folders/gc.js) calls cleanCopies.
-// prefix: only under it (tests).
-const COPY_KEY = /pgpt-pro\/[^/"'\s\\]+\/copies\/[^/"'\s?#\\]+/g
-export async function unusedCopies({ days = 30, prefix = 'pgpt-pro/', limit = 5000 } = {}) {
-  const old = await q(`select name from storage.objects where bucket_id=$1 and name like $2 and name like '%/copies/%'
-                       and created_at < now() - make_interval(days => $3::int) order by created_at limit $4`, [BUCKET, `${prefix}%`, days, limit])
-  if (!old.length) return []
+// The copies made here (pgpt-pro/<person>/copies/<uuid>.<ext>, and the editor's own copy of one opened from there,
+// copies/edited-<uuid>_<time>.<ext>) are left behind when their card moves on — a save after keepVersion, a card or thread deleted. Once
+// a month past their last write (greatest of created_at and updated_at: a copy written over again is not old) and named by nothing that
+// may still need it, they go.
+// What the job relies on (spec folder-edit-save):
+//   - a file card keeps every address it stood on: `url` and `versions` (appended to, never trimmed); a card or thread deleted releases
+//     its copies
+//   - what can still name a copy is scanned: pro_messages (every message's content — cards, their versions, anything that quotes an
+//     address), pro_shares.object_key (a share's object), pro_refers (message · used), pro_schedules.prompt, pro_local_jobs (the whole
+//     row: prompt, transcript, results) and, where Process GPT's table is in the same database, todolist.output. A scan that fails stops
+//     the run (nothing is removed on a partial picture). Not scanned — they hold ids, never storage addresses: pro_meeting_materials
+//     (ref: ids only), pro_context_shares.
+// PRO_COPIES_GC: off · dry (this release's default: logs each key and size it would remove) · on (removes, and logs each key removed).
+// Its own nightly run (PRO_COPIES_GC_CRON, default 03:30 KST), one server at a time (an advisory lock), at most MAX_PER_RUN a night, paged
+// by (age, name) so copies still named never hold the rest back.
+export const COPY_NAME_RE = '^pgpt-pro/[0-9a-f-]{36}/copies/(edited-)?[0-9a-f-]{36}(_[0-9]{14})?\\.[A-Za-z0-9]{1,8}$'
+const COPY_KEY = /pgpt-pro\/[0-9a-f-]{36}\/copies\/(?:edited-)?[0-9a-f-]{36}(?:_[0-9]{14})?\.[A-Za-z0-9]{1,8}/g
+const MAX_PER_RUN = 1000
+const LOCK = 'pgpt-lite/copies-gc'
+
+// the copies anything still names → Set of keys
+async function namedCopies() {
   const used = new Set()
-  const note = (text) => { for (const k of String(text || '').matchAll(COPY_KEY)) { try { used.add(decodeURIComponent(k[0])) } catch { used.add(k[0]) } } }
+  const note = (text) => { for (const k of String(text || '').matchAll(COPY_KEY)) used.add(k[0]) }
+  const has = async (table, column = null) => (column
+    ? (await q('select 1 from information_schema.columns where table_schema=$1 and table_name=$2 and column_name=$3', ['public', table, column])).length > 0
+    : !!(await q('select to_regclass($1) as r', [`public.${table}`]))[0]?.r)
   for (const r of await q(`select content::text as t from pro_messages where content::text like '%/copies/%'`)) note(r.t)
   for (const r of await q(`select object_key as t from pro_shares where object_key like '%/copies/%'`)) note(r.t)
-  for (const t of ['pro_meeting_materials', 'pro_context_shares', 'pro_refers']) {
-    if (!(await q('select to_regclass($1) as r', [`public.${t}`]))[0]?.r) continue
-    for (const r of await q(`select x::text as t from ${t} x where x::text like '%/copies/%'`)) note(r.t)
-  }
-  return old.map((r) => r.name).filter((k) => !used.has(k))
+  if (await has('pro_refers')) for (const r of await q(`select message || ' ' || used::text as t from pro_refers where message like '%/copies/%' or used::text like '%/copies/%'`)) note(r.t)
+  if (await has('pro_schedules')) for (const r of await q(`select prompt as t from pro_schedules where prompt like '%/copies/%'`)) note(r.t)
+  if (await has('pro_local_jobs')) for (const r of await q(`select x::text as t from pro_local_jobs x where x::text like '%/copies/%'`)) note(r.t)
+  if (await has('todolist', 'output')) for (const r of await q(`select output::text as t from todolist where output::text like '%/copies/%'`)) note(r.t)
+  return used
 }
-// → how many went
-export async function cleanCopies(opts = {}) {
-  const keys = await unusedCopies(opts)
-  for (let i = 0; i < keys.length; i += 100) {
-    const { error } = await admin.storage.from(BUCKET).remove(keys.slice(i, i + 100))
-    if (error) throw new Error(error.message)
+
+/** the copies a month past their last write that nothing names → [{key, size}] (at most `max`); prefix: only under it (tests) */
+export async function unusedCopies({ days = 30, prefix = 'pgpt-pro/', max = MAX_PER_RUN, page = 500 } = {}) {
+  const used = await namedCopies()
+  const out = []
+  let after = null
+  for (;;) {
+    // (the age goes back as text: a JS Date keeps milliseconds only, and a row whose time has microseconds would come round again)
+    const rows = await q(`select name, greatest(created_at, coalesce(updated_at, created_at))::text as age, coalesce((metadata->>'size')::bigint, 0) as size
+                         from storage.objects
+                         where bucket_id=$1 and name like $2 and name ~ $3
+                           and greatest(created_at, coalesce(updated_at, created_at)) < now() - make_interval(days => $4::int)
+                           and ($5::timestamptz is null or (greatest(created_at, coalesce(updated_at, created_at)), name) > ($5::timestamptz, $6::text))
+                         order by 2, 1 limit $7`, [BUCKET, `${prefix}%`, COPY_NAME_RE, days, after?.age ?? null, after?.name ?? '', page])
+    for (const r of rows) {
+      if (used.has(r.name)) continue
+      out.push({ key: r.name, size: Number(r.size) || 0 })
+      if (out.length >= max) return out
+    }
+    if (rows.length < page) return out
+    after = rows[rows.length - 1]
   }
-  return keys.length
+}
+
+/** one run: {mode, count, keys} — dry lists, on removes; busy when another server runs it */
+export async function cleanCopies({ mode = config.copiesGc, ...opts } = {}) {
+  if (mode !== 'on' && mode !== 'dry') return { mode: 'off', count: 0, keys: [] }
+  const client = await pool.connect()
+  try {
+    const got = (await client.query('select pg_try_advisory_lock(hashtext($1)) as ok', [LOCK])).rows[0]?.ok
+    if (!got) return { mode, busy: true, count: 0, keys: [] }
+    try {
+      const list = await unusedCopies(opts)
+      if (mode === 'dry') {
+        for (const c of list) console.log(`[copies gc] dry: would remove ${c.key} (${c.size} B)`)
+        return { mode, count: list.length, keys: list.map((c) => c.key) }
+      }
+      const keys = list.map((c) => c.key)
+      for (let i = 0; i < keys.length; i += 100) {
+        const part = keys.slice(i, i + 100)
+        const { error } = await admin.storage.from(BUCKET).remove(part)
+        if (error) throw new Error(error.message)
+        for (const k of part) console.log(`[copies gc] removed ${k}`)
+      }
+      return { mode, count: keys.length, keys }
+    } finally { await client.query('select pg_advisory_unlock(hashtext($1))', [LOCK]).catch(() => {}) }
+  } finally { client.release() }
+}
+
+// the nightly run (PRO_BACKGROUND=0 never starts it: index.js) — its own schedule and switch, apart from the folders' gc
+let timer = null
+export function startCopiesGc(cron = config.copiesGcCron) {
+  if (timer || !cron || cron === 'off' || config.copiesGc === 'off') return
+  const plan = async () => {
+    const { nextRun } = await import('./scheduler.js')
+    const at = nextRun(cron)
+    if (!at) return console.warn(`[copies gc] no next run for '${cron}'`)
+    timer = setTimeout(async () => {
+      try {
+        const r = await cleanCopies()
+        if (r.busy) console.log('[copies gc] another server is running it')
+        else console.log(`[copies gc] ${r.mode}: ${r.count} copies nothing names${r.mode === 'dry' ? ' (not removed — PRO_COPIES_GC=on removes)' : ' removed'}`)
+      } catch (e) { console.warn(`[copies gc] ${e.message}`) }
+      timer = null
+      plan()
+    }, Math.max(1000, at.getTime() - Date.now()))
+    timer.unref?.()
+  }
+  plan()
 }

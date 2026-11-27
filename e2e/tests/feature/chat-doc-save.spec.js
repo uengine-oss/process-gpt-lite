@@ -23,8 +23,10 @@
 //   F-CS-16 (RT_REAL_SHEETS=1) 실제 엑셀 편집기: 칸을 치고 ↓ 로 마친 뒤 닫으면 묻는다
 //   F-CS-17 열린 문서의 카드를 다시 눌러도 같은 열기 — 그 뒤 「다른 이름으로 저장」해도 원래 카드는 저장한 판 그대로
 //   F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 · 마인드맵 문서는 열고 바로 닫아도 묻지 않는다
-//   F-CS-19 💾 뒤 「다른 이름으로 저장」이 편집기 무응답으로 실패 → 다시 시도: 판 지키기를 또 하지 않고(400 없이) 새 카드, 원래 카드는 💾 판
+//   F-CS-19 💾 뒤 「다른 이름으로 저장」이 편집기 무응답으로 실패 → 다시 시도: 판 지키기를 또 하지 않고(400 없이) 새 카드, 원래 카드는 💾 판 ·
+//           그 사본 카드에서 고쳐 💾(copies/edited-…) → 더 고쳐 「다른 이름으로 저장」 → 사본 카드는 💾 판 그대로
 //   F-CS-20 (고친 호스트) 고쳤다가 되돌리고 💾 · 저장하고 닫기: 처음 연 그대로여도 곧바로 「저장했어요」(30초 기다림 없음)
+//   F-CS-21 마인드맵을 마우스로만 고친 뒤(주제 누르고 도구 막대의 「하위 주제」) 닫으면 묻는다 · 저장하고 닫기는 그 판을 저장
 //   (F-CS-09 안에서) 패널 반영 실패는 그 열기의 것만 — 다시 연 시트를 닫아도 옛 사본을 다시 보내지 않고, 고쳤으면 묻는다
 // 자기 스택(lib/localStack.js — 회사 chat-save, BFF 8983 · Vite 5383 부터 빈 포트), 실제 이음오피스 편집기: RT_OFFICE_HOST_URL(운영 이미지 컨테이너,
 // 스펙 e2e/README) 또는 빌드된 호스트(lib/officeHost.js, 5403 부터). 모델 · deepagents 는 부르지 않는다. 사람은 지어낸 이름(정하윤 · 김서연).
@@ -949,8 +951,61 @@ test('F-CS-19 💾 뒤 「다른 이름으로 저장」이 편집기 무응답�
   const orig = await textAt((await cardOf(c.id)).url)
   expect(orig).toContain('저장판')
   expect(orig).not.toContain('새이름판')
-  const [made] = await S.q(`select content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '판지키기 사본.txt'])
+  const [made] = await S.q(`select id, content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '판지키기 사본.txt'])
   expect(await textAt(made.content.url)).toContain('새이름판')
+  // the copy's card, open now: 💾 puts it on the editor's edited copy (copies/edited-…_<시각>), more edits, 「다른 이름으로 저장」 again —
+  // the copy's card keeps its 💾 text (the editor writes that edited copy again for the new name: the card is moved off it first)
+  await p.waitForTimeout(1500)
+  await textReady(p)
+  await typeAtEnd(p, ' 사본저장판')
+  await pressSave(p)
+  await expect(badge(p)).toHaveAttribute('data-state', 'saved', { timeout: 30_000 })
+  await expect.poll(async () => (await cardOf(made.id)).url || '', { timeout: 20_000 }).toMatch(/\/copies\/edited-[^/]+_\d{14}\.txt$/)
+  await typeAtEnd(p, ' 사본새이름판')
+  await ed(p).locator('.qa-save-as').click()
+  await ask(p).locator('[data-testid="oef-ask-name"]').fill('판지키기 사본 둘')
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(oef(p).locator('.bar .name')).toHaveText('판지키기 사본 둘.txt', { timeout: 40_000 })
+  expect(kept).toEqual([200, 200])
+  const copyCard = await cardOf(made.id)
+  const copyText = await textAt(copyCard.url)
+  expect(copyText).toContain('사본저장판')
+  expect(copyText).not.toContain('사본새이름판')
+  expect(copyCard.url).not.toMatch(/\/edited-/)
+  const [second] = await S.q(`select content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '판지키기 사본 둘.txt'])
+  expect(await textAt(second.content.url)).toContain('사본새이름판')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-21 마인드맵을 마우스로만 고친 뒤(주제를 누르고 도구 막대의 「하위 주제」) 닫으면 묻는다 — 저장하고 닫기는 그 판을 저장', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const name = '일정_마우스.xmind'
+  const a = await rawPost(ME.token, '/attachments', XMIND(), { 'Content-Type': 'application/vnd.xmind.workbook', 'X-File-Name': encodeURIComponent(name) })
+  const [m] = await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2) returning id`, [mainId, { name, url: a.url, type: 'application/vnd.xmind.workbook' }])
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, name).click()
+  await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 120_000 })
+  await expect(ed(p).locator('me-tpc', { hasText: '본사 3층' })).toBeVisible({ timeout: 90_000 })
+  await p.waitForTimeout(3000)
+  // no key pressed anywhere: a topic chosen, the toolbar's add-child
+  await ed(p).locator('me-tpc', { hasText: '본사 3층' }).click()
+  await ed(p).locator('[data-action="add-child"]').click()
+  await expect.poll(() => ed(p).locator('me-tpc').count()).toBe(3)
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요')
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(oef(p)).toHaveCount(0, { timeout: 40_000 })
+  // the card is the saved map now: three topics
+  await expect.poll(async () => (await cardOf(m.id)).url || '', { timeout: 20_000 }).not.toBe(a.url)
+  const url = (await cardOf(m.id)).url
+  const bytes = Buffer.from(await (await fetch(url)).arrayBuffer())
+  const out = path.join(os.tmpdir(), `rt-cs-${process.pid}-${Date.now()}-saved.xmind`)
+  fs.writeFileSync(out, bytes)
+  const topics = execFileSync('python3', ['-c', 'import sys, zipfile, json\nc=json.loads(zipfile.ZipFile(sys.argv[1]).read("content.json"))\nn=lambda t: 1+sum(n(x) for x in (t.get("children") or {}).get("attached", []))\nprint(n(c[0]["rootTopic"]))', out]).toString().trim()
+  fs.rmSync(out, { force: true })
+  expect(Number(topics)).toBe(3)
   expect(p.errors).toEqual([])
   await p.context().close()
 })

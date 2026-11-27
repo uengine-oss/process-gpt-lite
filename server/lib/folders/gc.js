@@ -1,5 +1,4 @@
-// Packing the folders' repositories: one pass a night (03:00 KST), folder by folder — and, after it, the copies 「다른 이름으로 저장」 left
-// that nothing points at any more (lib/cardCopies.js cleanCopies).
+// Packing the folders' repositories: one pass a night (03:00 KST), folder by folder.
 // A folder's main is edited like a drive and an editing session's saves fold into one commit (amend):
 // every save of a 10 MB document leaves a 10 MB object behind that nothing points at once the next save
 // replaces the commit. git's automatic gc is off for every command this server runs (git.js), so a save
@@ -105,12 +104,7 @@ export function startFolderGc(cron = config.folderGcCron) {
     timer = setTimeout(async () => {
       if (!running) {
         running = true
-        try {
-          await forEachTenant(() => gcTenant(), 'folders gc')
-          // and the copies 「다른 이름으로 저장」 left that nothing points at any more (lib/cardCopies.js — every company's, by their address)
-          const n = await (await import('../cardCopies.js')).cleanCopies().catch((e) => { console.warn(`[copies gc] ${e.message}`); return 0 })
-          if (n) console.log(`[copies gc] ${n} copies nothing points at went`)
-        } finally { running = false }
+        try { await forEachTenant(() => gcTenant(), 'folders gc') } finally { running = false }
       }
       plan()
     }, Math.max(1000, at.getTime() - Date.now()))

@@ -305,6 +305,7 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
   clearTimeout(idleTimer)
   const seq = editSeq
   const aseq = agentSeq
+  const tseq = touchSeq
   saving.value = true
   if (!props.autoSave && !copy) { clearTimeout(pressTimer); pressTimer = null; retryFn = null; saveState.value = { kind: 'saving' } }
   inFlight = new Promise((resolve) => {
@@ -318,6 +319,7 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
       if (!wasCopy) {
         if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
         if (r.saved && agentSeq === aseq) agentEdits.value = false
+        if (r.saved && touchSeq === tseq) touched = false
         if (!r.saved && !r.reloaded) failSave(r.timeout ? `편집기가 ${Math.round(timeoutMs / 1000)}초 안에 저장을 마치지 못했어요` : r.error || '')
       }
       resolve(r)
@@ -336,13 +338,18 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
 // it off while it has nothing new). The editor's word that it is clean is taken over our count only where its flag follows every edit
 // as it is made (the text · html editors); a spreadsheet's cell being typed in, a slide's text box being written in, hold
 // their text until they are left — their 저장 is off meanwhile (review #107: a cell typed and left by ↓ was lost).
-// The mind map's 저장 is off only while it loads (on for good after), so it says nothing either way: only our own count and the agent's.
+// The mind map's 저장 is off only while it loads (on for good after), so it says nothing either way: our own count, the agent's, and
+// any press in the map (its edits are mostly made with the mouse — a topic dragged, a tool of its bar; `touched`, below; a press that
+// only moved the view asks too, which is the safer way to be wrong). Once the editor's fork turns its 저장 off while nothing is new
+// (apps/mindmap Toolbar `disabled={p.disabled || !(p.dirty || p.typing)}` — on while a title is still being typed) and that build is the
+// office host's, the mind map goes to LIVE_DIRTY and `touched` goes; until then a 저장 that says off is already taken as clean (no press
+// of an off button that would never be answered).
 // Asked where it matters (closing, flush, 내려받기, 다른 이름으로 저장, 저장) — never on a timer.
 const LIVE_DIRTY = new Set(['markdown', 'html'])
 const BUTTON_SAYS_NOTHING = new Set(['mindmap'])
 function dirty() {
   const doc = frame.value?.contentDocument
-  if (BUTTON_SAYS_NOTHING.has(editor())) return edited.value || agentEdits.value || unsavedCopy
+  if (BUTTON_SAYS_NOTHING.has(editor())) return edited.value || agentEdits.value || unsavedCopy || (touched && editorClean(doc) !== true)
   const clean = editorClean(doc)
   if (clean === false || agentEdits.value) return true
   if (!edited.value) return false
@@ -357,6 +364,7 @@ function saveFromCopy() {
   unsavedCopy = false
   if (edited.value) { edited.value = false; emit('edited', false) }
   agentEdits.value = false
+  touched = false
   emit('saved', { url, name: props.name })
   afterSave(url)
   return Promise.resolve({ saved: true, url })
@@ -380,6 +388,14 @@ let copyLate = false
 let selfPress = false
 // a copy for 「다른 이름으로 저장」 went up and this card has not taken it (the editor is clean; the edits are unsaved here)
 let unsavedCopy = false
+// the mind map was pressed since its last save (not on its ribbon's tabs): it may have been edited (dirty())
+let touched = false
+let touchSeq = 0
+function onPointer(e) {
+  if (props.readOnly || !BUTTON_SAYS_NOTHING.has(editor()) || e?.target?.closest?.('.ribbon-tabs')) return
+  touched = true
+  touchSeq++
+}
 // the sheet's own 다시 시도 for a failure it reported (markFailed — 「다른 이름으로 저장」 posts its copy again)
 let retryFn = null
 const badge = computed(() => {
@@ -522,7 +538,7 @@ const onHide = () => { if (document.visibilityState === 'hidden' && edited.value
 const onLeave = (e) => { if (!props.readOnly && (inFlight || dirty())) { e.preventDefault(); e.returnValue = '' } }
 function startWatching() {
   unwatch?.()
-  unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs, onDoc: dressSaving })
+  unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs, onDoc: dressSaving, onPointer })
 }
 // each page of the editor (the 한글 studio's comes later, in a frame of its own)
 function dressSaving(doc) {
@@ -565,7 +581,7 @@ async function load() {
   // (a save of the page being replaced is not this one's: it ends quietly, before the new page's state is set)
   settle?.({ saved: false, error: '문서를 다시 열었어요', reloaded: true })
   stopKeepAlive(); gone.value = false; clearTimeout(pressTimer); pressTimer = null; saveState.value = { kind: 'idle' }; answer()
-  copySave = false; copyLate = false; retryFn = null; unsavedCopy = false
+  copySave = false; copyLate = false; retryFn = null; unsavedCopy = false; touched = false
   pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
@@ -646,7 +662,7 @@ function onMessage(event) {
     if (!settle && !copy) agentEdits.value = false
     // saved by the editor's own 저장 too: everything up to now is in
     if (settle) settle({ saved: true, url: m.url || '', ...(m.unchanged && !m.url ? { clean: true } : {}) })
-    else if (!copy && edited.value) { edited.value = false; emit('edited', false) }
+    else if (!copy) { touched = false; if (edited.value) { edited.value = false; emit('edited', false) } }
     unsavedCopy = copy
     emit('saved', { url: m.url || '', name: m.name || props.name, ...(copy ? { copy: true } : {}) })
     // (after the host heard it: its own step — the card, the folder — is part of 「저장했어요」)

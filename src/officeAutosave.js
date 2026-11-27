@@ -89,7 +89,8 @@ export function pressSave(frame, { force = false } = {}) {
 // returns a function that stops listening. A drag on a slide (moving a shape) counts as an edit too.
 // hooks.onSave: the person pressed the editor's 저장 (its button or ⌘S); hooks.onSaveAs: its 「다른 이름으로 저장」 — a press on the
 // control, or ⌘⇧S, is taken here (the 한글 studio's own handler, on its text box, never sees it; the text editor's, on its window,
-// sees ⌘⇧S first and does nothing with it in the web host); hooks.onDoc(doc): each page watched (the 한글 studio's comes later).
+// sees ⌘⇧S first and does nothing with it in the web host); hooks.onDoc(doc): each page watched (the 한글 studio's comes later);
+// hooks.onPointer(e): every press of the mouse or a finger in a watched page (the mind map's edits are mostly made that way).
 // What is typed in the editor's own controls (its ribbon, search box, status bar, the 한글 studio's style bar — EDITOR_CHROME) is not an
 // edit of the document; a field of the document itself (a form field on a 한글 page, a spreadsheet's formula bar) is.
 export function watchEdits(frame, onEdit, hooks = {}) {
@@ -132,7 +133,7 @@ export function watchEdits(frame, onEdit, hooks = {}) {
       }
     })
     // (a deck only: elsewhere a drag is mostly selecting)
-    on('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY } })
+    on('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; hooks.onPointer?.(e) })
     on('pointerup', (e) => {
       if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6 && doc.querySelector('.slide-list, .stage-wrap')) onEdit('drag')
       down = null

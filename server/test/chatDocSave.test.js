@@ -273,22 +273,67 @@ test('판 지키기를 다시 불러도(다른 이름으로 저장의 다시 시
   assert.equal(again.content.url, kept.content.url)
 })
 
-test('아무것도 가리키지 않는 사본은 한 달 뒤 지운다 — 카드의 주소 · 이전 판이 가리키면 남긴다', { skip: !store && '로컬 Supabase 없음' }, async () => {
+test('판 지키기: 사본에서 연 카드를 💾 한 뒤(copies/edited-…) — 편집기의 사본이라 내 자리의 새 사본으로 옮긴다', { skip: !store && '로컬 Supabase 없음' }, async () => {
+  const prefix = `pgpt-pro/${me.id}/copies/`
+  const u = crypto.randomUUID()
+  await put(`${prefix}${u}.txt`, '다른 이름으로 저장한 판\n')
+  const session = await put(`${prefix}edited-${u}_20261128020000.txt`, '다른 이름으로 저장한 판\n💾 한 고침\n')
+  const tid = await room(me)
+  const c = await card(tid, { name: '사본에서 연 메모.txt', url: session })
+  const kept = await C.keepVersion(me, c.id)
+  assert.notEqual(kept.content.url, session)
+  assert.ok(kept.content.url.startsWith(copiesOf(me)))
+  assert.doesNotMatch(kept.content.url, /edited-/)
+  // the editor writes over its copy now; the card keeps its 💾 version
+  await put(`${prefix}edited-${u}_20261128020000.txt`, '다른 이름으로 저장한 판\n💾 한 고침\n저장 안 한 고침\n')
+  assert.equal(await read(kept.content.url), '다른 이름으로 저장한 판\n💾 한 고침\n')
+})
+
+test('아무것도 가리키지 않는 사본 정리: 한 달 지난(마지막으로 쓴 때 기준) · 이 기능의 이름 · 아무도 안 가리키는 것만, dry 는 남기고 on 은 지움, 한 번에 한 서버', { skip: !store && '로컬 Supabase 없음' }, async () => {
   const prefix = `pgpt-pro/${me.id}/copies/`
   const keyOf = (u) => decodeURIComponent(/\/object\/public\/files\/(.+)$/.exec(u)[1])
   const tid = await room(me)
   const onCard = await put(`${prefix}${crypto.randomUUID()}.txt`, '카드가 선 판\n')
   const inVersions = await put(`${prefix}${crypto.randomUUID()}.txt`, '이전 판\n')
+  const editedNamed = await put(`${prefix}edited-${crypto.randomUUID()}_20261128030000.txt`, '공유가 가리킴\n')
   const orphan = await put(`${prefix}${crypto.randomUUID()}.txt`, '아무도 안 가리킴\n')
+  const orphanEdited = await put(`${prefix}edited-${crypto.randomUUID()}_20261128030000.txt`, '편집기 사본, 아무도 안 가리킴\n')
+  const notOurs = await put(`${prefix}메모-${crypto.randomUUID()}.txt`.replace('메모-', 'notes-'), '이 기능이 만든 이름이 아님\n')
+  const rewritten = await put(`${prefix}${crypto.randomUUID()}.txt`, '오래 전에 만들었지만 요즘 다시 씀\n')
   const fresh = await put(`${prefix}${crypto.randomUUID()}.txt`, '아직 새것\n')
-  await card(tid, { name: '정리 시험.txt', url: onCard, versions: [inVersions] })
-  // a month and more ago — all but the fresh one
-  await q(`update storage.objects set created_at = now() - interval '40 days' where bucket_id='files' and name = any($1::text[])`, [[onCard, inVersions, orphan].map(keyOf)])
-  const unused = await C.unusedCopies({ prefix })
-  assert.deepEqual(unused, [keyOf(orphan)])
-  assert.equal(await C.cleanCopies({ prefix }), 1)
-  assert.equal((await fetch(orphan)).status >= 400, true)
-  assert.equal(await read(onCard), '카드가 선 판\n')
-  assert.equal(await read(inVersions), '이전 판\n')
-  assert.equal(await read(fresh), '아직 새것\n')
+  // more old copies that cards still name than one page holds: the orphans behind them are still found
+  const named = []
+  for (let n = 0; n < 5; n++) named.push(await put(`${prefix}${crypto.randomUUID()}.txt`, `카드 ${n}\n`))
+  await card(tid, { name: '정리 시험.txt', url: onCard, versions: [inVersions, ...named] })
+  await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2)`, [tid, { text: `공유한 주소: ${editedNamed}` }])
+  const old = [onCard, inVersions, editedNamed, orphan, orphanEdited, notOurs, rewritten, ...named].map(keyOf)
+  // (storage keeps updated_at itself on every update: set past it for this transaction only)
+  const back = await pool.connect()
+  try {
+    await back.query('begin')
+    await back.query("set local session_replication_role = replica")
+    await back.query(`update storage.objects set created_at = now() - interval '40 days', updated_at = now() - interval '40 days' where bucket_id='files' and name = any($1::text[])`, [old])
+    await back.query(`update storage.objects set updated_at = now() where bucket_id='files' and name = $1`, [keyOf(rewritten)])
+    await back.query('commit')
+  } catch (e) { await back.query('rollback'); throw e } finally { back.release() }
+  const unused = await C.unusedCopies({ prefix, page: 2 })
+  assert.deepEqual(unused.map((c) => c.key).sort(), [keyOf(orphan), keyOf(orphanEdited)].sort())
+  assert.ok(unused.every((c) => c.size > 0))
+  // another server runs it: this one does nothing
+  const other = await pool.connect()
+  try {
+    await other.query("select pg_advisory_lock(hashtext('pgpt-lite/copies-gc'))")
+    assert.equal((await C.cleanCopies({ mode: 'on', prefix })).busy, true)
+  } finally { await other.query("select pg_advisory_unlock(hashtext('pgpt-lite/copies-gc'))"); other.release() }
+  // off: nothing; dry: says what, removes nothing
+  assert.equal((await C.cleanCopies({ mode: 'off', prefix })).count, 0)
+  const dry = await C.cleanCopies({ mode: 'dry', prefix })
+  assert.equal(dry.count, 2)
+  assert.equal(await read(orphan), '아무도 안 가리킴\n')
+  // on: removes those two only
+  const on = await C.cleanCopies({ mode: 'on', prefix })
+  assert.equal(on.count, 2)
+  assert.ok((await fetch(orphan)).status >= 400)
+  assert.ok((await fetch(orphanEdited)).status >= 400)
+  for (const [u, t] of [[onCard, '카드가 선 판\n'], [inVersions, '이전 판\n'], [editedNamed, '공유가 가리킴\n'], [notOurs, '이 기능이 만든 이름이 아님\n'], [rewritten, '오래 전에 만들었지만 요즘 다시 씀\n'], [fresh, '아직 새것\n']]) assert.equal(await read(u), t)
 })
