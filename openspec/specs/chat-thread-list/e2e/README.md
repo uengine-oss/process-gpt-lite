@@ -111,3 +111,29 @@ cd e2e && PGPT_URL=http://127.0.0.1:5385 API_URL=http://127.0.0.1:8985 RT_FAKE_A
 | 돌려받은 말을 그대로 다시 보낸다 | F-SR-03 |
 | 순서와 시간 한도 | F-SR-07(시험에선 4초) |
 | 같은 이름 두 번 | F-SR-08 · 서버 「한 이름은 한 번만 …」 |
+
+## 걸러 본 대화 — 맨 아래에서 열림 · 메시지마다의 대화 표시 없음 (2026-11-28, `e2e/tests/feature/chat-thread-view.spec.js`)
+
+```bash
+cd server && PRO_PORT=8993 PRO_BACKGROUND=0 node index.js
+PRO_API_TARGET=http://127.0.0.1:8993 npx vite --port 5393 --strictPort
+cd e2e && PGPT_URL=http://localhost:5393 API_URL=http://127.0.0.1:8993 RT_WORKERS=1 \
+  npx playwright test tests/feature/chat-thread-view.spec.js --project=feature
+```
+
+계정은 `pro-rt-tv-phone` · `pro-rt-tv-wide`(@uengine.org)다. 시험마다 채팅을 비우고, 지어낸 대화 두 개(「부산 출장 준비」 · 「가나정밀 견적 검토」)의 질문과 답을 14번씩 번갈아 넣는다(56개, 휴대폰에서 여러 화면 길이). F-TV-04 는 같은 모양의 프로젝트(주제 「납품 일정」 · 「검사 성적서」)를 데이터베이스에 직접 만들고 끝나면 지운다. 모델은 쓰지 않는다. 맨 위에서 막대를 누르는 사람처럼 목록을 맨 위로 올린 뒤 고르고, 누른 순간부터 1.6초 동안 화면이 그린 프레임마다(그린 직후) 맨 아래와의 거리를 잰다. 화면이 바뀐 뒤의 프레임은 모두 40px 안이어야 한다(채팅 전체를 훑어 내려가거나 맨 위가 먼저 보이면 실패). 고치기 전 코드에서는 F-TV-01 이 3401px(목록 맨 위)로 실패했다.
+
+| 스펙 시나리오 | 시험 |
+|---|---|
+| 맨 위에서 대화를 고른다 | F-TV-01(390 밝음) · 02(390 어둠) · 03(1280, 왼쪽 목록) |
+| 전체 대화로 돌아온다 | F-TV-01 · 02 · 03 · 04(프로젝트의 「전체」) |
+| 다른 대화로 바꾼다 | F-TV-01 · 02 |
+| 위로 올려 둔 자리 | F-TV-01 · 02 |
+| 걸러 본 대화(대화 표시 없음) | F-TV-01 · 02 · 03(주소로 연 대화 포함) · 04(주제) · F-CT-02 · 07 · 08 화면 사진 |
+| 전체 대화(대화 표시 다시 보임) | F-TV-01 · 02 · 03 · 04 |
+
+결과: `results/thread-view.txt`(4/4, 같은 스택에서 F-CT-01~10 · F-CV-01~05 도 통과), 화면 사진 `results/f-tv-01-{light,dark}-phone-{filtered,all}.png` · `results/f-tv-03-wide-{filtered,all}.png` · `results/f-tv-04-phone-topic.png`. 걸러 본 화면의 `f-ct-02-filtered.png` · `f-ct-07b-phone-picked.png` · `f-ct-08a-dark.png` 은 대화 표시가 빠진 모습으로 다시 찍었다.
+
+시험하지 않은 것:
+- 실제 휴대폰(안드로이드 Chrome)의 그리기. 녹화에서 보인 빈 카드는 긴 채팅을 부드럽게 훑어 내려갈 때 블러 배경 카드가 늦게 그려진 것으로 보고, 훑어 내려가는 일 자체를 없앴다. Chromium 터치 화면(390×844, dpr 2)에서만 확인했다.
+- 늦게 커지는 그림 · 카드. 맨 아래에 붙어 있는 규칙(`ChatColumn.vue`의 ResizeObserver)은 그대로 쓰고, 시험 데이터는 글 메시지만이다.
