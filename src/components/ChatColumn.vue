@@ -162,8 +162,10 @@ watch(() => [list.value.length, draft.value, narrowed.value], ([n, , v], old) =>
 const settled = computed(() => list.value.filter((m) => m.kind === 'task' && ['needs_input', 'failed', 'needs_review', 'done'].includes(m.content?.state))
   .map((m) => `${m.id}:${m.content.state}:${m.content.need || ''}`).join(','))
 // (only a card already in the chat that changed state — not the first load, whose own scroll and a tap on the
-// waiting ring must not be pulled back down)
-watch(settled, (now, before) => {
+// waiting ring must not be pulled back down; nor a view that changed — narrowing in or out opens at the bottom at once, and a smooth
+// scroll here would turn the keep-at-bottom off while the cards' frames load: PR #124 review)
+watch(() => [settled.value, narrowed.value], ([now, v], [before, ov] = []) => {
+  if (v !== ov) return
   const was = new Map((before || '').split(',').filter(Boolean).map((x) => [x.split(':')[0], x]))
   const changed = (now || '').split(',').filter(Boolean).some((x) => was.has(x.split(':')[0]) ? was.get(x.split(':')[0]) !== x : false)
   const shownBefore = (now || '').split(',').filter(Boolean).some((x) => !was.has(x.split(':')[0]) && runningSeen.has(x.split(':')[0]))
