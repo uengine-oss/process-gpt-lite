@@ -1474,7 +1474,15 @@ export async function stopTurns({ user, session, threadId, conversation }) {
 // conversations' context (PR #49 review)
 // privateFiles: what this turn handed the agent that must never come back as a file card (a mail's attachment — [{path, sha256}]); by
 // default what runTurn put on the turn (handleTurn)
-export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag, pin: given = null, background = false, privateFiles = null }) {
+// 「문서에 채우기」 (lib/askTeammate.js fillDoc): the person pressed it, having seen a teammate's values — the agent fills that one document, in
+// a narrowed turn of its own conversation (delegate narrow); the router never sees it (no mail, schedule, browser or notify tool of Lite's)
+export function fillDocTurn({ user, session, threadId, text, file, conv, title = '' }) {
+  return delegate({ user, session, threadId, text, narrow: true, files: [file], pin: { conversationId: conv, title } })
+}
+// narrow: a turn the server starts for one job on one handed-over file (lib/askTeammate.js fillDoc — 「문서에 채우기」): its own conversation
+// (given), never routed, no other conversations' context, no folder work or folder hints, no connector or market hints, no document open in
+// the page, the chat stays in the conversation it was in, no new 「물어볼까요」 cards. files: the files handed over (instead of attached ones).
+export async function delegate({ user, session, threadId, text, onDelta, silent, mode, divider, quietIfUnchanged, hwpxTemplateUrl, fileTag, pin: given = null, background = false, privateFiles = null, narrow = false, files: handed = null }) {
   // the person's message stopped in its front stage (runTurn): the agent is not called
   const st0 = turnCtx.getStore()
   if (st0?.turn && !st0.adopted && st0.turn.threadId === threadId) checkpoint(st0.turn)
@@ -1497,15 +1505,15 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     await q('update pro_threads set conversation_id=null where id=$1 and conversation_id=$2', [threadId, thread.conversation_id])
     thread = { ...thread, conversation_id: null }
   }
-  const uploads = attached.get(threadId) || []
-  attached.delete(threadId)
+  const uploads = handed || attached.get(threadId) || []
+  if (!handed) attached.delete(threadId)
   // (kind: what a conversation of its own is — a scheduled task's, the briefs' — lib/ownConversations.js)
   // (agent: the deepagents conversation when it is not the listed one — a scheduled task's runs, whose history starts afresh every few runs)
   let pin = given?.conversationId ? { conversationId: String(given.conversationId), title: String(given.title || ''), ...(given.kind ? { kind: String(given.kind) } : {}), ...(given.agent ? { agent: String(given.agent) } : {}) } : pinned.get(threadId)
   if (!given?.conversationId) pinned.delete(threadId)
   // a project's view narrowed to one of its sub-topics sends that one (lib/projectTopics.js); a conversation that is not this
   // project's is not taken (the message is classified as any other)
-  if (pin && !pin.folder && thread?.kind === 'project' && !(await PT.isTopic(user.id, thread, pin.conversationId).catch(() => false))) pin = null
+  if (pin && !pin.folder && !narrow && thread?.kind === 'project' && !(await PT.isTopic(user.id, thread, pin.conversationId).catch(() => false))) pin = null
   const store = turnCtx.getStore()
   const adopted = store?.turn && !store.adopted && store.turn.threadId === threadId
   const handedOver = privatePaths(privateFiles || (store?.mailAtts?.threadId === threadId ? store.mailAtts.handed : []))
@@ -1611,7 +1619,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // the main chat now stands in that conversation, so an unsure next message stays there too —
   // except a shared folder's run room: that room is one variation's work, finished with this turn
   // (an ordinary message or a Home card answered there edited the folder's checkout)
-  if (pin && !pin.folder && !background) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, pin.conversationId])
+  if (pin && !pin.folder && !background && !narrow) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, pin.conversationId])
   if (preRouted) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, routing.conversation_id])
   await setThreadStatus(user.id, threadId, 'working')
   TP.stage(turn, 'preparing')
@@ -1619,9 +1627,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (!hubBound.has(user.id)) { hubBound.add(user.id); await ensureHubBinding(user.id, config.tenantId).catch(() => {}) }
   // the ArtCraft apps this message asks for list their tools to the agent (mcp/craft.js)
   // (or the document the page said is open with this message, when its live link is down)
-  const live = !silent && !divider && !background ? liveOpen(user.id) || (adopted && store.openDoc) || null : null
+  const live = !silent && !divider && !background && !narrow ? liveOpen(user.id) || (adopted && store.openDoc) || null : null
   if (live?.fromPage) console.log(`[delegate] open document from the page: '${live.file}' (${live.editor || '?'}) user=${user.id.slice(0, 8)} — live link down`)
-  activateCraft(user.id, [...craftAppsFor(text), ...(live ? [live.app] : [])])
+  activateCraft(user.id, narrow ? [] : [...craftAppsFor(text), ...(live ? [live.app] : [])])
   if (live?.app === 'ieumoffice') activateOffice(user.id)
   // a stalled agent (no byte for STREAM_IDLE_MS) is cut off, so the chat never sits on "생각하는 중" for good
   const idle = new AbortController()
@@ -1650,7 +1658,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   // 팀 맥락 공유(lib/context/refer.js): 메인 채팅의 턴마다 지금 일과 관계있는 다른 대화 맥락(내 것·팀이 공유한 것·허락받은 것)을
   // 골라 인용 블록으로 붙인다. 고른 결과는 사람 메시지에 남아 칩이 된다. 2초 안에 못 고르면 참고 없이 간다.
-  const refer = thread?.kind === 'chat' && !silent && !background && mode !== 'skill' && !divider && !pin?.folder
+  const refer = thread?.kind === 'chat' && !silent && !background && !narrow && mode !== 'skill' && !divider && !pin?.folder
     ? await referContext(user, { threadId, message: text, current: turn.conv || thread?.conversation_id || null, turnTitle: turn.title }).catch((e) => { console.warn('[delegate] refer', e.message); return null })
     : null
   if ((refer?.refer_id || refer?.off) && userMsgId) {
@@ -1662,7 +1670,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // (lib/folders/threadFolders.js) — not a shared folder's run room (folderTurn: its message says where)
   let projectWork = null, failed = false
   // (an instance's conversation has its work folder attached for reference — lib/mailWork.js: what is asked there reads its mails)
-  if (!pin?.folder && (thread?.kind === 'project' || thread?.kind === 'chat' || thread?.kind === 'process')) {
+  if (!pin?.folder && !narrow && (thread?.kind === 'project' || thread?.kind === 'chat' || thread?.kind === 'process')) {
     // (in the conversation this turn goes to — a project's sub-topic, lib/projectTopics.js — not the one the project stood in before)
     let seatNote = ''
     projectWork = await TF.prepareProjectWork({ user, thread: turn.conv ? { ...thread, conversation_id: turn.conv } : thread }).catch((e) => { seatNote = TF.seatHint(e); console.warn('[folders] project work', e.message); return null })
@@ -1723,7 +1731,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
   // 프로젝트 계획(lib/projectNote.js): every turn of a project, in whichever sub-topic — a sub-topic has its own history, and the plan changes
   // (design §4.3); background — the message decides
-  const planMsg = thread?.kind === 'project' && mode !== 'skill' ? planForAgent(turn.conv || thread?.conversation_id, await PN.noteRow(user.id, threadId).catch(() => null)) : { text: '', commit: () => {} }
+  const planMsg = thread?.kind === 'project' && mode !== 'skill' && !narrow ? planForAgent(turn.conv || thread?.conversation_id, await PN.noteRow(user.id, threadId).catch(() => null)) : { text: '', commit: () => {} }
   const projectPlan = planMsg.text
   // the request, through the context router (viaRouter) or straight to the agent
   const request = async (viaRouter) => {
@@ -1741,7 +1749,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
       body: JSON.stringify({
         // English mode: the language instruction goes last, after what the person said and the hints
-        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + connectorHint(text) + marketHint(text) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + (projectPlan ? `\n\n${projectPlan}` : '') + planText + langInstruction({ said: asked }), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + (narrow ? '' : connectorHint(text) + marketHint(text)) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + (projectPlan ? `\n\n${projectPlan}` : '') + planText + langInstruction({ said: asked }), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
         files: chatFiles(sent),
         user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
         conversation_id: conv, stream: true,
@@ -1812,7 +1820,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       } else if (event === 'metadata' && j.conversation_id) {
         turn.setConv(j.conversation_id)
-        if (!thread?.conversation_id && !pin?.folder && !background) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
+        if (!thread?.conversation_id && !pin?.folder && !background && !narrow) await q('update pro_threads set conversation_id=$2 where id=$1', [threadId, j.conversation_id])
       }
       if (j.type === 'token' && j.content) { all += j.content; segs.token(j.content); partial = segs.answer() }
       // a tool is being called: the text before it was on the way, not the answer — unless the call is bookkeeping (the to-do
@@ -1859,7 +1867,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         const doc = documentFrom(raw)
         const tool = j.tool || j.tool_name || ''
         // ask_teammate (mcp/team.js): its signed offer, for this person — the card comes after the answer and the files
-        if (AT.isAskTool(tool)) { const o = AT.offerFromOutput(raw, user.id); if (o && !offers.some((x) => x.exp === o.exp && x.m.id === o.m.id)) offers.push(o) }
+        // (one card per offer: by its one-time id — two offers made in the same second are two)
+        if (AT.isAskTool(tool)) { const o = AT.offerFromOutput(raw, user.id); if (o && !offers.some((x) => x.jti === o.jti)) offers.push(o) }
         if (doc && !toolDocs.some((d) => d.doc.url === doc.url)) toolDocs.push({ doc, tool, input: inputs.get(tool) ?? null, raw: parseToolOutput(raw)?.file_name || parseToolOutput(raw)?.fileName || doc.name })
         // the next model call may write for a long while with nothing to stream: the live line counts from here
         if (j.type === 'tool_end') TP.stage(turn, 'working', { text: TP.nextStepText(), detail: 'after_tool' })
@@ -2015,7 +2024,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   }
   // 「○○님께 메신저로 물어볼까요?」 for each teammate the agent would ask (lib/askTeammate.js — nothing is sent until the person presses
   // 물어보기); not for a stopped answer or a scheduled run's (its result goes to the task's own conversation)
-  if (offers.length && !ended && !background) {
+  if (offers.length && !ended && !background && !narrow) {
     for (const o of offers.slice(0, 3)) {
       await AT.postOffer({ user, threadId, offer: o, files: posted, tag: convTag(), source: turnCtx.getStore()?.source || null })
         .catch((e) => console.warn('[ask-teammate] offer', e.message))

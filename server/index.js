@@ -1374,7 +1374,8 @@ const server = app.listen(config.port, async () => {
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
   startStepRetry()
   // a teammate the AI asked for someone who has not answered in a day: the person hears of it (lib/askTeammate.js)
-  askTeammate.startSweep(forEachTenant)
+  // (one query for every company — lib/askTeammate.js sweep)
+  askTeammate.startSweep()
 })
 // how long one request may take to arrive whole (Node's own default is five minutes): an upload of 200 MB on a slow line takes longer.
 // A folder going up request by request gives up on its own when a body stops coming (lib/folders/batchBody.js, 30 s).

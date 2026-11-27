@@ -3,7 +3,10 @@
 //   ask_team       — 「○○님께 메신저로 물어볼까요?」: who, why, the items, the words that would go — sent only when 물어보기 is pressed
 //                    (고쳐서 물어보기: the words and the items changed first; 아니요: the person fills it in), then it follows the request
 //                    (물어봤어요 · 아직 답이 없어요 · 답했어요 · 모른다고 했어요)
-//   ask_team_reply — what came back, at the bottom of the chat: the values, the draft file's new version, the mail reply draft (never sent)
+//   ask_team_reply — what came back, at the bottom of the chat: the values, the draft file's new version, the mail reply draft (never sent);
+//                    a document (워드 · 한글 …) is filled only when the person presses 「문서에 채우기」 here, having seen the values
+// 「고쳐서 물어보기」 changes everything that goes out: the reason (the form's first line too), the items, and the words — made again from the
+// template as the reason and the items change, until the person writes the words themselves.
 // Values are the teammate's words: shown as text (data-no-i18n).
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -25,12 +28,17 @@ const busy = ref('')
 const err = ref('')
 const done = ref('')
 const editing = ref(false)
-const draft = ref({ message: '', fields: [] })
+const draft = ref({ message: '', reason: '', fields: [], wrote: false })
 
 function edit() {
-  draft.value = { message: a.value.message || '', fields: (a.value.fields || []).map((f) => ({ key: f.key, label: f.label })) }
+  draft.value = { message: a.value.message || '', reason: a.value.reason || '', fields: (a.value.fields || []).map((f) => ({ key: f.key, label: f.label })), wrote: false }
   editing.value = true
 }
+// the words as the template makes them from the reason and the items now (the server makes them the same way when the person did not write them)
+const made = computed(() => String(a.value.tpl || '{owner}\n{reason}\n{fields}').replace('{owner}', () => a.value.ownerName || '').replace('{reason}', () => draft.value.reason.trim())
+  .replace('{fields}', () => draft.value.fields.filter((f) => f.label.trim()).map((f) => `- ${f.label.trim()}`).join('\n')))
+const shown = computed(() => (editing.value && !draft.value.wrote ? made.value : draft.value.message))
+function wrote(e) { draft.value.message = e.target.value; draft.value.wrote = true }
 async function run(path, body, after) {
   err.value = ''; busy.value = path
   try {
@@ -39,7 +47,8 @@ async function run(path, body, after) {
     editing.value = false
   } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
-const send = () => run('send', editing.value ? { message: draft.value.message, fields: draft.value.fields.filter((f) => f.label.trim()) } : {})
+const send = () => run('send', editing.value ? { reason: draft.value.reason, fields: draft.value.fields.filter((f) => f.label.trim()), ...(draft.value.wrote ? { message: draft.value.message } : {}) } : {})
+const fillDoc = () => run('fill-doc', {})
 const decline = () => run('decline', {}, '직접 채우기로 했어요.')
 const again = () => run('again', {}, '다시 물어봤어요.')
 const openRoom = () => team.openMessenger(a.value.room || c.value.room, a.value.chat || c.value.chat)
@@ -55,7 +64,11 @@ const fileLine = computed(() => {
   const f = c.value.file
   if (!f) return ''
   if (f.state === 'filled') return `「${f.name}」의 빈칸 ${f.count}곳을 채워 새 판으로 저장했어요.${f.missing?.length ? ` 채우지 못한 항목: ${f.missing.join(', ')}` : ''}`
-  if (f.state === 'agent') return `「${f.name}」은 에이전트가 채워 새 판으로 저장하고 있어요.`
+  if (f.state === 'doc') return `「${f.name}」은 문서라 바로 채우지 않았어요. 값을 확인하고 「문서에 채우기」를 누르면 에이전트가 이 문서만 채워요.`
+  if (f.state === 'running') return `에이전트가 「${f.name}」을 채우고 있어요.`
+  if (f.state === 'agent_done') return `에이전트가 「${f.name}」을 채웠어요. 새 판을 확인해 주세요.`
+  if (f.state === 'agent_failed') return `「${f.name}」을 채우지 못했어요. 값을 직접 넣어 주세요.`
+  if (f.state === 'conflict') return `「${f.name}」이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.`
   if (f.state === 'none') return `「${f.name}」에서 채울 빈칸을 찾지 못했어요. 값을 직접 넣어 주세요.`
   return `「${f.name || '초안 파일'}」은 직접 채워 주세요.`
 })
@@ -64,6 +77,7 @@ const mailLine = computed(() => {
   if (!m) return ''
   if (m.sent) return '이 메일에는 이미 답장을 보냈어요.'
   if (m.count) return `메일 답장 초안의 빈칸 ${m.count}곳도 채웠어요. 직접 보내 주세요.`
+  if (m.conflict) return '메일 답장 초안이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.'
   return m.draft ? '메일 답장 초안에서는 채울 빈칸을 찾지 못했어요.' : '답을 메일 카드에 남겼어요. 「답장도 쓰기」로 초안을 쓰면 이 값이 들어가요.'
 })
 const stateLine = computed(() => ({
@@ -89,7 +103,8 @@ const stateLine = computed(() => ({
       <p v-if="mailLine" class="line" data-testid="ask-team-mail"><Icon name="mail" :size="14" />{{ mailLine }}</p>
       <small class="sub">메일은 보내지 않았어요.</small>
       <div class="btns">
-        <button v-if="c.file?.msgId && ['filled', 'agent', 'none'].includes(c.file.state)" class="pill press" data-testid="ask-team-open-file" @click="openFile">초안 열기</button>
+        <button v-if="c.file?.state === 'doc'" class="pill yes press" :disabled="!!busy" data-testid="ask-team-fill-doc" @click="fillDoc">{{ busy === 'fill-doc' ? '시작하는 중…' : '문서에 채우기' }}</button>
+        <button v-if="c.file?.msgId && ['filled', 'none', 'doc', 'running', 'agent_done', 'conflict'].includes(c.file.state)" class="pill press" data-testid="ask-team-open-file" @click="openFile">초안 열기</button>
         <button v-if="c.mail?.actionId" class="pill press" data-testid="ask-team-open-mail" @click="openMail">메일 열기</button>
       </div>
     </template>
@@ -114,7 +129,8 @@ const stateLine = computed(() => ({
   <!-- the offer, and then the request it became -->
   <div v-else class="at glass" data-testid="ask-team-card" :data-state="c.state" :data-card="msg.id">
     <div class="hd"><span class="badge"><Icon name="chat" :size="13" />팀원에게 묻기</span><b>{{ c.text }}</b></div>
-    <p class="why"><span class="k">묻는 이유</span>{{ a.reason }}</p>
+    <p v-if="!editing" class="why"><span class="k">묻는 이유</span>{{ a.reason }}</p>
+    <label v-else class="why"><span class="k">묻는 이유</span><input v-model="draft.reason" class="rin" maxlength="300" data-testid="ask-team-reason-input" /></label>
     <div class="items">
       <span class="k">물어볼 항목</span>
       <template v-if="!editing">
@@ -130,7 +146,7 @@ const stateLine = computed(() => ({
     <p v-if="a.file?.name" class="why"><span class="k">채울 파일</span><button class="flink press" @click="openFile">{{ a.file.name }}</button></p>
     <div v-if="c.state === 'offered'" class="pv">
       <span class="k">{{ name }}님께 보낼 메시지</span>
-      <textarea v-if="editing" v-model="draft.message" rows="6" maxlength="2000" data-testid="ask-team-message-input" />
+      <textarea v-if="editing" :value="shown" rows="6" maxlength="2000" data-testid="ask-team-message-input" @input="wrote" />
       <p v-else class="msg" data-testid="ask-team-preview">{{ a.message }}</p>
     </div>
     <dl v-if="c.state === 'answered' && values.length" class="vals">
@@ -174,6 +190,7 @@ const stateLine = computed(() => ({
 .flink { padding: 0; background: none; color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; font-size: 14.5px; text-align: left; overflow-wrap: anywhere; }
 .pv { display: flex; flex-direction: column; }
 .msg { margin: 0; padding: 10px 12px; border-radius: 14px; background: var(--field-bg); font-size: 14px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.rin { width: 100%; box-sizing: border-box; height: 36px; padding: 0 12px; border-radius: 12px; border: 0; background: var(--field-bg); color: var(--text-primary); font: inherit; font-size: 14.5px; outline: none; }
 textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 14px; border: 0; background: var(--field-bg); color: var(--text-primary); font: inherit; font-size: 14px; line-height: 1.55; resize: vertical; outline: none; }
 .vals { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 0; padding: 10px 12px; border-radius: 14px; background: var(--field-bg); font-size: 14px; }
 .vals dt { color: var(--text-secondary); }

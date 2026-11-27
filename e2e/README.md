@@ -1779,7 +1779,7 @@ cd e2e && npx playwright test --project=desktop tests/desktop/folder-drop.spec.j
 
 ```bash
 cd server && node --test test/askTeammate.test.js && node --test --test-concurrency=1 test/askTeammate.integration.test.js
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/ask-teammate.spec.js
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/ask-teammate.spec.js   # F-AT-01~05
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1794,6 +1794,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/ask-t
 | 문서(docx) 초안은 서버가 만든 턴(composed)으로 에이전트가 채움 — 사람의 말로 치지 않음(PR #105 규칙) | 브리프 | AT-I-08 | 통합 | ✅ |
 | 빈칸 채우기는 에이전트가 준 줄을 모델 없이, 나머지는 모델의 「찾을 글 → 바꿀 글」 중 온전한 줄 · 한 번 · 값이 든 것만(한 줄의 빈칸 둘도) | 설계 | AT-U-05 | 단위 | ✅ |
 | 실제 사내 모델로 스킬 프롬프트(말로 한 답 4문장 · 채우기 두 초안) | — | `openspec/specs/ask-teammate/e2e/results/ask-teammate-live.txt` | 실측 | ✅ |
+| **PR #108 검토**: #1 문서는 답만으로 턴 없음 · 「문서에 채우기」를 사람이 눌러야 좁힌 턴(그 대화 · 그 파일 · 값은 한 줄 자료 · 라우터 없음) · #2 답은 카드가 보낸 그 요청에만(카드 행을 잠그고 · 손으로 쓴 · 되살린 요청 · 「아니요」 뒤 답은 404 · 409) · #3 모델의 고침은 짧은 빈칸 하나만 · #4 값은 한 줄 · HTML · CSV 꼴 · #5 겹친 답은 다시 읽어 채움 · 메일 초안은 읽은 글 위에만 · #6 이유 · 항목 · 글을 카드에서 고침(글은 틀에서 다시) · #7 이름이 여럿이면 후보 · 주소는 그 주소만 · #8 점검은 한 번의 조회 · #9 제안 하나에 카드 하나 · 멈춘 「보내는 중」 되돌림 · 채우기는 뒤에서 | 검토 11-27 | F-AT-02 · 05 · AT-U-09 · 10 · AT-I-08~12 | feature · 단위 · 통합 | ✅ |
 | 실제 deepagents 가 초안을 쓰다 이 도구를 고르는지 · 운영 공통 MCP 목록의 `pgpt-team` | — | — | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

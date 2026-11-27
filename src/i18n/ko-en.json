@@ -3370,7 +3370,9 @@
   "칸에 적어 보내거나 이 방에 답장으로 적어도 돼요.": "Fill in the form, or just reply in this conversation.",
   "답을 기다리고 있어요": "Waiting for an answer",
   "요청이 취소됐어요": "The request was cancelled",
-  "모르면 누가 아는지 적어 주셔도 돼요": "If you don't know, who might"
+  "모르면 누가 아는지 적어 주셔도 돼요": "If you don't know, who might",
+  "문서에 채우기": "Fill the document",
+  "메일 답장 초안이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.": "The mail reply draft changed meanwhile, so it was not filled. Put the values in yourself."
  },
  "patterns": [
   [
@@ -7654,10 +7656,6 @@
    "Filled {1} blanks in \"{0}\" and saved it as a new version. Not filled: {2}"
   ],
   [
-   "「{0}」은 에이전트가 채워 새 판으로 저장하고 있어요.",
-   "The agent is filling \"{0}\" and saving it as a new version."
-  ],
-  [
    "「{0}」에서 채울 빈칸을 찾지 못했어요. 값을 직접 넣어 주세요.",
    "No blanks to fill were found in \"{0}\". Put the values in yourself."
   ],
@@ -7700,6 +7698,26 @@
   [
    "{0}님이 물어봤어요 · AI 가 대신 묻는 중",
    "{0} asked you something (AI asking for them)"
+  ],
+  [
+   "「{0}」은 문서라 바로 채우지 않았어요. 값을 확인하고 「문서에 채우기」를 누르면 에이전트가 이 문서만 채워요.",
+   "\"{0}\" is a document, so it was not filled right away. Check the values and press \"Fill the document\" — the agent fills only this document."
+  ],
+  [
+   "에이전트가 「{0}」을 채우고 있어요.",
+   "The agent is filling \"{0}\"."
+  ],
+  [
+   "에이전트가 「{0}」을 채웠어요. 새 판을 확인해 주세요.",
+   "The agent filled \"{0}\". Check the new version."
+  ],
+  [
+   "「{0}」을 채우지 못했어요. 값을 직접 넣어 주세요.",
+   "\"{0}\" could not be filled. Put the values in yourself."
+  ],
+  [
+   "「{0}」이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.",
+   "\"{0}\" changed meanwhile, so it was not filled. Put the values in yourself."
   ]
  ],
  "context": [
