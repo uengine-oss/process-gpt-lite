@@ -8,7 +8,7 @@ import ComposerClip from './ComposerClip.vue'
 import FolderAttach from './folders/FolderAttach.vue'
 import ComposerAgent from './ComposerAgent.vue'
 import { keyOf, agentFor } from '../chatAgent.js'
-import { narrow } from '../viewport.js'
+import { narrow, coarse, keyboardUp } from '../viewport.js'
 import { createDictation, recognizerOf, MESSAGES } from '../useDictation.js'
 import { serverRecognition, canRecord, postPiece } from '../serverDictation.js'
 import { startCapture } from './meetings/capture.js'
@@ -22,8 +22,10 @@ import { inbox } from '../shareInbox.js'
 import { clip } from '../sendQueue.js'
 
 // overlay: a second composer over an open app (CraftLiveOverlay) — no page-wide drop target, no 새 패널 button
-const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean })
-const emit = defineEmits(['send', 'escape'])
+// status: the chat's progress pill is given in the #status slot (ChatColumn) — it sits on the row over the box, left of a phone's agent chip
+// stoppable · stopping: an answer is being written here — ■ 멈추기 is a button of the box itself, beside the mic (emits stop)
+const props = defineProps({ placeholder: { type: String, default: 'process gpt에 메시지 보내기' }, overlay: Boolean, status: Boolean, stoppable: Boolean, stopping: Boolean })
+const emit = defineEmits(['send', 'escape', 'stop'])
 const app = useApp()
 const text = ref('')
 const ta = ref(null)
@@ -74,6 +76,13 @@ onMounted(() => {
 })
 onBeforeUnmount(() => sizer?.disconnect())
 const tight = computed(() => narrow.value || boxW.value < TIGHT_PX)
+// Typing on a phone (2026-11-27 recording: 「이 공간 지금 여기 너무 많이 잡아먹고 있어요 … 타이핑하는 동안에도 이게 그대로 있잖아」 — the progress
+// pill with 멈추기, the 「기본」 chip and the box stood in three rows over the keyboard): while the box has the focus on a touch screen and
+// the on-screen keyboard is up (src/viewport.js keyboardUp — a phone held either way, a tablet), the row over it folds away and only the
+// box stays. ■ stays in the box; the progress and the chip come back when the keyboard goes, even while the box keeps the focus (Android's
+// Back). A hardware keyboard folds nothing. The row's parts stay mounted (v-show): the chip does not ask for its agents again on each fold.
+const focused = ref(false)
+const folded = computed(() => focused.value && coarse.value && keyboardUp.value)
 
 const ph = computed(() => (dict.on ? '듣는 중… 말하면 여기에 적혀요' : app.panelMode ? suggestions[si.value].t : props.placeholder))
 // something to send: the send button (beside the mic, never in its place — see the template)
@@ -86,6 +95,30 @@ const agentKey = computed(() => {
   if (app.mode === 'project' && app.projects.some((p) => p.id === app.activeId)) return keyOf(app.activeId)
   return null
 })
+// a narrow box's who-answers chip: on the row over the box, right of the progress (folded while typing on a phone)
+const chipRow = computed(() => !!agentKey.value && tight.value)
+const dictShown = computed(() => dict.on || !!dict.error)
+// ＋ (새 패널) comes back a while after ■ goes, not at once under the finger that just stopped (PR #119 review): hidden while stopping and
+// for PLUS_HOLD_MS after
+const PLUS_HOLD_MS = 1000
+const plusHeld = ref(false)
+let plusTimer = null
+watch(() => props.stoppable, (on, was) => {
+  clearTimeout(plusTimer)
+  if (on) { plusHeld.value = true; return }
+  if (was) plusTimer = setTimeout(() => { plusHeld.value = false }, PLUS_HOLD_MS)
+  else plusHeld.value = false
+})
+onBeforeUnmount(() => clearTimeout(plusTimer))
+const plusShown = computed(() => !props.stoppable && !props.stopping && !plusHeld.value)
+// Without speech recognition the mic goes once there are words: the send button then comes in right of ■, so ■ keeps its place
+const sendLast = computed(() => props.stoppable && !dictation)
+// ■ by the keyboard (Enter · Space — a click without a pointer): the focus goes back to the box, not lost with the button
+function stopTurn(e) {
+  emit('stop')
+  // (not on a touch screen: a screen reader's activation also has detail 0, and focusing the box there opens the keyboard)
+  if (e?.detail === 0 && !coarse.value) nextTick(() => ta.value?.focus())
+}
 // (immediate: a request left before this composer was there — an open document's AI button on another page, OfficeSheet)
 watch(() => app.prefill, async (v) => {
   if (!v) return
@@ -222,7 +255,7 @@ defineExpose({ focus: () => ta.value?.focus() })
 </script>
 
 <template>
-  <div ref="root" class="composer" :class="{ panel: app.panelMode, pglarmed: pglArmed && !overlay, pglover: pglOver, tight }" :data-tight="tight ? 'yes' : 'no'" data-test="chat-composer"
+  <div ref="root" class="composer" :class="{ panel: app.panelMode, pglarmed: pglArmed && !overlay, pglover: pglOver, tight }" :data-tight="tight ? 'yes' : 'no'" :data-folded="folded ? 'yes' : 'no'" data-test="chat-composer"
     @dragenter="pglEnter" @dragover="pglMove" @dragleave="pglLeave" @drop="pglDrop">
     <Transition name="fade">
       <div v-if="pglArmed && !overlay" class="pglhint" data-test="chat-dropzone" aria-hidden="true"><span>✦</span>{{ pglWords }}</div>
@@ -286,24 +319,32 @@ defineExpose({ focus: () => ta.value?.focus() })
     <Teleport to="body">
       <Transition name="fade"><div v-if="dragging" class="dropzone"><div><Icon name="clip" :size="34" /><p>여기에 놓으면 첨부돼요</p></div></div></Transition>
     </Teleport>
-    <!-- over the box: dictation — listening (the mic again, or letting go of a held mic, stops it) or why it stopped — on the left;
-         a phone's who-answers on the right (the box keeps its width for the words). A long reason takes a line of its own. -->
-    <div v-if="dict.on || dict.error || (agentKey && tight)" class="agentrow">
-      <span v-if="dict.on || dict.error" class="dictbar" role="status" aria-live="polite" data-testid="dictation-status">
-        <span v-if="dict.on" class="dpill glass-thin"><i class="dot" />{{ dict.phase === 'starting' ? '마이크 켜는 중…' : '듣는 중…' }}</span>
-        <span v-else class="dpill glass-thin err">{{ dict.error }}</span>
+    <!-- one row over the box: dictation — listening (the mic again, or letting go of a held mic, stops it) or why it stopped — and the
+         chat's progress pill (#status) on the left; a narrow box's who-answers on the right (the box keeps its width for the words).
+         A long reason takes a line of its own. While typing on a phone only dictation stays (folded). -->
+    <div v-if="dictShown || status || chipRow" v-show="dictShown || !folded" class="agentrow">
+      <span v-if="dictShown || status" v-show="dictShown || !folded" class="lead">
+        <span v-if="dictShown" class="dictbar" role="status" aria-live="polite" data-testid="dictation-status">
+          <span v-if="dict.on" class="dpill glass-thin"><i class="dot" />{{ dict.phase === 'starting' ? '마이크 켜는 중…' : '듣는 중…' }}</span>
+          <span v-else class="dpill glass-thin err">{{ dict.error }}</span>
+        </span>
+        <span v-if="status" v-show="!folded" class="status"><slot name="status" /></span>
       </span>
-      <ComposerAgent v-if="agentKey && tight" :chat-key="agentKey" row />
+      <ComposerAgent v-if="chipRow" v-show="!folded" :chat-key="agentKey" row />
     </div>
     <div class="box glass-thin">
       <input ref="picker" type="file" multiple hidden @change="picked" />
       <span v-if="app.panelMode && !text" :key="si" class="icons blur-in"><i v-for="(ic, k) in suggestions[si].icons" :key="k">{{ ic }}</i></span>
-      <textarea ref="ta" v-model="text" rows="1" :placeholder="ph" @keydown="onKey" @paste="onPaste" />
+      <textarea ref="ta" v-model="text" rows="1" :placeholder="ph" @keydown="onKey" @paste="onPaste" @focus="focused = true" @blur="focused = false" />
       <ComposerClip v-if="!app.panelMode" :folders="!overlay" @files="picker.click()" />
       <ComposerAgent v-if="agentKey && !tight" :chat-key="agentKey" />
-      <button v-if="sendable" class="send press" aria-label="보내기" @click="submit"><Icon name="up" :size="20" /></button>
-      <!-- panels are made from 채팅 only, not from a project, 새 프로젝트 or an instance page -->
-      <button v-else-if="!overlay && app.mode === 'chat'" class="ic press" aria-label="새 패널 만들기" @click="app.panelMode = true"><Icon name="plus" :size="22" /></button>
+      <button v-if="sendable" class="send press" :class="{ last: sendLast }" aria-label="보내기" @click="submit"><Icon name="up" :size="20" /></button>
+      <!-- panels are made from 채팅 only, not from a project, 새 프로젝트 or an instance page (while an answer is written, ■ has its place) -->
+      <button v-else-if="!overlay && app.mode === 'chat' && plusShown" class="ic press" aria-label="새 패널 만들기" @click="app.panelMode = true"><Icon name="plus" :size="22" /></button>
+      <!-- 멈추기 (the answer being written here): in the box, as in other chat apps — so it stays in reach while the row over the box is
+           folded for typing. It keeps its place next to the mic: the send button comes in left of it, never where a finger meant to stop. -->
+      <button v-if="stoppable" class="ic stop press" :class="{ busy: !stopping }" :disabled="stopping" :aria-label="stopping ? '멈추는 중' : '답 멈추기'" :title="stopping ? '멈추는 중' : '답 멈추기'"
+        data-testid="composer-stop" @click="stopTurn"><i class="sq" /></button>
       <!-- the mic is always the last button: the send button comes in beside it, never under the finger that taps the mic again
            (2026-11-24: the mic used to turn into ↑ with the first words, and the tap meant to keep talking sent). Without speech
            recognition it is there only while the box is empty, and says so. -->
@@ -338,6 +379,12 @@ defineExpose({ focus: () => ta.value?.focus() })
 .sendissue .acts { margin-left: auto; display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .sendissue button { flex: none; height: 24px; padding: 0 10px; border-radius: 9999px; font-size: 12px; color: var(--text-secondary); border: 1px solid var(--hairline); }
 .agentrow { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin: 0 6px 6px; }
+/* (the left part of the row: the progress pill shares the row with the chip and shortens its words; dictation's words — a long
+   reason why it stopped — may take a line of their own over the chip) */
+.lead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1 1 0; min-width: 0; max-width: 100%; margin-right: auto; }
+.lead:has(.dictbar) { flex-basis: auto; }
+/* (the progress pill's own box: the pill is the row's item as if this were not there) */
+.status { display: contents; }
 .box { display: flex; align-items: flex-end; min-height: 48px; border-radius: 24px; padding-right: 6px; --thin-bg: var(--composer-bg); transition: background-color 1s, margin .4s var(--spring); }
 .panel .box { margin-left: 60px; }
 textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; height: 48px; padding: 14.5px 8px 14.5px 16px; font-size: 15px; line-height: 19px; color: var(--text-primary); }
@@ -349,13 +396,23 @@ textarea::placeholder { color: var(--text-secondary); transition: opacity .3s; }
 .mic.rec { color: #fff; background: var(--color-attention); opacity: 1; animation: mic-ring 1.4s infinite; }
 @keyframes mic-ring { 0% { box-shadow: 0 0 0 0 rgba(255, 77, 0, .45); } 100% { box-shadow: 0 0 0 7px rgba(255, 77, 0, 0); } }
 @media (prefers-reduced-motion: reduce) { .mic.rec, .dpill .dot { animation: none; } }
-.dictbar { display: flex; min-width: 0; max-width: 100%; margin-right: auto; }
+.dictbar { display: flex; min-width: 0; max-width: 100%; }
 .dpill { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 30px; padding: 5px 14px 5px 12px; border-radius: 15px;
   font-size: 13px; line-height: 1.4; color: var(--text-primary); animation: pop-in .3s var(--spring); }
 .dpill .dot { flex: none; width: 8px; height: 8px; border-radius: 4px; background: var(--color-attention); animation: pulse 1.2s infinite; }
 .dpill.err { color: #c62828; }
 :root[data-theme="dark"] .dpill.err { color: #ff8a80; }
+/* ■ while an answer is written: a square in a ring, an arc running round it while it works (the browser dock's arc — BrowserDock.vue) */
+.stop { position: relative; color: var(--text-primary); box-shadow: inset 0 0 0 1.5px var(--hairline); animation: pop-in .3s var(--spring); }
+.stop .sq { width: 11px; height: 11px; border-radius: 2.5px; background: currentColor; }
+.stop.busy::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 62%, currentColor 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px)); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  opacity: .55; animation: spin 1.2s linear infinite; pointer-events: none; }
+.stop:disabled { opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .stop.busy::after { animation: none; background: none; box-shadow: inset 0 0 0 1.5px currentColor; } }
 .send { width: 36px; height: 36px; margin: 6px 0; border-radius: 9999px; display: grid; place-items: center; background: #1d1d1f; color: #fff; animation: pop-in .3s var(--spring); }
+/* (in the mic's place when there is no speech recognition — as wide as the mic was, so ■ does not move) */
+.send.last { order: 1; margin: 6px 2px; }
 :root[data-theme="dark"] .send { background: #f5f5f7; color: #1d1d1f; }
 .undo { position: absolute; left: 0; bottom: 0; width: 48px; height: 48px; border-radius: 9999px; display: grid; place-items: center; background: var(--composer-bg); -webkit-backdrop-filter: blur(50px); backdrop-filter: blur(50px); }
 .label { position: absolute; bottom: 62px; left: 0; right: 0; text-align: center; font-size: 17px; color: var(--text-secondary); }

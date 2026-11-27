@@ -450,10 +450,12 @@ test('F-TP-06 390px: 아래 시트 · 「멈추기」가 다 보임 · 화면 �
     const url = `https://news.example.com/posts/${name}-${Date.now().toString(36)}`
     await send(p, url)
     await expect(p.locator('[data-testid="turn-understood"]').last()).toBeVisible({ timeout: 4000 })
-    // the pill and 멈추기 side by side, 멈추기 whole
+    // (a phone: the keyboard put away after sending — while the person types, the row over the box folds: compact-composer F-CC-02)
+    if (phone) await p.locator('[data-test="chat-composer"] textarea').last().blur()
+    // 멈추기 whole: the box's own ■, under the pill's row (compact-composer F-CC-01)
     await inView(p.locator('.foot button.stop'), p)
     const pb = await pill(p).boundingBox(), sb = await p.locator('.foot button.stop').boundingBox()
-    expect(pb.x + pb.width).toBeLessThanOrEqual(sb.x + 0.5)
+    expect(pb.y + pb.height).toBeLessThanOrEqual(sb.y + 0.5)
     await expect(card(p).locator('[data-testid="turn-step"]').first()).toHaveAttribute('data-state', 'done', { timeout: 8000 })
     await shot(p, `tp-card-${name}`)
     await pill(p).click()

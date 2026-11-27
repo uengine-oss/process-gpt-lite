@@ -97,7 +97,7 @@ const threadSheet = computed(() => threadsShown.value && !wide.value)
 const artLayout = computed(() => (!ready.value || mobileHome.value || threadSheet.value || settings.value ? 'none'
   : artifactLayout({ pageW: pageW.value, leftW: leftOpen.value ? 420 : 0, wide: wide.value, docOpen: !!app.officeDoc, folded: app.artifactsFolded, count: app.artifacts.items.length })))
 const artW = computed(() => sideWidth(artLayout.value))
-const pileAt = (foot) => pilePlace({ gutter: foot.gutter, footTop: foot.top, small: narrow.value })
+const pileAt = (foot) => pilePlace({ gutter: foot.gutter, footTop: foot.top, boxTop: foot.box, noticeH: foot.notice, small: narrow.value })
 // the clock in the bottom-left corner (Home closed): only where the chat, moved over for the files' column, leaves it room
 const clockFits = computed(() => (pageW.value - artW.value - 512) / 2 >= 240)
 // the bar's tabs over the chat column: between the left column and the files' column when they leave the tabs room beside the bar's

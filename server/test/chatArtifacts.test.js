@@ -82,6 +82,13 @@ test('AS-U-05 더미의 자리: 입력창 오른쪽에 넉넉하면 옆, 아니�
   assert.deepEqual(pilePlace({ gutter: 16, footTop: 84, small: true }), { mode: 'above', size: 48, right: 16, bottom: 144 })
   assert.equal(pilePlace({ gutter: 400, small: true }).mode, 'above')
   assert.equal(pilePlace({ gutter: 0, footTop: 84 }).right, 16)
+  // a turn's row over the box (36px) comes and goes: the pile stays where it was (PR #119 review), clear of the row
+  assert.equal(pilePlace({ gutter: 84, footTop: 120, boxTop: 84 }).bottom, 144)
+  assert.equal(pilePlace({ gutter: 16, footTop: 120, boxTop: 84, small: true }).bottom, 144)
+  // a taller composer over a short box (a grown row): still 10px over the row
+  assert.equal(pilePlace({ gutter: 84, footTop: 200, boxTop: 84 }).bottom, 210)
+  // a notice of two lines (62px, 12px over the composer): clear of it
+  assert.equal(pilePlace({ gutter: 84, footTop: 84, boxTop: 84, noticeH: 62 }).bottom, 168)
 })
 
 test('AS-U-06 접은 채인지: 이 브라우저에 「rail」 · 「list」, 저장소가 막혀도 오류 없이 펼침', () => {

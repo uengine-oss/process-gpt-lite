@@ -54,14 +54,17 @@ export function artifactLayout({ pageW, leftW = 0, wide = true, docOpen = false,
 export const sideWidth = (layout) => (layout === 'list' ? LIST_W : layout === 'rail' ? RAIL_W : 0)
 
 // Where the pile sits, from the composer's box (ChatColumn measures it): beside the composer when the space right of it holds the
-// pile with air around it, else above the composer's right end — above its 「멈추기」 · 「작업 중」 pills too (38px, 12px over it) —
-// so it never covers what is typed. A phone's pile is smaller.
+// pile with air around it, else above the composer's right end — so it never covers what is typed. Above it means clear of the composer
+// and the row over its box (footTop + 10), and of a one-line notice over the box (boxTop + 12 + 38 + 10 — the progress pill once stood
+// there too), or of a taller notice (noticeH): the row coming with a turn and going with it (36px) does not move the pile (PR #119 review).
+// A phone's pile is smaller.
 export const PILE = 64
 export const PILE_SMALL = 48
-export function pilePlace({ gutter = 0, footTop = 84, small = false }) {
+export function pilePlace({ gutter = 0, footTop = 84, boxTop = footTop, noticeH = 0, small = false }) {
   const size = small ? PILE_SMALL : PILE
   if (!small && gutter >= size + 48) return { mode: 'beside', size, right: Math.round((gutter - size) / 2), bottom: 30 }
-  return { mode: 'above', size, right: Math.max(16, Math.round(gutter)), bottom: Math.round(footTop + 12 + 38 + 10) }
+  const bottom = Math.max(boxTop + 12 + 38 + 10, footTop + 10, noticeH ? footTop + 12 + noticeH + 10 : 0)
+  return { mode: 'above', size, right: Math.max(16, Math.round(gutter)), bottom: Math.round(bottom) }
 }
 
 // the list folded to its rail: this browser only; a private window that refuses storage just forgets
