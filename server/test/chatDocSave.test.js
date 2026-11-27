@@ -259,3 +259,36 @@ test('거절: 다른 형식의 이름 · 카드 옆이 아닌 사본 · 남의 �
   assert.equal(C.copyName('메모\u202e.txt', '메모.txt'), '메모 .txt')
   assert.equal(C.copyName('메모.txt\u2066', '메모.txt'), '메모.txt')
 })
+
+test('판 지키기를 다시 불러도(다른 이름으로 저장의 다시 시도) 이미 자기 사본에 선 카드는 그대로', { skip: !store && '로컬 Supabase 없음' }, async () => {
+  const dir = `pgpt-pro/${me.id}/att`
+  const id = crypto.randomUUID()
+  await put(`${dir}/${id}.txt`, '처음 판\n')
+  const session = await put(`${dir}/edited-${id}_20261128010000.txt`, '처음 판\n저장한 고침\n')
+  const tid = await room(me)
+  const c = await card(tid, { name: '메모 다시.txt', url: session })
+  const kept = await C.keepVersion(me, c.id)
+  assert.ok(kept.content.url.startsWith(copiesOf(me)))
+  const again = await C.keepVersion(me, c.id)
+  assert.equal(again.content.url, kept.content.url)
+})
+
+test('아무것도 가리키지 않는 사본은 한 달 뒤 지운다 — 카드의 주소 · 이전 판이 가리키면 남긴다', { skip: !store && '로컬 Supabase 없음' }, async () => {
+  const prefix = `pgpt-pro/${me.id}/copies/`
+  const keyOf = (u) => decodeURIComponent(/\/object\/public\/files\/(.+)$/.exec(u)[1])
+  const tid = await room(me)
+  const onCard = await put(`${prefix}${crypto.randomUUID()}.txt`, '카드가 선 판\n')
+  const inVersions = await put(`${prefix}${crypto.randomUUID()}.txt`, '이전 판\n')
+  const orphan = await put(`${prefix}${crypto.randomUUID()}.txt`, '아무도 안 가리킴\n')
+  const fresh = await put(`${prefix}${crypto.randomUUID()}.txt`, '아직 새것\n')
+  await card(tid, { name: '정리 시험.txt', url: onCard, versions: [inVersions] })
+  // a month and more ago — all but the fresh one
+  await q(`update storage.objects set created_at = now() - interval '40 days' where bucket_id='files' and name = any($1::text[])`, [[onCard, inVersions, orphan].map(keyOf)])
+  const unused = await C.unusedCopies({ prefix })
+  assert.deepEqual(unused, [keyOf(orphan)])
+  assert.equal(await C.cleanCopies({ prefix }), 1)
+  assert.equal((await fetch(orphan)).status >= 400, true)
+  assert.equal(await read(onCard), '카드가 선 판\n')
+  assert.equal(await read(inVersions), '이전 판\n')
+  assert.equal(await read(fresh), '아직 새것\n')
+})

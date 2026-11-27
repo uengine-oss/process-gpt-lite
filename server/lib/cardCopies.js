@@ -96,6 +96,8 @@ async function copyToOwn(user, key, ext) {
  */
 export async function keepVersion(user, id) {
   const { m, c, o, ext } = await plainCard(user, id)
+  // (already on a copy of its own — kept before, e.g. for a 「다른 이름으로 저장」 tried again): nothing to do
+  if (o.bucket === BUCKET && o.key.startsWith(`${ownPrefix(user)}copies/`)) return m
   if (!EDITED.test(baseOf(o.key))) throw fail(400, L('지킬 편집본이 없어요.', 'There is no edited copy to keep.'))
   const key = await copyToOwn(user, o.key, ext)
   const [u] = await q(`update pro_messages set content = content || jsonb_build_object('url', $2::text) where id=$1 and content->>'url' = $3 returning *`, [m.id, publicUrl(key), c.url])
@@ -120,4 +122,34 @@ export async function saveCardAs(user, id, { url, name, conversationId } = {}) {
   const content = { name: n, url: publicUrl(key), ext, ...(c.type ? { type: c.type } : {}), savedAs: { from: m.id, name: c.name || '' }, ...aside(conv) }
   const [made] = await q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2) returning *`, [m.thread_id, content])
   return made
+}
+
+// ---------- copies nothing points at any more ----------
+// A copy made here (pgpt-pro/<person>/copies/) is left behind when its card moves on — a save after keepVersion, the card removed. Once a
+// month old and pointed at by nothing that carries a file's address (a message — a file card's address or its versions —, a share's object,
+// a meeting's material, a context share, a reference), it goes: the nightly folders pass (lib/folders/gc.js) calls cleanCopies.
+// prefix: only under it (tests).
+const COPY_KEY = /pgpt-pro\/[^/"'\s\\]+\/copies\/[^/"'\s?#\\]+/g
+export async function unusedCopies({ days = 30, prefix = 'pgpt-pro/', limit = 5000 } = {}) {
+  const old = await q(`select name from storage.objects where bucket_id=$1 and name like $2 and name like '%/copies/%'
+                       and created_at < now() - make_interval(days => $3::int) order by created_at limit $4`, [BUCKET, `${prefix}%`, days, limit])
+  if (!old.length) return []
+  const used = new Set()
+  const note = (text) => { for (const k of String(text || '').matchAll(COPY_KEY)) { try { used.add(decodeURIComponent(k[0])) } catch { used.add(k[0]) } } }
+  for (const r of await q(`select content::text as t from pro_messages where content::text like '%/copies/%'`)) note(r.t)
+  for (const r of await q(`select object_key as t from pro_shares where object_key like '%/copies/%'`)) note(r.t)
+  for (const t of ['pro_meeting_materials', 'pro_context_shares', 'pro_refers']) {
+    if (!(await q('select to_regclass($1) as r', [`public.${t}`]))[0]?.r) continue
+    for (const r of await q(`select x::text as t from ${t} x where x::text like '%/copies/%'`)) note(r.t)
+  }
+  return old.map((r) => r.name).filter((k) => !used.has(k))
+}
+// → how many went
+export async function cleanCopies(opts = {}) {
+  const keys = await unusedCopies(opts)
+  for (let i = 0; i < keys.length; i += 100) {
+    const { error } = await admin.storage.from(BUCKET).remove(keys.slice(i, i + 100))
+    if (error) throw new Error(error.message)
+  }
+  return keys.length
 }

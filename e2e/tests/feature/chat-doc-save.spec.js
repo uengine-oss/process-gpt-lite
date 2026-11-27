@@ -22,7 +22,9 @@
 //   F-CS-15 「다른 이름으로 저장」에서 편집기가 답하지 않으면 다시 시도는 같은 이름으로 다시(원래 카드에 쓰지 않음)
 //   F-CS-16 (RT_REAL_SHEETS=1) 실제 엑셀 편집기: 칸을 치고 ↓ 로 마친 뒤 닫으면 묻는다
 //   F-CS-17 열린 문서의 카드를 다시 눌러도 같은 열기 — 그 뒤 「다른 이름으로 저장」해도 원래 카드는 저장한 판 그대로
-//   F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 문서는 열고 바로 닫아도 묻지 않는다
+//   F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 · 마인드맵 문서는 열고 바로 닫아도 묻지 않는다
+//   F-CS-19 💾 뒤 「다른 이름으로 저장」이 편집기 무응답으로 실패 → 다시 시도: 판 지키기를 또 하지 않고(400 없이) 새 카드, 원래 카드는 💾 판
+//   F-CS-20 (고친 호스트) 고쳤다가 되돌리고 💾 · 저장하고 닫기: 처음 연 그대로여도 곧바로 「저장했어요」(30초 기다림 없음)
 //   (F-CS-09 안에서) 패널 반영 실패는 그 열기의 것만 — 다시 연 시트를 닫아도 옛 사본을 다시 보내지 않고, 고쳤으면 묻는다
 // 자기 스택(lib/localStack.js — 회사 chat-save, BFF 8983 · Vite 5383 부터 빈 포트), 실제 이음오피스 편집기: RT_OFFICE_HOST_URL(운영 이미지 컨테이너,
 // 스펙 e2e/README) 또는 빌드된 호스트(lib/officeHost.js, 5403 부터). 모델 · deepagents 는 부르지 않는다. 사람은 지어낸 이름(정하윤 · 김서연).
@@ -875,12 +877,23 @@ function PPTX() {
   fs.rmSync(out, { force: true })
   return b
 }
-test('F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 문서는 열고 바로 닫아도 묻지 않는다(편집기가 열자마자 「고친 것 있음」이라 하지 않음)', async ({ browser }) => {
+// a mind map (.xmind) of one topic: content.json · metadata.json · manifest.json (the format IeumOffice's mind map opens)
+function XMIND() {
+  const out = path.join(os.tmpdir(), `rt-cs-${process.pid}-${Date.now()}.xmind`)
+  const content = JSON.stringify([{ id: 'sheet-1', class: 'sheet', title: '시트 1', rootTopic: { id: 'root', class: 'topic', title: '12월 일정', children: { attached: [{ id: 't1', class: 'topic', title: '본사 3층' }] } } }])
+  execFileSync('python3', ['-c', 'import sys, zipfile, json\nz=zipfile.ZipFile(sys.argv[1],"w",zipfile.ZIP_DEFLATED)\nz.writestr("content.json", sys.argv[2])\nz.writestr("metadata.json", json.dumps({"creator":{"name":"rt","version":"1"}}))\nz.writestr("manifest.json", json.dumps({"file-entries":{"content.json":{},"metadata.json":{}}}))\nz.close()', out, content])
+  const b = fs.readFileSync(out)
+  fs.rmSync(out, { force: true })
+  return b
+}
+test('F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 · 마인드맵 문서는 열고 바로 닫아도 묻지 않는다(편집기가 열자마자 「고친 것 있음」이라 하지 않음)', async ({ browser }) => {
   test.setTimeout(300_000)
   const files = [
     { name: '회의록_시험.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', bytes: fs.readFileSync(path.join(REPO, 'e2e/fixtures/meeting-minutes-template.docx')), ready: (p) => expect(ed(p).locator('.ProseMirror').first()).toBeVisible({ timeout: 90_000 }) },
     { name: '일정_시험.pptx', type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', bytes: PPTX(), ready: (p) => expect(ed(p).locator('.stage-wrap, .slide-list').first()).toBeVisible({ timeout: 90_000 }) },
     { name: '제안서_시험.hwpx', type: 'application/hwp+zip', bytes: fs.readFileSync(path.join(REPO, 'server/fixtures/interior-proposal-template.hwpx')), ready: (p) => expect(ed(p).locator('iframe').first()).toBeVisible({ timeout: 90_000 }) },
+    // (its 저장 is on as soon as it has loaded — the mind map asks only when it was edited)
+    { name: '일정_시험.xmind', type: 'application/vnd.xmind.workbook', bytes: XMIND(), ready: (p) => expect.poll(async () => (await Promise.all(p.frames().filter((fr) => fr.url().includes('/office/mindmap/')).map((fr) => fr.evaluate(() => document.body?.innerText || '').catch(() => '')))).join(' '), { timeout: 90_000 }).toContain('12월 일정') },
   ]
   for (const f of files) {
     const a = await rawPost(ME.token, '/attachments', f.bytes, { 'Content-Type': f.type, 'X-File-Name': encodeURIComponent(f.name) })
@@ -901,4 +914,78 @@ test('F-CS-18 손대지 않은 워드 · 파워포인트 · 한글 문서는 열
   }
   expect(p.errors).toEqual([])
   await p.context().close()
+})
+
+test('F-CS-19 💾 뒤 「다른 이름으로 저장」이 편집기 무응답으로 실패 → 다시 시도: 판 지키기를 또 부르지 않고 새 카드, 원래 카드는 💾 로 저장한 판', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const c = await draftCard('답장초안_판지키기_김서연.txt')
+  const p = await page(browser)
+  const kept = []
+  p.on('response', (r) => { if (/\/keep-version$/.test(r.url())) kept.push(r.status()) })
+  await openChat(p)
+  await card(p, c.name).click()
+  await textReady(p)
+  await typeAtEnd(p, ' 저장판')
+  await pressSave(p)
+  await expect(badge(p)).toHaveAttribute('data-state', 'saved', { timeout: 30_000 })
+  await typeAtEnd(p, ' 새이름판')
+  const editorPage = p.frames().find((fr) => fr.url().includes('/office/markdown/'))
+  await editorPage.evaluate(() => {
+    window.__block = true
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest?.('.qa-btn')
+      if (window.__block && b && /^저장/.test(b.getAttribute('aria-label') || '')) { e.stopImmediatePropagation(); e.preventDefault() }
+    }, true)
+  })
+  await ed(p).locator('.qa-save-as').click()
+  await ask(p).locator('[data-testid="oef-ask-name"]').fill('판지키기 사본')
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 45_000 })
+  await editorPage.evaluate(() => { window.__block = false })
+  await badge(p).click()
+  await expect(oef(p).locator('.bar .name')).toHaveText('판지키기 사본.txt', { timeout: 40_000 })
+  // keep-version once (the second try found it done), never refused
+  expect(kept).toEqual([200])
+  const orig = await textAt((await cardOf(c.id)).url)
+  expect(orig).toContain('저장판')
+  expect(orig).not.toContain('새이름판')
+  const [made] = await S.q(`select content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '판지키기 사본.txt'])
+  expect(await textAt(made.content.url)).toContain('새이름판')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-20 (고친 호스트) 고쳤다가 되돌리고 💾 · 저장하고 닫기: 처음 연 그대로여도 곧바로 「저장했어요」', async ({ browser }) => {
+  test.skip(!process.env.RT_FIXED_HOST_DIR, '같은 바이트에도 답하는 이음오피스 호스트 빌드가 필요(RT_FIXED_HOST_DIR)')
+  const was = process.env.RT_OFFICE_HOST_DIR
+  process.env.RT_OFFICE_HOST_DIR = process.env.RT_FIXED_HOST_DIR
+  const fixed = await startOfficeHost({ from: 5406 })
+  if (was == null) delete process.env.RT_OFFICE_HOST_DIR; else process.env.RT_OFFICE_HOST_DIR = was
+  R.target = fixed.url
+  try {
+    const c = await draftCard('답장초안_되돌림_김서연.txt')
+    const p = await page(browser)
+    await openChat(p)
+    await card(p, c.name).click()
+    await textReady(p)
+    await typeAtEnd(p, 'x')
+    await p.keyboard.press('Backspace')
+    const t0 = Date.now()
+    await pressSave(p)
+    await expect(badge(p)).toHaveAttribute('data-state', 'saved', { timeout: 10_000 })
+    expect(Date.now() - t0).toBeLessThan(10_000)
+    // the card did not move: nothing new to point at
+    expect((await cardOf(c.id)).url).toBe(c.url)
+    // and 저장하고 닫기 after the same: closes at once
+    await typeAtEnd(p, 'y')
+    await p.keyboard.press('Backspace')
+    await oef(p).locator('.tb.ic[title="닫기"]').click()
+    await ask(p).locator('[data-testid="oef-ask-save"]').click()
+    await expect(oef(p)).toHaveCount(0, { timeout: 10_000 })
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  } finally {
+    R.target = hostUrl
+    await fixed.stop()
+  }
 })

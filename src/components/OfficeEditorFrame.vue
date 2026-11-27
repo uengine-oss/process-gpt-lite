@@ -334,12 +334,15 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
 }
 // Is there something to save? Our own count of edits, the agent's, or the editor's own 저장 switched on (every IeumOffice editor turns
 // it off while it has nothing new). The editor's word that it is clean is taken over our count only where its flag follows every edit
-// as it is made (the text · html · mind-map editors); a spreadsheet's cell being typed in, a slide's text box being written in, hold
+// as it is made (the text · html editors); a spreadsheet's cell being typed in, a slide's text box being written in, hold
 // their text until they are left — their 저장 is off meanwhile (review #107: a cell typed and left by ↓ was lost).
+// The mind map's 저장 is off only while it loads (on for good after), so it says nothing either way: only our own count and the agent's.
 // Asked where it matters (closing, flush, 내려받기, 다른 이름으로 저장, 저장) — never on a timer.
-const LIVE_DIRTY = new Set(['markdown', 'html', 'mindmap'])
+const LIVE_DIRTY = new Set(['markdown', 'html'])
+const BUTTON_SAYS_NOTHING = new Set(['mindmap'])
 function dirty() {
   const doc = frame.value?.contentDocument
+  if (BUTTON_SAYS_NOTHING.has(editor())) return edited.value || agentEdits.value || unsavedCopy
   const clean = editorClean(doc)
   if (clean === false || agentEdits.value) return true
   if (!edited.value) return false
