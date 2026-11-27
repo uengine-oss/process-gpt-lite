@@ -330,8 +330,9 @@ export async function summaries(folderIds, user) {
   return out
 }
 // What an agent reading the attached folder is told about its slots (threadFolders.js refHint)
+// (a project's folder too: its agent reads the slots with the same tools — folders/threadFolders.js prepareProjectWork)
 export async function hint(link, user) {
-  if (link?.mode !== 'ref' || !user) return ''
+  if (!['ref', 'project'].includes(link?.mode) || !user) return ''
   const folder = await S.folderById(link.folder_id).catch(() => null)
   if (!folder || folder.tenant_id !== T()) return ''
   const { refs } = await agentView(folder, user, { files: false }).catch(() => ({ refs: [] }))
@@ -378,7 +379,9 @@ async function event(folder, refId, actor, kind, detail = {}) {
 async function assertFree(folder, slot, rows, exceptId = null) {
   if (rows.some((x) => String(x.id) !== String(exceptId) && overlaps(x.slot, slot))) throw err(409, L('그 자리에는 이미 참조가 있어요. 다른 이름을 적어 주세요.', 'There is already a reference there. Please choose another name.'), 'ref_taken')
   if ((await takenAt(folder.repo_path, [folder.default_branch], slot)).size) throw err(409, L('그 자리에 이 폴더의 파일이 있어요. 다른 이름을 적어 주세요.', 'A file of this folder is already there. Please choose another name.'), 'ref_taken')
-  const open = await q(`select id, title, branch, worktree_path from pro_folder_variations where folder_id=$1 and status in ('open','ready','conflicted')`, [folder.id])
+  // (projects' workspaces are not looked into, nor named: they are their persons' only — folders/templates.js; their own commits leave a
+  // slot's path out like any variation's — slotGuard)
+  const open = await q(`select id, title, branch, worktree_path from pro_folder_variations v where folder_id=$1 and status in ('open','ready','conflicted') and ${S.UNLISTED}`, [folder.id])
   if (!open.length) return
   const onBranch = await takenAt(folder.repo_path, open.map((v) => `refs/heads/${v.branch}`), slot)
   const onDisk = async (v) => {

@@ -24,7 +24,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { config } from '../../config.js'
-import { q, admin } from '../supa.js'
+import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { addMessage, updateMessage } from '../store.js'
 import { L, langOf, withLang, langInstruction } from '../lang.js'
@@ -275,7 +275,7 @@ export async function prepare(job, link = null) {
   const c = job.chat || {}
   const S = await import('../folders/service.js')
   const G = await import('../folders/git.js')
-  const { mintToken } = await import('../folders/gitHttp.js')
+  const { mintToken, runBranchFor, runPushFor } = await import('../folders/gitHttp.js')
   const folder = await S.folderById(c.folderId || job.folder_id)
   if (!folder) throw new Error('the folder is gone')
   if (folder.kind === 'linked') throw new Error('a linked folder is not served over git')
@@ -310,14 +310,16 @@ export async function prepare(job, link = null) {
   const own = job.session_id && job.started_at ? job.session_id : null
   const resume = own || c.resumeOf || null
   const scope = link?.id ? { scope: 'device', device: link.id, job: job.id, hours: Math.min(24, Number(config.gitTokenHours) || 24) } : {}
+  // (this run's own branch — pgpt-agent/local/<person>/<job>-…, gitHttp.js; a run resumed keeps the branch it had, an old name too)
+  const branch = runBranchFor(job, own ? job.run_branch : null)
   return {
     kind: KIND, todoId: String(job.todo_id), instId: null, instName: c.title || '', activity: c.title || L('채팅', 'Chat'), agent: job.agent, label: A.LABEL[job.agent] || job.agent,
     mode: 'complete', prompt: job.prompt, message: c.message || '', person, lang, skills: [],
     chat: { key: c.key, threadId: String(job.thread_id), title: c.title || '' },
     git: {
       path: `/api/local-git/${folder.id}.git`, url: gitPublic() ? `${gitPublic()}/api/local-git/${folder.id}.git` : null,
-      token: mintToken({ tenant: T(), folderId: folder.id, push: `pgpt-agent/local-${String(job.id).slice(0, 8)}-`, ...scope }),
-      line: base, base, branch: own && job.run_branch ? job.run_branch : `pgpt-agent/local-${String(job.id).slice(0, 8)}-${Date.now().toString(36)}`,
+      token: mintToken({ tenant: T(), folderId: folder.id, push: runPushFor(job, branch), ...scope }),
+      line: base, base, branch,
       folder: { id: folder.id, slug: folder.slug, name: folder.name },
     },
     ...(resume ? { resume: { sessionId: resume } } : {}),
@@ -336,7 +338,10 @@ async function bringIn(job, branch) {
   const folder = await S.folderById(job.folder_id || c.folderId)
   if (!folder) return null
   // (only this run's own branch — what its token could push)
-  if (!String(branch || '').startsWith(`pgpt-agent/local-${String(job.id).slice(0, 8)}-`) || !(await G.branchExists(folder.repo_path, branch))) return null
+  const { isRunOf } = await import('../folders/gitHttp.js')
+  if (!isRunOf(job, branch) || !(await G.branchExists(folder.repo_path, branch))) return null
+  // (the run's branch goes once what it holds is somewhere else — brought in, or kept as a leftover: run branches never pile up)
+  const drop = () => G.git(folder.repo_path, ['update-ref', '-d', `refs/heads/${branch}`, head], { check: false })
   const head = await G.head(folder.repo_path, `refs/heads/${branch}`)
   const person = await personOf(job.user_id)
   const who = { name: person.name || 'Process GPT Lite', email: person.email || undefined }
@@ -348,7 +353,9 @@ async function bringIn(job, branch) {
     await S.touch(folder)
     import('../folders/indexer.js').then((x) => x.reindex(folder, { cards: false }).then(() => x.cardsSoon(folder))).catch(() => {})
     if (!ok) console.warn(`[local-agents] chat: ${branch} conflicts with main of '${folder.slug}' — left on its branch`)
-    return { folder, head: ok ? await G.head(folder.repo_path, folder.default_branch) : head, conflicted: !ok }
+    const now = ok ? await G.head(folder.repo_path, folder.default_branch) : head
+    if (ok && await isAncestor(G, folder.repo_path, head, now)) await drop()
+    return { folder, head: now, conflicted: !ok }
   }
   const v = await S.variationById(c.variation)
   if (!v) return { folder, head, conflicted: true }
@@ -358,6 +365,8 @@ async function bringIn(job, branch) {
   const holds = await SE.jobHolds(v.id, job.id)
   if (holds === false || (holds === null && c.seat != null)) {
     const left = await SE.leftover(folder, v, head, { user: String(job.user_id), where: job.device_name || '' }).catch((e) => { console.warn('[local-agents] chat leftover', e.message); return null })
+    // (its leftover holds the same commits — kept as privately as a workspace when it is one: the run's branch goes)
+    if (left) await drop()
     return { folder, head, conflicted: true, leftover: left?.id || null }
   }
   let now = null
@@ -376,10 +385,14 @@ async function bringIn(job, branch) {
   if (holds) await SE.pushed(v.id, now)
   await S.touch(folder)
   const after = await S.variationById(v.id)
-  import('../folders/indexer.js').then((x) => x.changeCard(folder, after)).catch(() => {})
+  const brought = await isAncestor(G, folder.repo_path, head, now)
+  // brought in: the run's branch goes (what it holds is in the variation now). A project's workspace made from a template
+  // (folders/templates.js) gets no 「반영하면 …」 card (it is never merged — as finishProjectWork)
+  if (brought) await drop()
+  if (!after?.source?.template) import('../folders/indexer.js').then((x) => x.changeCard(folder, after)).catch(() => {})
   emit(String(job.user_id), 'folders', { slug: folder.slug, variation: v.id })
   import('../folders/threadFolders.js').then((x) => x.announce(String(job.user_id), job.thread_id)).catch(() => {})
-  return { folder, head: now, conflicted: !(await isAncestor(G, folder.repo_path, head, now)) }
+  return { folder, head: now, conflicted: !brought }
 }
 
 // a copy of one file as it is at `commit`, in storage (content-addressed — the folder screen's 열기 does the same: service.publishFile)
@@ -389,14 +402,10 @@ async function publishAt(folder, rel, commit) {
   const p = S.safeRel(rel)
   const sha = (await G.git(folder.repo_path, ['rev-parse', `${commit}:${p}`], { check: false })).trim()
   if (!/^[0-9a-f]{40}$/.test(sha)) return null
-  const ext = (p.split('.').pop() || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin'
-  const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
-  const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
-  if (!there?.length) {
-    const { error } = await admin.storage.from('files').upload(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), { contentType: S.MIME[ext] || 'application/octet-stream', upsert: true })
-    if (error) throw error
-  }
-  return { url: `${config.supabaseUrl}/storage/v1/object/public/files/${key}`, name: p.split('/').pop(), sha }
+  // (the same copy the folder screen makes — at the shared public address only for a version everyone of the folder may read; a project's
+  // workspace, or a run's branch no one else sees, is published privately: folders/service.js)
+  const pub = await S.publishBlob(folder, p, sha, { private: !(await S.sharedCommit(folder, commit)) })
+  return { url: pub.url, key: pub.key || null, private: !!pub.private, name: p.split('/').pop(), sha }
 }
 // the files a turn made or changed that become cards: the folder's own files (not the app's or the CLI's hidden ones), a few at most
 export const cardable = (files) => [...new Set((Array.isArray(files) ? files : []).map((f) => String(f || '').replace(/\\/g, '/')))]
@@ -417,7 +426,8 @@ async function fileCards(job, files, at) {
     // the person's own folder: its documents open in the editor and save back into it; a project's are copies (its folder changes through
     // its variation and 반영)
     const editable = role === 'owner' && S.OFFICE_EDIT.has(p.split('.').pop().toLowerCase())
-    const m = await addMessage(String(job.user_id), job.thread_id, 'agent', 'file', { name: pub.name, url: pub.url,
+    // (a private copy: the card keeps its key — each opening signs a fresh address, lib/fileCards.js — never an address that runs out)
+    const m = await addMessage(String(job.user_id), job.thread_id, 'agent', 'file', { name: pub.name, ...(pub.private ? { private: { key: pub.key } } : { url: pub.url }),
       ...(c.mode === 'personal' ? { folder: { slug: at.folder.slug, name: at.folder.name, path: p, sha: pub.sha, editable } } : {}),
       localRun: { jobId: job.id, agent: job.agent, folder: at.folder.name, path: p, mode: c.mode }, ...(c.conv ? { conv: c.conv } : {}) })
     out.push({ path: p, sha: pub.sha, msg: m.id })

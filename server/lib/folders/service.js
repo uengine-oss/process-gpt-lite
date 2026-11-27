@@ -202,9 +202,9 @@ export async function registerLinked(user, dir, { name, description = '' } = {})
 // ---------- listing ----------
 export async function listFolders(user) {
   const rows = await q(`select f.*, m.role,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status in ('open','ready','conflicted'))::int as live,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='open')::int as open,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready')::int as ready
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status in ('open','ready','conflicted') and ${UNLISTED})::int as live,
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='open' and ${UNLISTED})::int as open,
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready' and ${UNLISTED})::int as ready
     from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
     where f.tenant_id=$1 and f.kind <> 'skill' and (f.kind <> 'linked' or $3) order by f.updated_at desc`, [T(), String(user.id), linkingOn()])
   // (everyone's members at once: one lookup of names for the whole list, not one per folder)
@@ -242,7 +242,7 @@ export async function membersOfFolders(folderIds, { resolve = people } = {}) {
   return out
 }
 async function lastActivity(f) {
-  const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations where folder_id=$1 order by updated_at desc limit 1`, [f.id])
+  const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations v where folder_id=$1 and ${UNLISTED} order by updated_at desc limit 1`, [f.id])
   const [c] = (await G.log(f.repo_path, f.default_branch, 1)) || []
   const vAt = v ? new Date(v.updated_at) : null
   const cAt = c ? new Date(c.at) : null
@@ -535,12 +535,26 @@ export async function publishFile(folder, rel, ref) {
   const r = await revOf(folder, ref)
   const sha = (await G.git(folder.repo_path, ['rev-parse', `${r}:${p}`], { check: false })).trim()
   if (!sha) throw err(404, L('파일이 없어요.', "That file isn't there."))
-  return publishBlob(folder, p, sha)
+  return publishBlob(folder, p, sha, { private: await privateRef(folder, ref) })
 }
-// one version of a file by its blob id (a file mention opens the version it named, lib/fileRefs.js)
-export async function publishBlob(folder, rel, sha) {
+// a version only some may read (a project's workspace, or a commit no shared branch holds): its copy is never at the shared public address
+export async function privateRef(folder, ref) {
+  if (!ref || ref === 'main') return false
+  if (COMMIT.test(String(ref))) return !(await sharedCommit(folder, String(ref)))
+  const v = /^[0-9a-f-]{36}$/.test(String(ref)) ? await variationById(ref) : null
+  return !!v?.source?.template || isWorkspaceBranch(v?.branch)
+}
+// one version of a file by its blob id (a file mention opens the version it named, lib/fileRefs.js). private: in the private bucket,
+// handed out by a signed address for an hour (PS.folderKey — never the content-addressed public copy everyone can guess); its key comes
+// back too: a card keeps the key, never the address (lib/fileCards.js signs one each time the card is opened)
+export async function publishBlob(folder, rel, sha, { private: priv = false } = {}) {
   const p = safeRel(rel)
   if (!/^[0-9a-f]{40}$/.test(String(sha || '')) || (await G.git(folder.repo_path, ['cat-file', '-t', sha], { check: false })).trim() !== 'blob') throw err(404, L('파일이 없어요.', "That file isn't there."))
+  if (priv) {
+    const key = PS.folderKey({ tenant: T(), folderId: folder.id, sha }, p)
+    if (!(await PS.exists(key))) await PS.put(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), MIME[path.extname(p).slice(1).toLowerCase()] || 'application/octet-stream')
+    return { url: await PS.signedUrl(key, 3600), key, name: path.basename(p), sha, private: true }
+  }
   const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
   const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
   const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
@@ -634,6 +648,72 @@ export async function variation(folder, id) {
   if (!v) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
   return v
 }
+// …for this person: a project's workspace made from a template (source.template — folders/templates.js) exists only for the project's
+// person; anyone else is told it is not there
+export const UNLISTED = `not (coalesce(v.source, '{}'::jsonb) ? 'template')`
+export const visibleTo = (v, user) => !v?.source?.template || (v.holder_type === 'user' && !!user?.id && String(v.holder_id) === String(user.id))
+export async function variationFor(folder, id, user) {
+  const v = await variation(folder, id)
+  if (!visibleTo(v, user)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
+  return v
+}
+// a workspace's branch (folders/templates.js) — the prefix nothing else in a folder uses; git tokens never advertise it (gitHttp.js)
+export const WORKSPACE_PREFIX = 'var/t/'
+// (a ref name in any spelling git reads as a branch — refs/heads/x, heads/x, x)
+export const isWorkspaceBranch = (b) => String(b || '').replace(/^(refs\/)?heads\//, '').startsWith(WORKSPACE_PREFIX)
+// the folder's branches that hold this commit: full ref names (for-each-ref %(refname) — never the short form, which may read heads/…)
+async function branchesHolding(folder, sha) {
+  return (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', '--contains', String(sha), 'refs/heads/'], { check: false }))
+    .split('\n').map((x) => x.trim()).filter((x) => x.startsWith('refs/heads/')).map((x) => x.slice('refs/heads/'.length))
+}
+// A commit this person may read — an ALLOWLIST: it is on main, or on the branch of a variation row of this folder they may see. A branch
+// with no row (a desktop's run branch, one left behind) gives nothing, nor does a commit no branch holds. workspaces: false — not even
+// their own workspace counts (a new variation may not start inside one: its outputs would be in a variation everyone sees).
+export async function commitVisible(folder, sha, user, { workspaces = true } = {}) {
+  if (!COMMIT.test(String(sha || ''))) return false
+  if ((await G.git(folder.repo_path, ['cat-file', '-t', String(sha)], { check: false })).trim() !== 'commit') return false
+  const heads = await branchesHolding(folder, sha)
+  if (!heads.length) return false
+  if (heads.includes(folder.default_branch)) return true
+  const rows = await q(`select branch, holder_type, holder_id, source from pro_folder_variations where folder_id=$1 and branch = any($2::text[])`, [folder.id, heads])
+  return rows.some((v) => visibleTo(v, user) && (workspaces || !v.source?.template) && !(!v.source?.template && isWorkspaceBranch(v.branch)))
+}
+// A commit anyone of the folder may read (main, or a variation row that is no one's workspace): what is published to the shared public
+// address; anything else is published privately (publishBlob { private })
+export async function sharedCommit(folder, sha) {
+  if (!COMMIT.test(String(sha || ''))) return false
+  const heads = await branchesHolding(folder, sha)
+  if (heads.includes(folder.default_branch)) return true
+  if (!heads.length) return false
+  const rows = await q(`select branch, source from pro_folder_variations where folder_id=$1 and branch = any($2::text[])`, [folder.id, heads])
+  return rows.some((v) => !v.source?.template && !isWorkspaceBranch(v.branch))
+}
+// a ref a route was given (main, a commit, a variation id): refused when it names a workspace — or a commit only a workspace holds — this
+// person may not see
+export async function assertRefVisible(folder, ref, user) {
+  if (!ref || ref === 'main') return null
+  if (COMMIT.test(String(ref))) {
+    if (!(await commitVisible(folder, String(ref), user))) throw err(404, L('그 판을 찾지 못했어요.', "I couldn't find that version."))
+    return null
+  }
+  return variationFor(folder, ref, user)
+}
+// What a person may start a new variation from (POST …/variations {base}): main, a variation they may see — not a workspace (its
+// outputs would leave it: 「원본에 반영 요청」 sends what may) — or a commit they may read. Nothing else (no branch name, no git revision).
+export async function baseFor(folder, base, user) {
+  const b = String(base ?? '').trim()
+  if (!b || b === 'main') return 'main'
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(b)) {
+    const v = await variationFor(folder, b, user)
+    if (v.source?.template) throw err(409, L('프로젝트의 작업 공간에서는 새 변형을 만들지 않아요. 템플릿 파일의 고침은 「원본에 반영 요청」으로 보내 주세요.', "No new variation is made from a project's workspace. Send the template files you fixed with “Request a merge into the original”."))
+    return v.id
+  }
+  if (COMMIT.test(b)) {
+    if (!(await commitVisible(folder, b, user, { workspaces: false }))) throw err(404, L('그 판을 찾지 못했어요.', "I couldn't find that version."))
+    return b
+  }
+  throw err(400, L('기준은 main, 변형, 또는 판(커밋)이어야 해요.', 'The base must be main, a variation or a version (commit).'))
+}
 export async function variationById(id) {
   const [v] = await q('select * from pro_folder_variations where id=$1', [id])
   return v || null
@@ -645,8 +725,14 @@ export async function createVariation(folder, { title, kind = 'person', base, ho
   const id = crypto.randomUUID()
   let baseRef = folder.default_branch
   if (base && base !== 'main') {
-    const bv = /^[0-9a-f-]{36}$/.test(base) ? await variation(folder, base).catch(() => null) : null
-    baseRef = bv ? bv.branch : base
+    // the base is a variation id, a commit, or the exact name of a branch there (never a revision expression — git.js branchExists)
+    const bv = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(base)) ? await variation(folder, base).catch(() => null) : null
+    if (bv) baseRef = bv.branch
+    else if (COMMIT.test(String(base))) baseRef = String(base)
+    else if (await G.branchExists(folder.repo_path, String(base))) baseRef = String(base)
+    else throw err(400, L(`기준을 찾지 못했어요: ${String(base).slice(0, 80)}`, `I couldn't find the base: ${String(base).slice(0, 80)}`))
+    // (nothing grows from a project's workspace but its own work: its files would be in a variation everyone sees — templates.js)
+    if (bv?.source?.template || isWorkspaceBranch(baseRef)) throw err(409, L('프로젝트의 작업 공간에서는 새 변형을 만들지 않아요.', "No new variation is made from a project's workspace."))
   }
   if (!branch) {
     branch = kind === 'person' || kind === 'handover'
@@ -1143,7 +1229,8 @@ export async function release(folder, v, { keep = false, mode = 'person', who = 
 }
 
 export async function variations(folder) {
-  const rows = await q('select * from pro_folder_variations where folder_id=$1 order by updated_at desc', [folder.id])
+  // (a project's workspace made from a template is the project's only — folders/templates.js: never in the folder's list)
+  const rows = await q(`select * from pro_folder_variations v where folder_id=$1 and ${UNLISTED} order by updated_at desc`, [folder.id])
   for (const v of rows) {
     if (['open', 'ready', 'conflicted'].includes(v.status)) Object.assign(v, await G.aheadBehind(folder.repo_path, folder.default_branch, v.branch))
   }
@@ -1199,10 +1286,14 @@ export async function linkedCandidates(folder) {
     staleWorktrees: missing,
   }
 }
+// Only a linked repository's agent branches (pgpt-agent/…, the names linkedCandidates lists), each by its exact name: never a revision
+// expression, never a workspace's branch, never a branch of a managed folder (its desktops' run branches, a branch left behind)
 export async function importBranches(folder, user, names) {
+  if (folder.kind !== 'linked') throw err(400, L('가져오기는 연결형 폴더의 에이전트 브랜치만 해요.', 'Only a linked folder\'s agent branches can be imported.'))
   const out = []
-  for (const name of names || []) {
-    if (!(await G.branchExists(folder.repo_path, name))) continue
+  for (const raw of Array.isArray(names) ? names.slice(0, 200) : []) {
+    const name = String(raw || '')
+    if (!/^pgpt-agent\//.test(name) || isWorkspaceBranch(name) || !(await G.branchExists(folder.repo_path, name))) continue
     const [t] = await q(`select t.id, t.activity_name, t.proc_inst_id, i.proc_inst_name from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id
                          where t.output->'worktree'->>'branch'=$1 limit 1`, [name])
     const base = await G.mergeBase(folder.repo_path, folder.default_branch, name)

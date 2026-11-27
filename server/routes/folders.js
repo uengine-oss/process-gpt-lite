@@ -21,6 +21,8 @@ import * as SK from '../lib/folders/skills.js'
 import { named } from '../lib/people.js'
 import * as KIT from '../lib/folders/kit.js'
 import * as SRC from '../lib/folders/sources.js'
+// template folders (lib/folders/templates.js): a project's own workspace from a template, and 「원본에 반영 요청」
+import * as TPL from '../lib/folders/templates.js'
 import * as SECRETS from '../lib/folders/secrets.js'
 import { readBatch } from '../lib/folders/batchBody.js'
 import * as SE from '../lib/folders/seats.js'
@@ -108,9 +110,17 @@ export function folderRoutes(auth) {
     const { folder, role } = await S.access(req.params.slug, req.user)
     const [members, variations, history] = await Promise.all([S.members(folder.id), S.variations(folder), S.history(folder, 30)])
     const [integration] = await q(`select * from pro_folder_integrations where folder_id=$1 and status in ('running','conflicted','resolving') order by created_at desc limit 1`, [folder.id])
-    // where each variation's working copy is (its seat — lib/folders/seats.js): every member sees it, no path, no device id
+    // where each variation's working copy is (its seat — lib/folders/seats.js): every member sees it, no path, no device id (a project's
+    // workspace from a template is in no list — S.variations)
     const seats = await SE.viewsOf(folder, variations, { me: req.user, role }).catch((e) => { console.warn('[seats] list', e.message); return new Map() })
-    return { ...S.publicFolder(folder), role, members, variations: variations.map(({ worktree_path, ...v }) => ({ ...v, worktree_path: worktree_path ? true : null, seat: seats.get(String(v.id)) || null })), history, integration: integration || null }
+    return { ...S.publicFolder(folder), role, members, variations: variations.map(({ worktree_path, ...v }) => ({ ...v, worktree_path: worktree_path ? true : null, seat: seats.get(String(v.id)) || null })), history, integration: integration || null,
+      template: await TPL.infoOf(folder).catch(() => null) }
+  }))
+  // 「템플릿으로 시작」: a project whose own workspace is a variation of this template (runner and up — the same right a project's folder needs)
+  r.post('/folders/:slug/start-project', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'runner')
+    const thread = await TPL.startProject(user(req), folder, { title: req.body?.title })
+    return { id: thread.id, title: thread.title, kind: thread.kind }
   }))
   // what the header's 「작업실」 sheet needs at once (my variations and their seats, my computers by name) — the sheet comes with the
   // desktop's working copy (design P1 · P2)
@@ -164,7 +174,9 @@ export function folderRoutes(auth) {
   }))
   r.patch('/folders/:slug', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'owner')
-    const settings = { ...folder.settings, ...(typeof req.body.fulltext === 'boolean' ? { fulltext: req.body.fulltext } : {}) }
+    let settings = { ...folder.settings, ...(typeof req.body.fulltext === 'boolean' ? { fulltext: req.body.fulltext } : {}) }
+    // 템플릿으로 쓰기 — the same rule as TPL.setTemplate (lib/folders/templates.js); projects already started keep their workspace
+    if (typeof req.body.template === 'boolean') settings = TPL.templateSettings({ ...folder, settings }, req.user, req.body.template)
     await q('update pro_folders set name=coalesce($2,name), description=coalesce($3,description), settings=$4, updated_at=now() where id=$1', [folder.id, req.body.name || null, req.body.description ?? null, settings])
     if (settings.fulltext !== folder.settings?.fulltext) { await q('update pro_folder_files set card_sha=null where folder_id=$1', [folder.id]); reindex(await S.folderById(folder.id)).catch(() => {}) }
     return { ok: true }
@@ -185,14 +197,17 @@ export function folderRoutes(auth) {
   // ---------- files ----------
   r.get('/folders/:slug/tree', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
+    const v = await S.assertRefVisible(folder, req.query.ref, req.user)
     const own = await S.tree(folder, req.query.ref)
     // (main: the files of the slots this person may read, at the slots' paths — each with `ref`; the slot wins over a file of this folder
-    // a commit from elsewhere put under it)
-    return !req.query.ref || req.query.ref === 'main' ? [...(await REFS.ownRows(folder, own)), ...(await REFS.treeRows(folder, req.user))] : own
+    // a commit from elsewhere put under it. A project's workspace from a template reads the template's slots too.)
+    return !req.query.ref || req.query.ref === 'main' || TPL.isWorkspace(v) ? [...(await REFS.ownRows(folder, own)), ...(await REFS.treeRows(folder, req.user))] : own
   }))
   // a file read through a slot answers from its source, for a reader of the source only; locked · dangling: nothing of it
   const through = async (folder, rel, ref, user) => {
-    if (ref && ref !== 'main') return null
+    // (a workspace of a project started from a template is refused to anyone but its person; its slots are the template's)
+    const v = await S.assertRefVisible(folder, ref, user)
+    if (ref && ref !== 'main' && !TPL.isWorkspace(v)) return null
     const res = await REFS.resolve(folder, rel, user)
     const no = REFS.refusal(res)
     if (no) throw no
@@ -362,28 +377,32 @@ export function folderRoutes(auth) {
   // ---------- variations ----------
   r.post('/folders/:slug/variations', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    return S.createVariation(folder, { title: req.body.title, kind: 'person', base: req.body.base, holder: { type: 'user', id: req.user.id, name: req.user.name }, source: { label: L(`${req.user.name} 님이 직접 만든 변형`, `Variation made by ${req.user.name}`) }, createdBy: req.user.id })
+    // (the base as given is never handed to git: main, a variation this person may see, or a commit they may read — service.js baseFor)
+    const base = await S.baseFor(folder, req.body?.base, req.user)
+    return S.createVariation(folder, { title: req.body.title, kind: 'person', base, holder: { type: 'user', id: req.user.id, name: req.user.name }, source: { label: L(`${req.user.name} 님이 직접 만든 변형`, `Variation made by ${req.user.name}`) }, createdBy: req.user.id })
   }))
   r.get('/folders/:slug/variations/:vid', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     const row = await SE.seatOf(v.id, { v }).catch(() => null)
     const seat = SE.seatsOn() ? await SE.viewOf(row, v, { me: req.user, role }).catch(() => null) : null
     const { worktree_path, ...d } = await S.variationDetail(folder, v)
     // (kept: what git does not carry, kept when a place left the disk — listed with a download until it is removed)
     const kept = SE.seatsOn() ? await SE.keptOf(folder, v, { me: req.user, role }).catch(() => []) : []
-    return { ...d, worktree_path: worktree_path ? true : null, seat, kept, role, folder: S.publicFolder(folder) }
+    // (a project's workspace: what a computer left of it after its working copy moved — its person's, in no list but here)
+    const leftovers = v.source?.template ? await TPL.leftoversOf(folder, v, req.user).catch(() => []) : []
+    return { ...d, worktree_path: worktree_path ? true : null, seat, kept, leftovers, role, folder: S.publicFolder(folder) }
   }))
   r.get('/folders/:slug/variations/:vid/diff', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    return S.fileDiff(folder, await S.variation(folder, req.params.vid), req.query.path)
+    return S.fileDiff(folder, await S.variationFor(folder, req.params.vid, req.user), req.query.path)
   }))
   // ---------- the seat: where the variation's working copy is (lib/folders/seats.js, spec variation-seats) ----------
   // Open it in my server workroom (its seat comes here): only the variation's own person (an agent's variation: anyone who may run in the
   // folder), and only while no one else, no computer and no running agent has it — then 409 with where it is
   const openHere = async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     if (['merged', 'discarded'].includes(v.status)) throw Object.assign(new Error(L('반영했거나 버린 변형은 열 수 없어요.', "A merged or discarded variation can't be opened.")), { status: 409 })
     if (folder.kind !== 'managed') throw Object.assign(new Error(L('이 폴더의 변형은 작업실에서 열 수 없어요.', "This folder's variations can't be opened in the workroom.")), { status: 400 })
     const out = await SE.openServer(folder, v, { user: { ...user(req), id: req.user.id }, run: 'workroom', dir: S.personCheckoutDir(req.user, v) })
@@ -396,7 +415,7 @@ export function folderRoutes(auth) {
   r.post('/folders/:slug/variations/:vid/checkout', auth, h(openHere))
   r.get('/folders/:slug/variations/:vid/seat', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     return SE.viewOf(await SE.seatOf(v.id, { v }), v, { me: req.user, role })
   }))
   r.post('/folders/:slug/variations/:vid/seat', auth, h(async (req) => {
@@ -407,7 +426,7 @@ export function folderRoutes(auth) {
   // 「돌려놓기」: my server workroom's working copy is saved as it is and put away (보관 중); the variation is ready to review
   r.post('/folders/:slug/variations/:vid/seat/release', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     const out = await SE.closeServer(folder, v, { by: req.user.id, me: req.user, epoch: req.body?.epoch ?? null })
     const now = await S.variationById(v.id)
     changeCard(folder, now).catch(() => {})
@@ -417,7 +436,7 @@ export function folderRoutes(auth) {
   // a save point: what my server workroom holds is committed on the variation, the working copy stays where it is
   r.post('/folders/:slug/variations/:vid/seat/save', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     const seat = await SE.seatOf(v.id, { v })
     if (seat && seat.place === 'device') throw Object.assign(new Error(L('PC 의 작업본은 그 PC 에서 올려요(데스크톱 앱의 다음 판).', "A PC's working copy is saved from that PC (the next desktop app).")), { status: 501 })
     if (seat !== undefined && !(seat && seat.place === 'server' && seat.run === 'workroom' && String(seat.user_id) === String(req.user.id))) throw await SE.refusal({ ok: false, why: seat ? (seat.run === 'agent' ? 'agent' : 'held') : 'none', v, seat }, folder, { me: req.user })
@@ -426,7 +445,7 @@ export function folderRoutes(auth) {
   // 「여기로 가져오기」 (the seat's own person, from elsewhere) · the folder owner's take (after 「돌려 달라」 and a day without an answer)
   r.post('/folders/:slug/variations/:vid/seat/take', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     await SE.take(folder, v, { ...user(req), id: req.user.id }, { role, epoch: req.body?.epoch ?? null })
     const now = await S.variationById(v.id)
     return { ok: true, seat: await SE.viewOf(null, now, { me: req.user, role }) }
@@ -434,7 +453,7 @@ export function folderRoutes(auth) {
   // 「돌려 달라고 하기」: an editor of the folder asks whoever has the working copy for it (a Home card for them)
   r.post('/folders/:slug/variations/:vid/seat/recall', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'editor')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     const out = await SE.recall(folder, v, { ...user(req), id: req.user.id }, { why: String(req.body?.why || '').slice(0, 300), role })
     return { ok: true, seat: await SE.viewOf(out.seat || null, out.v || v, { me: req.user, role }) }
   }))
@@ -442,7 +461,7 @@ export function folderRoutes(auth) {
   // (413 'too-big' past them). ?check=1: only whether it may ({ok, bytes, count}) — the page asks first, so a refusal is said on the page
   r.get('/folders/:slug/variations/:vid/kept/:id', tokenAuth, auth, h(async (req, res) => {
     const { folder, role } = await S.access(req.params.slug, req.user)
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     if (req.query.check) return SE.keptZip(folder, v, req.params.id, { me: req.user, role, check: true })
     const z = await SE.keptZip(folder, v, req.params.id, { me: req.user, role })
     res.setHeader('Content-Type', 'application/zip')
@@ -454,14 +473,14 @@ export function folderRoutes(auth) {
   }))
   r.patch('/folders/:slug/variations/:vid/seat', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     const row = await SE.setPrefs(folder, v, req.user, { autoSave: req.body?.autoSave, watch: req.body?.watch })
     return { ok: true, autoSave: row.auto_save, watch: row.watch }
   }))
   // 「변경 저장」 (a commit of my server workroom; release: also put it away). Only from the place that has the working copy.
   r.post('/folders/:slug/variations/:vid/commit', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     const seat = await SE.seatOf(v.id, { v })
     if (seat && !(seat.place === 'server' && seat.run === 'workroom' && String(seat.user_id) === String(req.user.id))) throw await SE.refusal({ ok: false, why: seat.place === 'device' ? 'device' : seat.run === 'agent' ? 'agent' : 'held', v, seat }, folder, { me: req.user })
     const sha = await S.commitVariation(folder, v, user(req), req.body.message || `${req.user.name}: ${v.title}`)
@@ -472,7 +491,7 @@ export function folderRoutes(auth) {
   }))
   r.post('/folders/:slug/variations/:vid/discard', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     // my own server workroom is put away first (saved as it is); someone else's, a computer's or a running agent's: ask for it back
     await SE.forMove(folder, v, { ...user(req), id: req.user.id }, { role })
     await S.discard(folder, await S.variationById(v.id))
@@ -480,30 +499,41 @@ export function folderRoutes(auth) {
   }))
   r.post('/folders/:slug/variations/:vid/card', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    return changeCard(folder, await S.variation(folder, req.params.vid))
+    return changeCard(folder, await S.variationFor(folder, req.params.vid, req.user))
+  }))
+  // 원본에 반영 요청 (lib/folders/templates.js): the files a project's workspace may send to its template, and the sending
+  r.get('/folders/:slug/variations/:vid/proposal', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user)
+    return TPL.candidates(folder, await S.variationFor(folder, req.params.vid, req.user))
+  }))
+  r.post('/folders/:slug/variations/:vid/propose', auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'runner')
+    const v = await S.variationFor(folder, req.params.vid, req.user)
+    return TPL.propose(folder, v, user(req), { paths: req.body?.paths, title: req.body?.title, note: req.body?.note })
   }))
   // 반영 요청 (a skill change: resource_pull_requests row; the author and bosses are notified)
   r.post('/folders/:slug/variations/:vid/request', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
     if (folder.kind !== 'skill') throw Object.assign(new Error(L('반영 요청은 스킬 폴더에서만 써요.', 'Merge requests are for skill folders only.')), { status: 400 })
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     if (v.status !== 'ready') throw Object.assign(new Error(L('실행이 끝난 변형만 반영을 요청할 수 있어요.', 'Only a variation whose run has finished can be put up for merge.')), { status: 409 })
     return SK.requestMerge(folder, v, user(req), req.body || {})
   }))
   r.get('/folders/:slug/variations/:vid/review', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
     if (folder.kind !== 'skill') return null
     return { pr: await SK.prOf(v), verification: await SK.latestVerification(v), canMerge: await SK.canMerge(folder, req.user) }
   }))
   r.post('/folders/:slug/variations/:vid/verify', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'runner')
     if (folder.kind !== 'skill') throw Object.assign(new Error(L('검증은 스킬 폴더에서만 써요.', 'Verification is for skill folders only.')), { status: 400 })
-    return SK.verify(folder, await S.variation(folder, req.params.vid), user(req), req.session.access_token)
+    return SK.verify(folder, await S.variationFor(folder, req.params.vid, req.user), user(req), req.session.access_token)
   }))
   r.post('/folders/:slug/variations/:vid/handover', auth, h(async (req) => {
     const { folder, role } = await S.access(req.params.slug, req.user, 'runner')
-    const v = await S.variation(folder, req.params.vid)
+    const v = await S.variationFor(folder, req.params.vid, req.user)
+    if (TPL.isWorkspace(v)) throw Object.assign(new Error(L('프로젝트의 작업 공간은 넘기지 않아요. 템플릿을 고칠 것은 「원본에 반영 요청」으로 보내 주세요.', "A project's workspace isn't handed over. Send what the template needs with “Request a merge into the original”.")), { status: 409 })
     return handover(folder, v, user(req), { ...req.body, jwt: req.session.access_token, role })
   }))
 

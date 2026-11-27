@@ -9,16 +9,24 @@
 //     refused before git sees the push, with git's own status report ("remote rejected" on the client)
 //   - a push runs in the folder's serial lock (service.js), like every write to the repository, so it
 //     never overlaps a save in main or the nightly gc (gc.js)
+//   - git itself checks what a push brought before any ref moves (pushCheck.js, its pre-receive hook): a push that uses what its token
+//     cannot read is dropped whole
 // Only this server runs git on the repository; agents only send and receive objects.
 import crypto from 'node:crypto'
 import zlib from 'node:zlib'
+import os from 'node:os'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { config } from '../../config.js'
 import { q } from '../supa.js'
 import { withTenant, servesTenant } from '../tenant.js'
 import * as G from './git.js'
 import * as S from './service.js'
+import { hiddenBy } from './pushCheck.js'
 
+export { hiddenBy }
 export const PUSH_PREFIX = 'pgpt-agent/'
 export const TOKEN_HOURS = () => config.gitTokenHours // PRO_GIT_TOKEN_HOURS (default 72): cli-agent keeps a run's workspace (and so its clone) 72 hours
 export const MAX_PUSH = 200 * 1024 * 1024 // the folder upload limit (routes/folders.js)
@@ -74,7 +82,10 @@ export function tokenOf(req) {
 
 // ---------- what a push asks for ----------
 // The receive-pack request: pkt-lines "<old> <new> <ref>[\0capabilities]" (shallow lines may come first),
-// a flush, then (push options and) the pack. → {commands: [{old, new, ref}], caps: Set} or throws
+// a flush, then (push options and) the pack. → {commands: [{old, new, ref}], caps: Set, count: the objects the pack's header says it
+// holds (0 without one) — what git reads of it, whatever bytes follow} or throws — also past MAX_COMMANDS refs (a desktop, a sync or a
+// cli-agent run pushes one or two: a push of thousands is no one's)
+export const MAX_COMMANDS = 20
 export function parseCommands(buf) {
   const commands = []
   let caps = new Set()
@@ -98,8 +109,23 @@ export function parseCommands(buf) {
     const [old, neu, ref, ...rest] = text.split(' ')
     if (rest.length || !OID.test(old || '') || !OID.test(neu || '') || !ref) throw new Error('malformed push request')
     commands.push({ old, new: neu, ref })
+    if (commands.length > MAX_COMMANDS) throw new Error(`a push may update at most ${MAX_COMMANDS} refs`)
   }
-  return { commands, caps }
+  at += 4
+  // (push options: pkt-lines up to their own flush)
+  if (caps.has('push-options')) {
+    while (true) {
+      if (at + 4 > buf.length) throw new Error('truncated push request')
+      const hex = buf.toString('latin1', at, at + 4)
+      if (!/^[0-9a-f]{4}$/i.test(hex)) throw new Error('malformed push request')
+      const len = parseInt(hex, 16)
+      if (len === 0) { at += 4; break }
+      if (len < 4 || at + len > buf.length) throw new Error('malformed push request')
+      at += len
+    }
+  }
+  const count = buf.length - at >= 12 && buf.toString('latin1', at, at + 4) === 'PACK' ? buf.readUInt32BE(at + 8) : 0
+  return { commands, caps, count }
 }
 
 // null when every ref update may go through, else the reason for each refused ref
@@ -164,8 +190,9 @@ function readBody(req, limit) {
 
 // git http-backend as a CGI program: its header block (Status:, Content-Type: …) becomes the response's,
 // the rest streams through. `body`: a Buffer already read, else the request streams into it. hold: the response is not ended here
-// (the caller ends it — after() has looked at the push first, so the client's push is over only then)
-function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } = {}) {
+// (the caller ends it — after() has looked at the push first, so the client's push is over only then). check: a push's pre-receive check
+// ({hooks, hide, reason} — pushCheck.js): git runs it on what came, in quarantine, before any ref moves
+function backend(req, res, folder, pathInfo, body, { hold = false, hide = [], check = null } = {}) {
   return new Promise((resolve) => {
     const cfg = [
       ['http.receivepack', 'true'], // the token stands for REMOTE_USER: pushing is allowed, within refusals() above
@@ -173,7 +200,10 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
       ['receive.fsckObjects', 'true'],
       ['receive.autogc', 'false'], // no gc after a push either: the nightly pass packs (gc.js)
       ['gc.auto', '0'],
-      ['core.hooksPath', '/dev/null'],
+      // (a push: only our check — and every pack is kept as a pack, so the bases git adds to a thin one are among what came and are
+      // checked too; small pushes would otherwise be unpacked with their bases taken from the repository unseen)
+      ['core.hooksPath', check ? check.hooks : '/dev/null'],
+      ...(check ? [['receive.unpackLimit', '1']] : []),
       // every desktop's sync branches are hidden from every other token — not listed, not fetched, not pushed to (transfer.hideRefs: both
       // upload-pack and receive-pack; syncHidden below); a sync token sees its own device's (what it pushed and what the server put back)
       ...hide.map((r) => ['transfer.hideRefs', r]),
@@ -190,6 +220,8 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
       REMOTE_ADDR: String(req.socket?.remoteAddress || ''),
       GIT_CONFIG_COUNT: String(cfg.length),
       ...Object.fromEntries(cfg.flatMap(([k, v], i) => [[`GIT_CONFIG_KEY_${i}`, k], [`GIT_CONFIG_VALUE_${i}`, v]])),
+      ...(check ? { PGPT_PUSH_NODE: process.execPath, PGPT_PUSH_CHECK: CHECK_FILE, PGPT_PUSH_HIDE: check.hide, PGPT_PUSH_REASON: check.reason, PGPT_PUSH_COUNT: String(check.count),
+        ...(process.env.PGPT_PUSH_CHECK_MS ? { PGPT_PUSH_CHECK_MS: process.env.PGPT_PUSH_CHECK_MS } : {}) } : {}),
     }
     if (body) env.CONTENT_LENGTH = String(body.length)
     else {
@@ -199,19 +231,31 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
     // protocol v0 only (the client's Git-Protocol header is not passed on): under v2 upload-pack hands out any object it holds
     // by id, so hidden sync branches and rolled-back pushes could be fetched by a token that knows an id; v0 serves only the
     // tips it advertises
-    const child = spawn('git', ['http-backend'], { env, stdio: ['pipe', 'pipe', 'pipe'] })
+    // (a push runs as a process group of its own — http-backend, receive-pack, index-pack, the check — so all of it stops together)
+    const child = spawn('git', ['http-backend'], { env, stdio: ['pipe', 'pipe', 'pipe'], detached: !!check })
+    const group = (sig) => { try { process.kill(-child.pid, sig) } catch { try { child.kill(sig) } catch { /* gone */ } } }
+    // stopping: a read at once; a push asked first (SIGTERM — git removes its lock files and what it had not finished), killed if it does not
+    let hard = null
+    const stop = () => {
+      if (!check) { try { child.kill() } catch { /* gone */ } return }
+      group('SIGTERM')
+      hard = setTimeout(() => { if (child.exitCode == null) group('SIGKILL') }, 10_000)
+      hard.unref?.()
+    }
     let head = Buffer.alloc(0)
     let started = false
     let err = ''
-    const finish = () => { if (!started) deny(res, 502, 'git did not answer'); else if (!hold) res.end(); resolve() }
+    // a push holds the folder's lock: one that runs out of time is stopped (git's own check refuses first — pushCheck.js CHECK_MS)
+    const limit = check ? setTimeout(() => { err += 'out of time'; stop() }, PUSH_MS()) : null
+    const finish = () => { if (limit) clearTimeout(limit); if (hard) clearTimeout(hard); if (!started) deny(res, 502, 'git did not answer'); else if (!hold && !res.writableEnded) res.end(); resolve() }
     child.stderr.on('data', (d) => { if (err.length < 4000) err += d })
     child.stdout.on('data', (d) => {
-      if (started) { res.write(d); return }
+      if (started) { if (!res.destroyed && !res.writableEnded) res.write(d); return }
       head = Buffer.concat([head, d])
       const crlf = head.indexOf('\r\n\r\n')
       const lf = head.indexOf('\n\n')
       const end = crlf >= 0 && (lf < 0 || crlf < lf) ? crlf + 4 : lf >= 0 ? lf + 2 : -1
-      if (end < 0) { if (head.length > 64 * 1024) { child.kill(); deny(res, 502, 'git sent no header') } return }
+      if (end < 0) { if (head.length > 64 * 1024) { stop(); deny(res, 502, 'git sent no header') } return }
       started = true
       let status = 200
       for (const line of head.subarray(0, end).toString('latin1').split(/\r?\n/).filter(Boolean)) {
@@ -222,6 +266,7 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
         if (/^status$/i.test(k)) status = parseInt(v, 10) || 200
         else res.setHeader(k, v)
       }
+      if (res.destroyed) return
       res.status(status)
       const rest = head.subarray(end)
       if (rest.length) res.write(rest)
@@ -231,8 +276,9 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [] } =
       if (code && err) console.warn(`[folders git] ${folder.id.slice(0, 8)} ${req.method} ${pathInfo}: ${err.trim().slice(0, 300)}`)
       finish()
     })
-    // a client that goes away takes git with it
-    res.on('close', () => { if (child.exitCode == null) child.kill() })
+    // a client that goes away takes a read with it; a push (its body all read already) finishes what it does — stopping it half way could
+    // leave its refs half updated (its time limit still holds)
+    res.on('close', () => { if (!check && child.exitCode == null) stop() })
     child.stdin.on('error', () => {})
     if (body) child.stdin.end(body)
     else req.pipe(child.stdin)
@@ -266,6 +312,110 @@ export async function syncHidden(folder, claims) {
   for (const r of bound) parts.add(`refs/heads/${SYNC_PART}${r.d.slice(0, 8)}`)
   parts.delete(ownPart(claims))
   return [...parts]
+}
+// The person a desktop job's token works for (its job's person, when the job is of this folder) — null for any other token
+export async function personOf(folder, claims) {
+  if (claims?.scope !== 'device' || !claims.job) return null
+  const [job] = await q('select user_id::text as user_id, folder_id::text as folder_id, chat from pro_local_jobs where id::text=$1', [String(claims.job)]).catch(() => [])
+  if (!job?.user_id || String(job.folder_id || job.chat?.folderId || '') !== String(folder.id)) return null
+  return job.user_id
+}
+// Projects' workspaces made from a template (refs/heads/var/t/…, folders/templates.js) are hidden from every token — not listed, not
+// fetched, not pushed to. A desktop job's token sees its person's own: their workspaces in this folder and what a computer left of them
+// (seats.js leftover) — all of it theirs to read: git's hidden-ref entries are read in order, a later `!ref` shows a ref an earlier entry hid.
+export const WORKSPACE_REFS = `refs/heads/${S.WORKSPACE_PREFIX}`
+export async function workspaceHidden(folder, claims, person) {
+  const out = [WORKSPACE_REFS]
+  const who = person === undefined ? await personOf(folder, claims) : person
+  if (!who) return out
+  const rows = await q(`select branch from pro_folder_variations where folder_id=$1 and source ? 'template' and holder_type='user' and holder_id::text=$2
+                        and status not in ('merged','discarded') order by created_at`, [folder.id, String(who)]).catch(() => [])
+  for (const r of rows) if (S.isWorkspaceBranch(r.branch)) out.push(`!refs/heads/${r.branch}`)
+  return out
+}
+// The desktops' run branches (lib/localAgents): refs/heads/pgpt-agent/local/<person>/<job 8>-<time> — each holds what its person may read
+// and others may not (a project's workspace, folders/templates.js). The whole of pgpt-agent/local/ is hidden from every token but its
+// person's own part (one entry each, however many runs there are). Desktops up to 0.2.5 push whatever branch the server names, so every
+// run gets the new name; a run that started before it keeps its old one (pgpt-agent/local-<job 8>-…, RUN_PART) until it is brought in —
+// those few are named one by one.
+export const RUN_DIR = `${PUSH_PREFIX}local/`
+export const RUN_PART = `${PUSH_PREFIX}local-`
+const personPart = (id) => String(id || '').toLowerCase().replace(/[^0-9a-z-]/g, '').slice(0, 64) || 'someone'
+const job8 = (job) => String(job.id).slice(0, 8)
+// a job's own run branches (what its token may push) — and the name of a new one, or the one it is resuming
+export const runPrefix = (job) => `${RUN_DIR}${personPart(job.user_id)}/${job8(job)}-`
+export const legacyRunPrefix = (job) => `${RUN_PART}${job8(job)}-`
+export const isRunOf = (job, branch) => { const b = String(branch || ''); return b.startsWith(runPrefix(job)) || b.startsWith(legacyRunPrefix(job)) }
+export const runBranchFor = (job, resume = null) => (resume && isRunOf(job, resume) ? resume : `${runPrefix(job)}${Date.now().toString(36)}`)
+export const runPushFor = (job, branch) => (String(branch || '').startsWith(legacyRunPrefix(job)) ? legacyRunPrefix(job) : runPrefix(job))
+export async function runHidden(folder, claims, person) {
+  const who = person === undefined ? await personOf(folder, claims) : person
+  const own = claims?.scope === 'device' ? String(claims.push || '') : ''
+  const out = [`refs/heads/${RUN_DIR}`]
+  if (who) out.push(`!refs/heads/${RUN_DIR}${personPart(who)}`)
+  const ownPerson = /^pgpt-agent\/local\/([^/]+)\//.exec(own)
+  if (ownPerson && ownPerson[1] !== personPart(who)) out.push(`!refs/heads/${RUN_DIR}${ownPerson[1]}`)
+  const legacy = (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', `refs/heads/${PUSH_PREFIX}`], { check: false })).split('\n').map((x) => x.trim())
+    .filter((r) => r.startsWith(`refs/heads/${RUN_PART}`))
+  if (!legacy.length) return out
+  const mine = new Set(who ? (await q(`select left(id::text, 8) as j from pro_local_jobs where user_id::text=$1 and (folder_id::text=$2 or chat->>'folderId'=$2)`, [String(who), folder.id])
+    .catch(() => [])).map((r) => r.j) : [])
+  for (const r of legacy) {
+    const b = r.slice('refs/heads/'.length)
+    if ((own.startsWith(RUN_PART) && b.startsWith(own)) || mine.has(b.slice(RUN_PART.length, RUN_PART.length + 8))) continue
+    out.push(r)
+  }
+  return out
+}
+// everything this token may not see: other desktops' sync branches, other people's runs, workspaces not its person's
+export async function hiddenFor(folder, claims) {
+  const who = await personOf(folder, claims)
+  return [...await syncHidden(folder, claims), ...await runHidden(folder, claims, who), ...await workspaceHidden(folder, claims, who)]
+}
+
+// ---------- the pre-receive check (pushCheck.js) ----------
+const CHECK_FILE = fileURLToPath(new URL('./pushCheck.js', import.meta.url))
+// how long a push may run in the folder's lock (PRO_GIT_PUSH_SECONDS, default 300 — the check itself stops at 120 s)
+const PUSH_MS = () => (Number(process.env.PRO_GIT_PUSH_SECONDS) || 300) * 1000
+const HOOK = '#!/bin/sh\n# Process GPT Lite: the check of a push over git HTTP (server lib/folders/pushCheck.js)\nexec "$PGPT_PUSH_NODE" "$PGPT_PUSH_CHECK"\n'
+const hookDirs = new Map()
+// the hook runs (a folder mounted without exec would refuse every push): started once with nothing to check, it must say yes
+const runs = (dir) => new Promise((resolve) => {
+  const child = spawn(path.join(dir, 'pre-receive'), [], { env: { ...G.gitEnv(), PGPT_PUSH_NODE: process.execPath, PGPT_PUSH_CHECK: CHECK_FILE }, stdio: ['pipe', 'ignore', 'ignore'] })
+  child.on('error', () => resolve(false))
+  child.on('close', (code) => resolve(code === 0))
+  child.stdin.on('error', () => {})
+  child.stdin.end()
+})
+async function writeHook(dir) {
+  await fs.mkdir(dir, { recursive: true, mode: 0o755 })
+  const file = path.join(dir, 'pre-receive')
+  const had = await fs.readFile(file, 'utf8').catch(() => null)
+  if (had !== HOOK) { await fs.writeFile(`${file}.tmp`, HOOK, { mode: 0o755 }); await fs.rename(`${file}.tmp`, file) }
+  await fs.chmod(file, 0o755)
+  return (await runs(dir)) ? dir : null
+}
+// the hooks folder receive-pack is given (core.hooksPath) — only this pre-receive in it: beside the folders, else in the server's temporary
+// folder; when it can run nowhere, pushes fail (nothing is taken unchecked)
+export function hooks() {
+  const key = S.foldersRoot()
+  if (!hookDirs.has(key)) {
+    hookDirs.set(key, (async () => {
+      const dir = await writeHook(path.join(key, '.hooks')).catch(() => null)
+        || await writeHook(await fs.mkdtemp(path.join(os.tmpdir(), 'pgpt-hooks-'))).catch(() => null)
+      if (!dir) throw new Error('the push check (pre-receive hook) cannot run here')
+      return dir
+    })().catch((e) => { hookDirs.delete(key); throw e }))
+  }
+  return hookDirs.get(key)
+}
+// the refs of a push that now point where it asked (what a refused push asked for never stands)
+export async function stood(folder, commands) {
+  const want = commands.filter((c) => !ZERO.test(c.new))
+  if (!want.length) return []
+  const now = new Map((await G.git(folder.repo_path, ['for-each-ref', '--format=%(objectname) %(refname)', ...new Set(want.map((c) => c.ref))], { check: false }))
+    .split('\n').map((l) => l.trim().split(' ')).filter((p) => p.length === 2).map(([o, r]) => [r, o]))
+  return want.filter((c) => now.get(c.ref) === c.new)
 }
 // a push that names another desktop's sync branch (any token but that desktop's own sync token): refused like any other foreign ref
 export const syncRefusals = (commands, claims) => {
@@ -308,9 +458,8 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
         const [folder] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [folderId, claims.tenant])
         if (!folder) return deny(res, 404, 'no such folder')
         if (folder.kind === 'linked') return deny(res, 403, 'a linked folder is not served over git')
-        const hide = await syncHidden(folder, claims)
-        if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo, null, { hide })
-        // a push: what it would change is decided here, before git sees it
+        if (service !== 'git-receive-pack' || pathInfo === '/info/refs') return await backend(req, res, folder, pathInfo, null, { hide: await hiddenFor(folder, claims) })
+        // a push: which refs it may name is decided here, before git sees it; what it brought, by git's pre-receive check (pushCheck.js)
         const body = await readBody(req, maxPush)
         if (!body) return deny(res, 413, `a push may carry at most ${Math.round(maxPush / 1024 / 1024)} MB`)
         let parsed
@@ -322,14 +471,23 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
           if (!parsed.caps.has('report-status') && !parsed.caps.has('report-status-v2')) return deny(res, 403, refused[0].why)
           return res.status(200).set({ 'Content-Type': 'application/x-git-receive-pack-result', 'Cache-Control': 'no-cache' }).end(rejectionReport(parsed.commands, refused, parsed.caps))
         }
-        await S.serial(folder.id, async () => {
-          await backend(req, res, folder, pathInfo, body, { hold: !!after, hide })
-          if (after) {
-            await after(claims, folder, parsed.commands).catch((e) => console.warn('[folders git] after push', e.message))
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pgpt-push-'))
+        try {
+          const check = { hooks: await hooks(), hide: path.join(dir, 'hide.json'), reason: path.join(dir, 'reason'), count: parsed.count }
+          await S.serial(folder.id, async () => {
+            // (what this token may not see, as it is now — inside the lock, where nothing moves a ref meanwhile)
+            const hide = await hiddenFor(folder, claims)
+            await fs.writeFile(check.hide, JSON.stringify(hide), { mode: 0o600 })
+            await backend(req, res, folder, pathInfo, body, { hold: true, hide, check })
+            const why = await fs.readFile(check.reason, 'utf8').catch(() => '')
+            if (why) console.warn(`[folders git] ${folder.slug} push refused: ${why}`)
+            // (after() sees only the refs that stood — one ref refused by git keeps none of the others from being looked at)
+            const done = await stood(folder, parsed.commands)
+            if (after && done.length) await after(claims, folder, done).catch((e) => console.warn('[folders git] after push', e.message))
             if (!res.writableEnded) res.end()
-          }
-        })
-        console.log(`[folders git] ${folder.slug} pushed ${parsed.commands.map((c) => c.ref.replace('refs/heads/', '')).join(', ')}`)
+            if (done.length) console.log(`[folders git] ${folder.slug} pushed ${done.map((c) => c.ref.replace('refs/heads/', '')).join(', ')}`)
+          })
+        } finally { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}) }
       } catch (e) {
         console.warn('[folders git]', e.message)
         deny(res, 500, 'git request failed')

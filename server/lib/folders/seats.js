@@ -269,8 +269,11 @@ export async function viewOf(seat, v, { me = null, role = null, names = null } =
   const held = !!s && s.state === 'held'
   out.can.open = live && rank >= S.RANK.runner && !!me && mayHold(v, me.id) && (!s || (mine && held && s.place === 'server' && s.run === 'workroom'))
   out.can.release = mine && held && s.place === 'server' && s.run === 'workroom'
-  out.can.take = !!s && held && !(s.place === 'server' && s.run === 'agent') && ((mine && s.place === 'device') || (!mine && role === 'owner' && ownerMayTake(s, { online: !!out.device?.online }).ok))
-  out.can.recall = !!s && held && !mine && rank >= S.RANK.editor && !(s.place === 'server' && s.run === 'agent')
+  // (a project's workspace from a template is its person's only — folders/templates.js: no one else asks for it back or takes it, the folder's
+  // owner neither)
+  const ws = !!v?.source?.template
+  out.can.take = !!s && held && !(s.place === 'server' && s.run === 'agent') && ((mine && s.place === 'device') || (!ws && !mine && role === 'owner' && ownerMayTake(s, { online: !!out.device?.online }).ok))
+  out.can.recall = !ws && !!s && held && !mine && rank >= S.RANK.editor && !(s.place === 'server' && s.run === 'agent')
   return out
 }
 // the names every screen uses (lib/people.js), an agent by its own
@@ -785,23 +788,29 @@ export async function leftover(folder, v, head, { user, where = '' } = {}) {
   if (!head) return null
   const base = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
   if (base && (await G.mergeBase(folder.repo_path, head, base)) === head) return null // nothing the variation does not have
-  const me = await personOf(user, v)
+  // (what a project's workspace left — folders/templates.js — stays as private as the workspace: its person's, under the workspaces' hidden
+  // branch space, marked as the same template's, in no list)
+  const ws = v.source?.template ? { template: v.source.template, thread_id: v.source.thread_id || null } : null
+  const owner = ws ? String(v.holder_id) : String(user || '')
+  const me = await personOf(owner, v)
   const title = L(`${v.title} — ${where || 'PC'}에 남아 있던 변경`, `${v.title} — changes left on ${where || 'the PC'}`).slice(0, 120)
-  const branch = `var/u/${String(user || 'me').replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}/left-${String(v.id).slice(0, 8)}-${Date.now().toString(36)}`
+  const branch = ws ? `${v.branch}-left-${Date.now().toString(36)}` : `var/u/${String(user || 'me').replace(/[^A-Za-z0-9]/g, '').slice(0, 8)}/left-${String(v.id).slice(0, 8)}-${Date.now().toString(36)}`
   await G.git(folder.repo_path, ['branch', branch, head])
   const [nv] = await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source, created_by)
                         values ($1,$2,$3,'imported','ready',$4,$5,'user',$6,$7,$8,$9) returning *`,
-  [folder.id, branch, title, await G.mergeBase(folder.repo_path, folder.default_branch, head), head, String(user || ''), me.name,
-    { label: L(`${where || 'PC'}에 남아 있던 변경`, `Changes left on ${where || 'the PC'}`), left_of: v.id, device_name: where || null }, /^[0-9a-f-]{36}$/i.test(String(user || '')) ? user : null])
+  [folder.id, branch, title, await G.mergeBase(folder.repo_path, folder.default_branch, head), head, owner, me.name,
+    { label: L(`${where || 'PC'}에 남아 있던 변경`, `Changes left on ${where || 'the PC'}`), left_of: v.id, device_name: where || null, ...(ws || {}) }, /^[0-9a-f-]{36}$/i.test(owner) ? owner : null])
   await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, note, head) values ($1,$2,$3,$4,'left',$5,$6)`, [T(), v.id, folder.id, String(user || ''), nv.id, head]).catch(() => {})
   await S.touch(folder)
-  if (user) emit(String(user), 'folders', { slug: folder.slug, variation: nv.id })
+  if (owner) emit(owner, 'folders', { slug: folder.slug, variation: nv.id })
   return nv
 }
 
 // ---------- people's actions ----------
 // 「돌려 달라고 하기」: the seat's person is told (Home card · notification); the folder's owner may take it after a day without an answer
 export async function recall(folder, v, by, { why = '', role = null } = {}) {
+  // (a project's workspace from a template: no one but its person sees it, so no one asks for it — folders/templates.js)
+  if (v.source?.template && !S.visibleTo(v, by)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
   const out = await transition(v.id, (vv, seat) => decide(seat, { type: 'recall', by: by.id, why }, { v: vv }), { by: by.id, note: String(why || '').slice(0, 200) })
   if (out.legacy) return { ok: false }
   if (!out.ok) throw await refusal(out, folder, { me: by, role })
@@ -826,7 +835,9 @@ export async function take(folder, v, by, { role = null, epoch = null } = {}) {
   const cur = await seatOf(v.id, { v })
   const H = await import('../localAgents/hub.js')
   const online = !!(cur?.device_id && H.linkOf(T(), String(cur.device_id)))
-  const ev = { type: 'take', by: by.id, owner: role === 'owner', online, epoch }
+  if (v.source?.template && !S.visibleTo(v, by)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
+  // (the folder owner's take after a day — not of a project's workspace: that is its person's only)
+  const ev = { type: 'take', by: by.id, owner: role === 'owner' && !v.source?.template, online, epoch }
   return onDisk(String(v.id), async () => {
     const peek = await seatOf(v.id)
     const pre = peek ? decide(peek, ev, { v: await S.variationById(v.id) }) : null
@@ -1137,7 +1148,8 @@ export function startSeatSweep(each, _opts = {}) {
 // what the folder header's 「작업실」 sheet needs at once (design §2 — the sheet itself comes with the desktop's working copy, P1 · P2): my
 // live variations with their seats, my computers by name (on or off, their CLIs — no id of a computer is a path), and whether I may open main
 export async function workroomChoices(folder, me, role) {
-  const vs = await q(`select * from pro_folder_variations where folder_id=$1 and holder_type='user' and holder_id=$2 and status in ('open','ready','conflicted') order by updated_at desc limit 30`, [folder.id, String(me.id)])
+  // (a project's workspace from a template is opened from its project, never from the template's sheet — folders/templates.js)
+  const vs = await q(`select * from pro_folder_variations v where folder_id=$1 and holder_type='user' and holder_id=$2 and status in ('open','ready','conflicted') and ${S.UNLISTED} order by updated_at desc limit 30`, [folder.id, String(me.id)])
   const views = await viewsOf(folder, vs, { me, role })
   const H = await import('../localAgents/hub.js')
   const D = await import('../localAgents/devices.js')
