@@ -379,3 +379,12 @@ test('Telegram (or something before it) answering with a page and a 5xx: 503 wit
     await new Promise((ok) => page.close(ok))
   }
 })
+
+// (PR #123 재검토) 목록 안에서 4칸 넘게 들여 쓴 코드 블록도 코드 그대로
+test('a code fence indented under a list item stays code', () => {
+  const md = '1. 설정\n\n    ```yaml\n    - name: build\n      run: make **all**\n    ```\n\n2. 끝'
+  const out = T.toPlain(md)
+  assert.ok(!out.includes('```'), out)
+  assert.ok(out.includes('- name: build'), out)
+  assert.ok(out.includes('make **all**'), out)
+})

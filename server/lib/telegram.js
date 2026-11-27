@@ -72,11 +72,12 @@ export function toPlain(md) {
   let fence = null, body = []
   for (const line of s.split('\n')) {
     if (fence) {
-      const c = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line)
+      const c = /^[ \t]*(`{3,}|~{3,})[ \t]*$/.exec(line)
       if (c && c[1][0] === fence[0] && c[1].length >= fence.length) { kept.push(aside(body.join('\n'))); fence = null; body = [] } else body.push(line)
       continue
     }
-    const o = /^ {0,3}(`{3,}(?![^`]*`)|~{3,})/.exec(line)
+    // (a fence at any indent — a code block nested in a list item is one too)
+    const o = /^[ \t]*(`{3,}(?![^`]*`)|~{3,})/.exec(line)
     if (o) { fence = o[1]; body = [] } else kept.push(line)
   }
   if (fence) kept.push(aside(body.join('\n')))
@@ -265,7 +266,9 @@ export async function sendTelegram(userId, text, { title } = {}) {
   if (!sec.chat_id) throw notLinked()
   // (at most ten messages' worth goes in — a longer text ends in 「…」: what is read stays bounded, PR #123)
   const raw = [title && `# ${title}`, text].filter(Boolean).join('\n\n')
-  const body = toPlain(raw.length > TG_TEXT_MAX ? `${raw.slice(0, TG_TEXT_MAX)}\n…` : raw)
+  // (never ending on half of an emoji: a high surrogate at the cut goes too)
+  const cut = raw.length > TG_TEXT_MAX ? raw.slice(0, TG_TEXT_MAX).replace(/[\uD800-\uDBFF]$/, '') : null
+  const body = toPlain(cut != null ? `${cut}\n…` : raw)
   const pieces = splitMessage(body)
   if (!pieces.length) throw tgError(L('보낼 내용이 없어요.', 'There is nothing to send.'), 400, 'telegram_empty')
   const ids = []

@@ -13,7 +13,8 @@ import * as CP from '../lib/chatProject.js'
 import { requireMember } from '../lib/team/access.js'
 
 // how many times a minute one person may ask for an answer's words (GET …/share/text — each sheet opened asks once)
-export const TEXT_PER_MIN = Number(process.env.PRO_ANSWER_TEXT_PER_MIN || 60)
+// (a value that is not a positive number keeps the default — never no limit)
+export const TEXT_PER_MIN = Number(process.env.PRO_ANSWER_TEXT_PER_MIN) > 0 ? Number(process.env.PRO_ANSWER_TEXT_PER_MIN) : 60
 
 export function answerRoutes(auth) {
   const r = express.Router()
