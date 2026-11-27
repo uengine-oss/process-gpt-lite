@@ -1948,8 +1948,8 @@ miner 가 없으면 F-MN-02.
 휴대폰 녹화 11-27 22:33: 「텍스트 결과가 나왔을 때 이것을 어딘가에 우리는 공유한다든지 하는 기능이 지금 존재하지 않아」 · 「이 내용을 기반으로 프로젝트를 하나 만들자」(채팅 안의 계획으로만 끝남) · 「여기로 프로젝트로 승격하겠다는 거거든」 · 「교육과정 만드는 템플릿 폴더가 있을 수 있겠지」. 시험 파일이 자기 스택(회사 `answer-project-ui`, BFF 8997 · Vite 5397 — 다른 것이 듣고 있으면 멈춤, `RT_AP_API_PORT` · `RT_AP_WEB_PORT`)과 가짜 모델 · 가짜 deepagents(빈 포트)를 띄운다. 라우터의 `start_project` 는 가짜 모델이 그 말에만 부른다(실제 모델이 고르는지는 아래 ✗). 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 
 ```bash
-cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js test/conversations.test.js   # AP-U-01~10 · 실제 DB · git · 저장소, 가짜 모델 · 경로 · 대화 규칙
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~03 · F-CP-01~03
+cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js test/conversations.test.js test/chatArtifacts.test.js   # AP-U-01~10 · 01c · 04c~07d · 04d · 05d · AS-U-05b · 실제 DB · git · 저장소, 가짜 모델 · 경로 · 대화 · 더미 규칙
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~03 · F-CP-01~04
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1974,6 +1974,11 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 | (검토 2) 말로 만든 카드는 처음부터 그 대화에 따로 묶임 · 대화를 묶는 규칙이 화면과 같음(「stay」 · 따로 묶인 카드는 대화를 옮기지 않음) | PR #118 검토 2 | AP-U-09 · `conversations.test.js` | DB · 단위 | ✅ |
 | (검토 2) 「만들기」 표지(`making_id`) · 데이터베이스 시각 · 단계마다 새로 · 이어받기는 남은 단계만 한 번씩 — 느린 원래 것과 이어받기에도 프로젝트 하나 | PR #118 검토 2 | AP-U-07b · AP-U-07c | DB | ✅ |
 | (검토 2) 경로: Windows(`C:\…` · `\\서버\…`) · 콜론 뒤 · `file://localhost`, 주소: 대문자 scheme · `//호스트` · 줄이 끊긴 주소 · `<…>` 안의 빈칸 · 괄호 · `key` · `AIza…` (서버 · 화면 같은 답) | PR #118 검토 2 | `hidePaths.test.js` | 단위 | ✅ |
+| (#118 후속 1 · 2 · PR #122 검토) 매개변수별 비밀 판별: `urlTokens.js`의 이름과 auth · secret · password · passwd · pwd · 흔한 표기(accessToken · x-api-key · Markdown `access\_token` 등)는 값과 무관하게 가림, `key`와 비밀스러운 이름은 비밀 형태의 값만 가림(원래 값도 확인), JWT · AIza… · GitHub 토큰, 비밀 같은 사용자 이름, 값 안의 주소(두 번 인코딩까지) 가림 — 값 안의 평범한 주소 · 대문자 호스트 유지, 온전한 주소가 아닌 조각은 값만 「…」로 대체(예시 · 코드 · 자리 표시 유지), 임시 폴더 경로(`/var/folders/…` · `/var/tmp/…`)도 파일 이름으로 대체(서버 · 화면의 답 동일), 나쁜 형태의 100 KB 답도 200 ms 이내 처리 | PR #118 · #122 검토 | AP-U-01c · `hidePaths.test.js` | 단위 | ✅ |
+| (#118 후속 3) 덧붙이기 직전에 단일 문장으로 재확인: 문서 카드 · 확인 카드 · 「프로젝트로 옮겼어요」는 대화가 여전히 그 사람의 것이고 이 요청이 아직 처리 중일 때만 추가 — 아니면 404 반환, 다른 요청이 이어받았으면 해당 요청의 카드 반환 | PR #118 검토(낮음) | AP-U-04c · AP-U-05c · AP-U-06c | DB | ✅ |
+| (#118 후속 4) 경쟁에서 져서 버리는 프로젝트의 템플릿 작업 공간도 함께 버림(「버리기」와 같은 방법) | PR #118 검토(낮음) | AP-U-07d | DB | ✅ |
+| (PR #122 검토 6) 확인 후 덧붙이기 전 대화 삭제 시 500 대신 404 반환, 카드 작성 중 답 삭제 시 즉시 404 반환 · 모델 한 번 호출, 답의 글은 행마다 한 번만 다듬기 | PR #122 검토 | AP-U-04d · AP-U-05d | DB | ✅ |
+| (#118 후속 · 휴대폰) 산출물 더미가 채팅 위(입력창 위)에 떠 있을 때 마지막 메시지 아래에 더미 높이만큼 공간 확보 — 맨 아래 카드의 「만들기」 · 「아니요」 가림 방지(가운데와 좌우 여러 지점의 `elementFromPoint`), 입력창 옆 더미(1280) 유지 | F-CP-03 화면 사진(11-28) | F-CP-04 · AS-U-05b | feature · 단위 | ✅ |
 | 실제 사내 모델이 그 말에 `start_project` 를 고르는지 · 실제 판정 모델의 템플릿 추천 정확도 | — | — (가짜 모델) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

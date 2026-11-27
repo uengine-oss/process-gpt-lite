@@ -67,6 +67,17 @@ export function pilePlace({ gutter = 0, footTop = 84, boxTop = footTop, noticeH 
   return { mode: 'above', size, right: Math.max(16, Math.round(gutter)), bottom: Math.round(bottom) }
 }
 
+// How high over the chat's bottom the pile reaches when it floats over the chat (above the composer — a phone, a narrow window): the list
+// leaves that much room under its last message, so no card's buttons end up under the pile (2026-11-28: on a phone the confirm card's
+// 「만들기」 lay half under 「MD 1 산출물」 — and the list could not be scrolled any further). The pile, its name under it (6 + 16), the count's
+// badge over it (6) and its bob (4). Beside the composer it is clear of the list: 0 — a wide page is as it was. While the on-screen keyboard is
+// up (src/viewport.js keyboardUp) the chat is short and the person is typing: no room kept then (PR #122 review).
+export const PILE_EXTRA = 32
+export function pileRoom(place, { keyboard = false } = {}) {
+  if (!place || place.mode !== 'above' || keyboard) return 0
+  return Math.round(place.bottom + place.size + PILE_EXTRA)
+}
+
 // the list folded to its rail: this browser only; a private window that refuses storage just forgets
 export const FOLD_KEY = 'pgl-artifact-list'
 const store = (s) => { try { return s === undefined ? globalThis.localStorage : s } catch { return null } }
