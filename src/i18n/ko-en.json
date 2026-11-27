@@ -3256,7 +3256,10 @@
   "되돌리지 못했어요": "Couldn't undo",
   "이 항목과 바꾸기": "Replace this item",
   "바꿔 넣었어요": "Replaced",
-  "그사이 바뀐 계획에 내가 고친 것만 더했어요": "Added only your edits to the plan that changed meanwhile"
+  "그사이 바뀐 계획에 내가 고친 것만 더했어요": "Added only your edits to the plan that changed meanwhile",
+  "그사이 목적이 바뀌어서 내가 쓴 목적은 저장하지 않았어요. 다른 수정 사항은 저장했어요. 목적을 다시 고쳐 저장해 주세요.": "The purpose changed meanwhile, so the purpose you wrote wasn't saved. Your other edits were saved. Edit the purpose again and save.",
+  "지금 목적": "Purpose now",
+  "내가 쓴 목적": "What you wrote"
  },
  "patterns": [
   [

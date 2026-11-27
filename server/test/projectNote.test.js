@@ -304,3 +304,31 @@ test('PP-U-14 (검토 #1) 브라우저 작업의 계획은 배경 — 구매를 
   assert.ok(bg.includes('필요한 소모품을 바로 구매'))
 })
 
+test('PP-U-15 (2차 B · E) 구매 단추는 사람이 시킨 말이 정한다 · 두 항목짜리 계획을 다 지우는 답은 받지 않는다 · 브라우저 배경은 고정 항목을 자르지 않는다', async () => {
+  const B = await import('../lib/browser.js')
+  const goal = '이 링크의 소모품을 장바구니에 담아 구매한다'
+  // the person's words do not ask to buy (a bare link, a rule that said 「정리해 줘」): any purchase control needs approval
+  assert.equal(B.purchaseGate({ goal, said: ['https://shop.example/x', '여기 올리는 링크는 다 정리해 줘'] }, '바로 구매'), 'approve')
+  assert.equal(B.purchaseGate({ goal, said: [''] }, '구독하기'), 'approve', '파일만 보낸 말도(말이 없음) 구매를 시킨 것이 아니다')
+  // the person asked to buy: a buy control is pressed, a payment still asks
+  assert.equal(B.purchaseGate({ goal, said: ['이거 사 줘 https://shop.example/x'] }, '바로 구매'), 'ok')
+  assert.equal(B.purchaseGate({ goal, said: ['이거 사 줘'] }, '결제하기'), 'approve')
+  // what they told it while it ran counts as theirs
+  assert.equal(B.purchaseGate({ goal, said: ['https://shop.example/x'], heard: ['이거 구매해 줘'] }, '바로 구매'), 'ok')
+  // the goal does not ask to buy: refused whatever was said
+  assert.equal(B.purchaseGate({ goal: '이 링크를 요약한다', said: ['사 줘'] }, '바로 구매'), 'refuse')
+  // no person's words started it (a schedule, a process step): the goal they set up decides, as before
+  assert.equal(B.purchaseGate({ goal }, '바로 구매'), 'ok')
+  assert.equal(B.personWords({ goal }), null)
+  // a 2-item plan wiped by an answer: not taken
+  const small = N.normalize({ intent: '목적', constraints: ['가'], decisions: ['나'] })
+  assert.equal(N.dropsTooMuch(small, N.diff(small, N.normalize({ intent: '목적' }))), true)
+  assert.equal(N.dropsTooMuch(small, N.diff(small, N.normalize({ intent: '목적', decisions: ['나'] }))), false, '하나를 빼는 것은 받는다')
+  // the browser's background keeps every pinned item (they can pass 1,500 characters)
+  const pin = (w) => Array.from({ length: 6 }, (_, i) => ({ text: `${w} ${i} ${'가'.repeat(110)}`, pinned: true }))
+  const big = N.normalize({ intent: '목적', constraints: pin('지킬 것'), decisions: pin('정한 것') })
+  const bg = B.backgroundNote(N.noteText(big))
+  assert.ok(N.noteText(big).length > 1500)
+  for (const x of [...big.constraints, ...big.decisions]) assert.ok(bg.includes(x.text), '고정 항목은 모두')
+})
+

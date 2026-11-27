@@ -8,7 +8,7 @@ import { setRuleSkill } from '../lib/roomRules.js'
 
 const send = (res, p) => p.then((x) => res.json(x)).catch((e) => {
   if (!e.status) console.warn('[project-plan]', e.stack || e.message)
-  res.status(e.status || 500).json({ error: e.message })
+  res.status(e.status || 500).json({ error: e.message, ...(e.code ? { code: e.code } : {}), ...(e.list ? { list: e.list } : {}) })
 })
 
 export function projectNoteRoutes(auth) {

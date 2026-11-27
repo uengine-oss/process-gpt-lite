@@ -31,6 +31,8 @@ const draft = ref(null)
 const base = ref({ id: null, note: null })
 const take = (got) => { draft.value = copy(got?.note); base.value = { id: got?.id || null, note: got?.note || null } }
 const notice = ref('')
+// (the purpose changed in the sheet and meanwhile elsewhere: what was kept and what the person wrote — review PR #105 round 2)
+const clash = ref(null)
 const saving = ref(false)
 const err = ref('')
 const savedAt = ref(0)
@@ -89,6 +91,7 @@ async function save() {
   saving.value = true
   err.value = ''
   notice.value = ''
+  clash.value = null
   try {
     const d = draft.value
     const body = { intent: d.intent, deliverables: d.deliverables.filter((x) => x.text.trim()), constraints: d.constraints.filter((x) => x.text.trim()),
@@ -98,11 +101,13 @@ async function save() {
     data.value = { ...(data.value || {}), note: r.note, id: r.id, at: r.at, ...(r.history ? { history: r.history } : {}) }
     take(data.value)
     savedAt.value = Date.now()
-    if (r.merged) notice.value = '그사이 바뀐 계획에 내가 고친 것만 더했어요'
+    if (r.conflict?.intent) clash.value = r.conflict.intent
+    else if (r.merged) notice.value = '그사이 바뀐 계획에 내가 고친 것만 더했어요'
   } catch (e) {
     err.value = e.message || '저장하지 못했어요'
     // (its base left the history: the plan as it is now is loaded — the person makes the edit again on it)
-    if (e.status === 409) { data.value = null; base.value = { id: null, note: null }; draft.value = null; await load(); take(data.value) }
+    // (a list that filled up meanwhile: the sheet keeps the edit — the person takes one out and saves again)
+    if (e.status === 409 && e.code !== 'full') { data.value = null; base.value = { id: null, note: null }; draft.value = null; await load(); take(data.value) }
   } finally { saving.value = false }
 }
 </script>
@@ -171,6 +176,11 @@ async function save() {
           </section>
         </div>
         <footer>
+          <div v-if="clash" class="clash" role="alert" data-testid="plan-intent-conflict">
+            <p>그사이 목적이 바뀌어서 내가 쓴 목적은 저장하지 않았어요. 다른 수정 사항은 저장했어요. 목적을 다시 고쳐 저장해 주세요.</p>
+            <p><b>지금 목적</b> <span data-no-i18n>{{ clash.now }}</span></p>
+            <p><b>내가 쓴 목적</b> <span data-no-i18n>{{ clash.mine }}</span></p>
+          </div>
           <small v-if="err" class="err" role="alert" data-testid="plan-error">{{ err }}</small>
           <small v-else-if="notice" class="ok" data-testid="plan-merged">{{ notice }}</small>
           <small v-else-if="savedAt && !dirty" class="ok" data-testid="plan-saved">저장했어요</small>
@@ -229,6 +239,10 @@ footer { display: flex; align-items: center; justify-content: flex-end; gap: 10p
 .save { height: 38px; padding: 0 20px; border-radius: 19px; background: var(--text-primary); color: var(--ink-inverse, #fff); font-size: 14px; font-weight: 600; }
 .save:disabled { opacity: .4; }
 .ok { color: var(--color-success); font-size: 12.5px; }
+.clash { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-primary); }
+.clash p { margin: 0 0 2px; overflow-wrap: anywhere; }
+.clash b { font-weight: 600; color: var(--text-secondary); margin-right: 4px; }
+footer:has(.clash) { flex-wrap: wrap; }
 .err { color: var(--color-error); font-size: 12.5px; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .veil { place-items: end stretch; padding: 0; }

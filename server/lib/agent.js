@@ -254,7 +254,8 @@ export function runTurn(args) {
       // 프로젝트 계획(lib/projectNote.js): a project turn ended — the plan is rewritten when the front step said the message is one to keep, or
       // every few turns (in the background; a turn that already changed the plan — 계획에 넣기, a rule set — does not ask again)
       const st = turnCtx.getStore()
-      if (st?.project && !st.noteDone && !args.auto && state === 'done') {
+      // (a turn the server composed — a teammate's words picked up, a Home card — never asks for it: their words are not the person's plan)
+      if (st?.project && !st.noteDone && !args.auto && !args.composed && state === 'done') {
         PN.afterTurn({ user: args.user, threadId: args.threadId, memory: !!TP.viewOf(turn)?.plan?.memory }).catch((e) => console.warn('[project-plan] after turn', e.message))
       }
       return m
@@ -290,14 +291,15 @@ const noAgentTurn = (h) => {
 // A turn the browser agent answers: said now, its result posted when it ends. Nothing runs in the agent service.
 // asked: the message as the person sent it ({text, files}); skill: the browser skill (lib/browserSkills.js) the task uses
 // background: the project's plan (lib/projectNote.js noteText) — context for the task apart from its goal (review PR #105 #1)
-async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill, files, onDelta, ack, room, asked, replaces = true, background = '' }) {
+// said: more of the person's own words for the purchase gate (a room rule's words — lib/browser.js purchaseGate)
+async function startBrowserTurn({ user, session, threadId, goal, startUrl, skill, files, onDelta, ack, room, asked, replaces = true, background = '', said = [] }) {
   noAgentTurn(browserHandler(skill))
   // asked to come after a task it finishes first: the reply says the order
   const after = turnCtx.getStore()?.after
   if (after) ack = BQ.orderText(after.title, goal)
   const msg = await addMessage(user.id, threadId, 'agent', 'text', { text: ack })
   onDelta?.(ack)
-  runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked, replaces, background })
+  runBrowser({ user, session, threadId, goal, startUrl, skill, files, room, asked, replaces, background, said })
   return msg
 }
 // (the skill as people know it — its metadata.label, 「브라우저 · NotebookLM」 — else its name)
@@ -307,19 +309,22 @@ const taskHandler = (what) => ({ kind: 'browser', label: `${L('브라우저', 'B
 // the browser tasks this server started, newest last (what the tests read: the skill is passed on as chosen)
 export const browserStarts = []
 // (the ack is already in the chat; the turn it replaces stops alongside — the card need not wait for that)
-function runBrowser({ user, session, threadId, goal, startUrl, skill, files = [], room, asked, replaces = true, background = '' }) {
+function runBrowser({ user, session, threadId, goal, startUrl, skill, files = [], room, asked, replaces = true, background = '', said = [] }) {
   const userId = user.id
   if (replaces) replaceEarlier({ user, session, threadId, room, text: asked?.text ?? goal, why: replacedText(startUrl) })
     .catch((e) => console.warn('[replace]', e.message))
   console.log(`[browser] start thread=${String(threadId).slice(0, 8)} skill=${skill || '-'} url=${startUrl || '-'} files=${files.length}`)
   const own = !turnCtx.getStore()?.auto
-  browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name), own, background })
+  // (the person's own words go with it: what a purchase may do is set by what they asked, never by a goal a model wrote — lib/browser.js
+  // purchaseGate; a turn nobody typed — a routine done without asking — has none: its goal decides, as before)
+  const words = own ? [String(asked?.text ?? ''), ...said.filter(Boolean)] : null
+  browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name), own, background, said: words })
   if (browserStarts.length > 20) browserStarts.shift()
   // the person's words go along (behind a task that waits for them, its card offers them as that task's answer — the first choice
   // is what the judge found likeliest: lib/browserQueue.js queueDefault); a task this turn finishes first comes before it
   const st = turnCtx.getStore()
   const queue = { asked: String(asked?.text ?? '').trim() || goal, default: st?.waitRead?.default || 'after' }
-  runBrowserTask({ userId, threadId, goal, startUrl, files, skill, own, queue, background, ...(st?.after ? { after: st.after.taskId } : {}) })
+  runBrowserTask({ userId, threadId, goal, startUrl, files, skill, own, queue, background, ...(words ? { said: words } : {}), ...(st?.after ? { after: st.after.taskId } : {}) })
     .then((r) => postBrowserResult(userId, threadId, r))
     .catch((e) => { console.warn('[browser]', e.message); addMessage(userId, threadId, 'agent', 'text', { text: L('브라우저 작업을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't start the browser task. Please try again in a moment."), failed: true }) })
 }
@@ -345,20 +350,29 @@ function goOn({ user, threadId, id, resume = true, instruction = '', queue = nul
 // The project's plan for the agent's message (review PR #105 #10): the agent's conversation keeps every message it was sent, so the plan is
 // not sent on every turn as N copies — it is sent when this conversation has not had this version of it, and again every PLAN_AGAIN turns
 // (so a long conversation that the agent trims still has it near: 2026-11-27 「뒤로 갈수록 휘발」). The other turns carry one line.
+// What was sent is recorded only once the agent's stream has really started (its metadata or first words — commit): a turn stopped or
+// refused before that sends the whole plan next time (review PR #105 round 2).
+// (kept in this server's memory, like the plan's lanes and failure marks in lib/projectNote.js: one Lite replica — on a restart, or a
+// second replica, a conversation gets the whole plan once more, which is safe)
 const PLAN_AGAIN = 6
 const planSent = new Map() // conversation id → {id, turns}
 function planForAgent(conv, row) {
   const text = PN.noteText(row?.note)
-  if (!text) return ''
-  if (!conv) return text
-  const was = planSent.get(conv)
-  if (was && was.id === row.id && was.turns < PLAN_AGAIN - 1) {
-    planSent.set(conv, { id: row.id, turns: was.turns + 1 })
-    return L('[프로젝트 계획] 이 대화에서 앞서 받은 계획 그대로(바뀌지 않음) — 배경이고, 이번 메시지가 정한다.', '[Project plan] As given earlier in this conversation (unchanged) — background; the message now decides.')
+  const none = { text: '', commit: () => {} }
+  if (!text) return none
+  const was = conv ? planSent.get(conv) : null
+  const again = !!was && was.id === row.id && was.turns < PLAN_AGAIN - 1
+  let done = false
+  const commit = (sentTo) => {
+    const key = sentTo || conv
+    if (done || !key) return
+    done = true
+    // (the whole plan: that conversation has this version now; the one line: only the conversation that had it counts one more turn)
+    if (!again) planSent.set(key, { id: row.id, turns: 0 })
+    else if (key === conv) planSent.set(key, { id: row.id, turns: was.turns + 1 })
+    if (planSent.size > 5000) planSent.delete(planSent.keys().next().value)
   }
-  planSent.set(conv, { id: row.id, turns: 0 })
-  if (planSent.size > 5000) planSent.delete(planSent.keys().next().value)
-  return text
+  return { text: again ? L('[프로젝트 계획] 이 대화에서 앞서 받은 계획 그대로(바뀌지 않음) — 배경이고, 이번 메시지가 정한다.', '[Project plan] As given earlier in this conversation (unchanged) — background; the message now decides.') : text, commit }
 }
 // the project's plan as a browser task's background ('' outside a project, or with no plan)
 const planBackground = (userId, threadId) => PN.noteRow(userId, threadId).then((r) => PN.noteText(r?.note), () => '')
@@ -521,7 +535,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const said = again ? ((await q(`select id from pro_messages where thread_id=$1 and role='user' and content->>'text'=$2 order by created_at desc limit 1`, [threadId, text]))[0] || { id: null })
     : await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}),
       // (the page's id for it — lib/sendOnce.js: the same message sent again is taken once)
-      ...(clientId ? { clientId: String(clientId) } : {}) })
+      ...(clientId ? { clientId: String(clientId) } : {}),
+      // (words the server composed, not typed by the person — the plan's updates read them as context only: lib/projectNote.js)
+      ...(composed ? { composed: true } : {}) })
   const store = turnCtx.getStore()
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
@@ -699,7 +715,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // (the plan goes with a browser task as background apart from its goal — review PR #105 #1; a delegated run gets it as every project
       // turn does — delegate)
       const goal = roomGoal(rule.action, text, files)
-      if (skill) return startBrowserTurn({ user, session, threadId, goal, startUrl: skill.startUrl || undefined, skill: skill.name, files, onDelta, room, asked: { text, files }, replaces: false, background: PN.noteText(store?.plan?.note || plan?.note), ack: L('이 방의 규칙대로 시작할게요.', 'Starting, as this room is set up to.') })
+      if (skill) return startBrowserTurn({ user, session, threadId, goal, startUrl: skill.startUrl || undefined, skill: skill.name, files, onDelta, room, asked: { text, files }, replaces: false, background: PN.noteText(store?.plan?.note || plan?.note), said: [rule.said], ack: L('이 방의 규칙대로 시작할게요.', 'Starting, as this room is set up to.') })
       return delegate({ user, session, threadId, text: goal, onDelta })
     }
   }
@@ -1701,7 +1717,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
   // 프로젝트 계획(lib/projectNote.js): every turn of a project, in whichever sub-topic — a sub-topic has its own history, and the plan changes
   // (design §4.3); background — the message decides
-  const projectPlan = thread?.kind === 'project' && mode !== 'skill' ? planForAgent(turn.conv || thread?.conversation_id, await PN.noteRow(user.id, threadId).catch(() => null)) : ''
+  const planMsg = thread?.kind === 'project' && mode !== 'skill' ? planForAgent(turn.conv || thread?.conversation_id, await PN.noteRow(user.id, threadId).catch(() => null)) : { text: '', commit: () => {} }
+  const projectPlan = planMsg.text
   // the request, through the context router (viaRouter) or straight to the agent
   const request = async (viaRouter) => {
     // attachments are indexed for the conversation they go to (lib/attachments.js), so a new
@@ -1778,6 +1795,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (!line.startsWith('data:')) continue
       let j
       try { j = JSON.parse(line.slice(5)) } catch { continue }
+      // (the agent took the message: the plan it carried counts as sent to the conversation it went to)
+      if (event === 'metadata' || (j.type === 'token' && j.content)) planMsg.commit(j.conversation_id || turn.conv)
       if (event === 'metadata' && j.routing) {
         routing = j.routing
         turn.setConv(j.conversation_id)
