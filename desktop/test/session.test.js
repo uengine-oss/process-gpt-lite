@@ -105,3 +105,17 @@ test('서버의 로그인 출처는 본 것을 모두 둔다 — 다시 물어 �
   settings.init(dir, keychain())
   assert.equal(settings.get().authOrigins.length, 3, '다시 켜도')
 }))
+
+test('서버가 알린 제 주소도 서버마다 모아 둔다 — 줄지 않고, 다시 켜도', () => inDir((dir) => {
+  settings.init(dir, keychain())
+  settings.useServer('http://localhost:18080', [], ['https://lite-tunnel.example'])
+  settings.noteAuthOrigins('http://localhost:18080', [], [])
+  assert.deepEqual(settings.get().appOrigins, ['https://lite-tunnel.example'])
+  settings.noteAuthOrigins('http://localhost:18080', [], ['http://192.168.0.7:18080'])
+  assert.deepEqual(settings.get().appOrigins, ['https://lite-tunnel.example', 'http://192.168.0.7:18080'])
+  settings.useServer('https://acme.process-gpt.io/lite', [], [])
+  assert.deepEqual(settings.get().appOrigins, [], '다른 서버의 것은 아니다')
+  settings.useServer('http://localhost:18080', [], [])
+  settings.init(dir, keychain())
+  assert.equal(settings.get().appOrigins.length, 2)
+}))

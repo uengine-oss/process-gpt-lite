@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import net from 'node:net'
 import express from 'express'
-import { AGENT_BROWSER_HEADER, fromAgentBrowser, refuseAgentBrowser, guardUpgrades } from '../lib/agentBrowserGuard.js'
+import { AGENT_BROWSER_HEADER, fromAgentBrowser, refuseAgentBrowser, guardUpgrades, openToAgentBrowser } from '../lib/agentBrowserGuard.js'
 
 const listen = (srv) => new Promise((r) => srv.listen(0, '127.0.0.1', () => r(`127.0.0.1:${srv.address().port}`)))
 
@@ -19,6 +19,9 @@ async function serve() {
   app.get('/api/x', (req, res) => res.json({ ok: true }))
   app.post('/api/auth/email/start', (req, res) => res.json({ sent: true }))
   app.post(['/mcp', '/mcp/:connector'], (req, res) => res.json({ jsonrpc: '2.0', id: 1, result: {} }))
+  // (the routes a marked request may still reach, and their neighbours)
+  app.all(['/api/config', '/api/me', '/api/team/shares/:id/raw', '/api/team/shares/:id/link', '/api/mail/attachments/:id/:i/raw', '/api/auth/google/:step', '/api/auth/refresh',
+    '/api/workroom/:kind/:id/raw'], (req, res) => res.json({ ok: true }))
   app.use('/craft', (req, res) => res.type('text/javascript').send('// app'))
   app.get('/page', (req, res) => res.type('text/plain').send('page'))
   const srv = http.createServer(app)
@@ -65,6 +68,38 @@ test('MCP 끝점과 ArtCraft 앱도 표시가 있으면 403 agent_browser — �
       assert.equal(plain.status, 200, p)
     }
   } finally { s.close() }
+})
+
+test('표시가 있어도 세션 없이 여는 몇 곳만 닿는다 — 앱 설정 · 서명된 파일 주소 · 서버 브라우저의 Google 연결, 토큰을 지니면 거기서도 거절', async () => {
+  const s = await serve()
+  try {
+    const marked = { 'X-PGL-Agent-Browser': 'server' }
+    const status = async (p, init = {}) => (await fetch(`${s.base}${p}`, { ...init, headers: { ...marked, ...(init.headers || {}) } })).status
+    for (const p of ['/api/config', '/api/team/shares/f1/raw?u=u1&exp=1&sig=abc', '/api/mail/attachments/a1/0/raw?u=u1&exp=1&sig=abc', '/api/auth/google/callback?state=s&code=c', '/api/auth/google/done'])
+      assert.equal(await status(p), 200, p)
+    assert.equal(await status('/api/config', { method: 'HEAD' }), 200)
+    for (const [p, init] of [
+      ['/api/me', {}], ['/api/auth/google/start', {}], ['/api/auth/refresh', { method: 'POST' }], ['/api/auth/email/start', { method: 'POST' }],
+      ['/api/config', { method: 'POST' }], ['/api/team/shares/f1/raw', {}], ['/api/team/shares/f1/raw?sig=', {}], ['/api/team/shares/f1/link', {}],
+      ['/api/team/shares/f1/raw?sig=abc&token=t', {}], ['/api/team/shares/f1/raw?sig=abc', { headers: { Authorization: 'Bearer t' } }],
+      ['/api/config', { headers: { Authorization: 'Bearer t' } }], ['/api/workroom/r/1/raw?token=t&path=a.png', {}], ['/api/config/../me', {}],
+    ]) assert.equal(await status(p, init), 403, `${init.method || 'GET'} ${p}`)
+    // (the rule itself, on a request as Express gives it)
+    assert.equal(openToAgentBrowser({ method: 'GET', originalUrl: '/api/config', headers: {} }), true)
+    assert.equal(openToAgentBrowser({ method: 'GET', originalUrl: '/api/configx', headers: {} }), false)
+    assert.equal(openToAgentBrowser({ method: 'DELETE', originalUrl: '/api/config', headers: {} }), false)
+  } finally { s.close() }
+})
+
+test('index.js: Google 콜백은 표시가 있는 요청에 서버 브라우저의 연결(mode browser)만 받는다 — 로그인 · 휴대폰 연결은 거절', async () => {
+  const fs = await import('node:fs/promises')
+  const src = await fs.readFile(new URL('../index.js', import.meta.url), 'utf8')
+  const route = src.indexOf("app.get('/api/auth/google/callback'")
+  const take = src.indexOf('gconnect.takeState(', route)
+  const check = src.indexOf("if (fromAgentBrowser(req) && st.mode !== 'browser')", route)
+  const login = src.indexOf("if (st.mode === 'login')", route)
+  assert.ok(route > 0 && take > route && check > take && login > check)
+  assert.ok(src.includes('appOrigins: ownOrigins()'), '/api/config 이 이 서버의 주소를 알린다')
 })
 
 test('표시가 없는 요청은 그대로 지나간다', async () => {

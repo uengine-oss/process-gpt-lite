@@ -9,7 +9,8 @@
 //     the person turned this on; even then not that PC's own network (localhost, 10/8, 192.168/16 …: desktop host.js begin noPrivate)
 //   · 'off', or 「이 컴퓨터에서 단계 실행」 off (prefs.enabled false): never that PC
 //   · a task that starts on a page of this Lite server itself (a share page, a preview Lite showed): this server — the PC's agent
-//     browser does not open the Lite it is linked to (desktop/src/policy.js agentMay; liteOwnPage below)
+//     browser does not open the Lite it is linked to (desktop/src/policy.js agentMay; lib/liteOwn.js liteOwnPage)
+//   · a desktop older than 0.2.6 (no caps.browserGuard — its browser neither keeps off the Lite app nor marks its requests): this server
 // Else this server, as before (phones only, an older desktop). Decided when a task gets the browser; a task never moves by itself after
 // that — a PC that goes off pauses it and the person chooses (lib/browser.js whenOffline).
 //
@@ -23,12 +24,15 @@ import { STEP, pause } from './browserSteps.js'
 import { LIVE, VIEW, SNAP_OPTS, blankOf, hostOf } from './browserServer.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
-import { urlOf } from './tenant.js'
+import { liteOwnPage } from './liteOwn.js'
 import { config } from '../config.js'
 
 export const LinkLost = BL.LinkLost
-// the oldest desktop that runs browser tasks (said where a newer one is needed)
-export const MIN_DESKTOP = '0.2.3'
+// the oldest desktop that runs browser tasks (said where a newer one is needed): 0.2.6 — its browser keeps off the Lite app and marks
+// its requests (caps.browserGuard); an older one's browser does neither, and its tasks run here
+export const MIN_DESKTOP = '0.2.6'
+// a desktop link whose browser may take a task
+export const browsesHere = (link) => !!link?.caps?.browser && !!link?.caps?.browserGuard
 
 // ---- where a task runs ----
 // links: the person's desktops' links now · own: the person's own task (asked for in their own chat), not one nobody watches
@@ -63,42 +67,13 @@ export function privateAddress(u) {
 }
 export const prefOf = (link) => (link?.prefs?.enabled === false ? 'off' : ['off', 'own', 'all'].includes(link?.prefs?.browser) ? link.prefs.browser : 'own')
 
-// Whether an address is a page of this Lite server itself: the same host (any case, no trailing dot) on the same port — or both on
-// a default port, either scheme (http 80 ≡ https 443) — as its public address or the tenant's own; behind the ProcessGPT gateway
-// also the public host's siblings under the same parent domain (<tenant>.process-gpt.io — lib/workroom.js companyAddress); and for
-// a server on this machine (a public address on localhost, *.localhost, 127/8, ::1) any of those names on the same port.
-// http(s) and ws(s) only; anything else, or an address that does not parse, is not.
-const WEB = new Set(['http:', 'https:', 'ws:', 'wss:'])
-const DEFAULT_PORT = { 'http:': 80, 'ws:': 80, 'https:': 443, 'wss:': 443 }
-function placeOf(u) {
-  let x
-  try { x = new URL(String(u)) } catch { return null }
-  if (!WEB.has(x.protocol)) return null
-  const host = x.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
-  return host ? { host, port: x.port ? Number(x.port) : DEFAULT_PORT[x.protocol] } : null
-}
-const samePort = (a, b) => a.port === b.port || ([80, 443].includes(a.port) && [80, 443].includes(b.port))
-const loopback = (h) => h === 'localhost' || h.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(h) || h === '::1' ||
-  /^::ffff:127\.\d+\.\d+\.\d+$/.test(h) || /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(h)
-export function liteOwnPage(url, { publicUrl = config.publicUrl, tenantUrl = urlOf(config.tenantId), gateway = config.tenantFromHeader } = {}) {
-  const at = placeOf(url)
-  if (!at) return false
-  const pub = publicUrl ? placeOf(publicUrl) : null
-  for (const base of [pub, tenantUrl ? placeOf(tenantUrl) : null]) {
-    if (!base || !samePort(at, base)) continue
-    if (at.host === base.host || (loopback(base.host) && loopback(at.host))) return true
-  }
-  if (gateway && pub && samePort(at, pub)) {
-    const parent = pub.host.split('.').slice(1).join('.')
-    if (parent.includes('.') && at.host.endsWith('.' + parent)) return true
-  }
-  return false
-}
+// (whether an address is a page of this Lite server itself: lib/liteOwn.js)
+export { liteOwnPage } from './liteOwn.js'
 
 // startUrl: where the task starts — a page of this Lite server keeps it on this server even when a PC would take it ('lite-page')
 export function routeOf({ links = [], own = true, startUrl = '' } = {}) {
   if (!links.length) return { kind: 'server', why: 'no-desktop' }
-  const able = links.filter((l) => l.caps?.browser).sort((a, b) => b.since - a.since)
+  const able = links.filter(browsesHere).sort((a, b) => b.since - a.since)
   if (!able.length) return { kind: 'server', why: 'old-desktop' }
   const on = able.filter((l) => prefOf(l) !== 'off')
   if (!on.length) return { kind: 'server', why: 'off' }
@@ -119,7 +94,7 @@ export async function whereFor(user) {
   return {
     own: { where: own.kind, why: own.why || null, device: own.link ? { id: own.link.id, name: own.link.name } : null },
     unattended: { where: unattended.kind, why: unattended.why || null, device: unattended.link ? { id: unattended.link.id, name: unattended.link.name } : null },
-    devices: links.map((l) => ({ id: l.id, name: l.name, browser: !!l.caps?.browser, pref: prefOf(l), enabled: l.prefs?.enabled !== false })),
+    devices: links.map((l) => ({ id: l.id, name: l.name, browser: browsesHere(l), pref: prefOf(l), enabled: l.prefs?.enabled !== false })),
     min: MIN_DESKTOP,
   }
 }

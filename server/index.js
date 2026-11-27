@@ -1,7 +1,8 @@
 import * as SO from './lib/sendOnce.js'
 import express from 'express'
 import { apiHeaders } from './lib/apiHeaders.js'
-import { refuseAgentBrowser, guardUpgrades } from './lib/agentBrowserGuard.js'
+import { refuseAgentBrowser, guardUpgrades, fromAgentBrowser } from './lib/agentBrowserGuard.js'
+import { ownOrigins } from './lib/liteOwn.js'
 import { noteSignInMail } from './lib/mailCode.js'
 import nodeFs from 'node:fs'
 import nodePath from 'node:path'
@@ -224,7 +225,10 @@ app.get('/api/config', async (req, res) => {
   ])
   const at = tools || { tools: shape(none(), () => false), via: shape(none()) }
   res.json({ google, googleLogin: google && !config.tenantFromHeader, sso: ssoInfo(), demoLogin, vault: vault.vaultInfo(), craft: craftStatus(), contextRouter: !!config.contextRouterUrl,
-    agentTools: at.tools, agentToolsVia: at.via, transcribe: transcribeHealth() })
+    agentTools: at.tools, agentToolsVia: at.via, transcribe: transcribeHealth(),
+    // this server's own addresses (its public one — a tunnel's when that is it — and the tenant's): the desktop app's agent browser keeps
+    // off them by whichever address the app is connected at (desktop/src/server.js appOriginsOf)
+    appOrigins: ownOrigins() })
 })
 
 // ---------- Google: the installed sign-in, and connecting a signed-in person's account (lib/googleConnect.js) ----------
@@ -310,6 +314,9 @@ app.get('/api/auth/google/callback', async (req, res) => {
   clearStateCookie(res, st.base)
   res.set('Cache-Control', 'no-store')
   res.set('Referrer-Policy', 'no-referrer')
+  // (an agent's browser — this server's own, marked — comes back here only from a connection it was given: never a sign-in, nor a
+  // connection started on the person's phone; lib/agentBrowserGuard.js)
+  if (fromAgentBrowser(req) && st.mode !== 'browser') return withLang(st.lang || 'ko', () => googlePage(res, { ok: false, status: 403, text: L('에이전트 브라우저에서는 로그인하지 않아요.', 'The agent\'s browser does not sign in.') }))
   await withLang(st.lang || 'ko', async () => {
     const fail = (message) => {
       if (st.mode === 'login') return res.redirect(`${st.base}/login?error=${encodeURIComponent(message)}`)

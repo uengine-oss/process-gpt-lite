@@ -54,7 +54,9 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 | (browser-handoff) 에이전트가 Lite 를 열려 한다 · 넘겨받은 창에서 | DH-02, `desktop/test/policy.test.js` · `browser.test.js`, `server/test/browser-local.test.js` |
 | 채팅의 웹 앱 링크 | DH-05, `desktop/test/policy.test.js`(`windowFor`) |
 | (browser-handoff) 이 PC 를 가리키는 다른 이름 · 서버의 다른 주소 | DH-02(`--host-resolver-rules` 로 `lite-alias.test` → 127.0.0.1 · `[::ffff:7f00:1]` · BFF 포트), `desktop/test/policy.test.js` · `browser.test.js`, `server/test/agentBrowserGuard.test.js` |
-| (browser-handoff) Lite 의 페이지에서 시작하는 작업 | `server/test/browserRoute.test.js` |
+| (browser-handoff) Lite 의 페이지에서 시작하는 작업 · 앞선 판의 데스크톱 | `server/test/browserRoute.test.js` |
+| (browser-handoff) 웹소켓의 표시 | DH-06 |
+| (browser-handoff) 서버의 브라우저가 Lite 자신의 주소로 간다 | `server/test/browserServerMark.test.js` |
 | (browser-handoff) 인증 코드를 묻는다 — 그 설치 자신의 로그인 메일 | `server/test/mail-code.test.js` |
 
 시험하지 않은 것: 실제 Windows · Linux 의 트레이 · 작업 표시줄 오버레이 · 런처 숫자(가짜 Electron 의 단위 시험만), 메뉴 막대에 보이는 모습(화면 기록 권한이 없어 찍지 못함 — `state()` 의 `tray.getTitle()` 로 확인), 전체 화면에서 신호등 자리 비우기(macOS 전체 화면은 새 Space로 옮겨 가서 이 PC의 화면에 영향을 준다), 마우스 오른쪽 단추 메뉴, 접근 암호(basic auth)가 걸린 서버, 401 응답일 때 자동으로 재시도하지 않는 동작, 화면 공유, Windows · Linux.
@@ -79,6 +81,6 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 | `dh02-pc-window-refused.png` | 0.2.6 — 「이 PC에서 보기」 창: Lite 로 가는 링크 · 요청이 닿지 않음(`blocked blocked no-window`) |
 | `d12-tray-badges.png` | 앱이 그리는 그림(`src/badge.js` → Electron `nativeImage`, 크게 확대): Windows · Linux 트레이 0 · 3 · 12(9+), 16 · 32px, 밝은 막대 · 어두운 막대, Windows 작업 표시줄 오버레이, macOS 템플릿 그림과 숫자 |
 
-DH-01~05 는 스스로 BFF(8991 — 쓰고 있으면 다음 빈 포트) · Vite(5391 — 마찬가지) · 대본 모델 · 지어낸 사이트를 띄운다: `cd e2e && npx playwright test --project=desktop tests/desktop/desktop-harden.spec.js`. 사용자 데이터 폴더는 앱을 닫은 뒤 모든 파일을 토큰의 UTF-8 · UTF-16 꼴로 찾는다. 묶은 앱의 쿠키 봉인(fuse)은 `npm run smoke` 의 `fuses` 가 본다 — 묶지 않은 앱(이 시험)에는 없다.
+DH-01~06 은 스스로 BFF(8991 — 쓰고 있으면 다음 빈 포트) · Vite(5391 — 마찬가지) · 대본 모델 · 지어낸 사이트를 띄운다: `cd e2e && npx playwright test --project=desktop tests/desktop/desktop-harden.spec.js`. 사용자 데이터 폴더는 앱을 닫은 뒤 모든 파일을 토큰의 UTF-8 · UTF-16 꼴로 찾는다. 묶은 앱의 쿠키 봉인(fuse)은 `npm run smoke` 의 `fuses` 가 본다 — 묶지 않은 앱(이 시험)에는 없다.
 
 시험 결과는 `e2e.txt`에 있다.

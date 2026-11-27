@@ -4,6 +4,8 @@
 //   recent       — servers used before (setup page list), newest first
 //   authOrigins  — the server's Supabase sign-in origin(s) (server.js authOriginsOf): every one it has named, added to on every start
 //   authSeen     — { [server]: [origin…] }: the sign-in origins each server has named (authOrigins is the chosen server's)
+//   appOrigins · appSeen — the same for the server's own addresses by its own account (server.js appOriginsOf — 0.2.6: the agent browser
+//                  keeps off them too)
 //   gate         — { user, pass } basic-auth pair for a server published behind one; pass encrypted with the
 //                  OS keychain (safeStorage) when it is available
 //   window       — { x, y, width, height, maximized }
@@ -58,21 +60,24 @@ function setSaved(patch) {
   return false
 }
 
-// A server's sign-in origins: every one it has named is kept (a server just started may name none yet) — at most 10 a server
+// A server's sign-in origins (and its own addresses): every one it has named is kept (a server just started may name none yet) — at
+// most 10 a server
 const MAX_AUTH_ORIGINS = 10
-function seenAuth(server, origins = []) {
-  const had = ((data.authSeen || {})[server] || []).filter((o) => typeof o === 'string')
+function seen(key, server, origins = []) {
+  const had = ((data[key] || {})[server] || []).filter((o) => typeof o === 'string')
   return [...new Set([...had, ...(Array.isArray(origins) ? origins : []).filter((o) => typeof o === 'string' && o)])].slice(-MAX_AUTH_ORIGINS)
 }
-function noteAuthOrigins(server, origins = []) {
+function noteAuthOrigins(server, origins = [], appOrigins = []) {
   if (!server) return data
-  const seen = seenAuth(server, data.server === server ? [...(data.authOrigins || []), ...origins] : origins)
-  return set({ authSeen: { ...(data.authSeen || {}), [server]: seen }, ...(data.server === server ? { authOrigins: seen } : {}) })
+  const here = data.server === server
+  const auth = seen('authSeen', server, here ? [...(data.authOrigins || []), ...origins] : origins)
+  const app = seen('appSeen', server, here ? [...(data.appOrigins || []), ...appOrigins] : appOrigins)
+  return set({ authSeen: { ...(data.authSeen || {}), [server]: auth }, appSeen: { ...(data.appSeen || {}), [server]: app }, ...(here ? { authOrigins: auth, appOrigins: app } : {}) })
 }
-function useServer(server, authOrigins = []) {
+function useServer(server, authOrigins = [], appOrigins = []) {
   const recent = [server, ...(data.recent || []).filter((s) => s !== server)].slice(0, 6)
-  const seen = seenAuth(server, authOrigins)
-  return set({ server, recent, authOrigins: seen, authSeen: { ...(data.authSeen || {}), [server]: seen } })
+  const auth = seen('authSeen', server, authOrigins), app = seen('appSeen', server, appOrigins)
+  return set({ server, recent, authOrigins: auth, appOrigins: app, authSeen: { ...(data.authSeen || {}), [server]: auth }, appSeen: { ...(data.appSeen || {}), [server]: app } })
 }
 
 const canEncrypt = () => { try { return !!safe && safe.isEncryptionAvailable() } catch { return false } }

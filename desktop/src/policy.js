@@ -72,7 +72,8 @@ function samePlace(a, b, selfHosts = []) {
   const here = (h) => loopName(h) || selfHosts.includes(h)
   return here(a.host) && here(b.host)
 }
-function agentMay(url, { server = '', authOrigins = [], selfHosts = [] } = {}) {
+// appOrigins: the server's own addresses by its own account (its /api/config — its public address, a tunnel's): the same server
+function agentMay(url, { server = '', authOrigins = [], appOrigins = [], selfHosts = [] } = {}) {
   const s = String(url || '')
   if (s === 'about:blank') return true
   // (a blob: the app's page made: the app's own)
@@ -81,8 +82,9 @@ function agentMay(url, { server = '', authOrigins = [], selfHosts = [] } = {}) {
   if (!p) return true
   const self = selfHosts.map(bare)
   if (server && samePlace(p, placeOf(server), self)) return false
-  return !authOrigins.some((o) => samePlace(p, placeOf(o), self))
+  return ![...authOrigins, ...(server ? appOrigins : [])].some((o) => samePlace(p, placeOf(o), self))
 }
+const appPlaces = ({ server = '', authOrigins = [], appOrigins = [] } = {}) => (server ? [server, ...authOrigins, ...appOrigins] : []).map(placeOf).filter((p) => p && p.host)
 // Names are resolved too (browser/host.js, with this browser's own resolver): a name that resolves to this PC is one of this PC's names.
 //   appNames(ctx): the names of the app's server and sign-in (not addresses, not already this PC's) — resolved to learn whether they are here
 //   nameToCheck(url, ctx): a request's host name (not an address, not already this PC's) on the port of the app's server or sign-in when that
@@ -91,23 +93,42 @@ function agentMay(url, { server = '', authOrigins = [], selfHosts = [] } = {}) {
 //     one of this PC's own
 const ipLiteral = (h) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h) || h.includes(':')
 const hereHost = (h, self) => loopName(h) || self.includes(h)
-function appNames({ server = '', authOrigins = [], selfHosts = [] } = {}) {
-  const self = selfHosts.map(bare)
-  return [...new Set([server, ...authOrigins].filter(Boolean).map(placeOf).filter((p) => p && p.host && !ipLiteral(p.host) && !hereHost(p.host, self)).map((p) => p.host))]
+function appNames(ctx = {}) {
+  const self = (ctx.selfHosts || []).map(bare)
+  return [...new Set(appPlaces(ctx).filter((p) => !ipLiteral(p.host) && !hereHost(p.host, self)).map((p) => p.host))]
 }
-function nameToCheck(url, { server = '', authOrigins = [], selfHosts = [] } = {}) {
+function nameToCheck(url, ctx = {}) {
   const p = placeOf(url)
-  const self = selfHosts.map(bare)
+  const self = (ctx.selfHosts || []).map(bare)
   if (!p || !p.host || ipLiteral(p.host) || hereHost(p.host, self)) return null
-  const here = [server, ...authOrigins].filter(Boolean).map(placeOf).filter((a) => a && hereHost(a.host, self))
+  const here = appPlaces(ctx).filter((a) => hereHost(a.host, self))
   return here.some((a) => a.port === p.port || (atDefault(a) && atDefault(p))) ? p.host : null
 }
 const hereAddress = (address, selfHosts = []) => { const h = bare(address); return !!h && (loopName(h) || selfHosts.map(bare).includes(h)) }
 
+// The part of a name its owner holds (accounts.shop.example → shop.example, lite.acme.co.kr → acme.co.kr); an address or a single name is
+// itself. A name under the app's (its server's, its sign-in's, its own addresses') may be the app by another name.
+const SECOND = new Set(['co', 'or', 'go', 'ac', 'ne', 're', 'com', 'net', 'org', 'gov', 'edu'])
+function siteOf(host) {
+  const h = bare(host)
+  if (!h || ipLiteral(h) || !h.includes('.')) return h
+  const p = h.split('.')
+  return p.slice(SECOND.has(p.at(-2)) && p.at(-1).length === 2 ? -3 : -2).join('.')
+}
+const appSites = (ctx) => [...new Set(appPlaces(ctx).map((p) => p.host).filter((h) => !ipLiteral(h) && !loopName(h) && h.includes('.')).map(siteOf))]
+const underAppSite = (host, ctx = {}) => { const h = bare(host); return appSites(ctx).some((s) => h === s || h.endsWith(`.${s}`)) }
+// A name that may be this PC's, its network's or the app's — one label (intranet), the network's own endings (*.local · *.lan · *.internal ·
+// *.intranet · *.localdomain · *.home.arpa · *.localhost), or under the app's names: one that does not resolve is not opened on the app's
+// port (nothing else is refused for a lookup that failed)
+const NET_SUFFIX = /\.(localhost|local|lan|internal|intranet|localdomain|home\.arpa)$/
+const couldBeLocal = (host, ctx = {}) => { const h = bare(host); return !!h && (!h.includes('.') || NET_SUFFIX.test(h) || underAppSite(h, ctx)) }
+
 // Which window a page of the app's own window opens a new window's address in (main.js setWindowOpenHandler):
-//   'main'     — a page of the web app itself (the server's address under its path, not its /api/ — a link in the chat to a project, a
-//                folder): the app's own window goes there instead of a new one; the web app keeps its sign-in only through that window
-//   'child'    — the server's other addresses (a file it shows, a download, ProcessGPT's own pages behind the gateway): a window of its own
+//   'main'     — a screen of the web app itself (the server's address under its path — a link in the chat to a project, a folder): the
+//                app's window shows it, by the web app's own router (main.js — nothing reloads); the web app keeps its sign-in only through
+//                that window
+//   'child'    — the server's other addresses (its /api/, a file it serves — anything named like a file —, /craft/ · /assets/ · /_lite/,
+//                a download, ProcessGPT's own pages behind the gateway): a window of its own
 //   'outside'  — a sign-in page or any other web or mail address: the system browser or mail app
 //   'none'     — nowhere
 function windowFor(url, ctx = {}) {
@@ -120,7 +141,9 @@ function windowFor(url, ctx = {}) {
   const root = base.pathname.replace(/\/+$/, '')
   const p = u.pathname
   if (root && p !== root && !p.startsWith(`${root}/`)) return 'child'
-  return p === `${root}/api` || p.startsWith(`${root}/api/`) ? 'child' : 'main'
+  const rest = p.slice(root.length) || '/'
+  if (/^\/(api|craft|assets|_lite)(\/|$)/.test(rest) || /\.[a-z0-9]{1,12}$/i.test(rest.split('/').pop())) return 'child'
+  return 'main'
 }
 
 // The server's basic-auth gate (a tunnel's) is answered with the saved pair only for the app's own window — its default session — on the
@@ -130,4 +153,4 @@ function answersGate({ mainSession = false, isProxy = false, url = '', server = 
   return !!mainSession && !isProxy && !!server && !!originOf(url) && originOf(url) === originOf(server)
 }
 
-module.exports = { kind, openable, originOf, loopback, answersGate, agentMay, appNames, nameToCheck, hereAddress, windowFor, bare }
+module.exports = { kind, openable, originOf, loopback, answersGate, agentMay, appNames, nameToCheck, hereAddress, windowFor, bare, siteOf, underAppSite, couldBeLocal }

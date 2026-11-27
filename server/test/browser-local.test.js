@@ -127,7 +127,7 @@ before(async () => {
   await startPc()
   // another person's desktop is on too (a fake link): nothing of this person's may ever go there
   const t2 = (await D.issue({ id: other }, { name: '남의 PC' })).token
-  const otherLink = await H.open({ send: () => {}, close: () => {} }, { type: 'hello', token: t2, caps: { browser: true }, prefs: {} })
+  const otherLink = await H.open({ send: () => {}, close: () => {} }, { type: 'hello', token: t2, caps: { browser: true, browserGuard: true }, prefs: {} })
   tap(otherLink)
   ;[{ id: threadId }] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat','local browser test') returning id`, [user])
 })
@@ -441,7 +441,7 @@ test('이어진 PC 의 브라우저가 거듭 열리지 않으면 3번까지만 
       : { type: 'browser-reply', id: m.id, ok: true, value: m.op === 'navigate' ? { ok: true, partial: false, ms: 5 } : m.op === 'open' ? { shown: false } : null, at }
     setImmediate(() => H.receive(link, reply))
   }
-  link = await H.open({ send: (text) => answer(JSON.parse(text)), close: () => {} }, { type: 'hello', token: tok, caps: { browser: true }, prefs: { enabled: true, browser: 'own' } })
+  link = await H.open({ send: (text) => answer(JSON.parse(text)), close: () => {} }, { type: 'hello', token: tok, caps: { browser: true, browserGuard: true }, prefs: { enabled: true, browser: 'own' } })
   const goal = '고장 난 PC 에서'
   scripts[goal] = { i: 0, moves: [['note', { text: '아무거나' }]] }
   const cardOf = async () => (await q(`select id, content from pro_messages where thread_id=$1 and kind='task' and content->>'goal'=$2 order by created_at desc limit 1`, [th, goal]))[0]

@@ -14,8 +14,10 @@
 //   · Never the Lite app this browser is part of, nor its sign-in (desktop 0.2.6 — policy.js agentMay: the server the app is connected to
 //     and its Supabase sign-in, appServer()): no page, redirect, popup, frame or request of this session goes there, for the agent or for
 //     the person working a window shown here (who is told why — notice). A server on this PC is the same server by any name that resolves
-//     to this PC. Every request of this session carries AGENT_HEADER, and the Lite server refuses its API and sign-in to such a request
-//     (server lib/agentBrowserGuard.js). What a Lite page left in this session before 0.2.6 is cleared once (clearAppStorage).
+//     to this PC. A request that may reach that server by another of its addresses carries AGENT_HEADER (markFor: this PC, its network,
+//     a name under the app's, the server's own addresses), and the Lite server refuses its sign-in and API to such a request (server
+//     lib/agentBrowserGuard.js); other sites never see it. What a Lite page left in this session before 0.2.6 is cleared once
+//     (clearAppStorage).
 //   · Between tasks (idle) it sends nothing: no frames, no downloads; the page is cleared (a vault value typed into it goes too).
 //   · A page's own alert · confirm · prompt never opens a box here (answered as nobody watching would, kept for the next look); no
 //     fullscreen, no sound while hidden, no paste from this PC's clipboard, at most POPUPS new windows a task.
@@ -24,7 +26,7 @@ const os = require('node:os')
 const fs = require('node:fs')
 const { Cdp, withTimeout } = require('./cdp')
 const P = require('./pageScripts')
-const { agentMay, appNames, nameToCheck, hereAddress } = require('../policy')
+const { agentMay, appNames, nameToCheck, hereAddress, underAppSite, couldBeLocal, bare } = require('../policy')
 
 const VIEW = { width: 1280, height: 800 }
 const MAX_DOWNLOAD = Number(process.env.PGL_BROWSER_MAX_DOWNLOAD) > 0 ? Number(process.env.PGL_BROWSER_MAX_DOWNLOAD) : 50 * 1024 * 1024 // (tests make it small)
@@ -107,10 +109,16 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
   const { BrowserWindow, session: electronSession } = electron
   const state = { user: null, partition: null, tabs: [], active: null, live: { minMs: 333, width: 1024, height: 640 }, snap: { maxEls: 120, maxText: 3000, budgetMs: 1500 },
     step: { navMs: 20000, settleMs: 1500, snapMs: 6000, shotMs: 6000 }, frameOf: new Map(), shown: false, seq: 0, quitting: false, files: new Set(),
-    busy: false, noPrivate: false, popups: 0, coming: 0, dialogs: [], refused: [], toldAt: 0, ensuring: null, replacing: null, names: new Map(), here: new Map() }
+    busy: false, noPrivate: false, popups: 0, coming: 0, dialogs: [], refused: [], toldAt: 0, ensuring: null, replacing: null, names: new Map(), here: new Map(),
+    ends: new Map(), marked: new Map() }
   // (this PC's names: its own, and the names resolved to it a moment ago — here)
   const hereNames = () => { const now = Date.now(), out = []; for (const [h, x] of state.here) if (x.here && x.until > now) out.push(h); return out }
-  const appCtx = () => { let a = null; try { a = appServer() } catch { /* none */ } return { server: String(a?.server || ''), authOrigins: Array.isArray(a?.authOrigins) ? a.authOrigins : [], selfHosts: [...selfHosts(), ...hereNames()] } }
+  const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [])
+  const appCtx = () => {
+    let a = null
+    try { a = appServer() } catch { /* none */ }
+    return { server: String(a?.server || ''), authOrigins: list(a?.authOrigins), appOrigins: list(a?.appOrigins), selfHosts: [...selfHosts(), ...hereNames()] }
+  }
   // the Lite app or its sign-in: never in this browser
   const mayGo = (u) => agentMay(u, appCtx())
   // where a page may go now: a web address, not the Lite app; for a task nobody watches, not this PC's own network
@@ -127,23 +135,49 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     state.toldAt = Date.now()
     try { notice({ origin, win: w }) } catch { /* the app's own */ }
   }
-  // Whether a name resolves to this PC, by this session's resolver, for a minute (at most 500 names kept). fail: what a name that does not
-  // resolve counts as — a request's name is refused (nothing to reach anyway), the app's own name is not taken as this PC's.
+  // A name's addresses by this session's resolver, for a minute (at most 500 names kept); null: it does not resolve
+  async function endpointsOf(ses, h) {
+    const had = state.ends.get(h)
+    if (had && had.until > Date.now()) return had.ends
+    let ends = null
+    if (typeof ses?.resolveHost === 'function') {
+      try { const r = (await withTimeout(ses.resolveHost(h), 3000, 'resolving'))?.endpoints || []; ends = r.length ? r.map((e) => String(e.address || '').toLowerCase()) : null } catch { ends = null }
+    }
+    state.ends.delete(h)
+    state.ends.set(h, { ends, until: Date.now() + 60_000 })
+    if (state.ends.size > 500) state.ends.delete(state.ends.keys().next().value)
+    return ends
+  }
+  // Whether a name resolves to this PC (kept a minute, at most 500). fail: what a name that does not resolve counts as — a request's name
+  // that may be local (couldBeLocal) is refused, the app's own name and any other name are not taken as this PC's.
   async function resolvesHere(ses, h, { fail = true } = {}) {
     const had = state.here.get(h)
     if (had && had.until > Date.now()) return had.here
-    let here = fail
-    if (typeof ses?.resolveHost === 'function') {
-      try {
-        const ends = (await withTimeout(ses.resolveHost(h), 3000, 'resolving'))?.endpoints || []
-        here = ends.length ? ends.some((e) => hereAddress(String(e.address || ''), selfHosts())) : fail
-      } catch { here = fail }
-    }
+    const ends = await endpointsOf(ses, h)
+    const here = ends ? ends.some((a) => hereAddress(a, selfHosts())) : fail
     state.here.delete(h)
     state.here.set(h, { here, until: Date.now() + 60_000 })
     if (state.here.size > 500) state.here.delete(state.here.keys().next().value)
     return here
   }
+  // Whether a request that goes may still reach the app's server by an address the rules above do not know — its host is this PC or its
+  // network (by address, by a local name, by what it resolves to), a name under the app's, or an address of the app's server: then it
+  // carries the mark (AGENT_HEADER) and the Lite server refuses it its sign-in and API. Any other site never sees the mark.
+  const markedAddress = (a, appIps) => { const h = bare(a); return privateIp(h) === true || hereAddress(h, selfHosts()) || appIps.has(h) }
+  async function markFor(ses, u) {
+    const ctx = appCtx()
+    if (!ctx.server) return false
+    let h
+    try { h = bare(new URL(String(u).replace(/^ws(s?):/i, 'http$1:')).hostname) } catch { return false }
+    if (!h) return false
+    if (underAppSite(h, ctx) || (privateIp(h) === null && couldBeLocal(h, ctx))) return true
+    const appIps = new Set()
+    for (const n of appNames(ctx)) for (const a of (await endpointsOf(ses, n)) || []) appIps.add(bare(a))
+    if (privateIp(h) !== null) return markedAddress(h, appIps)
+    const ends = await endpointsOf(ses, h)
+    return !!ends && ends.some((a) => markedAddress(a, appIps))
+  }
+  const mark = (id) => { state.marked.set(id, true); if (state.marked.size > 2000) state.marked.delete(state.marked.keys().next().value) }
   // What this session does with a request or an address: 'app' — the Lite app or its sign-in, by its address or by a name that resolves to
   // the app's server on this PC (the server's own name is resolved first: a server by a name of this PC is on this PC); 'private' — this
   // PC's network while a task nobody watches holds the browser; null — it goes
@@ -154,7 +188,7 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     const ctx = appCtx()
     if (!agentMay(u, ctx)) return 'app'
     const name = nameToCheck(u, ctx)
-    if (name && await resolvesHere(ses, name)) return 'app'
+    if (name && await resolvesHere(ses, name, { fail: couldBeLocal(name, ctx) })) return 'app'
     if (v === 'name') return (await privateByName(ses, u)) ? 'private' : null
     return null
   }
@@ -185,8 +219,11 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     if (!ses?.webRequest) return
     ses.webRequest.onBeforeRequest((d, cb) => {
       const u = String(d.url || '')
-      verdictOf(ses, u).then((v) => {
-        if (!v) return cb({})
+      verdictOf(ses, u).then(async (v) => {
+        if (!v) {
+          if (await markFor(ses, u).catch(() => false)) mark(d.id)
+          return cb({})
+        }
         if (v === 'app') {
           let w = null
           try { w = d.webContents && d.resourceType === 'mainFrame' ? BrowserWindow.fromWebContents(d.webContents) : null } catch { /* gone */ }
@@ -198,15 +235,16 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
         cb({ cancel: true })
       }, () => cb({ cancel: true }))
     })
-    // (every request says it is this browser's: the Lite server refuses its API and sign-in to it, by any address it is reached at)
-    ses.webRequest.onBeforeSendHeaders?.((d, cb) => cb({ requestHeaders: { ...d.requestHeaders, [AGENT_HEADER]: '1' } }))
+    // (a request that may reach the app's server says it is this browser's — markFor, decided above: the Lite server refuses its sign-in
+    // and API to it, by whichever address it is reached at)
+    ses.webRequest.onBeforeSendHeaders?.((d, cb) => cb(state.marked.delete(d.id) ? { requestHeaders: { ...d.requestHeaders, [AGENT_HEADER]: '1' } } : {}))
   }
   // What a Lite page kept in this person's session before 0.2.6 (its storage, cookies, service workers — a page opened here then): cleared
   // once for each of the app's origins, and noted in <userData>/browser-cleared.json so it is not done again
   async function clearAppStorage(ses) {
     if (typeof ses?.clearStorageData !== 'function' || !state.partition) return
-    const { server, authOrigins } = appCtx()
-    const out = new Set(authOrigins.map(originOf).filter((o) => /^https?:/.test(o)))
+    const { server, authOrigins, appOrigins } = appCtx()
+    const out = new Set([...authOrigins, ...(server ? appOrigins : [])].map(originOf).filter((o) => /^https?:/.test(o)))
     try {
       const s = new URL(server)
       out.add(s.origin)

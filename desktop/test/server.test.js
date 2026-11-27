@@ -22,15 +22,16 @@ test('candidates: a bare company domain also tries its /lite', () => {
 })
 
 const json = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body })
-test('check: a Lite /api/config is found, with its Supabase sign-in origin', async () => {
+test('check: a Lite /api/config is found, with its Supabase sign-in origin and the addresses it gives for itself', async () => {
   const seen = []
   const fetch = async (url) => {
     seen.push(url)
     if (url === 'https://acme.process-gpt.io/api/config') return { status: 200, ok: true, json: async () => { throw new Error('html') } }
-    return json(200, { google: false, demoLogin: false, sso: { google: 'https://auth.process-gpt.io/auth/v1/authorize?provider=google' } })
+    return json(200, { google: false, demoLogin: false, sso: { google: 'https://auth.process-gpt.io/auth/v1/authorize?provider=google' },
+      appOrigins: ['https://acme.process-gpt.io/lite', 'https://lite-tunnel.example/', 'file:///x', 'not an address'] })
   }
   const r = await check('acme.process-gpt.io', { fetch })
-  assert.deepEqual(r, { ok: true, server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'] })
+  assert.deepEqual(r, { ok: true, server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'], appOrigins: ['https://acme.process-gpt.io', 'https://lite-tunnel.example'] })
   assert.deepEqual(seen, ['https://acme.process-gpt.io/api/config', 'https://acme.process-gpt.io/lite/api/config'])
 })
 

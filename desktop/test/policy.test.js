@@ -108,3 +108,27 @@ test('앱 창이 여는 새 창 — 웹 앱의 화면은 이 창에서, 서버�
   for (const u of ['https://auth.process-gpt.io/auth/v1/authorize', 'https://www.naver.com/', 'mailto:a@example.com']) assert.equal(windowFor(u, company), 'outside', u)
   for (const u of ['about:blank', 'file:///etc/passwd', 'javascript:alert(1)']) assert.equal(windowFor(u, company), 'none', u)
 })
+
+test('서버가 알린 제 주소(공개 주소 · 터널)도 그 서버다 — 에이전트 브라우저는 열지 않는다. 그 이름 아래 · 앱 이름 아래는 이 PC 의 이름처럼 다룬다', () => {
+  const ctx = { server: 'http://localhost:18080', authOrigins: [], appOrigins: ['https://lite-tunnel.example', 'http://192.168.0.7:18080'], selfHosts: ['192.168.0.7'] }
+  for (const u of ['https://lite-tunnel.example/chat', 'http://lite-tunnel.example/', 'wss://lite-tunnel.example/api/events', 'http://192.168.0.7:18080/']) assert.equal(agentMay(u, ctx), false, u)
+  for (const u of ['https://other-tunnel.example/', 'https://www.naver.com/']) assert.equal(agentMay(u, ctx), true, u)
+  // (no server chosen: nothing of the app)
+  assert.equal(agentMay('https://lite-tunnel.example/', { appOrigins: ['https://lite-tunnel.example'] }), true)
+  const { siteOf, underAppSite, couldBeLocal } = require('../src/policy')
+  assert.deepEqual(['accounts.shop.example', 'lite.acme.co.kr', 'acme.co.kr', 'localhost', '127.0.0.1', 'intranet'].map(siteOf), ['shop.example', 'acme.co.kr', 'acme.co.kr', 'localhost', '127.0.0.1', 'intranet'])
+  const company = { server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'] }
+  for (const h of ['www.process-gpt.io', 'process-gpt.io', 'x.y.process-gpt.io']) assert.equal(underAppSite(h, company), true, h)
+  for (const h of ['process-gpt.io.evil.example', 'google.com', 'naver.co.kr']) assert.equal(underAppSite(h, company), false, h)
+  for (const h of ['intranet', 'printer.lan', 'nas.home.arpa', 'db.internal', 'a.localhost', 'other.process-gpt.io']) assert.equal(couldBeLocal(h, company), true, h)
+  for (const h of ['slow.example', 'www.naver.com']) assert.equal(couldBeLocal(h, company), false, h)
+})
+
+test('웹 앱의 화면만 앱 창에서 — 정적 파일 · 다른 앱(/craft · /assets · /_lite · 파일 이름)은 새 창', () => {
+  const company = { server: 'https://acme.process-gpt.io/lite', authOrigins: [] }
+  for (const u of ['https://acme.process-gpt.io/lite/craft/vectorcraft/index.html', 'https://acme.process-gpt.io/lite/assets/index-abc.js', 'https://acme.process-gpt.io/lite/sw.js',
+    'https://acme.process-gpt.io/lite/_lite/host.html', 'https://acme.process-gpt.io/lite/favicon.svg', 'https://acme.process-gpt.io/lite/manifest.webmanifest'])
+    assert.equal(windowFor(u, company), 'child', u)
+  for (const u of ['https://acme.process-gpt.io/lite/chat/c/1', 'https://acme.process-gpt.io/lite/routines/abc', 'https://acme.process-gpt.io/lite/folders/my.folder/v/2?x=1#a'])
+    assert.equal(windowFor(u, company), 'main', u)
+})

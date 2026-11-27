@@ -86,3 +86,13 @@ sessionStore 6/6 · mail-code 26/26 · agentBrowserGuard 6/6(MCP · ArtCraft 포
   ✓ DH-04 페이지의 저장소에 있던 로그인은 처음 실행에 옮기고 지운다 — 새로 받은 세션의 토큰이 든 파일 없음
   5 passed (21.6s)
 # 회귀 (같은 날): desktop.spec.js D-01~D-13 13 passed · local-browser.spec.js LB-01~03 3 passed · local-agents.spec.js L-01~04 4 passed
+
+# 0.2.6 재검토 반영 — 2026-11-27 저녁: 표시는 서버의 다른 주소일 수 있는 곳에만 · 0.2.6 이상 데스크톱으로만 · 서버 브라우저도 표시 · 표시된 요청은 세션 없는 몇 곳만 ·
+# 웹 앱 링크는 라우터로(다시 불러오지 않음) · 풀리지 않는 보통 이름은 막지 않음 · 웹소켓 표시
+# desktop/ 단위 시험 — ℹ tests 128 · pass 124 · fail 0 · skipped 4
+# server — sessionStore 6/6 · mail-code 26/26 · agentBrowserGuard 8/8 · browserRoute 6/6 · browserServerMark 1/1(Playwright Chromium) · browser-local 15/15 · browserDriver 53/53
+# Playwright --project=desktop tests/desktop/desktop-harden.spec.js (BFF 8992 · Vite 5392 — 8991 · 5391 은 쓰는 중) — 6 passed
+#   DH-02 BFF 포트의 /api/me: 표시 403 agent_browser · 표시 없이 401 · /api/config 200 / beacon-queued ws-blocked sw-blocked cors-ok
+#   DH-05 웹 앱 링크: 창을 다시 불러오지 않고 /folders, 로그인한 채 · /api/config · /favicon.svg 는 새 창 · 패널 앱의 링크는 시스템 브라우저
+#   DH-06 그 세션의 ws://127.0.0.1:<BFF>/api/local-agents/link: error(서버 403) · 표시 없는 같은 연결 101
+# 회귀: desktop.spec.js D-01~13 13 passed(BFF 8993) · local-browser.spec.js 3 passed · local-agents.spec.js 4 passed

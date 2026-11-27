@@ -45,7 +45,7 @@ test('a server on this machine: any loopback name on the same port', () => {
 })
 
 test('routeOf: a task that starts on this Lite server\'s own page runs in this server\'s browser (lite-page)', () => {
-  const pc = { id: 'pc1', name: 'PC', since: 1, caps: { browser: true }, prefs: { browser: 'all' } }
+  const pc = { id: 'pc1', name: 'PC', since: 1, caps: { browser: true, browserGuard: true }, prefs: { browser: 'all' } }
   assert.deepEqual(routeOf({ links: [pc], own: true, startUrl: 'https://lite.example.com/s/abc' }), { kind: 'server', why: 'lite-page' })
   assert.deepEqual(routeOf({ links: [pc], own: false, startUrl: 'http://lite.example.com/x' }), { kind: 'server', why: 'lite-page' })
   assert.equal(routeOf({ links: [pc], own: true, startUrl: 'https://shop.example/' }).kind, 'local')
@@ -53,4 +53,25 @@ test('routeOf: a task that starts on this Lite server\'s own page runs in this s
   // a task the PC would not take anyway keeps its own reason
   assert.deepEqual(routeOf({ links: [], startUrl: 'https://lite.example.com/s/abc' }), { kind: 'server', why: 'no-desktop' })
   assert.deepEqual(routeOf({ links: [{ ...pc, prefs: { browser: 'off' } }], startUrl: 'https://lite.example.com/' }), { kind: 'server', why: 'off' })
+})
+
+test('routeOf: 0.2.6 보다 앞선 데스크톱(브라우저가 Lite 를 막지 않고 표시도 달지 않음 — caps.browserGuard 없음)으로는 보내지 않는다 — 서버 브라우저, old-desktop', async () => {
+  const { MIN_DESKTOP, browsesHere, whereFor } = await import('../lib/browserRemote.js')
+  const old = { id: 'old', name: 'Old PC', since: 2, caps: { browser: true }, prefs: { browser: 'all' } }
+  const now = { id: 'new', name: 'New PC', since: 1, caps: { browser: true, browserGuard: true }, prefs: { browser: 'all' } }
+  assert.deepEqual(routeOf({ links: [old], own: true }), { kind: 'server', why: 'old-desktop' })
+  assert.deepEqual(routeOf({ links: [old], own: false }), { kind: 'server', why: 'old-desktop' })
+  assert.equal(routeOf({ links: [old, now], own: true }).link.id, 'new', '더 최근에 이어진 앞선 판이 있어도 0.2.6 인 PC 로')
+  assert.equal(browsesHere(old), false)
+  assert.equal(browsesHere(now), true)
+  assert.equal(browsesHere({ caps: { browserGuard: true } }), false, '브라우저가 없는 데스크톱')
+  assert.equal(MIN_DESKTOP, '0.2.6')
+  assert.equal(typeof whereFor, 'function')
+})
+
+test('데스크톱이 알린 능력 가운데 browserGuard 도 남는다(lib/localAgents/devices.js capsOf) — 모르는 값은 false', async () => {
+  const D = await import('../lib/localAgents/devices.js')
+  assert.equal(D.capsOf({ browser: true, browserGuard: true }).browserGuard, true)
+  assert.equal(D.capsOf({ browser: true }).browserGuard, false)
+  assert.equal(D.capsOf({ browser: true, browserGuard: 'yes' }).browserGuard, false)
 })

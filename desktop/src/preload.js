@@ -86,7 +86,9 @@ const folders = local ? undefined : Object.freeze({
   },
 })
 // the count of Home cards waiting (the web app's src/browserNotify.js setBadge): main's Dock · taskbar · tray (src/tray.js), a whole
-// number 0…9999 — main checks it again. onOpenHome: the tray's 「알림 N개 — 열기」 asks the page for its Home.
+// number 0…9999 — main checks it again. onOpenHome: the tray's 「알림 N개 — 열기」 asks the page for its Home. onNavigate: a link to one of
+// the web app's screens that would open a new window shows it here (main.js showInWindow — the path under the app's address).
+// openOutside: a panel app's link goes to the system browser.
 const badge = local ? {} : {
   setBadge: (n) => { const v = Math.floor(Number(n)); ipcRenderer.send('pgl:badge', v > 0 ? Math.min(v, 9999) : 0) },
   onOpenHome: (cb) => {
@@ -94,6 +96,12 @@ const badge = local ? {} : {
     ipcRenderer.on('pgl:open-home', h)
     return () => ipcRenderer.removeListener('pgl:open-home', h)
   },
+  onNavigate: (cb) => {
+    const h = (_e, to) => { try { cb(String(to || '')) } catch { /* the page's own */ } }
+    ipcRenderer.on('pgl:navigate', h)
+    return () => ipcRenderer.removeListener('pgl:navigate', h)
+  },
+  openOutside: (url) => ipcRenderer.send('pgl:open-outside', String(url || '')),
 }
 // the web app's sign-in (0.2.6 — src/sessionStore.js): kept by main, sealed with the system's keychain, not in the page's localStorage.
 // Read from main once a page, when the page first asks (main answers only the chosen server's own pages), and held here; set · clear

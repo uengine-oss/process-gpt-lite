@@ -26,7 +26,7 @@ import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } fr
 import { judge } from './judge.js'
 import { STEP, StepError, isStop, bounded, pause, watchdog } from './browserSteps.js'
 import { ServerDriver, within, blankOf, lookAt } from './browserServer.js'
-import { RemoteDriver, routeFor, privateAddress } from './browserRemote.js'
+import { RemoteDriver, routeFor, privateAddress, browsesHere } from './browserRemote.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
 import { BLOCK, HARD, turnOf, progressOf, budgetAfter } from './browserProgress.js'
@@ -1503,7 +1503,7 @@ async function whenOffline(s, task, messages) {
   const device = was.device || {}
   const tenant = config.tenantId
   const host = hostOf(url)
-  let link = H.linksOf(tenant, task.userId).find((l) => l.id === device.id && l.caps?.browser) || null
+  let link = H.linksOf(tenant, task.userId).find((l) => l.id === device.id && browsesHere(l)) || null
   // the PC is still linked but its browser keeps failing to open: after MAX_REOPENS tries the task pauses as if it were off (the person
   // chooses this server's browser, or waits for the app to come back) — never a loop of reopening (2026-11-25 review)
   let broken = false

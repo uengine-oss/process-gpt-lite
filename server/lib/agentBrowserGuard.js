@@ -1,6 +1,8 @@
-// The browser the agent drives on the person's PC (desktop app, desktop/src/browser) marks every request it makes with
-// X-PGL-Agent-Browser. This server serves none of them: not its API, not its sign-in, not its MCP endpoints, not the ArtCraft
-// apps, not its live links (websockets) —
+// The browser the agent drives on the person's PC (desktop app, desktop/src/browser) marks its requests that may reach this server
+// (by any of its addresses) with X-PGL-Agent-Browser, and so does this server's own browser for its requests to this server's own
+// addresses (lib/browserServer.js). A marked request reaches only the few routes that need no session (OPEN below — this app's public
+// config, a file's signed address, this server's own browser's Google connection); never the sign-in, any API that needs a session,
+// the MCP endpoints, the ArtCraft apps or the live links (websockets) —
 // a task works on other sites in that browser, never in Lite as the person. Lite itself is used in the app's own window or
 // a web browser. (A task that starts on a page of this server runs in this server's browser instead: lib/browserRemote.js
 // liteOwnPage.)
@@ -25,9 +27,31 @@ const langOf = (req) => {
   return resolveLang({ header: req.headers['x-pgl-lang'] || q || undefined })
 }
 
-// every route (index.js mounts it ahead of all of them): a marked request gets 403 { error, code: 'agent_browser' } and goes no further
+// What a marked request may still reach — no session of anyone's goes with it (a request carrying a token is refused even here):
+//   GET /api/config                              the app's public settings (a page of this app asks first)
+//   GET /api/team/shares/:id/raw?sig=…            a shared file by its signed address (one file, one person, for a while)
+//   GET /api/mail/attachments/:id/:i/raw?sig=…    a mail attachment by its signed address (the same)
+//   GET /api/auth/google/callback · …/done        this server's own browser connecting Google for the person who asked (the callback
+//                                                 takes only such a connection's state — never a sign-in's: index.js)
+const OPEN = [
+  { path: /^\/api\/config$/ },
+  { path: /^\/api\/team\/shares\/[^/]+\/raw$/, signed: true },
+  { path: /^\/api\/mail\/attachments\/[^/]+\/[^/]+\/raw$/, signed: true },
+  { path: /^\/api\/auth\/google\/(callback|done)$/ },
+]
+export function openToAgentBrowser(req) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false
+  let u
+  try { u = new URL(req.originalUrl || req.url || '/', 'http://x') } catch { return false }
+  if (req.headers?.authorization || u.searchParams.has('token')) return false
+  const route = OPEN.find((r) => r.path.test(u.pathname))
+  return !!route && (!route.signed || !!u.searchParams.get('sig'))
+}
+
+// every route (index.js mounts it ahead of all of them): a marked request gets 403 { error, code: 'agent_browser' } and goes no
+// further — but for the few open ones above
 export function refuseAgentBrowser(req, res, next) {
-  if (!fromAgentBrowser(req)) return next()
+  if (!fromAgentBrowser(req) || openToAgentBrowser(req)) return next()
   withLang(langOf(req), () => res.status(403).set({ 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }).json(refusal()))
 }
 

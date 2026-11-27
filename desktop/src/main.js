@@ -89,7 +89,7 @@ function start() {
   // the server's Supabase sign-in address may change (or was never read): ask again quietly — added to the ones seen before, never
   // put in their place (a server that has just started may not say it yet)
   const s = settings.get().server
-  if (s) server.check(s, { fetch: net.fetch, ...(settings.gate() || {}) }).then((r) => { if (r.ok && r.server === s) settings.noteAuthOrigins(s, r.authOrigins) }).catch(() => {})
+  if (s) server.check(s, { fetch: net.fetch, ...(settings.gate() || {}) }).then((r) => { if (r.ok && r.server === s) settings.noteAuthOrigins(s, r.authOrigins, r.appOrigins) }).catch(() => {})
 }
 
 // ---------- the window ----------
@@ -187,7 +187,8 @@ function saveWindow() {
 }
 
 const serverUrl = () => settings.get().server || ''
-const ctx = () => ({ server: serverUrl(), authOrigins: settings.get().authOrigins || [] })
+// (appOrigins: the server's own addresses by its own account — only the agent browser's rules read them, browser/host.js)
+const ctx = () => ({ server: serverUrl(), authOrigins: settings.get().authOrigins || [], appOrigins: settings.get().appOrigins || [] })
 const isServerPage = (url) => !!serverUrl() && policy.kind(url, ctx()) === 'app' && !String(url).startsWith('about:')
 
 function loadServer(sub = '/chat') {
@@ -240,19 +241,29 @@ function guard(wc) {
     if (w === 'child') {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 1100, height: 800, backgroundColor: '#ffffff', autoHideMenuBar: true, webPreferences: childPrefs() } }
     }
-    // a page of the web app (a link in the chat to a project, a folder): this window goes there — a new window would have no bridge to
-    // the sign-in the app keeps
-    if (w === 'main') {
-      if (!win || win.isDestroyed()) createWindow()
-      win.loadURL(url).catch(() => { /* did-fail-load shows the offline page */ })
-      if (win.isMinimized()) win.restore()
-      win.focus()
-    }
+    // a screen of the web app (a link in the chat to a project, a folder): this window goes there by the web app's own router (nothing
+    // reloads — a meeting, an open document, a reply on its way stay); a new window would have no bridge to the sign-in the app keeps
+    if (w === 'main') showInWindow(url)
     if (w === 'outside') openExternal(url)
     return { action: 'deny' }
   })
   wc.on('did-create-window', (child) => guard(child.webContents))
   wc.on('context-menu', (_e, p) => contextMenu(wc, p))
+}
+
+// the web app's screen at url, in the app's window: its router goes there (pgl:navigate — preload onNavigate); a window that does not show
+// the web app now (the setup or offline page) loads it
+function showInWindow(url) {
+  if (!win || win.isDestroyed()) createWindow()
+  let to = ''
+  try {
+    const u = new URL(url), root = new URL(serverUrl()).pathname.replace(/\/+$/, '')
+    to = `${u.pathname.slice(root.length) || '/'}${u.search}${u.hash}`
+  } catch { return }
+  if (isServerPage(win.webContents.getURL())) win.webContents.send('pgl:navigate', to)
+  else win.loadURL(url).catch(() => { /* did-fail-load shows the offline page */ })
+  if (win.isMinimized()) win.restore()
+  win.focus()
 }
 
 // what a right click offers where the page does not handle it: editing, copying, a link
@@ -367,7 +378,7 @@ ipcMain.handle('pgl:connect', async (e, v) => {
   const pass = v?.pass ? String(v.pass).slice(0, 500) : (old && old.user === user ? old.pass : '')
   const r = await server.check(input, { fetch: net.fetch, user, pass })
   if (!r.ok) return r
-  settings.useServer(r.server, r.authOrigins)
+  settings.useServer(r.server, r.authOrigins, r.appOrigins)
   settings.setGate(user, pass)
   // the count was the last server's (its page sends its own once it loads)
   trayBadge?.set(0)
@@ -680,5 +691,7 @@ function openHome() {
 }
 // only the chosen server's own pages, in the main window, say the count
 ipcMain.on('pgl:badge', (e, n) => { if (fromServerPage(e)) trayBadge?.set(n) })
+// a panel app's link (src/components/PanelFrame.vue — a sandboxed app in the page): the system browser, never this window
+ipcMain.on('pgl:open-outside', (e, url) => { if (fromServerPage(e) && /^https?:/i.test(String(url || ''))) openExternal(String(url).slice(0, 4000)) })
 
 app.on('before-quit', () => { browserHost?.quit(); stopRunner(); trayBadge?.destroy() })

@@ -6,10 +6,11 @@
 //         폴더 어느 파일에도 토큰이 그대로 없다
 //   DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는다 — 에이전트의 「열기」(이 PC 를 가리키는 다른 이름 · IPv4 를 품은 IPv6 로도) · 그리로
 //         보내는 사이트 · 페이지의 링크 · 요청(fetch · 그림 · 새 창 · sendBeacon · 폼 POST · 웹소켓 · 서비스 워커의 fetch), 사람이 「이 PC에서 보기」로
-//         넘겨받은 창에서도, 그때는 「이 주소는 에이전트 브라우저에서 열지 않아요」. 그 브라우저의 요청에는 표시가 붙고 Lite 서버는 다른 주소(BFF 포트)
-//         로 와도 API 를 거절한다(403 agent_browser). 다른 사이트의 CORS 요청은 그대로 된다
-//   DH-05 새 창으로 여는 웹 앱 링크(채팅의 프로젝트 · 폴더 링크)는 앱 창에서 연다 — 새 창 없이 로그인한 채, 페이지의 저장소에 로그인이 생기지 않는다.
-//         서버의 /api/ 주소는 지금처럼 새 창
+//         넘겨받은 창에서도, 그때는 「이 주소는 에이전트 브라우저에서 열지 않아요」. Lite 서버의 다른 주소일 수 있는 곳(이 PC 의 주소 — BFF 포트)으로 가는
+//         그 브라우저의 요청에는 표시가 붙고 Lite 서버는 세션이 필요한 API 를 거절한다(403 agent_browser). 다른 사이트의 CORS 요청은 그대로 된다
+//   DH-05 새 창으로 여는 웹 앱 링크(채팅의 프로젝트 · 폴더 링크)는 앱 창에서, 웹 앱의 라우터로 연다 — 다시 불러오지 않고 로그인한 채, 페이지의
+//         저장소에 로그인이 생기지 않는다. 앱 화면이 아닌 서버 주소(/api/ · 파일)는 지금처럼 새 창, 패널 앱의 링크는 시스템 브라우저
+//   DH-06 에이전트 브라우저 세션의 웹소켓도 Lite 서버의 다른 주소(BFF 포트)로 가면 표시가 붙어 서버가 403 으로 닫는다 — 표시 없는 같은 연결은 열린다
 //   DH-03 로그아웃하면 봉인해 둔 로그인도 지운다
 //   DH-04 앞선 판처럼 페이지의 저장소에 있던 로그인은 처음 실행에 옮기고 지운다(한 번 새로 받아 저장소에 있던 짝은 다 쓴 것으로) — 키체인을 쓸 수
 //         없는 컴퓨터(시험: PGL_DESKTOP_NO_SEAL=1)에서는 지금처럼 페이지의 저장소
@@ -21,6 +22,7 @@ import { spawn, execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -303,11 +305,13 @@ test('DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는
   expect(ends).toContain('127.0.0.1')
   // the Lite server's API at an address the PC does not take for the app's (the BFF's own port): a request of that session carries the
   // mark, and the server itself refuses it
-  const bff = await app.evaluate(async ({ session }, [p, u]) => { const r = await session.fromPartition(p).fetch(u); return { status: r.status, body: await r.text() } }, [partition, `http://127.0.0.1:${API_PORT}/api/config`])
+  const bff = await app.evaluate(async ({ session }, [p, u]) => { const r = await session.fromPartition(p).fetch(u); return { status: r.status, body: await r.text() } }, [partition, `http://127.0.0.1:${API_PORT}/api/me`])
   console.log(`[DH-02] the BFF port from the agent browser's session: ${bff.status} ${bff.body.slice(0, 120)}`)
   expect(bff.status).toBe(403)
   expect(JSON.parse(bff.body)).toMatchObject({ code: 'agent_browser', error: expect.stringContaining('에이전트 브라우저에서 온 요청은 받지 않아요') })
-  expect((await fetch(`http://127.0.0.1:${API_PORT}/api/config`)).status).toBe(200)
+  expect((await fetch(`http://127.0.0.1:${API_PORT}/api/me`)).status).toBe(401)
+  // (what needs no session — the app's public settings — still answers it)
+  expect(await app.evaluate(async ({ session }, [p, u]) => (await session.fromPartition(p).fetch(u)).status, [partition, `http://127.0.0.1:${API_PORT}/api/config`])).toBe(200)
   expect(seen.tools[1]).toMatch(/^error: could not open/)
   expect(seen.tools[2]).toBe('ok')
   // a link of the page to it: the page stays, and the agent's next look says why
@@ -354,28 +358,68 @@ test('DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는
   expect(await liteUrls()).toEqual([])
 })
 
-test('DH-05 새 창으로 여는 웹 앱 링크는 앱 창에서 — 새 창 없이 로그인한 채, 서버의 /api/ 는 지금처럼 새 창', async () => {
+test('DH-05 새 창으로 여는 웹 앱 링크는 앱 창에서, 웹 앱의 라우터로 — 다시 불러오지 않고 로그인한 채; 앱 화면이 아닌 서버 주소는 새 창, 패널 앱의 링크는 바깥', async () => {
   const { app, win } = A
   await win.goto(`${LITE}/chat`)
   await expect(win.locator('header.top')).toBeVisible()
   const open = (u) => win.evaluate((x) => { const a = document.createElement('a'); a.href = x; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove() }, u)
   const pages = () => app.windows().filter((p) => !p.isClosed() && p.url().startsWith(LITE)).length
   const before = pages()
+  // (a mark on the page itself: a reload would take it away — a meeting, an open document, a reply on its way would go with it)
+  await win.evaluate(() => { window.__dh05 = 'still here' })
   await open(`${LITE}/folders`)
   await win.waitForURL(/\/folders/, { timeout: 15000 })
   await win.waitForTimeout(800)
+  expect(await win.evaluate(() => window.__dh05)).toBe('still here')
   expect(pages()).toBe(before)
   expect(win.url()).not.toMatch(/\/login/)
   expect((await pageSession(win))?.access_token?.length).toBeGreaterThan(20)
   expect(await stored(win)).toBeNull()
-  // the server's /api/ (a file it shows): a window of its own, as before
-  const child = app.waitForEvent('window', { timeout: 15000 })
-  await open(`${LITE}/api/config`)
-  const c = await child
-  await c.waitForLoadState().catch(() => {})
-  expect(c.url()).toContain('/api/config')
-  await c.close()
+  // the server's addresses that are not the web app's screens (its /api/, a file it serves): a window of their own, as before
+  for (const p of ['/api/config', '/favicon.svg']) {
+    const child = app.waitForEvent('window', { timeout: 15000 })
+    await open(`${LITE}${p}`)
+    const c = await child
+    await c.waitForLoadState().catch(() => {})
+    expect(c.url()).toContain(p)
+    await c.close()
+  }
+  // a panel app's link (src/components/PanelFrame.vue): the system browser (tests: global.__pglExternal) — the window stays where it was
+  const had = (await app.evaluate(() => global.__pglExternal || [])).length
+  await win.evaluate((u) => window.pglDesktop.openOutside(u), `${LITE}/chat`)
+  await expect.poll(async () => (await app.evaluate(() => global.__pglExternal || [])).slice(had)).toEqual([`${LITE}/chat`])
   expect(win.url()).toMatch(/\/folders/)
+  expect(await win.evaluate(() => window.__dh05)).toBe('still here')
+})
+
+// a raw websocket handshake to the BFF port, with or without the mark: the first line of the answer
+function handshake(port, path, extra = {}) {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(port, '127.0.0.1')
+    let got = ''
+    sock.on('data', (d) => { got += d; if (got.includes('\r\n')) { sock.destroy(); resolve(got.split('\r\n')[0]) } })
+    sock.on('error', reject)
+    sock.setTimeout(5000, () => { sock.destroy(); resolve(got.split('\r\n')[0] || 'no answer') })
+    const head = { Host: `127.0.0.1:${port}`, Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', ...extra }
+    sock.write(`GET ${path} HTTP/1.1\r\n${Object.entries(head).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`)
+  })
+}
+
+test('DH-06 에이전트 브라우저 세션의 웹소켓도 서버의 다른 주소(BFF 포트)로 가면 표시가 붙어 서버가 403 으로 닫는다 — 표시 없는 같은 연결은 열린다', async () => {
+  const { app } = A
+  const url = `ws://127.0.0.1:${API_PORT}/api/local-agents/link`
+  const at = logs.length
+  const got = await app.evaluate(async ({ BrowserWindow }, u) => {
+    const w = BrowserWindow.getAllWindows().find((x) => x.pglBrowser && !x.isDestroyed())
+    if (!w) return 'no-window'
+    return w.webContents.executeJavaScript(`new Promise((ok) => { const s = new WebSocket(${JSON.stringify(u)}); s.onopen = () => { s.close(); ok('open') }; s.onerror = () => ok('error'); setTimeout(() => ok('none'), 5000) })`, true)
+  }, url)
+  console.log(`[DH-06] a websocket of the agent browser's session to ${url}: ${got}`)
+  expect(got).toBe('error')
+  // (not refused by the desktop — the BFF port is not the app's address: the server closed it, as it does a marked handshake)
+  expect(logs.slice(at).join('')).not.toMatch(/refused \(the Lite app or its sign-in\): webSocket/)
+  expect(await handshake(API_PORT, '/api/local-agents/link', { 'X-PGL-Agent-Browser': '1' })).toBe('HTTP/1.1 403 Forbidden')
+  expect(await handshake(API_PORT, '/api/local-agents/link')).toBe('HTTP/1.1 101 Switching Protocols')
 })
 
 test('DH-03 로그아웃하면 봉인해 둔 로그인도 지운다', async () => {
