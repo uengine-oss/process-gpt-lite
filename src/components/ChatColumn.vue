@@ -114,11 +114,18 @@ const colEl = ref(null)
 const footEl = ref(null)
 const foot = ref({ top: 84, gutter: 0 })
 let footObs
+let colH = 0
 function measureFoot() {
   const c = colEl.value?.getBoundingClientRect(), f = footEl.value?.getBoundingClientRect()
   if (!c || !f || !c.width) return
   const next = { top: Math.round(c.bottom - f.top), gutter: Math.round(c.right - f.right) }
-  if (next.top !== foot.value.top || next.gutter !== foot.value.gutter) foot.value = next
+  const resized = colH && Math.round(c.height) !== colH
+  colH = Math.round(c.height)
+  const moved = next.top !== foot.value.top
+  if (moved || next.gutter !== foot.value.gutter) foot.value = next
+  // the list ends above the composer (its padding follows the foot — --foot-top): a list kept at the bottom stays there when the row over
+  // the box comes, goes or folds for typing, and when a phone's keyboard makes the page shorter
+  if (moved || resized) nextTick(() => { const el = scroller.value; if (el && stick && Date.now() - smoothAt >= 600) el.scrollTop = el.scrollHeight })
 }
 onMounted(() => {
   footObs = new ResizeObserver(measureFoot)
@@ -148,7 +155,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 </script>
 
 <template>
-  <section ref="colEl" class="col">
+  <section ref="colEl" class="col" :style="{ '--foot-top': `${foot.top}px` }">
     <EdgeBlur side="top" />
     <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
       <div ref="inner" class="inner">
@@ -169,27 +176,33 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
     <!-- beside the composer: the files this view made (MainView's ArtifactStack), placed by the composer's box -->
     <slot name="aside" :foot="foot" />
     <div ref="footEl" class="foot">
-      <!-- what the agent is doing right now, above the composer (hark's "패널 만드는 중") -->
+      <!-- a notice over the composer (it stands in for the progress pill while it shows) -->
       <Transition name="pill">
         <div v-if="app.notice" key="notice" class="notice" role="alert" data-testid="chat-notice">{{ app.notice.text }}</div>
-        <!-- the pill opens the progress panel of the turn running here (TurnProgress) -->
-        <button v-else-if="working && liveTurn" :key="working" class="working press" data-testid="chat-working" :aria-expanded="!!panelTurn" aria-haspopup="dialog" @click="togglePanel">
-          <span class="shimmer-text wt" data-testid="turn-pill">{{ working }}</span><span class="el">{{ dur(elapsed(liveTurn, now)) }}</span><Icon name="chevron" :size="12" class="chev" :class="{ open: !!panelTurn }" />
-        </button>
-        <div v-else-if="working" :key="working" class="working" data-testid="chat-working"><span class="shimmer-text wt">{{ working }}</span></div>
       </Transition>
       <TurnProgress v-if="panelTurn" :turn="panelTurn" :now="now" :stopping="stopping" @close="app.turnPanel = null" @stop="stop" />
-      <button v-if="stoppable" class="stop press" :disabled="stopping" aria-label="답 멈추기" title="답 멈추기" @click="stop"><span class="sq" />{{ stopping ? '멈추는 중' : '멈추기' }}</button>
       <button v-if="needsInput && !browsing" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
       <BrowserDock @pending="toPending(true)" />
-      <Composer :placeholder="placeholder" @send="(t, o) => emit('send', t, o)" />
+      <!-- 2026-11-27 recording (「이 공간 지금 여기 너무 많이 잡아먹고 있어요」): what the agent is doing right now is one row with a phone's
+           「기본」 chip over the box, and 멈추기 is the box's own ■ — two rows less than the pill, 멈추기 and the chip each on a row of
+           their own; while typing on a phone the row folds (Composer.vue) -->
+      <Composer :placeholder="placeholder" :status="!!working && !app.notice" :stoppable="stoppable" :stopping="stopping" @stop="stop" @send="(t, o) => emit('send', t, o)">
+        <template #status>
+          <!-- the pill opens the progress panel of the turn running here (TurnProgress) -->
+          <button v-if="liveTurn" class="working press" data-testid="chat-working" :aria-expanded="!!panelTurn" aria-haspopup="dialog" @click="togglePanel">
+            <span class="shimmer-text wt" data-testid="turn-pill">{{ working }}</span><span class="el">{{ dur(elapsed(liveTurn, now)) }}</span><Icon name="chevron" :size="12" class="chev" :class="{ open: !!panelTurn }" />
+          </button>
+          <div v-else class="working" data-testid="chat-working"><span class="shimmer-text wt">{{ working }}</span></div>
+        </template>
+      </Composer>
     </div>
   </section>
 </template>
 
 <style scoped>
 .col { position: absolute; inset: 0; }
-.msgs { position: absolute; inset: 0; padding: 96px 0 130px; transition: filter .5s, opacity .5s; }
+/* (the bottom: clear of the composer and the row over its box — a plan card's last line hid under the old pill row on a phone) */
+.msgs { position: absolute; inset: 0; padding: 96px 0 max(130px, calc(var(--foot-top, 84px) + 18px)); transition: filter .5s, opacity .5s; }
 .msgs.dim { filter: blur(14px); opacity: .55; pointer-events: none; }
 .inner { width: 512px; max-width: calc(100% - 32px); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .empty { text-align: center; color: var(--text-secondary); font-size: 22px; margin-top: 30vh; line-height: 1.4; }
@@ -201,22 +214,19 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 .seen { align-self: flex-end; font-size: 12px; color: var(--text-tertiary); margin: -8px 6px 0; }
 .attn { position: absolute; right: calc(100% + 10px); bottom: 6px; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: var(--color-attention); color: #fff; box-shadow: 0 4px 16px rgba(0 0 0 / .18); animation: pop-in .4s var(--spring); }
 @media (max-width: 760px) { .foot:has(.attn), .foot:has(.dock) { padding-left: 56px; } .attn { right: auto; left: 0; } }
-.working { position: absolute; left: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 18px; border-radius: 19px; display: inline-flex; align-items: center; gap: 8px;
-  border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: rgba(127, 127, 127, .06); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14.5px; color: var(--text-tertiary); white-space: nowrap;
-  /* 멈추기 always fits beside it, at 390 px too (design turnplan §3.3) */
-  max-width: calc(100% - 96px); }
-/* (a button now: its words a step darker than the old line, which read faintly over a light sky in the dark theme) */
-button.working { padding: 0 12px 0 16px; cursor: pointer; color: var(--text-secondary); }
+/* the progress pill: on the row over the composer's box (Composer #status), as tall as a phone's 「기본」 chip beside it; its words shorten
+   before the chip moves (design turnplan §3.3) */
+.working { height: 30px; max-width: 100%; min-width: 0; padding: 0 14px; border-radius: 15px; display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: var(--thin-bg, rgba(127, 127, 127, .06)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  font-size: 13.5px; color: var(--text-tertiary); white-space: nowrap; animation: pop-in .3s var(--spring); }
+/* (a button: its words a step darker than a plain line, which read faintly over a light sky in the dark theme) */
+button.working { padding: 0 10px 0 14px; cursor: pointer; color: var(--text-secondary); }
 .working .wt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.working .el { flex: none; font-size: 12.5px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.working .el { flex: none; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
 .working .chev { flex: none; rotate: -90deg; transition: rotate .2s; }
 .working .chev.open { rotate: 90deg; }
 .notice { position: absolute; left: 4px; right: 4px; bottom: calc(100% + 12px); padding: 10px 16px; border-radius: 18px; font-size: 14px; line-height: 1.45; color: #fff;
   background: var(--color-attention); box-shadow: 0 4px 16px rgba(0 0 0 / .14); word-break: keep-all; overflow-wrap: anywhere; }
-.stop { position: absolute; right: 4px; bottom: calc(100% + 12px); height: 38px; padding: 0 16px 0 14px; border-radius: 19px; display: inline-flex; align-items: center; gap: 8px;
-  border: 1px solid var(--hairline, rgba(127, 127, 127, .3)); background: var(--thin-bg, rgba(127, 127, 127, .06)); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); font-size: 14px; color: var(--text-primary); }
-.stop .sq { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
-.stop:disabled { opacity: .55; }
 .pill-enter-active, .pill-leave-active { transition: opacity .25s, translate .25s; }
 .pill-enter-from, .pill-leave-to { opacity: 0; translate: 0 6px; }
 .foot { position: absolute; z-index: 6; left: 50%; bottom: 32px; translate: -50% 0; width: 512px; max-width: calc(100% - 32px); }

@@ -77,7 +77,7 @@ function up() { if (!from) return; from = null; if (pull.value > 90) emit('close
 </template>
 
 <style scoped>
-.turn-panel { position: absolute; left: 4px; bottom: calc(100% + 60px); width: 420px; max-width: calc(100vw - 32px); max-height: 60vh; z-index: 30; display: flex; flex-direction: column;
+.turn-panel { position: absolute; left: 4px; bottom: calc(100% + 10px); width: 420px; max-width: calc(100vw - 32px); max-height: 60vh; z-index: 30; display: flex; flex-direction: column;
   border-radius: 22px; border: 1px solid var(--hairline); box-shadow: var(--shadow-card); background: var(--regular-solid-bg); animation: pop-in .3s var(--spring) both; overflow: hidden; }
 .turn-panel.sheet { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-width: none; max-height: 85vh; z-index: 90; border-radius: 22px 22px 0 0; border-bottom: 0;
   padding-bottom: env(safe-area-inset-bottom, 0); transition: transform .2s; }

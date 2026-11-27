@@ -54,8 +54,8 @@ export function artifactLayout({ pageW, leftW = 0, wide = true, docOpen = false,
 export const sideWidth = (layout) => (layout === 'list' ? LIST_W : layout === 'rail' ? RAIL_W : 0)
 
 // Where the pile sits, from the composer's box (ChatColumn measures it): beside the composer when the space right of it holds the
-// pile with air around it, else above the composer's right end — above its 「멈추기」 · 「작업 중」 pills too (38px, 12px over it) —
-// so it never covers what is typed. A phone's pile is smaller.
+// pile with air around it, else above the composer's right end — clear of a notice over it too (38px, 12px over it; the progress
+// pill is on the composer's own row now, inside footTop) — so it never covers what is typed. A phone's pile is smaller.
 export const PILE = 64
 export const PILE_SMALL = 48
 export function pilePlace({ gutter = 0, footTop = 84, small = false }) {

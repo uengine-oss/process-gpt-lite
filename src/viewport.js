@@ -8,6 +8,10 @@ export const viewW = ref(window.innerWidth)
 export const pageInset = ref(0)
 export const pageW = computed(() => viewW.value - pageInset.value)
 window.addEventListener('resize', () => { narrow.value = check(); viewW.value = window.innerWidth })
+// a finger rather than a mouse (a phone, a tablet): while the person types there, the composer folds what stands over its box (Composer.vue)
+const coarseMq = window.matchMedia?.('(pointer: coarse)')
+export const coarse = ref(!!coarseMq?.matches)
+coarseMq?.addEventListener?.('change', (e) => { coarse.value = e.matches })
 // a page wide enough for a left column beside the chat (Home's dock, the project · routine · thread lists); narrower, a list is a page
 // of its own over the chat
 export const wideLayout = computed(() => pageW.value > 1000)
