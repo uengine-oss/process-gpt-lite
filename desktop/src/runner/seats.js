@@ -145,7 +145,9 @@ function wcGitOnce(args, { gitDir = null, cwd, hooks, token = '', url = '', inpu
   if (!ALLOWED.has(sub) || (sub === 'worktree' && !WORKTREE.has(args[1]))) return Promise.reject(new G.GitError(`git ${sub}${sub === 'worktree' ? ` ${args[1]}` : ''} is not used on a working copy`))
   const full = [...(gitDir ? [`--git-dir=${gitDir}`] : []), ...args]
   const pairs = [...quietPairs(hooks), ...net.filter(([k]) => NET_KEYS.test(k))]
-  const fenced = { GIT_CONFIG_GLOBAL: NO_CONFIG, GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0', ...(ceiling || (cwd && !gitDir) ? { GIT_CEILING_DIRECTORIES: ceiling || path.dirname(path.resolve(cwd)) } : {}) }
+  // (the ceiling as git will see the folders above it — on Windows their long names: realOf)
+  const ceil = ceiling || (cwd && !gitDir ? path.dirname(path.resolve(cwd)) : null)
+  const fenced = { GIT_CONFIG_GLOBAL: NO_CONFIG, GIT_CONFIG_NOSYSTEM: '1', GIT_OPTIONAL_LOCKS: '0', ...(ceil ? { GIT_CEILING_DIRECTORIES: WIN ? realOf(ceil) : ceil } : {}) }
   try { tap?.({ sub, args: full, gitDir, cwd, env: { ...fenced }, config: Object.fromEntries(pairs) }) } catch { /* tests */ }
   const e = { ...baseEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C', ...fenced, ...G.authEnv(token, pairs, url), ...env }
   return new Promise((resolve, reject) => {
@@ -195,7 +197,13 @@ const readLines = (f, file, size) => {
   } finally { fs.closeSync(fd) }
 }
 const sizeOf = (file) => { try { return fs.statSync(file).size } catch { return -1 } }
-const realOf = (p) => { try { return fs.realpathSync(p) } catch { return path.resolve(p) } }
+// A folder's real path, to compare with what git says of it. On Windows git names folders by their long names (C:/Users/runneradmin/…)
+// while a folder this app was given may carry its short 8.3 name (C:\Users\RUNNER~1\… — the usual TEMP of a Windows account): there the
+// system's own resolution (realpathSync.native — the long name, as the disk has it) is used, and two paths are the same whatever their
+// case. Elsewhere it is what it always was.
+const WIN = process.platform === 'win32'
+const realOf = (p) => { try { return WIN ? fs.realpathSync.native(p) : fs.realpathSync(p) } catch { return path.resolve(p) } }
+const samePath = (a, b) => (WIN ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : a === b)
 class TurnWatch {
   constructor(dir, { claudeHome, onEnd = () => {}, onStart = () => {} } = {}) {
     this.dir = realOf(dir)
@@ -558,7 +566,7 @@ class WorkingCopies extends Uploader {
     const top = (await this.git(['rev-parse', '--show-toplevel'], { cwd: e.dir })).trim()
     const common = (await this.git(['rev-parse', '--git-common-dir'], { cwd: e.dir })).trim()
     const abs = path.isAbsolute(common) ? common : path.resolve(e.dir, common)
-    if (realOf(top) !== realOf(e.dir) || realOf(abs) !== realOf(this.repoOf(e))) throw new G.GitError('the working copy is not one of the app\'s')
+    if (!samePath(realOf(top), realOf(e.dir)) || !samePath(realOf(abs), realOf(this.repoOf(e)))) throw new G.GitError(`the working copy is not one of the app's (${top} · ${common})`)
   }
   // a working copy that was added completely: the app's own, clean, at the head it was given
   // (the index against HEAD — not a clean tree: on a Mac a file stored with a decomposed Hangul name, or two names that differ only in case,
@@ -1184,7 +1192,7 @@ class WorkingCopies extends Uploader {
     const base = `${day()}-${var8(vid)}`
     let bin = path.join(this.trashRoot, `${base}-${kind}`)
     for (let i = 2; fs.existsSync(bin); i++) bin = path.join(this.trashRoot, `${base}-${i}-${kind}`)
-    try { fs.renameSync(dir, bin) } catch (err) {
+    try { await renameSoon(dir, bin) } catch (err) {
       if (err.code !== 'EXDEV') throw err
       if (await this.inUse(dir)) throw new G.GitError('a program is still in the working copy — it stays')
       await fsp.cp(dir, bin, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false })
@@ -1428,6 +1436,15 @@ class WorkingCopies extends Uploader {
   }
 }
 
+// A rename of a folder — on Windows tried again a few times while something still holds it a moment (a folder watch that is being closed,
+// a git that just ended: EPERM · EBUSY · EACCES); a folder a program really keeps open still fails, and the caller keeps the copy
+async function renameSoon(a, b) {
+  for (const wait of WIN ? [100, 200, 400, 800, 1600] : []) {
+    try { return fs.renameSync(a, b) } catch (err) { if (!['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) throw err }
+    await new Promise((r) => setTimeout(r, wait))
+  }
+  return fs.renameSync(a, b)
+}
 // (asynchronous, and yielding now and then: a large tree never holds the app's main process up)
 const yieldNow = () => new Promise((r) => setImmediate(r))
 async function walkFiles(dir, skip, onFile) {

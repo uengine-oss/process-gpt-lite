@@ -36,7 +36,21 @@ const TOKEN = `pgf1.${crypto.randomBytes(12).toString('base64url')}.${crypto.ran
 const FAKE_GH = `${'gh'}${'p_'}${'Zx9Q'.repeat(9)}`
 const git = (cwd, ...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false', ...a], { cwd, stdio: 'pipe' }).toString()
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const waitFor = async (fn, ms = 8000, what = '') => { const t = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t > ms) throw new Error(`timed out: ${what}`); await sleep(40) } }
+// a wait that runs out says why: each working copy's record (state · why · epoch · whether its folder is there), the prepares that failed,
+// the last seat messages the app sent and the app's last log lines (its git errors among them) — on every platform the same
+const explain = () => {
+  const w = typeof wc === 'undefined' ? null : wc
+  if (!w) return ''
+  const v8 = (x) => String(x || '').slice(0, 8)
+  const recs = w.store.all().map((e) => `${v8(e.variationId)} ${e.state}${e.why ? `/${e.why}` : ''} epoch ${e.epoch} dir ${e.dir ? (fs.existsSync(e.dir) ? 'there' : 'gone') : 'none'}`)
+  const failed = [...(w.failed || new Map())].map(([k, f]) => `${v8(k)} ${f.why}`)
+  const msgs = (typeof sent === 'undefined' ? [] : sent).slice(-10).map((m) => `${m.type} ${v8(m.variation)}${m.why ? ` ${m.why}` : ''}${m.epoch != null ? ` e${m.epoch}` : ''}`)
+  const lines = (typeof logs === 'undefined' ? [] : logs).slice(-10)
+  return `\n  records: ${recs.join(' | ') || '-'}\n  failed: ${failed.join(' | ') || '-'}\n  sent: ${msgs.join(' | ') || '-'}\n  log:\n    ${lines.join('\n    ') || '-'}`
+}
+const waitFor = async (fn, ms = 8000, what = '') => { const t = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t > ms) throw new Error(`timed out: ${what}${explain()}`); await sleep(40) } }
+// a working copy deleted outside the app, as Finder · Explorer would (on Windows a folder the app is still watching may refuse for a moment)
+const deleteOutside = (dir) => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
 // what the app was asked to do about a variation has all been done (its lock is first in, first out: nothing waits on time)
 const settled = (w, vid) => w.locked(vid, async () => {})
 // a program with its current folder in a working copy (a terminal, a CLI): started, and seen the way the app sees it (lsof) before the
@@ -1352,7 +1366,7 @@ test('5차 검토 2 — 앱 밖에서 지운 작업본: 다음 「이 PC 에서 
   const e = await prepared(w, v)
   put(e.dir, '메모.md', '안 올린 메모\n'); git(e.dir, 'add', '-A'); git(e.dir, 'commit', '-qm', '안 올림')
   const unsent = git(e.dir, 'rev-parse', 'HEAD').trim()
-  fs.rmSync(e.dir, { recursive: true, force: true })
+  deleteOutside(e.dir)
   // the server lists it held: this PC says it is missing (보관 중 there), git here forgets the working copy
   w.handle({ type: 'seat:list', seats: heldNow(w) })
   await waitFor(() => !w.get(v), 6000, 'forgotten')
@@ -1364,7 +1378,7 @@ test('5차 검토 2 — 앱 밖에서 지운 작업본: 다음 「이 PC 에서 
   const e2 = await prepared(w, v)
   assert.ok(fs.existsSync(path.join(e2.dir, 'README.md')))
   // deleted again, and the next prepare comes straight away (no list in between): it works too
-  fs.rmSync(e2.dir, { recursive: true, force: true })
+  deleteOutside(e2.dir)
   sv.epoch = 3; sv.state = 'moving'
   w.handle(prepareMsg(v))
   const e3 = await waitFor(() => Number(w.get(v)?.epoch) === 3 && w.get(v).state === 'held' && w.get(v), 15000, 'held at epoch 3')
@@ -1416,7 +1430,7 @@ test('6차 검토 A1 · A4 — 폴더가 지워진 채 자리를 잃은 작업�
   const unsent = git(e.dir, 'rev-parse', 'HEAD').trim()
   const notes = []
   w.on('kept', (n) => notes.push(n))
-  fs.rmSync(e.dir, { recursive: true, force: true })
+  deleteOutside(e.dir)
   // the seat goes elsewhere meanwhile (taken while off): the list has it no more — the leftover way, with the folder already gone
   const sv = vars.get(v)
   sv.epoch = 2; sv.state = null
@@ -1444,7 +1458,7 @@ test('6차 검토 A5 — 보관하지 못하면 그 가지를 지우지 않고, 
   put(e.dir, '남길 것.md', '남길 것\n'); git(e.dir, 'add', '-A'); git(e.dir, 'commit', '-qm', '남길 것')
   const unsent = git(e.dir, 'rev-parse', 'HEAD').trim()
   const branch = vars.get(v).branch
-  fs.rmSync(e.dir, { recursive: true, force: true })
+  deleteOutside(e.dir)
   const real = w.keepCommit
   w.keepCommit = async () => { throw new Error('no room to keep it') }
   try {
@@ -1471,7 +1485,7 @@ test('6차 검토 A3 — 앱이 켜진 채 폴더를 지우면: 「지금 올리
   const w = wc || make()
   const v = variation('켜진 채 지움')
   const e = await prepared(w, v)
-  fs.rmSync(e.dir, { recursive: true, force: true })
+  deleteOutside(e.dir)
   assert.deepEqual(await w.saveNow(v), { ok: false, why: 'missing' })
   assert.equal(sentOf('seat:failed', v).at(-1)?.why, 'missing')
   assert.equal(w.get(v), null)
@@ -1480,7 +1494,7 @@ test('6차 검토 A3 — 앱이 켜진 채 폴더를 지우면: 「지금 올리
   w.handle(prepareMsg(v))
   const e2 = await waitFor(() => Number(w.get(v)?.epoch) === 2 && w.get(v).state === 'held' && w.get(v), 15000, 'held at 2')
   // 「여기로 가져오기」 from elsewhere with the folder gone: said back at once — as the recall's answer, or already by the app's own look at it
-  fs.rmSync(e2.dir, { recursive: true, force: true })
+  deleteOutside(e2.dir)
   w.handle({ type: 'seat:recall', variation: v, epoch: 2, auto: true })
   await waitFor(() => sentOf('seat:refused', v).some((m) => m.re === 'seat:recall' && m.why === 'missing') || sentOf('seat:failed', v).some((m) => m.epoch === 2 && m.why === 'missing'), 6000, 'said back')
   await settled(w, v)
@@ -1552,6 +1566,18 @@ test('6차 검토 A6 — PC 가 받은 머리가 서버가 준비 요청에 적�
   assert.equal(sentOf('seat:failed', v).at(-1)?.why, 'moved')
   assert.equal(w.get(v), null)
   assert.ok(!fs.existsSync(path.join(wtRoot(), `${v.slice(0, 8)}-머리가-다름`)), '작업본을 남기지 않는다')
+})
+
+// ---------- Windows (CI 11-27: every prepare stopped short of held) ----------
+test('Windows — 앱 데이터 폴더가 짧은 이름(8.3)이거나 대소문자가 달라도 작업본을 확인한다(git 은 긴 이름으로 말한다)', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+  const w = wc || make()
+  const v = variation('short name')
+  const e = await prepared(w, v)
+  // (the same folder by its short name — TEMP of a Windows account is usually one — and in other case: still the app's own working copy)
+  const short = execFileSync('cmd', ['/d', '/c', `for %A in ("${e.dir}") do @echo %~sA`], { windowsVerbatimArguments: true }).toString().trim()
+  await w.checkCopy({ ...e, dir: short })
+  await w.checkCopy({ ...e, dir: e.dir.toUpperCase() })
+  assert.equal((await w.release(v)).ok, true)
 })
 
 test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {
