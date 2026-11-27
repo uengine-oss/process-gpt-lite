@@ -5,7 +5,8 @@
 // person's tasks run there) or a browser on the person's own PC, over their desktop app's link (lib/browserRemote.js) —
 // chosen when a task gets the browser, never switched by itself afterwards. Secret fields are blanked in the page
 // snapshot and masked on screen and in the model's screenshots by either driver; logins typed during takeover in this
-// server's browser are captured into the vault.
+// server's browser are captured into the vault. Page addresses are shown and kept with sign-in tokens and signatures masked
+// (lib/urlTokens.js maskUrl: the model's view, the live view, the card, the result, log lines); the browser goes to them as they are.
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -27,6 +28,7 @@ import { judge } from './judge.js'
 import { STEP, StepError, isStop, bounded, pause, watchdog } from './browserSteps.js'
 import { ServerDriver, within, blankOf, lookAt } from './browserServer.js'
 import { RemoteDriver, routeFor, privateAddress } from './browserRemote.js'
+import { maskUrl } from './urlTokens.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
 import { BLOCK, HARD, turnOf, progressOf, budgetAfter } from './browserProgress.js'
@@ -133,7 +135,7 @@ function hooksFor(userId, s) {
     frame: (d, data, url) => {
       if (s.driver !== d) return
       s.frame = data
-      if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url })
+      if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: maskUrl(url) })
     },
     wantsDownload: (d) => !!s.task && s.driver === d,
     download: (d, file) => keepDownload(userId, s, file).catch((e) => console.warn('[browser] download', e.message)),
@@ -215,7 +217,7 @@ async function pushFrame(userId, s) {
   const data = await s.driver?.frameShot().catch(() => null)
   if (!data) return null
   s.frame = data
-  if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: s.driver.url() })
+  if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: maskUrl(s.driver.url()) })
   return data
 }
 
@@ -361,7 +363,7 @@ function earlierNote(e, { instruction = '' } = {}) {
     : `This task was stopped before it was finished${why ? ` (${why})` : ''}. It is resumed now with a fresh budget of actions. Go on from where it stopped; do not redo what is already done.`,
   did ? `What was already done (oldest first):\n${did}` : '',
   notes ? `Facts recorded so far:\n${notes}` : '',
-  e.url ? `The page it was on last: ${e.url}` : ''].filter(Boolean).join('\n\n')
+  e.url ? `The page it was on last: ${maskUrl(e.url)}` : ''].filter(Boolean).join('\n\n')
 }
 // what the queued card says it waits on: the task holding the browser waits for the person (its question), the task it was asked to
 // come after, or just the task ahead
@@ -419,7 +421,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
   // (skill: the browser skill it runs — the router reads the card as one line with it, lib/turnPlan.js taskLine; a resumed task keeps its
   // own card: it says it runs again)
-  const card = resume ? { id: resume } : await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: startUrl || '', ...(sk ? { skill: sk.name } : {}), ...(from ? { from } : {}) })
+  const card = resume ? { id: resume } : await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: maskUrl(startUrl || ''), ...(sk ? { skill: sk.name } : {}), ...(from ? { from } : {}) })
   if (resume) await updateMessage(userId, card.id, { state: 'running', need: null, reason: '', summary: '', stall: null, progress: null, blocked: null, offer: null, order: null, answered: null, steered: null })
   s.planning.set(card.id, false)
   // an idle browser is taken now — where it runs is decided (the person's PC or this server: takeBrowser), its page checked
@@ -526,10 +528,11 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   await setThreadStatus(userId, threadId, 'working')
   // where it runs, on the card (「내 PC · <기기>」 and 「이 PC에서 보기」 — TaskCard.vue)
   await updateMessage(userId, card.id, { where })
-  // the start page opened while the plan was made counts when it is in the tab still in use; else it opens now
+  // the start page opened while the plan was made counts when it is in the tab still in use; else it opens now (a task that goes on
+  // from an earlier card: the page it is on counts when its address shows the same as the card's — kept masked)
   if (early && !ahead) await early
   if (startUrl && offLimits(guarded, s.driver, startUrl)) task.notes.push(L(`${hostOf(startUrl)}: 사람이 없는 작업이라 PC 의 내부망 주소는 열지 않음`, `${hostOf(startUrl)}: not opened — a task nobody watches does not open addresses on the PC's own network`))
-  else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab) && !(earlier && s.driver.url() === startUrl)) {
+  else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab) && !(earlier && maskUrl(s.driver.url()) === maskUrl(startUrl))) {
     say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
     await s.driver.navigate(startUrl, { signal: task.abort.signal }).catch(() => {})
   }
@@ -586,12 +589,12 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     // the card keeps the result short and the rest folded (2026-11-25: 「불필요하게 뭐 아주 길게 … 이런거 필요없고 보고싶으면 볼 수 있겠으나」):
     // brief on the card, what it did step by step (did) and the whole account (detail) for 「자세히」 — and what a task that goes on
     // from it needs (its notes, its skill, where it started, its files)
-    await updateMessage(userId, card.id, { state: result.state, summary: result.brief, detail: result.detail || '', did: result.did || [], refused: result.refused || [], url: s.driver.url() || undefined, shot, stall: null, ...why,
+    await updateMessage(userId, card.id, { state: result.state, summary: result.brief, detail: result.detail || '', did: result.did || [], refused: result.refused || [], url: maskUrl(s.driver.url()) || undefined, shot, stall: null, ...why,
       ...(task.where ? { where: task.where } : {}), ...(byHandOnPc(task) ? { pcKept: task.keep } : {}),
       notes: task.notes.slice(-20).map((x) => String(x).slice(0, 400)), files: keptFiles(task.files), ...(task.progressCount ? { progress: { count: task.progressCount } } : {}), answered: null, steered: null })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
-    result.url = s.driver.url()
+    result.url = maskUrl(s.driver.url())
     result.notes = task.notes
     result.taskId = task.id
     result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
@@ -720,7 +723,7 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
       pushed = 2
       // the same picture is the live view's newest frame (no second screenshot after the action)
       s.frame = shot.toString('base64')
-      emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: s.driver.url() })
+      emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: maskUrl(s.driver.url()) })
     }
     t = Date.now()
     phase(task, 'model', L('다음 할 일 고르는 중', 'Deciding what to do next'), L('AI 모델의 답', "the AI model's answer"))
@@ -1064,7 +1067,8 @@ export function honest(result, task, { moved = false } = {}) {
 
 // the agent's view of the page (a page that does not answer in time — a script holding it — reads as empty, and says so;
 // the driver keeps which frame holds each number of this look, and acts on that element)
-const look = (s) => within(s.driver.look(), STEP.snapMs + 2000, null).then((x) => x || blankOf(s.driver.url()))
+// (its address as shown: tokens masked — lib/urlTokens.js; the model, the checks and the card read this one)
+const look = (s) => within(s.driver.look(), STEP.snapMs + 2000, null).then((x) => x || blankOf(s.driver.url())).then((x) => { x.url = maskUrl(x.url); return x })
 // the agent's view of any Playwright page (the live wall check, test/browser-walls.live.mjs)
 export const snapshotOf = (page) => lookAt(page)
 // the same address and the same things on screen
@@ -1566,8 +1570,8 @@ async function toServer(s, task, messages, { url, device }) {
     say(task, L(`서버 브라우저에서 ${hostOf(url)} 여는 중`, `Opening ${hostOf(url)} in the server's browser`))
     await s.driver.navigate(url, { signal: task.abort.signal }).catch(() => {})
   }
-  console.log(`[browser] task ${task.id}: goes on in this server's browser at ${url || '(no address)'} (the person chose it; ${device.name} is off)`)
-  messages.push({ role: 'user', content: `[The person's PC went offline. The task goes on in the server's browser, which opened ${url || 'a blank page'} again. Sign-ins made on the PC are not in this browser: a page that needs one may ask to sign in now.]` })
+  console.log(`[browser] task ${task.id}: goes on in this server's browser at ${maskUrl(url) || '(no address)'} (the person chose it; ${device.name} is off)`)
+  messages.push({ role: 'user', content: `[The person's PC went offline. The task goes on in the server's browser, which opened ${maskUrl(url) || 'a blank page'} again. Sign-ins made on the PC are not in this browser: a page that needs one may ask to sign in now.]` })
   task.prev = null
   task.judged = null
   await pushFrame(task.userId, s)
@@ -2539,7 +2543,7 @@ async function runConnect(s, task, { url, cookie, ours }) {
   try {
     const shot = await pushFrame(userId, s)
     if (s.task === task) s.task = null
-    await updateMessage(userId, task.id, { ...end, url: s.driver?.url() || url, shot, connect: 'google', site: hostOf(url), siteName: 'Google' })
+    await updateMessage(userId, task.id, { ...end, url: maskUrl(s.driver?.url() || url), shot, connect: 'google', site: hostOf(url), siteName: 'Google' })
     // the card of a finished task shows no text of its own: the result is said in the chat (a stopped one
     // says why on the card itself)
     if (end.state === 'done') await addMessage(userId, task.threadId, 'agent', 'text', { text: end.summary })
@@ -2586,7 +2590,7 @@ export async function close(userId) {
 
 export function lastFrame(userId) {
   const s = sessions.get(userId)
-  return s ? { data: s.frame, url: s.driver?.url() || '', running: !!s.task, taskId: s.task?.id || null, where: s.task?.where || null } : null
+  return s ? { data: s.frame, url: maskUrl(s.driver?.url() || ''), running: !!s.task, taskId: s.task?.id || null, where: s.task?.where || null } : null
 }
 
 // The person's browser on this server (launched if it is not running): tests route made-up sites through it.

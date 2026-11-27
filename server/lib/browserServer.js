@@ -9,7 +9,12 @@
 // A driver does not know about tasks: what it sees on its own (a live frame, a download, a login typed by the person, the
 // work moving to a new tab) goes to the hooks it was given — on.frame(d, data, url), on.download(d, {name, read}),
 // on.wantsDownload(d), on.capture(d, payload), on.moved(d, host).
+//
+// It does not open the sign-in steps of the auth server this app signs people in with (lib/signInSteps.js): a page load there — the
+// agent's own goto, a link, a hop of a redirect, a new tab, the person's takeover — is refused before it is sent (watchTabs); a new tab
+// whose first load left before it could be guarded closes before the sign-in's next step (closeUnguarded).
 import { chromium } from 'playwright'
+import { signInPlaces, isSignInStep, stepPatterns } from './signInSteps.js'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -107,6 +112,8 @@ export class ServerDriver {
     this.pid = 0
     this.frameOf = new Map() // the last look: element number → the frame that holds it
     this.dialogs = [] // a page's alert · confirm · prompt since the last look (answered at once: dismissed, a beforeunload accepted)
+    this.refused = [] // sign-in steps not opened since the last look (watchTabs)
+    this.refusals = 0
   }
 
   static async open(userId, on) {
@@ -155,12 +162,98 @@ export class ServerDriver {
     }
     // a link that opens a new tab, a sign-in popup: the work (and the live view) moves there, and back when it closes
     this.page = null
-    ctx.on('page', (p) => { watchDownloads(p); if (this.page && this.ctx === ctx) this.follow(p).catch((e) => console.warn('[browser] new page', e.message)) })
+    this.places = signInPlaces()
+    this.watcher = null
+    // (no tab left to watch from — they all closed — the next one watches)
+    ctx.on('page', (p) => { if (this.ctx === ctx && (!this.watcher || this.watcher.page.isClosed())) this.watchTabs(p).catch(() => {}); watchDownloads(p); if (this.page && this.ctx === ctx) this.follow(p).catch((e) => console.warn('[browser] new page', e.message)) })
+    // a tab whose first load began before any guard could be on — a link that opens a tab of its own (noopener): its whole redirect
+    // chain is one load, which the tab's Fetch, turned on a moment later, does not see — goes for a sign-in step: it is closed then (the
+    // sign-in's next hop, after the other site's answer, never happens). Only page loads are looked at.
+    ctx.on('request', (r) => { if (this.ctx === ctx && r.isNavigationRequest() && isSignInStep(r.url(), this.places)) this.closeUnguarded(r).catch(() => {}) })
     this.page = ctx.pages()[0] || await ctx.newPage()
+    if (!this.watcher) await this.watchTabs(this.page)
     watchDownloads(this.page)
     await within(this.page.evaluate(PAGE_GUARD), 3000, null)
     await within(this.live(), 5000, null)
     return this
+  }
+
+  // The sign-in steps of this app's auth server are not opened in any tab of this browser (lib/signInSteps.js). One CDP session, on a
+  // tab of this browser, sees each tab as it is made (Target.setDiscoverTargets — a link, a popup, the person's takeover) and turns on
+  // CDP Fetch in it at once: before its first load for a page's window.open, a few milliseconds after it starts for a link that opens
+  // a tab of its own (the sign-in's later hops are refused all the same). Fetch pauses only the page loads — documents: a page, a
+  // frame, each hop of a redirect — on that server's and this app's hosts, and refuses those that are a sign-in step
+  // (net::ERR_BLOCKED_BY_CLIENT); the rest go on as they were. Every other request is never paused, and the HTTP cache works as it does
+  // without it (a Playwright route would take every request through this process and turn the cache off). The next look says what was
+  // not opened. When the tab it watches from closes, the watching moves to another tab (and every tab is guarded again from there).
+  async watchTabs(page) {
+    const patterns = stepPatterns(this.places)
+    if (!patterns.length || page.isClosed()) return
+    const cdp = await within(this.ctx.newCDPSession(page), 3000, null)
+    if (!cdp) return
+    const w = { page, cdp, seen: new Set(), n: 0, waits: new Map() }
+    this.watcher = w
+    // a command to one tab's own session (attached without flattening: its answers and events come back through this one)
+    const send = (sessionId, method, params) => {
+      const id = ++w.n
+      const answered = new Promise((r) => w.waits.set(id, r))
+      cdp.send('Target.sendMessageToTarget', { sessionId, message: JSON.stringify({ id, method, params }) }).catch(() => w.waits.get(id)?.(null))
+      return within(answered, 3000, null).finally(() => w.waits.delete(id))
+    }
+    const guard = async (t) => {
+      if (t.type !== 'page' || w.seen.has(t.targetId)) return
+      w.seen.add(t.targetId)
+      const at = await cdp.send('Target.attachToTarget', { targetId: t.targetId, flatten: false }).catch(() => null)
+      if (at) await send(at.sessionId, 'Fetch.enable', { patterns })
+    }
+    cdp.on('Target.targetCreated', ({ targetInfo }) => { guard(targetInfo).catch(() => {}) })
+    cdp.on('Target.targetDestroyed', ({ targetId }) => { w.seen.delete(targetId) })
+    cdp.on('Target.receivedMessageFromTarget', ({ sessionId, message }) => {
+      let m
+      try { m = JSON.parse(message) } catch { return }
+      if (m.id) return w.waits.get(m.id)?.(m)
+      if (m.method !== 'Fetch.requestPaused') return
+      const { requestId, request } = m.params || {}
+      if (!isSignInStep(request?.url, this.places)) return send(sessionId, 'Fetch.continueRequest', { requestId })
+      this.refuse(request.url)
+      send(sessionId, 'Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' })
+    })
+    page.once('close', () => {
+      if (this.watcher !== w || this.closed) return
+      const next = [this.page, ...this.ctx.pages()].find((p) => p && !p.isClosed())
+      if (next) this.watchTabs(next).catch((e) => console.warn('[browser] sign-in guard', e.message))
+    })
+    await within(cdp.send('Target.setDiscoverTargets', { discover: true }), 3000, null)
+    // (the tabs there are now: guarded before this returns)
+    const { targetInfos = [] } = (await within(cdp.send('Target.getTargets'), 3000, null)) || {}
+    await Promise.all(targetInfos.map((t) => guard(t).catch(() => {})))
+  }
+  // A page load for a sign-in step (launch: ctx 'request') from a tab Playwright has not given this driver yet — a new tab whose first
+  // load began before it could be guarded: the tabs not given yet close. A load in a tab it has been given is that tab's guard's
+  // (watchTabs: refused before it is sent).
+  async closeUnguarded(r) {
+    try { if (r.frame()) return } catch { /* a tab not given to this driver yet */ }
+    this.refuse(r.url())
+    const w = this.watcher
+    if (!w) return
+    const known = new Set()
+    for (const p of this.ctx.pages()) {
+      const s = await within(this.ctx.newCDPSession(p), 2000, null)
+      const info = s && await within(s.send('Target.getTargetInfo'), 2000, null)
+      if (info) known.add(info.targetInfo.targetId)
+      s?.detach().catch(() => {})
+    }
+    const { targetInfos = [] } = (await within(w.cdp.send('Target.getTargets'), 2000, null)) || {}
+    for (const t of targetInfos) if (t.type === 'page' && !known.has(t.targetId)) await within(w.cdp.send('Target.closeTarget', { targetId: t.targetId }), 2000, null)
+  }
+  // (only where it was — host and path — is said and logged: never the query)
+  refuse(url) {
+    let where = ''
+    try { const u = new URL(url); where = `${u.host}${u.pathname}` } catch { /* not an address */ }
+    this.refusals++
+    this.refused.push(where)
+    if (this.refused.length > 5) this.refused.shift()
+    console.warn(`[browser] not opened (a sign-in step of this app's sign-in server): ${where}`)
   }
 
   // The same driver on a new Chromium: the old one is closed (stopped, when closing hangs) and the profile freed.
@@ -262,12 +355,24 @@ export class ServerDriver {
   }
 
   // ---- the page ----
-  navigate(url, { signal } = {}) { return navigate(this.page, url, { signal }) }
+  // (a load that was a sign-in step of this app's sign-in server — the address itself or a hop on the way — says so: watchTabs)
+  async navigate(url, { signal } = {}) {
+    const before = this.refusals
+    const r = await navigate(this.page, url, { signal })
+    if (!r.ok && this.refusals > before) {
+      r.error = 'refused: this browser does not open the sign-in pages of this app\'s own sign-in server'
+      // (the refusal's own page comes a moment later: the next load must not be cut off by it)
+      await this.page.waitForURL((u) => u.protocol === 'chrome-error:', { waitUntil: 'commit', timeout: 1000 }).catch(() => {})
+    }
+    return r
+  }
   async look() {
     const snap = await lookAt(this.page)
     this.frameOf = snap.frameOf || new Map()
     const said = this.dialogs.splice(0)
     if (said.length) snap.text = `${snap.text || ''}\n${said.map((d) => `[dialog] ${d}`).join('\n')}`
+    const refused = [...new Set(this.refused.splice(0))]
+    if (refused.length) snap.text = `${snap.text || ''}\n${refused.map((r) => `[not opened] ${r} — a sign-in step of this app's own sign-in server, which this browser does not open`).join('\n')}`
     return snap
   }
   // the element numbered i in the last look, in whichever frame holds it

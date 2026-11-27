@@ -8,6 +8,7 @@ import LangSwitch from '../i18n/LangSwitch.vue'
 import InstallNudge from '../components/InstallNudge.vue'
 import { auth, api } from '../api.js'
 import { BASE } from '../base.js'
+import { startSignIn } from '../signInNonce.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -35,17 +36,18 @@ onMounted(async () => {
 
 function google() {
   // googleLogin: Lite's own Google sign-in (an installed Lite). Behind the ProcessGPT gateway a company's
-  // Google client connects mail only (cfg.google) and signing in is ProcessGPT's own (server/lib/sso.js)
+  // Google client connects mail only (cfg.google) and signing in is ProcessGPT's own (server/lib/sso.js). Either way the sign-in
+  // carries this tab's value back to /auth/done (src/signInNonce.js): AuthDone takes no session it did not start
   const own = cfg.value.googleLogin ?? cfg.value.google
   if (!own && cfg.value.sso?.google) {
-    location.href = `${cfg.value.sso.google}&redirect_to=${encodeURIComponent(location.origin + BASE + '/auth/done')}`
+    location.href = `${cfg.value.sso.google}&redirect_to=${encodeURIComponent(`${location.origin}${BASE}/auth/done?n=${startSignIn()}`)}`
     return
   }
   if (!own) {
     error.value = 'Google OAuth가 아직 설정되지 않았어요. 이메일로 계속해 주세요.'
     return
   }
-  location.href = BASE + '/api/auth/google/start'
+  location.href = `${BASE}/api/auth/google/start?n=${startSignIn()}`
 }
 
 async function startEmail() {

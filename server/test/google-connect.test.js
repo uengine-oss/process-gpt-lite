@@ -65,6 +65,20 @@ test('상태: 같은 브라우저의 쿠키와 같은 테넌트일 때 한 번�
   assert.throws(() => gc.takeState(other.state, `${gc.STATE_COOKIE}=${other.state}`, 't2'), (e) => e.st?.userId === 'u1')
 })
 
+test('BT-A-03 설치형 로그인은 시작한 페이지의 값과 함께 /auth/done 으로 돌아온다(그 값이 아니면 붙이지 않음)', () => {
+  const n = 'ab12'.repeat(12)
+  const { state } = gc.newState({ mode: 'login', tenant: 't1', base: 'https://lite.example', lang: 'ko', signIn: gc.signInValue(n) })
+  const st = gc.takeState(state, `${gc.STATE_COOKIE}=${state}`, 't1')
+  const login = { user: { id: 'u1' }, session: { access_token: 'a', refresh_token: 'r' } }
+  const done = new URL(gc.loginDoneUrlOf(st.base, login, st.signIn))
+  assert.equal(`${done.origin}${done.pathname}`, 'https://lite.example/auth/done')
+  assert.equal(done.searchParams.get('n'), n)
+  assert.deepEqual(JSON.parse(decodeURIComponent(done.hash.slice(1))), login)
+  // a value the page did not make (not hex, too short, a list, a link): none is carried, and /auth/done takes nothing
+  for (const v of ['', 'abc', 'zz'.repeat(20), ['ab'.repeat(20)], 'ab'.repeat(20) + '&x=1', undefined]) assert.equal(gc.signInValue(v), '', String(v))
+  assert.equal(new URL(gc.loginDoneUrlOf('https://lite.example', login, 'not-hex')).search, '')
+})
+
 test('회사 클라이언트: 보관함에 봉투 암호화, 비밀값은 화면에도 DB 행에도 없고, 회사 값 → env 순서', async () => {
   Object.assign(config.google, { clientId: 'env-client', clientSecret: 'env-secret' })
   try {

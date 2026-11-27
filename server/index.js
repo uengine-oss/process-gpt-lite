@@ -254,7 +254,8 @@ app.get('/api/auth/google/start', async (req, res) => {
   const client = config.tenantFromHeader ? null : await googleClient.clientFor()
   if (!client) return res.redirect(`${here}/login`)
   const base = here
-  const { state, verifier } = gconnect.newState({ mode: 'login', tenant: config.tenantId, base, lang: isEn() ? 'en' : 'ko' })
+  // (n: the page's own value for this sign-in, back to it on /auth/done — lib/googleConnect.js loginDoneUrlOf)
+  const { state, verifier } = gconnect.newState({ mode: 'login', tenant: config.tenantId, base, lang: isEn() ? 'en' : 'ko', signIn: gconnect.signInValue(req.query.n) })
   stateCookie(res, base, state, 'login')
   res.redirect(mail.googleAuthUrl(state, { client, redirectUri: gconnect.redirectUriOf(base), verifier }))
 })
@@ -326,7 +327,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
         const login = await finishLogin(me.email, me.name)
         // the Google account's picture: the default picture of who signs in with Google (routes/profilePicture.js)
         await rememberGooglePicture(login.user.id, me.picture).catch((e) => console.warn('[picture] google', e.message))
-        return res.redirect(`${st.base}/auth/done#${encodeURIComponent(JSON.stringify(login))}`)
+        return res.redirect(gconnect.loginDoneUrlOf(st.base, login, st.signIn))
       }
       const granted = new Set((tok.scope || '').split(' '))
       if (!granted.has('https://www.googleapis.com/auth/gmail.readonly')) throw new Error(L('메일을 연결하려면 Gmail 읽기 권한이 필요해요. 다시 연결하면서 Gmail을 허용해 주세요.', 'Connecting mail needs permission to read Gmail. Connect again and allow Gmail.'))
