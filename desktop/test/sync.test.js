@@ -358,6 +358,71 @@ test('동의하지 않으면(시스템 창 「취소」) 서버에 아무것도 
   assert.throws(() => bare('rev-parse', '--verify', '--quiet', `refs/heads/${BRANCH}`), '이 기기의 가지는 아직 없다')
 })
 
+// a folder's copy, file by file with plain fs calls (Node 22's fs.cpSync is native code — this test file once ended its process on the Windows
+// runner, 0xC0000409, inside the test that used it)
+function copyTree(from, to) {
+  fs.mkdirSync(to, { recursive: true })
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    const a = path.join(from, e.name)
+    const b = path.join(to, e.name)
+    if (e.isDirectory()) copyTree(a, b)
+    else if (e.isFile()) fs.copyFileSync(a, b)
+  }
+}
+
+test('동의한 뒤 바뀐 폴더(채팅 카드 — strict): 첫 올리기는 「예」 한 그대로만 — 그 뒤 더한 파일 · 같은 크기로 고친 파일 · 링크로 바뀐 위 폴더 · 스냅숏이 읽는 동안 고친 파일 · 읽는 동안 바꿨다 되돌린 위 폴더면 아무것도 올리지 않는다(changed), pick 은 남는다', async () => {
+  const f = makeSync()
+  const top = path.join(ROOT, 'people2')
+  const dir = path.join(top, '견적 자료')
+  const write = (rel, text) => { const x = path.join(dir, ...rel.split('/')); fs.mkdirSync(path.dirname(x), { recursive: true }); fs.writeFileSync(x, text) }
+  write('README.md', '# 견적 자료\n')
+  write('양식/견적서.md', '| 품목 | 금액 |\n')
+  // after the yes (inside it — the person's yes was for what the dialog said), before the first round looked
+  const cases = [
+    ['a file added', () => write('나중.md', '# 나중에\n')],
+    ['an edit of the same size', () => write('README.md', '# 견적 자랴\n')],
+    ...(symlinks ? [['the folder above it replaced by a link', () => { fs.renameSync(top, `${top}-옛것`); fs.symlinkSync(`${top}-옛것`, top, process.platform === 'win32' ? 'junction' : 'dir') }]] : []),
+    // (while the round's snapshot reads the files — after its own look found them as they were: the look after the snapshot stops it)
+    ['an edit while the snapshot reads them', () => write('README.md', '# 견적 자뢰\n'), 'snapshot'],
+    // (the folder above swapped for a copy — same names and sizes, other bytes — while the snapshot read, and swapped back before the
+    // look after it: only what the snapshot itself recorded of the files it read shows it — its inode. Not on Windows: git's index there
+    // keeps no inode, and a copy made within the same second has the same size and modification second — nothing to tell it by)
+    ...(symlinks && process.platform !== 'win32' ? [['the folder above swapped while the snapshot read, and back', () => {
+      fs.renameSync(top, `${top}-진짜`)
+      copyTree(`${top}-진짜`, `${top}-사본`)
+      fs.writeFileSync(path.join(`${top}-사본`, '견적 자료', 'README.md'), '# 견적 가짜\n')
+      fs.symlinkSync(`${top}-사본`, top, process.platform === 'win32' ? 'junction' : 'dir')
+    }, 'snapshot', () => { if (process.platform === 'win32') fs.rmdirSync(top); else fs.unlinkSync(top); fs.renameSync(`${top}-진짜`, top); rmQuiet(`${top}-사본`) }]] : []),
+  ]
+  for (const [what, change, when = 'yes', undo = null] of cases) {
+    const r = await f.pick(dir)
+    assert.ok(r.pickId, what)
+    const id = crypto.randomUUID()
+    const n = sent.length
+    let once = false
+    let undone = false
+    if (when === 'snapshot') {
+      S.setTap((c) => {
+        calls.push(c)
+        if (once && undo && !undone) { undone = true; undo() }
+        if (!once && c.sub === 'update-index' && c.args.includes('--add')) { once = true; change() }
+      })
+    }
+    let out
+    try { out = await f.bind({ pickId: r.pickId, folderId: id, folderName: '견적 자료' }, { strict: true, confirm: async () => { if (when === 'yes') change(); return true } }) } finally { S.setTap((c) => calls.push(c)) }
+    assert.deepEqual(out, { ok: false, why: 'changed' }, what)
+    if (when === 'snapshot') assert.ok(once, 'the change came while the snapshot read the files')
+    if (undo) assert.ok(undone, 'and was undone before the look after the snapshot')
+    assert.ok(f.picks.has(r.pickId), `${what}: the pick stays — it may be pressed again`)
+    const mine = sent.slice(n).filter((m) => m.folderId === id).map((m) => m.type)
+    assert.deepEqual(mine, when === 'yes' ? ['sync:bind', 'sync:unbind'] : ['sync:bind', 'sync:token', 'sync:unbind'], `${what}: nothing pushed — the source row undone`)
+    assert.ok(!f.list().some((e) => e.folderId === id), `${what}: nothing kept here`)
+    if (fs.lstatSync(top).isSymbolicLink()) { if (process.platform === 'win32') fs.rmdirSync(top); else fs.unlinkSync(top); fs.renameSync(`${top}-옛것`, top) }
+  }
+  assert.throws(() => bare('rev-parse', '--verify', '--quiet', `refs/heads/${BRANCH}`), '이 기기의 가지는 아직 없다')
+  rmQuiet(top)
+})
+
 test('F-CH-09 확인 창: 확인이 필요한 파일 가운데 빼는 수와 함께 올리는 수 — 시트가 뺄 파일을 이름으로 넘겨도(이 훑기는 그 파일을 읽지 않는다)', async () => {
   const f = makeSync()
   const n = sent.length
@@ -609,3 +674,55 @@ test('고른 폴더에는 쓰지 않는다: 동기화가 부르는 git 은 정�
   }
   assert.ok(!fs.existsSync(gitDir))
 })
+
+test('시스템 창 길(페이지의 「내 PC 폴더 올리기」): 「예」는 그 파일 목록에 — 바이트가 그대로인 변화(권한 · 속성)나 저장 중인 파일은 올라가고, 파일이 더해지면 changed · 같은 pick 으로 다시 누를 수 있다', async () => {
+  const f = makeSync()
+  const dir = path.join(ROOT, 'people3', '회의 노트')
+  const file = (rel) => path.join(dir, ...rel.split('/'))
+  const write = (rel, text) => { fs.mkdirSync(path.dirname(file(rel)), { recursive: true }); fs.writeFileSync(file(rel), text) }
+  write('README.md', '# 회의 노트\n')
+  write('2026/11-28.md', '- 안건\n')
+  // (a byte-for-byte look is the same with a permission or an attribute changed — the card's look too)
+  const before = await S.scan(dir, { gitDir: path.join(DATA, 'look.git') })
+  fs.chmodSync(file('README.md'), 0o600)
+  if (process.platform === 'darwin') execFileSync('xattr', ['-w', 'com.example.tag', '빨강', file('README.md')])
+  assert.equal((await S.scan(dir, { gitDir: path.join(DATA, 'look.git') })).fingerprint, before.fingerprint, 'a permission · an attribute is not another file')
+  const r = await f.pick(dir)
+  // a file added after the yes: nothing goes up — and the same pick may be pressed again
+  const id1 = crypto.randomUUID()
+  assert.deepEqual(await f.bind({ pickId: r.pickId, folderId: id1, folderName: '회의 노트' }, { confirm: async () => { write('2026/11-29.md', '- 다음 안건\n'); return true } }), { ok: false, why: 'changed' })
+  assert.ok(f.picks.has(r.pickId), 'pressed again from the same sheet: not no_pick')
+  // pressed again (a new dialog, its own numbers): meanwhile a file is saved, another gets a permission — it goes up
+  const id2 = crypto.randomUUID()
+  const asked = []
+  const out = await f.bind({ pickId: r.pickId, folderId: id2, folderName: '회의 노트' }, { confirm: async (x) => {
+    asked.push(x)
+    write('2026/11-28.md', '- 안건\n- 결정: 다음 주에\n')
+    fs.chmodSync(file('2026/11-29.md'), 0o600)
+    return true
+  } })
+  assert.equal(out.ok, true, JSON.stringify(out))
+  assert.equal(asked[0].files, 3, 'the dialog counted the file added since')
+  assert.ok(!f.picks.has(r.pickId), 'gone once it went up')
+  const files = filesAt(`refs/heads/${BRANCH}`)
+  assert.ok(files.includes('2026/11-29.md') && files.includes('README.md'), files.join(' '))
+  assert.match(at(`refs/heads/${BRANCH}`, '2026/11-28.md'), /결정: 다음 주에/, 'what was saved meanwhile went up')
+  await f.unbind(id2)
+  rmQuiet(path.join(ROOT, 'people3'))
+})
+
+// the shadow index's record of a file against a scan's lstat (indexMatches, the chat card's check after a snapshot)
+test('sameIndexed: size · 32-bit inode · whole second — an inode past 2^53 is not compared, a time rounded up to the next second is the same', () => {
+  const st = { size: 120, ino: 4294967296 * 3 + 777, mtimeMs: 1764300000123.4 }
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764300000' }, st), true)
+  assert.equal(S.sameIndexed({ size: '121', ino: '777', mtime: '1764300000' }, st), false, 'size')
+  assert.equal(S.sameIndexed({ size: '120', ino: '778', mtime: '1764300000' }, st), false, 'another file')
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764300001' }, st), false, 'another second')
+  assert.equal(S.sameIndexed({ size: '120', ino: '0', mtime: '1764300000' }, st), true, 'Windows: git keeps no inode')
+  // (2^60 + 12345 as a Number has lost its low bits: git's 12345 is not compared with it)
+  assert.equal(S.sameIndexed({ size: '120', ino: '12345', mtime: '1764300000' }, { ...st, ino: 2 ** 60 + 12345 }), true)
+  // (…999.9999 ms rounds up to the next whole second as a Number: git's floor is the second before)
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764300000' }, { ...st, mtimeMs: 1764300001000 }), true)
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764299999' }, { ...st, mtimeMs: 1764300001000 }), false)
+})
+

@@ -14,6 +14,9 @@
 //   AP-U-03b 팀에서 빠진 보낸 사람은 방 목록 · 보내기 403(1:1 을 만들지 않음) · AP-U-04b 「문서로 남기기」 둘이 동시에 → 카드 하나 · AP-U-05b 같은 답의
 //   카드는 하나 · AP-U-06b 카드에서 고친 목적 · 만들 것 · 배경이 계획에, 「만들기」 둘이 동시에 → 하나만 · AP-U-07b 멈춘 「만들기」를 이어받기 · 「아니요」,
 //   템플릿 작업 공간을 못 만들면 프로젝트도 남지 않음 · AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 이 대화의 답 · 좁혀 본 대화의 답 · 카드는 대답 옆
+//   (PR #118 후속 · PR #122 검토) AP-U-01c 줄 가운데 서명 조각은 값만 「…」 · 평범한 key 주소는 그대로 · 덧붙이기 직전에 다시 확인(한 문장) — AP-U-04c 문서 카드 ·
+//   AP-U-05c 확인 카드 · AP-U-06c 「프로젝트로 옮겼어요」(대화가 그 사람 것이 아니게 되면 404, 이어받혔으면 그쪽 카드) · AP-U-07d 버리는 프로젝트의 작업 공간도 버림 ·
+//   AP-U-04d 확인과 덧붙이기 사이에 대화가 사라지면 404(500 아님) · 답의 글은 행마다 한 번 · AP-U-05d 카드를 쓰는 동안 답이 사라지면 곧바로 404, 모델 한 번
 // Run: node --test --test-concurrency=1 test/answerShareProject.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -671,3 +674,169 @@ test('AP-U-07c 느린 「만들기」와 그 사이 이어받기 → 프로젝�
   }
 })
 
+
+// ---------- PR #118 후속 ----------
+test('AP-U-01c 나가는 글: 줄 가운데 서명 조각은 값만 「…」(코드 · 예시는 그대로), 지도 · 검색 · 문서의 평범한 key 주소는 그대로', () => {
+  // (values built when the test runs — nothing in this public file reads as a real key)
+  const rep = (seed, n) => seed.repeat(Math.ceil(n / seed.length)).slice(0, n)
+  const jwt = ['ey' + 'J' + rep('hbGci0iJ', 18), 'ey' + 'J' + rep('zdW1i0iI', 22), rep('Sf1KxwRJ', 32)].join('.')
+  const hex = rep('9f86d081', 32), gkey = 'AI' + 'za' + rep('Sy9-k2Lm', 33)
+  const raw = ['# 링크 안내', '',
+    `주소가 길어 나눠 적어요: https://files.example/a/견적서.pdf ?token=${jwt}`,
+    `서명은 &sig=${hex}&exp=1767225600 을 뒤에 붙여요.`,
+    `\`?X-Amz-Signature=${hex}&X-Amz-Credential=${rep('AKQ7', 20)}\` 은 30분 뒤 만료돼요.`,
+    '예시: `GET /api/raw?path=a.md&token=YOUR_TOKEN`',
+    '지도: https://maps.example/embed?key=seoul-office&zoom=3 · 문서: [안내](https://docs.example.org/view?key=intro)',
+    '검색: https://search.example/?key=교육과정',
+    `API: https://maps.example/api/js?key=${gkey}`].join('\n')
+  const msg = { kind: 'doc', content: { text: raw } }
+  for (const out of [AS.answerText(msg), AS.docBody(msg), AS.sharedText(msg), AS.previewOf(msg, 2000)]) {
+    for (const bad of [jwt.slice(0, 12), hex.slice(0, 12), gkey.slice(0, 12), 'AKQ7AKQ7']) assert.ok(!out.includes(bad), `남은 것: ${bad}\n${out}`)
+  }
+  const out = AS.answerText(msg)
+  assert.ok(out.includes('주소가 길어 나눠 적어요: 견적서.pdf') && out.includes('서명은 &sig=…&exp=1767225600 을') && out.includes('`?X-Amz-Signature=…&X-Amz-Credential=…` 은 30분'), out)
+  assert.ok(out.includes('`GET /api/raw?path=a.md&token=YOUR_TOKEN`'), '자리만 말한 예시는 그대로')
+  assert.ok(out.includes('https://maps.example/embed?key=seoul-office&zoom=3') && out.includes('[안내](https://docs.example.org/view?key=intro)') && out.includes('https://search.example/?key=교육과정'), '평범한 key 는 그대로')
+  assert.ok(out.includes('API: 비공개 주소'), out)
+})
+
+// 대화에 메시지를 덧붙이기 직전에 다시 확인(한 문장): 그 대화가 여전히 그 사람 것이고, 아직 이 요청이 처리 중인지
+const myChat = async (u, title) => (await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat',$2) returning *`, [u.id, title]))[0]
+const myAnswer = async (t, text, extra = {}) => (await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','doc',$2) returning *`, [t.id, { text, ...extra }]))[0]
+const settle = (p) => p.then((ok) => ({ ok }), (err) => ({ err }))
+
+test('AP-U-04c 「문서로 남기기」: 올리는 동안 대화가 그 사람 것이 아니게 되면 카드 없이 404, 다른 요청이 이어받았으면 두 번째 카드 없이 그쪽 카드', { skip: !db && 'no database' }, async () => {
+  const { me, k } = await setup()
+  // (1) the conversation is no longer mine while the file goes up
+  const t1 = await myChat(me, '올리는 동안 넘어간 대화')
+  const a1 = await myAnswer(t1, `# 넘어간 답\n\n${'올리는 동안 대화가 넘어갔어요. '.repeat(6)}`)
+  const r1 = await settle(AS.saveDoc(me, a1.id, { publish: async (uid, name) => {
+    await q('update pro_threads set user_id=$2 where id=$1', [t1.id, k.id])
+    return { name, url: 'https://files.example/u/넘어간 답.md' }
+  } }))
+  assert.equal(r1.err?.status, 404, r1.err?.message || 'ok')
+  assert.equal((await msgs(t1.id)).filter((m) => m.kind === 'file').length, 0, '카드를 덧붙이지 않음')
+  assert.equal((await q(`select content ? 'answerDoc' as has from pro_messages where id=$1`, [a1.id]))[0].has, false, '잡은 것을 놓음')
+  // (2) another request took the claim over while the file went up (the first one's went stale): no second card — the other's
+  const t2 = await myChat(me, '올리는 동안 이어받힌 답')
+  const a2 = await myAnswer(t2, `# 이어받힌 답\n\n${'올리는 동안 다른 요청이 이어받았어요. '.repeat(6)}`)
+  let theirs = null
+  const r2 = await AS.saveDoc(me, a2.id, { publish: async (uid, name) => {
+    await q(`update pro_messages set content = jsonb_set(content, '{answerDoc}', jsonb_build_object('pending', 'other', 'at', now())) where id=$1`, [a2.id])
+    setTimeout(async () => {
+      ;[theirs] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','file',$2) returning *`, [t2.id, { name: '이어받힌 답.md', url: 'https://files.example/u/other.md', fromAnswer: a2.id }])
+      await q(`update pro_messages set content = jsonb_set(content, '{answerDoc}', $2::jsonb) where id=$1`, [a2.id, JSON.stringify({ messageId: theirs.id, name: '이어받힌 답.md', at: new Date().toISOString() })])
+    }, 300)
+    return { name, url: 'https://files.example/u/mine.md' }
+  } })
+  assert.equal(r2.existing, true)
+  assert.equal(r2.message.id, theirs.id)
+  assert.equal((await msgs(t2.id)).filter((m) => m.kind === 'file').length, 1, '카드 하나(이어받은 쪽)')
+})
+
+test('AP-U-05c 「프로젝트로 시작」 카드: 모델이 카드를 쓰는 동안 대화가 그 사람 것이 아니게 되면 카드 없이 404, 다른 요청이 이어받았으면 그쪽 카드', { skip: !db && 'no database' }, async () => {
+  const { me, k } = await setup()
+  const offers = async (t) => (await msgs(t.id)).filter((m) => m.kind === 'project_offer')
+  // (1) a button on an answer: the conversation goes to someone else while the model writes the card
+  const t1 = await myChat(me, '카드를 쓰는 동안 넘어간 대화')
+  const a1 = await myAnswer(t1, `# 넘어간 교육안\n\n${'카드를 쓰는 동안 대화가 넘어갔어요. '.repeat(6)}`)
+  const r1 = await settle(CP.offer(me, { threadId: t1.id, messageId: a1.id }, { templates: async () => [], call: async () => {
+    await q('update pro_threads set user_id=$2 where id=$1', [t1.id, k.id])
+    return { title: '넘어간 프로젝트' }
+  } }))
+  assert.equal(r1.err?.status, 404, r1.err?.message || 'ok')
+  assert.equal((await offers(t1)).length, 0, '카드를 덧붙이지 않음')
+  assert.equal((await q(`select content ? 'offering' as has from pro_messages where id=$1`, [a1.id]))[0].has, false, '잡은 것을 놓음')
+  // (2) by words, with no answer to carry on: the conversation goes meanwhile — no card either
+  const t2 = await myChat(me, '말로 · 답 없음')
+  const said = (await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'user','text',$2) returning *`, [t2.id, { text: '프로젝트 하나 만들자' }]))[0]
+  const r2 = await settle(CP.offer(me, { threadId: t2.id, before: said.id, via: 'words', said: '프로젝트 하나 만들자' }, { templates: async () => [], call: async () => {
+    await q('update pro_threads set user_id=$2 where id=$1', [t2.id, k.id])
+    return { title: '답 없는 프로젝트' }
+  } }))
+  assert.equal(r2.err?.status, 404, r2.err?.message || 'ok')
+  assert.equal((await offers(t2)).length, 0)
+  // (3) another request took the answer's claim over while the model wrote (the first one's went stale): no second card — the other's
+  const t3 = await myChat(me, '카드를 쓰는 동안 이어받힌 답')
+  const a3 = await myAnswer(t3, `# 이어받힌 교육안\n\n${'카드를 쓰는 동안 다른 요청이 이어받았어요. '.repeat(6)}`)
+  let theirs = null
+  const r3 = await CP.offer(me, { threadId: t3.id, messageId: a3.id }, { templates: async () => [], call: async () => {
+    await q(`update pro_messages set content = jsonb_set(content, '{offering}', jsonb_build_object('token', 'other', 'at', now())) where id=$1`, [a3.id])
+    setTimeout(async () => {
+      ;[theirs] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','project_offer',$2) returning *`,
+        [t3.id, { text: '이 대화로 프로젝트를 시작할까요?', title: '이어받은 카드', state: 'offered', source: { threadId: t3.id, answer: { messageId: a3.id, title: '이어받힌 교육안' } }, templates: [] }])
+      await q(`update pro_messages set content = jsonb_set(content, '{offering,offerId}', to_jsonb($2::text)) where id=$1`, [a3.id, theirs.id])
+    }, 300)
+    return { title: '내가 쓴 카드' }
+  } })
+  assert.equal(r3.id, theirs.id)
+  assert.equal((await offers(t3)).length, 1, '카드 하나(이어받은 쪽)')
+})
+
+test('AP-U-06c 「만들기」: 마치기 전에 카드의 대화가 그 사람 것이 아니게 되면 404, 그 대화에 「프로젝트로 옮겼어요」를 덧붙이지 않고 카드도 「만들었어요」가 되지 않음', { skip: !db && 'no database' }, async () => {
+  const { me, k } = await setup()
+  const t = await myChat(me, '만드는 동안 넘어간 대화')
+  const [c] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','project_offer',$2) returning *`,
+    [t.id, { text: '이 대화로 프로젝트를 시작할까요?', title: '넘어간 카드', intent: '넘어간 일', deliverables: [], background: '', source: { threadId: t.id }, templates: [], state: 'offered' }])
+  const r = await settle(CP.make(me, c.id, { title: '넘어간 카드의 프로젝트' }, { hold: async (step) => { if (step === 'finish') await q('update pro_threads set user_id=$2 where id=$1', [t.id, k.id]) } }))
+  assert.equal(r.err?.status, 404, r.err?.message || 'ok')
+  assert.equal(r.err?.code, 'gone')
+  const rows = await msgs(t.id)
+  assert.equal(rows.filter((m) => m.kind === 'chip' && m.content.project).length, 0, '「프로젝트로 옮겼어요」 없음')
+  assert.notEqual(rows.find((m) => m.id === c.id).content.state, 'made')
+})
+
+test('AP-U-07d 경쟁에 져서 버리는 프로젝트는 그 프로젝트를 위해 만든 템플릿 작업 공간도 함께 버린다', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const T = await templates()
+  const t = await myChat(me, '느린 템플릿 만들기')
+  const [c] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','project_offer',$2) returning *`,
+    [t.id, { text: '이 대화로 프로젝트를 시작할까요?', title: '느린 템플릿 카드', intent: '템플릿으로 이어 간다', deliverables: [], background: '', source: { threadId: t.id }, templates: [], state: 'offered' }])
+  const title = '느린 템플릿 프로젝트'
+  let open
+  const gate = new Promise((ok) => { open = ok })
+  const slow = settle(CP.make(me, c.id, { title, template: T.course.slug }, { hold: async (step) => { if (step === 'created') await gate } }))
+  await new Promise((ok) => setTimeout(ok, CP.MAKING_STALE_MS + 600))
+  const takeover = await CP.make(me, c.id, { title, template: T.course.slug })
+  open()
+  const first = await slow
+  assert.equal(first.err?.code, 'taken')
+  assert.equal((await q(`select count(*)::int n from pro_threads where user_id=$1 and kind='project' and title=$2`, [me.id, title]))[0].n, 1, '프로젝트는 하나')
+  // the two workspaces made under this name: the taker's is live, the dropped project's is discarded with it
+  const ws = await q(`select source->>'thread_id' as tid, status from pro_folder_variations where folder_id=$1 and title=$2 and source ? 'template'`, [T.course.id, title])
+  assert.equal(ws.length, 2, JSON.stringify(ws))
+  assert.deepEqual(ws.filter((v) => v.status !== 'discarded').map((v) => v.tid), [String(takeover.project.id)], '남은 작업 공간은 이어받은 프로젝트의 것')
+  assert.equal(ws.filter((v) => v.status === 'discarded').length, 1, '버린 프로젝트의 작업 공간도 버림')
+})
+
+// ---------- PR #122 review ----------
+test('AP-U-04d 대화가 다시 확인한 뒤 · 덧붙이기 전에 사라지면(데이터베이스가 거절) 500 이 아니라 404 · 답의 글은 한 번만 다듬음', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const gone = await settle(AS.addInto(me.id, crypto.randomUUID(), 'agent', 'file', { name: 'x.md' }))
+  assert.equal(gone.err?.status, 404, gone.err?.message || 'ok')
+  assert.equal(gone.err?.code, 'gone')
+  // the picker asks the answer's title, words, preview and length: its text is cleaned once per row (the same object)
+  const msg = { kind: 'doc', content: { text: `# 한 번\n\n${'?a=1 '.repeat(2000)}` } }
+  const first = AS.answerText(msg)
+  assert.equal(AS.answerText(msg), first)
+  assert.ok(AS.cleanedOnce(msg), '같은 행은 한 번')
+  msg.content.text = '# 바뀐 글'
+  assert.equal(AS.answerText(msg), '# 바뀐 글', '글이 바뀌면 다시')
+})
+
+test('AP-U-05d 「프로젝트로 시작」: 모델이 카드를 쓰는 동안 답이 사라지면 곧바로 404(세 번 돌고 409 가 아님), 모델은 한 번', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const t = await myChat(me, '카드를 쓰는 동안 사라진 답')
+  const a = await myAnswer(t, `# 사라진 답\n\n${'카드를 쓰는 동안 답이 지워졌어요. '.repeat(6)}`)
+  let calls = 0
+  const t0 = Date.now()
+  const r = await settle(CP.offer(me, { threadId: t.id, messageId: a.id }, { templates: async () => [], call: async () => {
+    calls++
+    await q('delete from pro_messages where id=$1', [a.id])
+    return { title: '사라진 답의 프로젝트' }
+  } }))
+  assert.equal(r.err?.status, 404, r.err?.message || 'ok')
+  assert.equal(calls, 1, '모델은 한 번')
+  assert.ok(Date.now() - t0 < 10_000, `기다리지 않음: ${Date.now() - t0} ms`)
+  assert.equal((await msgs(t.id)).filter((m) => m.kind === 'project_offer').length, 0)
+})

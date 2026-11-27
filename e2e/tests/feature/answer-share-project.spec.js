@@ -9,6 +9,7 @@
 //           채팅에 「프로젝트로 옮겼어요」(원래 대화는 그대로)
 //   F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿 고르기 → 「템플릿으로 시작」과 같은 작업 공간 막대
 //   F-CP-03 휴대폰 390(밝은 · 어두운): 확인 카드가 화면 안
+//   F-CP-04 휴대폰 390(밝은 · 어두운): 산출물 더미(「MD 1 산출물」)가 떠 있어도 맨 아래 카드의 「만들기」 · 「아니요」가 더미 밑에 깔리지 않음(스펙 chat-artifacts)
 // 자기 스택(lib/localStack.js: 회사 answer-project-ui 의 BFF + Vite, 8997 · 5397 에서 빈 곳)을 띄우고 지운다. 가짜 모델 · 가짜 deepagents 는 이 파일이
 // 빈 포트에 띄운다 — 실제 모델 · 에이전트 · 판정 서버는 부르지 않는다. 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js
@@ -20,7 +21,8 @@ import path from 'node:path'
 import { startStack, REPO } from '../../lib/localStack.js'
 
 test.describe.configure({ mode: 'serial' })
-const SHOTS = { share: path.join(REPO, 'openspec/specs/answer-share/e2e/results'), project: path.join(REPO, 'openspec/specs/chat-to-project/e2e/results') }
+const SHOTS = { share: path.join(REPO, 'openspec/specs/answer-share/e2e/results'), project: path.join(REPO, 'openspec/specs/chat-to-project/e2e/results'),
+  artifacts: path.join(REPO, 'openspec/specs/chat-artifacts/e2e/results') }
 const DESK = { viewport: { width: 1280, height: 860 }, locale: 'ko-KR' }
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ko-KR' }
 const NOWHERE = 'http://127.0.0.1:9'
@@ -434,7 +436,10 @@ for (const theme of ['light', 'dark']) {
     await answerRow(p).locator('[data-test="answer-project-btn"]').click({ timeout: 30000 })
     const card = p.locator('[data-test="project-offer"][data-state="offered"]').last()
     await expect(card).toBeVisible({ timeout: 30000 })
-    await card.scrollIntoViewIfNeeded()
+    // (the new card is the chat's last message: read where a person scrolls to it, the chat's end — centred, it passed under the files' pile)
+    await p.waitForTimeout(700)
+    await p.locator('.msgs').evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await calm(p)
     await inView(card, p)
     await inView(card.locator('[data-test="offer-make"]'), p)
     await noSideScroll(p)
@@ -444,5 +449,54 @@ for (const theme of ['light', 'dark']) {
     await expect(p.locator(`.row[data-id] [data-test="project-offer"][data-state="declined"]`).last()).toBeVisible()
     expect(p.errors).toEqual([])
     await p.context().close()
+  })
+}
+
+// (2026-11-28 — F-CP-03's own shots: at 390 the files' pile 「MD 1 산출물」 lay over the card's 「만들기」) the chat leaves room under its last
+// message for the pile when the pile floats over the chat: at the bottom, every button of the last card is the button itself where it is pressed
+for (const theme of ['light', 'dark']) {
+  test(`F-CP-04 휴대폰 390(${theme === 'light' ? '밝은' : '어두운'}): 산출물 더미가 떠 있어도 맨 아래 카드의 단추는 더미 밑에 깔리지 않음`, async ({ browser }) => {
+    const p = await open(browser, HY, PHONE, { theme })
+    await toChat(p, true)
+    // the chat has a file (F-AS-02's document): its pile floats over the chat, above the composer
+    await expect(p.locator('[data-test="pile"]')).toBeVisible({ timeout: 30000 })
+    await expect(p.locator('.astack')).toHaveAttribute('data-place', 'above')
+    await answerRow(p).locator('[data-test="answer-project-btn"]').click({ timeout: 30000 })
+    const card = p.locator('[data-test="project-offer"][data-state="offered"]').last()
+    await expect(card).toBeVisible({ timeout: 30000 })
+    // the chat at its bottom, where it stays when the card comes (nobody scrolled)
+    await p.waitForTimeout(700)
+    await p.locator('.msgs').evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await calm(p)
+    // (its center, and across it: before, the center of 「만들기」 was just clear of the pile while its right half lay under it)
+    for (const name of ['offer-make', 'offer-no']) {
+      const btn = card.locator(`[data-test="${name}"]`)
+      const b = await btn.boundingBox()
+      for (const f of [0.5, 0.1, 0.3, 0.7, 0.9]) {
+        const at = await btn.evaluate((el, [x, y]) => { const hit = document.elementFromPoint(x, y); return hit === el || el.contains(hit) ? 'button' : (hit?.closest('.astack') ? 'pile' : hit?.className || String(hit)) },
+          [b.x + b.width * f, b.y + b.height / 2])
+        expect(at, `${name}: what is at ${f * 100}% of its width`).toBe('button')
+      }
+    }
+    // the card ends above the pile, its count's badge too
+    const cb = await card.boundingBox()
+    const top = Math.min((await p.locator('.astack').boundingBox()).y, (await p.locator('.astack .count').boundingBox()).y)
+    expect(cb.y + cb.height).toBeLessThanOrEqual(top)
+    await noSideScroll(p)
+    await shot(p, 'artifacts', `f-cp-04-phone-${theme}`)
+    await card.locator('[data-test="offer-make"]').click({ trial: true })
+    await card.locator('[data-test="offer-no"]').click()
+    await expect(p.locator(`.row[data-id] [data-test="project-offer"][data-state="declined"]`).last()).toBeVisible()
+    expect(p.errors).toEqual([])
+    await p.context().close()
+    if (theme === 'light') {
+      // a desktop page (1280, Home open): the pile beside the composer, clear of the chat — the list's bottom as it was
+      const d = await open(browser, HY, DESK)
+      await toChat(d)
+      await expect(d.locator('.col > .msgs')).toBeVisible({ timeout: 30000 })
+      await expect(d.locator('.astack')).toHaveAttribute('data-place', 'beside')
+      expect(await d.locator('.col').evaluate((el) => el.style.getPropertyValue('--aside-room'))).toBe('0px')
+      await d.context().close()
+    }
   })
 }

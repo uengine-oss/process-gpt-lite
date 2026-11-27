@@ -30,6 +30,7 @@ const C = require('./clis')
 const P = require('./pty')
 const TX = require('./transcript')
 const ASK = require('./prompts')
+const MT = require('../mcp/tools')
 
 const SCROLLBACK = 400 * 1024
 const POLL_MS = 250
@@ -197,10 +198,13 @@ class CliSession extends EventEmitter {
   // stateDir: where its settings and hook file live (never inside cwd) · trustRoot: folders under it may be marked trusted
   // watch: paths under cwd whose changes are reported ('files') · env: extra environment (e.g. a model gateway) · cols/rows
   // version: the CLI's version (which hook events it knows) · annotate(item): the owner's word on a conversation item before it goes out
+  // tools: the Process GPT tools of a chat run (runner/tools.js — {program: {command, args, env}}): an MCP server of the app's own the CLI
+  // starts with the person's own ones (Claude Code: --mcp-config, its tools allowed without asking — each only proposes, the person's yes is
+  // the card in the chat; Codex: -c mcp_servers.…)
   constructor({ id = crypto.randomUUID(), agent, cwd, resume = null, prompt = '', stateDir, trustRoot = null, searchPath = C.augmentedPath(), env = {},
-    watch = [], cols = 100, rows = 30, log = () => {}, pty = null, version = null, annotate = null } = {}) {
+    watch = [], cols = 100, rows = 30, log = () => {}, pty = null, version = null, annotate = null, tools = null } = {}) {
     super()
-    Object.assign(this, { id, agent, cwd, resume, firstPrompt: prompt, stateDir, trustRoot, searchPath, extraEnv: env, watchPaths: watch, cols, rows, logFn: log, version })
+    Object.assign(this, { id, agent, cwd, resume, firstPrompt: prompt, stateDir, trustRoot, searchPath, extraEnv: env, watchPaths: watch, cols, rows, logFn: log, version, tools })
     this.annotate = annotate || ((it) => it)
     this.prompt0 = String(prompt || '')
     this.asks = new Map()     // the questions it shows now (prompts.js), oldest first
@@ -263,19 +267,27 @@ class CliSession extends EventEmitter {
     const prog = hookProgram()
     const cmd = (name) => ({ hooks: [{ type: 'command', command: prog.command, args: [...prog.args, name, this.hookFile] }] })
     const events = [...HOOKS, ...(newer(this.version, PERMISSION_HOOK_FROM) ? ['PermissionRequest'] : [])]
-    const settings = { hooks: Object.fromEntries(events.map((h) => [h, [cmd(h)]])) }
+    const settings = { hooks: Object.fromEntries(events.map((h) => [h, [cmd(h)]])), ...(this.tools ? { permissions: { allow: MT.NAMES.map(MT.claudeName) } } : {}) }
     this.settingsFile = path.join(this.stateDir, 'settings.json')
     fs.writeFileSync(this.settingsFile, JSON.stringify(settings, null, 2), { mode: 0o600 })
+    // the app's MCP server, beside the person's own (no --strict-mcp-config)
+    let mcp = []
+    if (this.tools?.program) {
+      const p = this.tools.program
+      this.mcpFile = path.join(this.stateDir, 'mcp.json')
+      fs.writeFileSync(this.mcpFile, JSON.stringify({ mcpServers: { [MT.SERVER_NAME]: { type: 'stdio', command: p.command, args: p.args, env: p.env || {} } } }, null, 2), { mode: 0o600 })
+      mcp = ['--mcp-config', this.mcpFile]
+    }
     if (this.trustRoot) { try { trustClaudeFolder(this.cwd, { root: this.trustRoot, env: this.env }) } catch (e) { this.log(`trust: ${e.message}`) } }
     this.emit('session', this.cli)
     // the person's own settings, sign-in and commands stay (no --setting-sources); edits inside the work folder go without asking
-    return { bin: C.CLIS['claude-code'].bin, args: [...(this.resume ? ['--resume', this.cli] : ['--session-id', this.cli]), '--settings', this.settingsFile, '--permission-mode', 'acceptEdits'] }
+    return { bin: C.CLIS['claude-code'].bin, args: [...(this.resume ? ['--resume', this.cli] : ['--session-id', this.cli]), '--settings', this.settingsFile, ...mcp, '--permission-mode', 'acceptEdits'] }
   }
 
   codexArgs() {
     // trusted for this session only (on the command line — the person's config.toml is not written), no update dialog in a run
     const trust = `projects.${JSON.stringify(this.realCwd)}.trust_level="trusted"`
-    const args = [...(this.resume ? ['resume', this.resume] : []), '-c', trust, '-c', 'check_for_update_on_startup=false', '-C', this.realCwd]
+    const args = [...(this.resume ? ['resume', this.resume] : []), '-c', trust, '-c', 'check_for_update_on_startup=false', ...codexMcp(this.tools), '-C', this.realCwd]
     // the first message: a short pointer to the prompt file (the prompt itself stays out of the process list); Codex submits it itself
     // once its composer is up — whatever dialog the person's setup shows first
     if (this.firstPrompt) {
@@ -578,6 +590,16 @@ class CliSession extends EventEmitter {
   }
 }
 
+// The app's MCP server for Codex, on its command line (TOML values: a JSON string or list is one too) — the person's config.toml is not
+// written. (tool_timeout_sec: a folder's first look may take longer than Codex's own minute)
+function codexMcp(tools) {
+  const p = tools?.program
+  if (!p) return []
+  const k = `mcp_servers.${MT.SERVER_NAME}`
+  const env = Object.entries(p.env || {}).map(([n, v]) => `${n}=${JSON.stringify(String(v))}`).join(', ')
+  return ['-c', `${k}.command=${JSON.stringify(p.command)}`, '-c', `${k}.args=${JSON.stringify(p.args || [])}`, '-c', `${k}.env={${env}}`, '-c', `${k}.tool_timeout_sec=600`]
+}
+
 // the step's first message as the CLI recorded it (its first words — a paste may come back with its line breaks changed)
 const sameStart = (a, b) => { const n = (x) => String(x || '').replace(/\s+/g, ' ').trim().slice(0, 60); return !!n(b) && n(a).startsWith(n(b)) }
 const PROMPT_POINTER = 'Read .pgl-run/prompt.md in this folder and do the work it describes. / 이 폴더의 .pgl-run/prompt.md 를 읽고 거기 적힌 일을 하세요.'
@@ -593,4 +615,4 @@ function briefOf(input = {}, rel = (s) => s) {
   return short(rel(String(i.file_path || i.path || i.command || i.pattern || i.description || i.url || '')), 120)
 }
 
-module.exports = { CliSession, Tail, inputLine, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, codexRolloutOf, cliRecordOf, sizeOf, tookFirst, samePath, hookProgram, PROMPT_POINTER }
+module.exports = { CliSession, codexMcp, Tail, inputLine, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, codexRolloutOf, cliRecordOf, sizeOf, tookFirst, samePath, hookProgram, PROMPT_POINTER }

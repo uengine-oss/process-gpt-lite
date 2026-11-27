@@ -18,6 +18,7 @@ import ProcessDraftCard from './ProcessDraftCard.vue'
 import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
 import MailOutCard from './MailOutCard.vue'
+import PcProposalCard from './PcProposalCard.vue'
 // 팀원에게 물어 채우기: 「○○님께 메신저로 물어볼까요?」 and what came back (server lib/askTeammate.js)
 import AskTeamCard from './AskTeamCard.vue'
 import ShareButton from './team/ShareButton.vue'
@@ -350,6 +351,8 @@ onMounted(async () => {
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
     <!-- a mail the agent wrote for the person: it leaves from their own mailbox only when they press 보내기 (server lib/mailOut.js) -->
     <MailOutCard v-else-if="msg.kind === 'mail_out'" :msg="msg" @connect="emit('connect')" />
+    <!-- a skill or a folder of the person's PC their own CLI proposed: registered · uploaded only when they press it (server lib/localAgents/pcTools.js) -->
+    <PcProposalCard v-else-if="msg.kind === 'pc_proposal'" :msg="msg" />
     <!-- a value only a teammate knows: ask them on the messenger? — and their answer filling the draft (server lib/askTeammate.js) -->
     <AskTeamCard v-else-if="msg.kind === 'ask_team' || msg.kind === 'ask_team_reply'" :msg="msg" />
     <!-- a step run by a CLI agent on its assignee's computer (server lib/localAgents): the card follows the run -->

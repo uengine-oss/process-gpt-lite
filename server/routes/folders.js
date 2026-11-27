@@ -48,6 +48,9 @@ const knownRoots = () => {
   return [...all].sort((a, b) => b.length - a.length)
 }
 const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// A server failure's message (git's own words) as the page may see it: this server's known places (even with spaces) as 「…」, any other
+// absolute path of two parts or more as 「…/<name>」. Not lib/hidePaths.js hidePaths — that one reads an AI answer's words (only the places
+// agents' files live — the sandbox, the host's home and temporary folders — as a file name or 「산출물 폴더」, the same as the page).
 export const hidePaths = (m) => {
   let out = String(m || '')
   for (const root of knownRoots()) out = out.replace(new RegExp(`${escapeRe(root)}(?=[\\\\/\\s'"\`)]|$)`, 'g'), '…')

@@ -116,6 +116,19 @@ export async function makeWorkspace(user, thread, folder) {
   await q('update pro_thread_folders set variation_id=$2, updated_at=now() where thread_id=$1', [thread.id, v.id])
   return S.variationById(v.id)
 }
+// A project that goes again before anyone worked in it (lib/chatProject.js dropProject — a 「만들기」 that lost its card to another): the
+// variations made for it (its template's workspace, a project variation) are discarded with it, as 「버리기」 does (service.js discard — the
+// branch keeps what it held) — never left live for a project that is no more. → how many
+export async function dropWorkspaces(threadId) {
+  const rows = await q(`select * from pro_folder_variations where source->>'thread_id'=$1 and coalesce(source->>'project','') = 'true'
+                        and status in ('open','ready','conflicted')`, [String(threadId)])
+  for (const v of rows) {
+    const folder = await S.folderById(v.folder_id).catch(() => null)
+    if (folder) await S.discard(folder, v)
+    else await S.setStatus(v, 'discarded')
+  }
+  return rows.length
+}
 // 「템플릿으로 시작」 on the template's screen: the project (named as asked) with its folder link and its workspace
 export async function startProject(user, folder, { title } = {}) {
   if (!isTemplate(folder)) throw err(400, L('템플릿으로 지정된 폴더에서만 시작할 수 있어요.', 'You can start a project only from a folder marked as a template.'))

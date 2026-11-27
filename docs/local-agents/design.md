@@ -393,3 +393,97 @@ Robo-DLC(`origin/feat/mcp-apps` 의 `server/lib/aidlc/*` — 서버 tmux 의 대
 | runner: 대화의 폴더 · `chat` 세션 · 턴마다 커밋 · push · reply, 같은 PTY 로 이어서, 결과.md 없음, 대화의 세션 기록으로 `--resume`, 기록이 없으면 새 세션(요약), reply 다시 보내기, 대화 없는 일 거절 | `desktop/test/chat.test.js` | 3/3 (데스크톱 전체 46 통과 · 4 건너뜀) |
 | 실제 BFF + runner(가짜 대화형 CLI): 고르기 · 보내기 → 답 + 파일 카드(내 폴더 main) · 이어서 · 끝내기 뒤 `--resume` · 다른 사람 403/404 · 꺼짐 → 기다림 · 다시 보내기 · 프로젝트 변형(원본 그대로) · 구성원 보기만 · 실행자 403 | `server/test/chatAgents.e2e.mjs` | 8/8 |
 | 화면: 칩 · 꺼진 항목과 까닭 · 내려받기 · PC 가 이어지면 켜짐 · 키보드로 고르기 · 태그 · 카드 · 답 · 파일 카드 · 이어서 · 대화마다 남음 · 다시 기본 · 꺼짐과 다시 보내기 · 390px 밝게/어둡게 · 어두운 테마 | `e2e/tests/feature/chat-agent-picker.spec.js` F-CA-01–08 | 7/7 |
+
+## 13. 채팅에서 내 PC 의 스킬 · 폴더를 등록 제안 (2026-11-27, 가지 `feat/local-skill-register`, 데스크톱 0.2.8)
+
+사용자 요청: 「그냥 채팅의 대화로 로컬 에이전트를 선택하여 내 pc 에 있는 스킬중 어떤 스킬을 등록해줘라고 하면 서버에 스킬을 등록한다.. 그러려면 로컬 에이전트쪽에 process gpt 의 mcp나 api 가 등록되긴해야할것」 · 「폴더 등록 또한 채팅으로 시킬 수 있겠지」. 스펙 `local-agents` 「채팅에서 내 PC의 스킬 · 폴더 등록 제안」 · `champion-folders` 「채팅으로 폴더 업로드 제안」.
+
+### 13.1 흐름
+1. 채팅에서 「Claude Code · 내 PC」(또는 Codex)를 고르고 「내 PC 의 견적-규칙 스킬을 등록해 줘」 · 「~/영업 키트 올려 줘」라고 보낸다 — 12절의 채팅 실행이다.
+2. 그 실행의 CLI 에는 앱이 더한 MCP 서버 `process_gpt_lite` 가 있다. CLI 가 도구 설명을 보고 스스로 부른다(앱 · 서버는 사람의 말을 읽지 않는다).
+3. 도구가 앱에 닿으면 앱이 그 PC 의 폴더를 챔피언 폴더의 검사로 읽고, 실행의 도구 토큰으로 서버에 **제안**한다.
+4. 서버가 그 실행의 대화에 카드(`pro_messages.kind = 'pc_proposal'`)를 낸다 — 「스킬을 등록할까요?」 · 「폴더를 올릴까요?」. 도구는 CLI 에게 「카드에서 「등록」 · 「올리기」를 눌러야 해요 — 여기서 멈추세요」라고 답한다.
+5. 그 사람이 카드를 누르면(휴대폰에서도) 스킬은 서버가 등록하고, 폴더는 서버가 챔피언 폴더를 만든 뒤 그 PC 의 앱이 올린다. 카드는 「등록했어요 · 열기」 · 「올렸어요 · 열기」가 된다.
+
+### 13.2 데스크톱 (`desktop/src/mcp/` · `desktop/src/runner/tools.js`)
+- **stdio MCP 서버**(`src/mcp/server.js`, 도구 정의 `src/mcp/tools.js`): 의존성 없는 JSON-RPC(initialize · tools/list · tools/call · ping). CLI 가 앱 자신의 실행 파일로 띄운다 — `ELECTRON_RUN_AS_NODE=1`(창도 앱도 없음; 묶은 앱의 RunAsNode 퓨즈는 Electron 기본 그대로, `scripts/adhoc-sign.js` FUSES 는 쿠키 봉인만). 개발용 Electron 45.3.2 로 asar 안의 스크립트를 띄워 확인했다. 시험 · 순수 Node runner 에서는 그 Node 로.
+- **앞문일 뿐**: MCP 서버는 서버 토큰도 파일도 만지지 않는다. 호출을 앱의 로컬 통로로 넘긴다 — 그 사용자만 여는 임시 폴더(0700)의 유닉스 소켓, Windows 는 이름 있는 파이프(이 PC 의 어느 프로그램이든 열 수 있다 — 경계는 열쇠다). 실행마다 바뀌는 열쇠(32바이트)가 있어야 무엇이든 되고, MCP 서버의 설정 파일(`<sessions>/<job>/lite-tools.json`, 0600)에는 통로 · 열쇠 · 언어만 있다. 실행이 끝나면 열쇠는 닫힌다.
+- **CLI 에 넘기기**(`session.js`): Claude Code `--mcp-config <세션 폴더>/mcp.json`(그 사람의 MCP 서버는 그대로 — `--strict-mcp-config` 없음) + 세션 설정의 `permissions.allow` 에 다섯 도구(`mcp__process_gpt_lite__…` — 제안만 하므로 묻지 않음, 사람의 「예」는 카드). Codex `-c mcp_servers.process_gpt_lite.command · args · env · tool_timeout_sec=600`(그 사람의 `config.toml` 은 쓰지 않음).
+- **도구** — `lite_list_pc_skills`(Claude Code `$CLAUDE_CONFIG_DIR/skills` 또는 `~/.claude/skills` · Codex `$CODEX_HOME/skills` · `~/.agents/skills` · 작업 폴더의 `.claude/skills` · 또는 `under`; SKILL.md 머리말의 이름 · 설명, 링크는 링크로 — 가리키는 곳만 알려 줌) · `lite_list_my_skills` · `lite_list_my_folders`(서버, 읽기만) · `lite_propose_skill({path, name?, scope?})` · `lite_propose_folder({path, name?})`.
+- **어느 폴더**(`resolvePath` · `checkFolder`): 절대 · `~/` · 작업 폴더 기준 상대(탈출 거절). 그 폴더 자체가 링크면 거절(따라가지 않음 — 가리키는 폴더를 말하게), 디스크 맨 위 · 볼륨 맨 위(`/Volumes/<이름>` · `/media/<사람>/<이름>` · `/mnt/<이름>`) · 홈과 그 위 · 시스템 폴더와 그 안(`~/Library` — 그 안의 클라우드 드라이브 폴더 `CloudStorage/<드라이브>/…` · `Mobile Documents/com~apple~CloudDocs/…` · `Mobile Documents/<앱>/Documents/…` 는 예외, 그 자리 · 드라이브의 맨 위 · 앱의 iCloud 데이터 · 드라이브 안의 숨은 폴더는 거절 — · `/System` · `/usr` · `/etc` · `/var` — 사람마다의 임시 · 캐시 폴더 `/var/folders/…/T` · `C` 도, 그 아래 홈 · `/var/www` · `/var/srv` 는 빼고 — · `/opt/homebrew` · `/snap` · `~/snap` · `/run/user` … · Windows `SystemRoot` · `ProgramFiles` · `ProgramData` · `AppData`) · `/Users` · `/Volumes` · `/var` · `/tmp` · `/opt` · `/run` 그 자체 · CLI 의 집(`~/.claude` · `~/.codex` · `~/.agents`)과 그 안(그 `skills` 폴더만 예외) · 홈 바로 아래의 숨은 폴더와 그 안(`~/.kube` · `~/.docker` · `~/.config` · 키링 · 브라우저 프로필 …) · 경로 어디에든 비밀 · 개인 묶음의 폴더(`.ssh` · `.aws` · `.claude/projects` · `.codex/sessions` · `.vscode` …) · 앱 데이터. 실제 경로는 디스크의 표기로 읽는다(`realpathSync.native` — `CLAUDE_CONFIG_DIR` 를 디스크와 다른 대소문자로 적어도 그 폴더). `/var` 전체가 아니라 시스템 영역(`folders` · `db` · `log` · `lib` · `cache` · `spool` · `tmp` · `run` 등)만 거절한다. `/var/home` 아래의 홈(Fedora Silverblue 등)과 `/var/www/<사이트>`는 사용자 폴더로 취급한다. 홈을 포함한 시스템 폴더는 「안쪽 전체 거절」에서 제외한다(홈으로 가는 경로 자체는 여전히 거절한다). `/run/user`는 내부 전체를 거절하고, `/run/media/<사람>`은 볼륨 최상위 폴더로 간주하여 거절한다.
+- **스킬 읽기**(`packSkill`): 챔피언 폴더의 `scan()` 그대로(같은 `secret-shapes.json` — 비밀 · 개인 설정 · 다시 만들 것 · 50MB 넘는 파일 · 링크 · 하위 저장소 · git 제어 파일 · 확인할 파일과 확실한 열쇠 모양은 빠짐; `.mcp.json` 도 확인할 파일이라 빠짐). 스킬에서는 git 제어 파일(`.gitignore` · `.gitattributes`)도 빼고 「따로 관리」로 센다 — 서버의 스킬 폴더는 서버의 저장소다. 이름은 Windows · Mac 이 읽는 대로 본다(대소문자 무시, 끝의 점 · 빈칸 무시 — `.LFSCONFIG.` 도 `.lfsconfig`; 서버 `secrets.js` · 챔피언 `scan` 도 같다). 맨 위 `SKILL.md` 필수, 300개 · 8 MB. 머리말의 실행 키(`runSettings.frontRuns`)를 알려 준다. 파일은 base64 로 `POST /api/local-agents/tools/skills/propose` — 이 PC 의 경로는 보내지 않는다(어디서 왔는지는 `claude` · `codex` · `agents` · `work` · `other` 와 폴더 이름만).
+- **폴더**(`proposeFolder`): 챔피언 폴더의 `FolderSync.pick(path)` 를 그대로 — 같은 `unsafe` 검사와 첫 훑기 미리 보기. 미리 보기(경로 없이)를 `POST …/folders/propose` 로 보내고, 앱은 그 pick 이 어느 제안의 것인지 기억한다(`proposed`).
+- **올리기**(`tools:upload` → `FolderSync.bind`): 서버가 링크로 `{proposalId, pickId, folderId, folderName}` 를 보내면, 그 제안을 위해 자기가 만든 pick 일 때만(페이지의 시스템 창 pick 이나 다른 제안의 것은 `no_pick`) 챔피언 폴더의 첫 올리기를 돌린다 — 시스템 창 대신 카드의 「올리기」가 그 사람의 「예」. 올리기 직전 앱은 그 폴더를 다시 검사하고(같은 규칙, 실제 경로가 제안 때와 같아야 함), `bind` 의 「예」 안에서 그때 다시 훑은 결과(경로마다 크기 · inode · mtime 의 지문 · 파일 수 · 바이트 — 같은 크기로 고친 파일, 같은 이름으로 바꿔치기한 파일도 다르다)를 제안 때의 것과 비교한다 — 다르면 아무것도 올리지 않고 `changed` 로 답하며 그 pick 은 버린다. 「예」 뒤에도 그대로다: `bind` 는 확인한 지문을 첫 round 에 넘기고(`round(id, {expect})`), round 는 훑기 전에 폴더의 실제 경로가 그대로인지(위 폴더가 링크로 바뀌지 않았는지) 보고, 훑은 지문이 다르면, 또 스냅숏이 파일을 읽은 뒤 다시 본 경로 · 지문이 다르면 아무것도 밀어 넣지 않고 `changed` 로 끝낸다(원본 행은 되돌림). 채팅 카드는 파일별로 엄격하게 확인하고, 시스템 창은 파일 목록을 기준으로 확인한다. 카드의 「예」는 표시한 개별 파일(크기 · inode · 수정 시각)에 대한 동의를 의미하고, 시스템 창의 「예」는 해당 파일 목록에 대한 동의를 의미한다. 창이 열려 있는 동안 저장한 파일과 권한 · 속성만 바뀐 파일은 그대로 업로드하고, 파일이 추가되거나 사라지면 중단한다. 변경 시각(ctime)은 태그 · 권한 · 클라우드 앱의 표시만 바꿔도 달라지므로 지문에서 제외한다. pick은 첫 업로드가 성공한 뒤에 삭제하여, 중단된 뒤에도 같은 시트 · 같은 카드에서 다시 누를 수 있도록 한다. 카드 처리 경로에서는 스냅숏 이후 그림자 index가 기록한 stat(inode · 크기 · 수정 초)을 순회한 결과와 비교한다. 읽는 동안 상위 폴더를 바꿨다가 되돌린 경우도 감지한다. 시스템 창의 길에서 멈추면 화면은 「「올리기」에 동의한 뒤 폴더가 바뀌어서 …」, 「지금 올리기」에서 폴더가 링크 너머로 옮겨졌으면 `moved`(「폴더가 다른 곳으로 옮겨졌어요 …」). 앱은 「채팅에서 고른 폴더 「…」를 올리고 있어요」 알림을 띄우고, 결과를 `tools:uploaded {ok, why, pushed}` 로 답한다. 그 뒤는 「내 PC 폴더 올리기」로 올린 폴더와 같다.
+- **도구는 세션과 함께**(`runner.js toolSearchEnv`): 채팅 실행의 Claude Code 는 `ENABLE_TOOL_SEARCH=false` 로 띄운다 — Claude Code 2.1.332 는 MCP 도구를 ToolSearch 뒤로 미루는데, 사람들의 CLI 가 거치는 회사 모델 게이트웨이가 그 지연 도구 참조에 server_error 를 낸다(실측). 그 사람의 환경에 `ENABLE_TOOL_SEARCH` 가 있거나 runner 설정(`toolSearch` · 앱의 `PGL_TOOL_SEARCH`)이 있으면 그것을 따른다. 단계 실행 · Codex 에는 넣지 않는다.
+- 기능 표시: `caps.liteTools`(도구가 있음) · `caps.liteFolders`(폴더도 올릴 수 있음 — 챔피언 엔진이 켜짐).
+
+### 13.3 서버 (`server/lib/localAgents/pcTools.js` · `server/routes/pcProposals.js` · `sql/068_pc_proposals.sql`)
+- **도구 토큰** `plt1.<payload>.<서명>`(서비스 키에서 뽑은 별도 열쇠 `pc-tools:v1`): `{tenant, user, device, job, scope: 'pc-tools', exp}`, 90분. 채팅 일의 `prepare` 가 `caps.liteTools` 인 데스크톱에만 싣는다(`job.tools.token`). 요청마다 `access` 가 다시 본다 — 기기가 연결돼 있고(끊지 않음) 그 사람의 것이며, 일이 그 기기 · 그 사람의 채팅 실행이고 지금 `offered` · `running` 이다. 그래서 실행이 끝나면 시간이 남아도 403(`job_over`). 토큰 경로는 세션 · 본문 파서 · 회사 미들웨어 앞(`/api/local-agents/tools`, 본문 16 MB)이고, 회사는 토큰이 말하며, 언어는 앱의 `X-PGL-Lang` 또는 그 사람의 저장된 언어다.
+- **스킬 제안**: 서버가 다시 본다 — 경로(`..` · `.` · 빈 이름 · `.git` · 역슬래시 · 절대 경로), `secrets.refusalOf`(비밀 이름 · 큰 파일 · 확실한 열쇠 모양 → 422; git 제어 파일 `.gitignore` · `.gitattributes` · `.gitmodules` · `.lfsconfig` 는 거절하지 않고 버리고 「따로 관리」로 셈), 맨 위 `SKILL.md`, 300개 · 8 MB, 이름(글자 · 숫자 · `-` · `_`, 64자 — 이미 있으면 409 `name_taken`: CLI 가 사람에게 다른 이름을 묻게). 실행 설정은 서버가 `SKILL.md` 머리말(`kit.frontRuns`)과 설정 파일 이름(`RUN_SETTINGS`)으로 읽는다. 카드의 설명은 앱이 보낸 글이 아니라 올라온 `SKILL.md` 머리말(`skills.summarizeSkill`)에서 읽는다. 파일은 제안 때 `<폴더 뿌리>/<회사>/.pc-proposals/<id>/` 에 올라가 있고(카드가 그렇게 알림 — 「한 시간이 지난 뒤」: 정확한 시각은 약속하지 않는다, 정기 정리의 간격만큼 늦을 수 있고 `PRO_BACKGROUND=0` 이면 다음에 읽을 때), 행을 먼저 넣고 파일을 쓴다(정기 정리는 자리의 항목을 먼저 읽고 그다음 기다리는 제안을 묻는다 — 본 항목은 그 행보다 늦게 생겼으므로 제안이 없는 것으로 오인되지 않는다; 쓰다 실패하면 파일과 행을 지움), 등록되면 · 그만두면 · 등록이 실패하면 바로, 만료는 읽을 때와 서버의 정기 정리(10분마다 — `startSweeper`, `PRO_BACKGROUND=0` 이면 돌지 않음: 만료 · 두 시간 넘게 끝나지 않은 누름 · 제안이 없는 파일까지)에서 지운다.
+- **폴더 제안**: 미리 보기만 받는다(알려진 필드 · 그룹 · 경고만, 길이 제한). 빈 폴더 · 한도 넘김은 거절. `pick_id` 를 행에 둔다.
+- **카드**(`GET /api/pc-proposals/:id` · `register` · `upload` · `drop`): 그 사람의 것만(남은 404). 보인 그대로의 확인 값(메모리의 HMAC — 내용 · 상태 · 고를 수 있는 것에 묶임, 15분; 바뀌었으면 409 `stale`). 한 번 누름은 상태를 먼저 `working` 으로 잡는다(두 번째 409). 「어디에」는 언제나 「내 스킬」로 시작한다(CLI 가 회사를 청해도). 만료(1시간)는 읽을 때 · 새 제안 때 · 정기 정리에서. 기다리는 제안은 사람당 10개(429) — 한 사람의 제안은 이 서버 안에서 하나씩(약속 사슬: 세기와 넣기가 함께; 데이터베이스 잠금은 쓰지 않음 — 공용 풀을 잡은 채 기다리면 풀이 막힌다, #118).
+- **등록**: 「내 스킬」 = `folders/skills.js saveDraftPrivate`(skill-creator 의 길 — 비공개 스킬 · 그 폴더 · 그 사람의 실행 사본). 「회사 스킬」 = 스킬 폴더의 「전사에 공유」와 같은 규칙(작성자는 공유할 수 있고, 카드로 등록하는 사람이 작성자 — 처음에는 관리자만으로 했다가 기존 규칙에 맞춤), 언제나 한 번 더 확인(`companyOk` — 없으면 409 `company_confirm`, 실행 설정이 있으면 `runs_confirm` 이고 카드의 확인 문구도 실행 설정을 말한다), 그다음 `skills.js share`(deepagents 설치). 설치가 실패하면 내 스킬로 남기고 카드가 알린다. 등록이 실패하면 그 파일을 지우고, 그 누름이 잡은 이름(폴더가 생기지 않은 `pro_skill_visibility` 행)도 풀며, 오류 문구는 서버의 경로를 말하지 않는다(`routes/folders.js hidePaths`).
+- **올리기**: 그 PC 의 링크가 켜져 있고 폴더를 올릴 수 있을 때만(아니면 409 `pc_offline`). `service.createFolder(champion)`(실패하면 카드에는 코드 `create_failed` 만 — 까닭은 서버 로그로, 그 글에 서버의 경로가 있을 수 있다) → 링크로 `tools:upload` → 답(`tools:uploaded`, 그 기기 · 그 사람의 것만)으로 끝낸다. 아무것도 안 올라갔으면 빈 챔피언 폴더를 지우고(`discardEmptyChampion`) 카드를 다시 누를 수 있게(앱이 pick 을 잃었으면 끝), 답 없이 PC 가 1분 넘게 사라졌으면 읽을 때 같은 처리를 한다(파일이 들어갔으면 끝난 것으로).
+- **옛 데스크톱**: `liteTools` 가 없는 데스크톱의 채팅 실행은 토큰 대신 프롬프트에 스킬 `process-discovery/prompts/local-tools-missing.md` 의 안내를 받는다(그 사람이 그런 일을 부탁하면 CLI 가 0.2.8 로 업데이트하라고 말함). 에이전트 고르기도 그 데스크톱의 항목에 「PC 앱을 0.2.8 이상으로 업데이트하면 …」과 `update` 를 단다.
+
+### 13.4 왜 이렇게
+- **stdio MCP + 앱의 통로(HTTP 를 CLI 에게 주지 않음)**: CLI 가 직접 서버를 부르면 토큰이 CLI 의 환경이나 파일에 있어야 하고, 폴더 올리기는 어차피 앱(챔피언 엔진 · 링크)이 해야 한다. 앱이 토큰을 메모리에만 두고, MCP 서버는 열쇠로 앱에 묻기만 한다 — runner 의 원칙(토큰은 디스크 · 로그에 쓰지 않음)을 지킨다. 같은 사용자로 도는 CLI 가 설정 파일을 읽을 수는 있지만, 그것으로 할 수 있는 것도 제안뿐이고 결정은 카드다.
+- **포트를 열지 않음**: 통로는 유닉스 소켓 · 이름 있는 파이프(링크의 원칙: 이 컴퓨터에 포트를 열지 않는다). 파이프는 이 PC 의 어느 프로그램이든 열 수 있으므로 경계는 실행마다 바뀌는 32바이트 열쇠다(같은 사용자의 CLI 는 설정 파일로 그 열쇠를 읽을 수 있지만, 그것으로 할 수 있는 것도 제안뿐이다).
+- **MCP 서버를 ELECTRON_RUN_AS_NODE 로**: 훅처럼 앱 플래그(`--pgl-mcp`)로 앱의 브라우저 프로세스에서 띄우는 길도 재 보았다(2026-11-28, Electron 45.3.2 · macOS). stdio 로 답하고 stdin 이 닫히면 끝나는 것까지는 됐지만, 채팅 실행마다 LaunchServices 에 UI 요소로 등록되고 프로세스 3개 · 약 215 MB(노드 모드는 1개 · 약 56 MB) · 첫 답 약 200 ms(노드 모드 약 50 ms)였고, Windows 의 GUI 하위 시스템 본 프로세스가 파이프로 stdout 을 쓰는 것은 확인하지 못했다(훅은 stdin 만 읽고 곧 끝난다). 그래서 노드 모드를 두고, RunAsNode 퓨즈는 Electron 기본대로 둔다(`scripts/adhoc-sign.js` — 시험이 지킴). 그 퓨즈를 끄기로 하면 앱 플래그 길로 옮긴다. 앱이 Developer ID 서명 · hardened runtime 으로 옮겨 가면 그때 옮긴다 — 그 뒤의 RunAsNode 는 이 PC 의 다른 프로그램이 이 앱이 받은 macOS 권한(마이크 · 카메라 · 허락한 폴더)을 빌려 쓰는 길이 되기 때문이다.
+- **서버가 경로를 말하지 않음**: 폴더 올리기의 `tools:upload` 는 앱이 자기 실행의 제안을 위해 만든 pick id 만 가리킨다. 서버(또는 그 흉내)가 PC 의 아무 폴더나 올리게 할 수 없다.
+- **「회사 스킬」은 기존 규칙대로**: 스킬 폴더의 「전사에 공유」는 작성자 누구나 할 수 있고, 카드로 등록하는 사람이 그 스킬의 작성자다. 관리자만으로 막으면 「내 스킬」로 등록한 뒤 「전사에 공유」로 바로 돌아갈 수 있어 막는 뜻이 없다. 회사 사람들의 PC 에서 실행 설정이 도는 위험은 「한 번 더 확인」으로 남긴다.
+- **스킬 파일은 서버 디스크에 잠시**: DB 에 수 MB 를 넣지 않고, 폴더 뿌리(운영의 PVC) 아래 숨은 자리에 둔다.
+
+### 13.5 시험
+| 무엇 | 시험 | 결과 |
+|---|---|---|
+| 토큰 · 범위 · 만료, 도구 있는 데스크톱에만 · 옛 앱 안내, 켜진 실행에만, 서버의 다시 보기(제어 파일은 버림 · 설명은 서버가 읽음), 카드 · 확인 · 두 번 누름, 회사 스킬(언제나 한 번 더), 만료 · 그만두기 · 등록 실패의 정리, 폴더 제안 · 올리기 · 실패 · pick 잃음 · PC 꺼짐, 목록 · 10개(동시 12개), 정기 정리(쉬지 않고 도는 정리 곁의 제안도), 새 연결 · 바뀐 폴더, 폴더 만들기 실패는 코드만 | `server/test/pcProposals.test.js` PT-01 ~ PT-13 | 13/13 |
+| 어느 폴더(CLI 의 집 — 다른 대소문자로 적어도 · 홈 바로 아래 숨은 폴더 · 개인 폴더 · `/var`(그 아래 홈 · `/var/www` · `/var/srv` 는 허용) · `/opt/homebrew` · `~/snap` · `/run/user` · 볼륨 맨 위 · `~/Library` 의 클라우드 드라이브 폴더는 허용) · PC 의 스킬 목록 · 스킬 읽기(제어 파일 뺌 — `.LFSCONFIG.` 도) · stdio MCP · 스킬 제안 · 폴더 제안과 `tools:upload` · 바뀐 폴더는 안 올림(같은 크기로 고침 · 바꿔치기도; 권한 · 속성만 바뀐 것은 올림) · CLI 명령 줄 · caps · 퓨즈 · 채팅 실행의 `ENABLE_TOOL_SEARCH=false` | `desktop/test/tools.test.js` DT-01 ~ DT-10 | 9/9 (DT-10 은 DT-06 안) |
+| 카드의 길: 「예」 뒤에 바뀐 폴더(더한 파일 · 같은 크기로 고친 파일 · 링크로 바뀐 위 폴더 · 스냅숏이 읽는 동안 고친 파일 · 읽는 동안 바꿨다 되돌린 위 폴더)는 첫 올리기에서 멈춤, pick 은 남음 · 시스템 창의 길: 저장한 파일 · 권한 · 속성 변화는 올라가고 더한 파일은 멈춤 · 같은 pick 으로 다시 누름 | `desktop/test/sync.test.js` 「동의한 뒤 바뀐 폴더」 · 「시스템 창 길」 | 2/2 |
+| 실제 BFF + 데스크톱 runner + 가짜 대화형 CLI(실제 stdio MCP 를 부름): 스킬 제안 → 토큰 먼저 · 본문 한도 → 등록, 폴더 제안 → 올리기, 끝난 실행 403, Codex | `server/test/pcProposals.e2e.mjs` (:8999) | 8/8 |
+| 화면: 스킬 카드(내 스킬에서 시작 · 회사는 한 번 더 · 임시 공간 안내) → 등록 → 목록, 실행 설정 · 회사 스킬(어둡게), 폴더 카드 → 올리기 → 열기, 390px 밝게 · 어둡게 · 그만두기, 보여 준 뒤 바뀐 폴더 → 「폴더를 올리지 못했어요」 | `e2e/tests/feature/pc-proposals.spec.js` F-PCP-01 ~ 05 (:8999 · :5399) | 5/5 |
+| 실제 Claude Code 2.1.332(회사 게이트웨이, 임시 설정 · 홈): 「내 PC 의 견적-규칙 스킬을 Process GPT 에 등록해 줘」 → `lite_list_pc_skills` → `lite_propose_skill` → 「카드를 눌러 확인해 주세요」 (게이트웨이가 ToolSearch 의 지연 도구 참조를 못 받아 `ENABLE_TOOL_SEARCH=false`) | `desktop/test/realClaudeTools.test.js`(사람이 켤 때만) | 1/1 (7초 · 검토 반영 뒤 다시 1/1, 7초) |
+
+### 13.6 PR #120 검토에서 바뀐 것
+| # | 무엇 | 어디 |
+|---|---|---|
+| 1 | 올리기는 카드에 보인 그대로만: 제안 때의 파일 수 · 바이트 · 지문(경로마다 크기)을 앱이 두고, 올리기 직전 다시 검사(실제 경로가 같아야) · `bind` 의 「예」 안에서 다시 훑어 비교 — 다르면 `changed`, 카드는 실패 | `runner/sync.js` · `runner/tools.js` · `pcTools.settleUpload` · 카드 |
+| 2 | 「회사 스킬」을 미리 고르지 않음, 언제나 한 번 더 확인(`companyOk`), 서버도 409 `company_confirm` · `runs_confirm` | 카드 · `pcTools.register` · `routes/pcProposals.js` |
+| 3 | CLI 의 집은 그 `skills` 만, 홈 바로 아래 숨은 폴더 거절, 비밀 · 개인 묶음을 고른 폴더의 절대 경로 전체에 | `runner/tools.js checkFolder` |
+| 4 | git 제어 파일은 앱이 빼고 서버는 버림(거절하지 않음) | `runner/tools.js packSkill` · `pcTools` |
+| 5 | 도구 경로는 토큰 먼저, 16 MB 는 스킬 제안에만 | `routes/pcProposals.js` |
+| 6 | 정기 정리(`startSweeper`, `PRO_BACKGROUND=0` 이면 없음) · 등록 실패면 파일과 잡은 이름을 풂 · 카드와 스펙에 「서버의 임시 공간 · 한 시간」 | `pcTools.sweepAll` · `server/index.js` · 카드 |
+| 7 | 누른 뒤 PC 가 새로 연결되면 기다리던 업로드를 끝냄 | `pcTools.current` |
+| 8 | 한 사람의 제안은 서버 안에서 하나씩(약속 사슬 — 데이터베이스 잠금 · 공용 풀은 쓰지 않음) | `pcTools.oneAtATime` |
+| 9 | 등록 실패 문구에 서버 경로 없음 | `pcTools.register` · `routes/pcProposals.js` (`routes/folders.js hidePaths`) |
+| 10 | 카드의 설명은 올라온 `SKILL.md` 에서 서버가 읽음 | `pcTools` (`skills.summarizeSkill`) |
+| 11 | Windows 이름 있는 파이프는 비공개가 아님 — 경계는 32바이트 열쇠 | `mcp/server.js` · `runner/tools.js` 머리말 · 이 문서 §13.2 · §13.4 · `desktop/README.md` |
+| 12 | MCP 서버를 앱 플래그로 띄우는 길은 재 보고 두지 않음(§13.4) | — |
+
+재검토(46812a3 기준)에서 더 바뀐 것:
+
+| # | 무엇 | 어디 |
+|---|---|---|
+| R1 | 「예」 뒤에 더한 · 고친 파일, 위 폴더가 링크로 바뀐 것도 올리지 않음: 확인한 지문을 첫 round 에 넘기고 훑기 전 · 스냅숏 뒤에 다시 봄 | `runner/sync.js bind · round` · `runner/tools.js` |
+| R2 | 정기 정리와 스킬 제안의 경쟁: 행을 먼저 넣고 파일을 씀(정리는 자리를 먼저 읽고 행을 나중에 물음) | `pcTools.proposeSkill · sweepAll` |
+| R3 | 「올리기」의 폴더 만들기 실패: 카드 · 행에는 코드 `create_failed` 만, 까닭은 로그로 | `pcTools.upload` · 카드 |
+| R4 | `/var` · `/private/var` 전체(사람마다의 임시 · 캐시 폴더도) · `/opt/homebrew` · `/snap` · `~/snap` 안쪽 거절, 볼륨 맨 위 거절, 실제 경로는 `realpathSync.native` | `runner/tools.js checkFolder · volumeTop` |
+| R5 | 카드 문구 「한 시간이 지난 뒤 지워져요」(정확한 시각을 약속하지 않음) | 카드 · 스펙 |
+| R6 | 지문에 파일마다 inode · mtime(3차에서 ctime 은 뺌) | `runner/sync.js stampOf` |
+| R7 | 제어 파일 이름은 대소문자 · 끝의 점 · 빈칸 무시(서버 · 데스크톱 · 페이지) | `secrets.js baseOf` · `sync.js baseName` · `tools.js isControl` · `src/folderDrop.js` |
+| R8 | Developer ID · hardened runtime 으로 옮기면 MCP 서버도 앱 플래그로(§13.4) | 이 문서 |
+
+3차 확인(c4198d5 기준)에서 더 바뀐 것:
+
+| # | 무엇 | 어디 |
+|---|---|---|
+| T1 | `/var` 아래 홈(Fedora Silverblue 등)이 통째로 거절되던 회귀: `/var` 는 시스템 자리만, 홈을 품은 시스템 폴더는 안쪽 거절에서 뺌 | `runner/tools.js systemFolderOf · VAR_SYSTEM` |
+| T2 | 시스템 창 길이 바이트가 그대로인 변화에도 멈추던 회귀: 카드는 지문(크기 · inode · mtime — ctime 뺌), 시스템 창은 파일 목록; pick 은 성공한 뒤에 지움(다시 누를 수 있음) | `runner/sync.js bind · round` · `runner/tools.js`(`strict: true`) |
+| T3 | `/run/user` 안쪽 거절, `/run/media/<사람>` 은 볼륨 맨 위 | `runner/tools.js` |
+| T4 | 링크 너머로 옮겨진 폴더는 `moved`(따로 된 문구) | `runner/sync.js round` · `src/desktopFolders.js` |
+| T5 | `~/Library/CloudStorage/<드라이브>/…` · `~/Library/Mobile Documents/<…>/…` 허용(페이지의 시스템 창 길은 원래 `~/Library` 를 막지 않음) | `runner/tools.js inCloudDrive` |
+| T6 | 카드의 길: 스냅숏 뒤 그림자 index 의 stat 을 훑은 결과와 비교 | `runner/sync.js indexMatches` |
+| F1 | 아주 큰 inode(2^53 넘음 — FUSE · overlayfs)에서 카드 올리기가 늘 「바뀜」이던 것: 그때는 inode 를 견주지 않음, 다음 초로 반올림된 수정 시각도 같은 초로 | `runner/sync.js sameIndexed` |
+| F2 | 시스템 폴더 안에 홈을 둔 경우 그 이웃 폴더까지 열리던 것: 홈 안만 열림 | `runner/tools.js systemFolderOf` |
+| F3 | `/var` 는 목록 대신 통째로 시스템의 것, 사람의 자리(`home` · `www` · `srv`)와 그 아래 홈만 예외 | `runner/tools.js VAR_OWN` |
+| F4 | 클라우드 드라이브: iCloud 는 iCloud Drive 와 앱의 `Documents` 안만, 드라이브 안의 숨은 폴더(캐시 · 휴지통)는 거절 | `runner/tools.js inCloudDrive` |

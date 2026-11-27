@@ -100,10 +100,14 @@ class Runner extends EventEmitter {
   // dataDir: the app's data folder (work folders and the outbox live under it) · server: the Lite base address (the folder's git path is
   // joined to it) · prefs(): {enabled, ask} · ask(job): the person's yes before a run (prefs.ask) · caps: from clis.detect
   // mode: 'auto' (a terminal when node-pty loads) | 'headless' · sessionEnv: extra environment for the CLI (e.g. its config folder)
+  // tools: the Process GPT tools a chat run's CLI gets (tools.js ToolDesk — desktop 0.2.8), when the server gave the run their token
+  // toolSearch: Claude Code's ENABLE_TOOL_SEARCH for chat runs ('true' · 'false' · 'auto'; null: the app's default — toolSearchEnv)
   constructor({ dataDir, server, prefs = () => ({ enabled: true, ask: false }), ask = async () => true, searchPath = C.augmentedPath(), maxJobs = 2,
     log = () => {}, runMs = RUN_MS, caps = {}, mode = process.env.PGL_RUNNER_MODE || 'auto', sessionEnv = {}, settleMs = null,
-    cols = 80, rows = 28 } = {}) {
+    cols = 80, rows = 28, tools = null, toolSearch = process.env.PGL_TOOL_SEARCH ?? null } = {}) {
     super()
+    this.tools = tools
+    this.toolSearch = toolSearch
     this.mode = mode
     this.sessionEnv = sessionEnv
     // (null: the person's desktop setting, read at each wait — prefs().finishMinutes)
@@ -305,6 +309,7 @@ class Runner extends EventEmitter {
     if (!cap?.installed || cap.runnable === false) { this.send({ type: 'decline', jobId: job.id, reason: 'unable' }); return }
     if (this.jobs.size >= this.maxJobs) { this.send({ type: 'decline', jobId: job.id, reason: 'busy' }); return }
     this.secrets.add(job.git.token)
+    if (job.tools?.token) this.secrets.add(String(job.tools.token))
     const st = { job, phase: 'asking', since: new Date().toISOString(), lines: [], early: [], resume: [], live: [], sent: 0, acked: 0, cancelled: false }
     // (released when the server took the result in and the folder followed the line — or the run was let go)
     st.released = new Promise((res) => { st.release = res })
@@ -437,6 +442,13 @@ class Runner extends EventEmitter {
       st.phase = 'running'
       this.changed()
       if (!this.interactive()) throw new Error(T(lang, '이 PC 에서는 터미널을 열 수 없어 채팅 에이전트를 실행하지 못해요', 'No terminal can be opened on this computer, so the chat agent cannot run'))
+      // the Process GPT tools for its CLI (tools.js): only with the token the server gave this run — its key and channel are this run's
+      if (this.tools && job.tools?.token) {
+        try {
+          st.tools = await this.tools.open({ stateDir: path.join(this.dataDir, 'sessions', safePart(job.id, 40)), jobId: job.id, cwd: dir, lang,
+            env: { ...process.env, ...this.sessionEnv }, token: String(job.tools.token) })
+        } catch (e) { this.log(`[runner] ${job.activity}: tools — ${e.message}`) }
+      }
       return this.finish(st, await this.runInteractive(st))
     }
     // the company's skills for this work, current from their folders, where this CLI reads them (skills.js)
@@ -616,7 +628,8 @@ class Runner extends EventEmitter {
       st.endRun = end
       try {
         S = this.openSession({ kind: chat ? 'chat' : 'step', ref: job.id, agent: job.agent, cwd: st.dir, resume, prompt, lang,
-          stateDir: path.join(this.dataDir, 'sessions', safePart(job.id, 40)), start: false,
+          stateDir: path.join(this.dataDir, 'sessions', safePart(job.id, 40)), start: false, tools: st.tools ? { program: st.tools.program } : null,
+          env: chat ? this.toolSearchEnv(job.agent) : {},
           // a message the CLI took that was a steer: whose words it was (the conversation shows 「<제안한 사람> 제안 · <작업자> 입력」)
           annotate: (it) => {
             if (it.t !== 'user' || it.first) return it
@@ -669,6 +682,7 @@ class Runner extends EventEmitter {
     }).then((r) => {
       // (the last screen kept before the CLI is closed — it clears its screen on the way out)
       if (st.term && !st.term.exited) { this.sessions.get(st.term.id)?.keep(); st.term.kill() }
+      this.closeTools(st)
       this.idle(st, null)
       return r
     })
@@ -768,10 +782,10 @@ class Runner extends EventEmitter {
   // The PTY's bytes, its hook events and the watched files go to the server over this app's own link (never from the CLI to the server
   // directly); the server relays the screen to every viewer and the owner's typing back here.
   // (start false: the caller listens first, then calls S.start())
-  openSession({ kind, ref, agent, cwd, resume = null, prompt = '', stateDir, watch = [], env = {}, start = true, annotate = null }) {
+  openSession({ kind, ref, agent, cwd, resume = null, prompt = '', stateDir, watch = [], env = {}, start = true, annotate = null, tools = null }) {
     if (!this.interactive()) throw new Error(`no terminal here: ${P.why() || 'headless mode'}`)
     const S = new CliSession({ agent, cwd, resume, prompt, stateDir, trustRoot: this.dataDir, searchPath: this.searchPath, env: { ...this.sessionEnv, ...env },
-      watch, cols: this.size.cols, rows: this.size.rows, log: (m) => this.log(m), version: this.caps[agent]?.version || null, annotate })
+      watch, cols: this.size.cols, rows: this.size.rows, log: (m) => this.log(m), version: this.caps[agent]?.version || null, annotate, tools })
     const x = { S, kind, ref, out: '', timer: null, typedAt: 0, tx: [], txOut: [], txTimer: null }
     this.sessions.set(S.id, x)
     const flush = () => { x.timer = null; if (x.out) { this.send({ type: 'pty', sid: S.id, data: x.out }); x.out = '' } }
@@ -965,9 +979,22 @@ class Runner extends EventEmitter {
     if (st.term) st.term.kill()
     this.forget(jobId)
   }
-  dropped(st) { this.log(`[runner] ${st.job.activity}: cancelled`); this.jobs.delete(st.job.id); st.release?.(); this.changed() }
+  dropped(st) { this.closeTools(st); this.log(`[runner] ${st.job.activity}: cancelled`); this.jobs.delete(st.job.id); st.release?.(); this.changed() }
+  // Claude Code defers MCP tools behind its ToolSearch, and the company model gateway people's CLIs go through answers those deferred
+  // tool references with a server error: a chat run loads the app's tools (and the person's other MCP tools) with the session —
+  // ENABLE_TOOL_SEARCH=false — unless the runner is told otherwise (toolSearch · the app's PGL_TOOL_SEARCH) or the person's own
+  // environment (or the CLI environment the runner was given) already says (it reaches the CLI as it is — clis.cliEnv)
+  toolSearchEnv(agent) {
+    if (agent !== 'claude-code') return {}
+    if (this.toolSearch != null && String(this.toolSearch).trim()) return { ENABLE_TOOL_SEARCH: String(this.toolSearch).trim() }
+    if (process.env.ENABLE_TOOL_SEARCH != null || this.sessionEnv?.ENABLE_TOOL_SEARCH != null) return {}
+    return { ENABLE_TOOL_SEARCH: 'false' }
+  }
+  // the run's tools close with it (its key no longer answers)
+  closeTools(st) { if (st.tools) { this.tools?.close(st.tools.key); st.tools = null } }
 
   failed(st, e) {
+    this.closeTools(st)
     if (st.cancelled) return this.dropped(st)
     this.log(`[runner] ${st.job.activity}: ${e.message}`)
     this.progress(st, 'error', e.message)

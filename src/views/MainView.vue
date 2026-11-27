@@ -19,10 +19,10 @@ import ArtifactStack from '../components/ArtifactStack.vue'
 import ArtifactList from '../components/ArtifactList.vue'
 import Composer from '../components/Composer.vue'
 import Icon from '../components/Icon.vue'
-import { narrow, pageW, wideLayout } from '../viewport.js'
+import { narrow, pageW, wideLayout, keyboardUp } from '../viewport.js'
 import { leftColumnPlace, fitsBeside, leftEdge, overWidth, OVER_X, LEFT_LABEL, LEFT_SHORT } from '../leftColumn.js'
 import { instanceContext } from '../components/ontology/caseView.js'
-import { artifactLayout, sideWidth, pilePlace } from '../artifactScope.js'
+import { artifactLayout, sideWidth, pilePlace, pileRoom } from '../artifactScope.js'
 import { api } from '../api.js'
 import { setViewing } from '../browserNotify.js'
 import { useApp } from '../stores/app.js'
@@ -98,6 +98,8 @@ const artLayout = computed(() => (!ready.value || mobileHome.value || threadShee
   : artifactLayout({ pageW: pageW.value, leftW: leftOpen.value ? 420 : 0, wide: wide.value, docOpen: !!app.officeDoc, folded: app.artifactsFolded, count: app.artifacts.items.length })))
 const artW = computed(() => sideWidth(artLayout.value))
 const pileAt = (foot) => pilePlace({ gutter: foot.gutter, footTop: foot.top, boxTop: foot.box, noticeH: foot.notice, small: narrow.value })
+// the room the chat leaves under its last message for the pile when it floats over the chat (0 beside the composer)
+const pileRoomAt = (foot) => pileRoom(pileAt(foot), { keyboard: keyboardUp.value })
 // the clock in the bottom-left corner (Home closed): only where the chat, moved over for the files' column, leaves it room
 const clockFits = computed(() => (pageW.value - artW.value - 512) / 2 >= 240)
 // the bar's tabs over the chat column: between the left column and the files' column when they leave the tabs room beside the bar's
@@ -292,7 +294,7 @@ function onConnect() {
       <div class="center" :class="{ rside: artW > 0, doc: app.docSide }">
         <ChatColumn v-if="ready && !mobileHome && !threadSheet && (app.activeId || newProject)" :key="colKey"
           :placeholder="newProject && !app.activeId ? '새 프로젝트에서 할 일을 적어 주세요' : instMode ? '이 프로세스에 대해 물어보기' : app.convFilter ? '이 대화에 이어서 묻기' : app.topicFilter ? '이 주제에 이어서 묻기' : 'process gpt에 메시지 보내기'"
-          :empty-text="newProject ? '' : ''" :keep-top="instMode" @send="onSend" @connect="onConnect">
+          :empty-text="newProject ? '' : ''" :keep-top="instMode" :aside-room="artLayout === 'pile' ? pileRoomAt : null" @send="onSend" @connect="onConnect">
           <template v-if="instMode && app.instance" #header><InstanceHeader :data="app.instance" @refresh="app.refreshInstance()" /></template>
           <template v-else-if="app.mode === 'chat' && app.activeId === app.mainThread?.id" #header><ConversationBar /></template>
           <!-- a project: its folder (when it works in one) and its sub-topics (the same bar as the main chat's conversations — src/projectTopics.js) -->

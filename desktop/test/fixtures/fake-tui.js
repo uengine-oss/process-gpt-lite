@@ -24,6 +24,9 @@
 //                                    Esc refuses it — the tool use is rejected and the turn stops without its Stop hook ({answered})
 //   CHOOSE <q> :: <a> | <b> [;; <q2> :: <c> | <d>]   AskUserQuestion: the menu; a number picks the option of each question in turn
 //                                    (several: then their review, Enter submits) and the answers go into 선택.md in the output folder
+//   MCP <server>.<tool> :: <json>    calls a tool of an MCP server the CLI was given (Claude Code: --mcp-config <file>; Codex:
+//                                    -c mcp_servers.<server>.command · args · env) over its stdio, as the real ones do — initialize,
+//                                    notifications/initialized, tools/list, tools/call — then says what it answered ({mcp} in the log)
 const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
@@ -115,6 +118,51 @@ function took(text) {
   log({ session, received: text.slice(0, 600) })
   if (kind === 'claude') record({ type: 'user', message: { role: 'user', content: text } })
   else record({ type: 'event_msg', payload: { type: 'user_message', message: text } })
+}
+
+// the MCP servers this CLI was given → {name: {command, args, env}}
+function mcpServers() {
+  const out = {}
+  if (kind === 'claude') {
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] !== '--mcp-config') continue
+      try { Object.assign(out, JSON.parse(fs.readFileSync(args[i + 1], 'utf8')).mcpServers || {}) } catch { /* not a file */ }
+    }
+    return out
+  }
+  for (let i = 0; i < args.length; i++) {
+    const m = args[i - 1] === '-c' && /^mcp_servers\.([A-Za-z0-9_-]+)\.(command|args|env)=(.*)$/s.exec(args[i])
+    if (!m) continue
+    const v = m[2] === 'env' ? JSON.parse(m[3].replace(/^\{/, '{"').replace(/=/g, '":').replace(/, /g, ', "').replace(/\{"\}/, '{}')) : JSON.parse(m[3])
+    ;(out[m[1]] ||= {})[m[2]] = v
+  }
+  return out
+}
+// one tool call through the server's stdio → {text, isError, tools}
+function mcpCall(server, tool, input) {
+  return new Promise((resolve) => {
+    const s = mcpServers()[server]
+    if (!s?.command) return resolve({ text: `no MCP server ${server}`, isError: true, tools: [] })
+    const child = require('node:child_process').spawn(s.command, s.args || [], { env: { ...process.env, ...(s.env || {}) }, stdio: ['pipe', 'pipe', 'pipe'] })
+    let buf = ''
+    const waiting = new Map()
+    child.stdout.on('data', (d) => {
+      buf += d
+      let n
+      while ((n = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, n); buf = buf.slice(n + 1); try { const m = JSON.parse(line); waiting.get(m.id)?.(m); waiting.delete(m.id) } catch { /* not ours */ } }
+    })
+    let id = 0
+    const call = (method, params) => new Promise((res) => { const k = ++id; waiting.set(k, res); child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: k, method, params })}\n`) })
+    child.on('error', (e) => resolve({ text: e.message, isError: true, tools: [] }))
+    ;(async () => {
+      await call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-cli', version: '1' } })
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
+      const list = await call('tools/list', {})
+      const r = await call('tools/call', { name: tool, arguments: input })
+      child.stdin.end()
+      resolve({ text: (r.result?.content || []).map((c) => c.text || '').join('\n'), isError: !!r.result?.isError, tools: (list.result?.tools || []).map((t) => t.name) })
+    })()
+  })
 }
 
 const skillRoot = () => (kind === 'codex' ? '.pgl-skills' : path.join('.claude', 'skills'))
@@ -236,6 +284,14 @@ async function work(text) {
       fs.mkdirSync(path.dirname(inside(rel)), { recursive: true })
       fs.writeFileSync(inside(rel), `${Object.values(answers).join('\n')}\n`)
       summary.push(`고른 것: ${Object.values(answers).join(', ')}`)
+    } else if ((d = /^MCP ([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+) :: (.*)$/.exec(line))) {
+      let input = {}
+      try { input = JSON.parse(d[3]) } catch { input = {} }
+      const r = await mcpCall(d[1], d[2], input)
+      tool(kind === 'claude' ? `mcp__${d[1]}__${d[2]}` : d[2], d[2], { fields: input, result: r.text, isError: r.isError })
+      log({ session, mcp: d[2], input, isError: r.isError, text: r.text.slice(0, 2000), tools: r.tools })
+      say(r.text.slice(0, 600))
+      summary.push(`${d[2]}: ${r.isError ? '실패' : '됨'}`)
     } else if ((d = /^FAIL (.*)$/.exec(line))) {
       throw Object.assign(new Error(d[1]), { fail: true })
     } else continue
