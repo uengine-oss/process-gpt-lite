@@ -3521,7 +3521,51 @@
   "이 PC의 작업본 폴더가 없어져서 이 변형을 보관 중 상태로 바꿨어요. 다시 「이 PC 에서 작업」을 누르면 새로 받아요.": "The working copy's folder on this PC is gone, so this variation is put away. Press \"Work on this PC\" again to fetch it anew.",
   "그사이 이 변형이 바뀌었어요. 다시 확인한 뒤에 받아요.": "The variation changed meanwhile. It is checked again before it comes here.",
   "Claude Code 설정 — 명령 실행 · 환경 변수 · 플러그인 · 권한 · MCP 서버를 미리 설정해요": "Claude Code settings — set commands, environment variables, plugins, permissions and MCP servers in advance",
-  "이 폴더의 작업본 터미널에서 git log --glob=refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.": "See them with git log --glob=refs/kept/ in a terminal of this folder's working copy, and bring back what you need with git cherry-pick."
+  "이 폴더의 작업본 터미널에서 git log --glob=refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.": "See them with git log --glob=refs/kept/ in a terminal of this folder's working copy, and bring back what you need with git cherry-pick.",
+  "프로젝트로 시작": "Start a project",
+  "카드를 준비하는 중…": "Preparing the card…",
+  "대화방 · 사람에게 보내기": "Send to a room or a person",
+  "보내기 전에 확인해 주세요": "Check before you send",
+  "대화방이나 팀원을 골라 이 답을 보내요": "Pick a room or a teammate to send this answer to",
+  "문서로 남기기": "Save as a document",
+  "문서로 남겼어요": "Saved as a document",
+  "문서로 남기는 중…": "Saving as a document…",
+  "채팅에 Markdown 문서로 남겨요 · 이후 공유 · 내려받기 · 편집할 수 있어요": "Saves it in the chat as a Markdown document · then share, download or edit it",
+  "이 답을 첫 문서로 담아 새 프로젝트를 만들어요 · 만들기 전에 한 번 더 물어봐요": "Makes a new project with this answer as its first document · asks once more before making it",
+  "글 선택": "Select text",
+  "답에서 글을 골라 일부만 복사해요": "Select part of the answer to copy",
+  "글 복사": "Copy text",
+  "이 답의 글을 클립보드에 복사해요": "Copies this answer to the clipboard",
+  "대화방을 불러오는 중…": "Loading rooms…",
+  "새 1:1 대화로 보내요": "Sends it in a new one-to-one conversation",
+  "보낼 대화방이나 팀원이 없어요.": "There is no room or teammate to send it to.",
+  "함께 보낼 말 (선택)": "A word to send with it (optional)",
+  "답 공유": "Share answer",
+  "프로젝트로 시작할까요?": "Start a project?",
+  "프로젝트를 만들었어요": "Project made",
+  "프로젝트를 만들지 않았어요": "No project made",
+  "아직 만들지 않았어요 · 이름과 템플릿을 확인하고 「만들기」를 눌러 주세요": "Nothing is made yet · check the name and the template, then press Create",
+  "배경": "Background",
+  "첫 문서": "First document",
+  "답을 문서로 남겨요": "answer goes in as a document",
+  "템플릿 폴더 추천": "Suggested template folders",
+  "템플릿을 고르면 해당 자료 · 양식 · 스킬로 시작해요": "Pick one to start from its material, forms and skills",
+  "빈 프로젝트로": "Empty project",
+  "템플릿 없이 시작해요": "Starts without a template",
+  "원래 대화는 그대로 있어요": "The conversation stays as it is",
+  "프로젝트 열기": "Open project",
+  "프로젝트 이름을 적어 주세요.": "Please enter a project name.",
+  "프로젝트 카드를 만들지 못했어요.": "I couldn't prepare the project card.",
+  "원래 대화 열기": "Open the conversation",
+  "더 보기": "More",
+  "AI 답 공유": "AI answer shared",
+  "글이 길어서 잘렸어요 · 앞부분만 왔어요": "Cut short — only the beginning came",
+  "이 프로젝트에서 할 일": "What this project will do",
+  "어디서 시작한 일인지": "Where this work started",
+  "프로젝트 계획에 이대로 들어가요 · 고쳐도 돼요": "Goes into the project plan as it is · you can change it",
+  "만들 것을 더해요": "Add a deliverable",
+  "만들다가 멈췄어요 · 다시 만들거나 닫을 수 있어요": "Making stopped half way · create it again or close the card",
+  "대화방에 공유했어요": "Shared in a room"
  },
  "patterns": [
   [
@@ -8019,6 +8063,42 @@
   [
    "서버에 올라가지 않은 커밋 {0}개를 이 PC에 30일 동안 보관해요.",
    "{0} commit(s) that never reached the server are kept on this PC for 30 days."
+  ],
+  [
+   "프로젝트로 옮겼어요 · {0}",
+   "Moved to a project · {0}"
+  ],
+  [
+   "{0}님이 AI 답 「{1}」을 공유했어요",
+   "{0} shared an AI answer \"{1}\""
+  ],
+  [
+   "{0}님이 AI 답 「{1}」를 공유했어요",
+   "{0} shared an AI answer \"{1}\""
+  ],
+  [
+   "「{0}」에 있는 사람들에게 이 답의 글만 보내요. 작업 공간 파일 경로와 서명된 주소 · 저장소 주소는 파일 이름만 남기고 빼요. 일반 웹 주소는 그대로 보내요.",
+   "Only the words of this answer go to the people in \"{0}\". Workspace file paths and signed or storage addresses go as file names only. Ordinary web addresses go as they are."
+  ],
+  [
+   "글이 길어서 앞부분 {0}자만 보내요.",
+   "It is long: only the first {0} characters go."
+  ],
+  [
+   "대화방 {0}곳에 공유했어요",
+   "Shared in {0} rooms"
+  ],
+  [
+   "「{0}」 외 {1}곳에 공유했어요",
+   "Shared in \"{0}\" and {1} more"
+  ],
+  [
+   "템플릿 「{0}」으로 시작해요",
+   "Started from the template \"{0}\""
+  ],
+  [
+   "템플릿 「{0}」로 시작해요",
+   "Started from the template \"{0}\""
   ]
  ],
  "context": [

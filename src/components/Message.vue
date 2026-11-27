@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, markRaw } from 'vue'
 import { safeMarkdown } from '../safeMarkdown.js'
 import { api } from '../api.js'
 // (sandbox and host paths in an answer read as file names: src/paths.js)
@@ -37,8 +37,14 @@ import MailChips from './MailChips.vue'
 import LinkPreviews from './LinkPreviews.vue'
 import LocalRunCard from './LocalRunCard.vue'
 import MediaPreview from './MediaPreview.vue'
+// 대화를 프로젝트로: 「프로젝트로 시작할까요?」 (server lib/chatProject.js)
+import ProjectOfferCard from './ProjectOfferCard.vue'
+// 답을 공유 · 프로젝트로 시작 — the answer's own buttons and its message menu (a long press · a right-click opens the same 공유 sheet)
+import { hold } from './holdMenu.js'
+import { showsActions, isAnswer, startProjectFrom } from '../answerActions.js'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
+import { useTeam } from '../stores/team.js'
 import { topicPath } from '../projectTopics.js'
 import { officeEditorFor, craftMissing } from '../officeEditor.js'
 import { kindOf, kindLabel, cardKind, openArtifact, openHint, viewHint, mediaKindOf, sawShare } from '../artifacts.js'
@@ -66,6 +72,7 @@ async function openAtt(r) {
 const expanded = ref(false)
 const router = useRouter()
 const app = useApp()
+const team = useTeam()
 const instStatus = { RUNNING: '진행 중', COMPLETED: '완료', NEW: '시작 전' }
 const c = computed(() => props.msg.content || {})
 // a link into the agent's sandbox ("[견적서.xlsx](</workspace/…/견적서.xlsx>)") opens nothing here — its file card does
@@ -162,6 +169,37 @@ const hint = computed(() => {
   const ed = officeEditorFor(c.value.name)
   return ed && c.value.url && !craftMissing(ed) ? (c.value.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c.value)
 })
+// 답을 공유 · 프로젝트로 시작 (spec answer-share · chat-to-project): an AI answer in words gets 「공유」 and 「프로젝트로 시작」 under it, and the
+// same in its message menu — held on a phone, right-clicked on a computer (components/holdMenu.js)
+// (only an answer takes the hold — the directive reads the binding at each press: an answer that stops being one, or becomes one, follows;
+// the others keep the browser's own long press — text selection)
+const vHold = hold
+const actions = computed(() => showsActions(props.msg))
+const holdable = computed(() => isAnswer(props.msg))
+// held: the bubble goes along (the menu's 「글 선택」 selects its words for the browser's own handles — a long press no longer does)
+const openShare = (step = 'menu', el = null) => { app.answerShare = { msg: props.msg, step, ...(el ? { el: markRaw(el) } : {}) } }
+const onHold = (el) => openShare('menu', el)
+const offerBusy = ref(false)
+const offerErr = ref('')
+async function startProject() {
+  if (offerBusy.value) return
+  offerBusy.value = true; offerErr.value = ''
+  try { await startProjectFrom(app, props.msg) } catch (e) { offerErr.value = e.message || '프로젝트 카드를 만들지 못했어요.' } finally { offerBusy.value = false }
+}
+// where this answer went (server lib/answerShare.js keeps it on the answer): 「「…」에 공유했어요」 — the newest
+const sharedTo = computed(() => {
+  const s = c.value.answerShares || {}
+  const [room, x] = Object.entries(s).sort((a, b) => String(b[1]?.at || '').localeCompare(String(a[1]?.at || '')))[0] || []
+  return room ? { room, title: x?.title || '', n: Object.keys(s).length } : null
+})
+// (one line, the room's name inside — the English screen's patterns translate it whole and keep the name)
+const sharedLine = computed(() => {
+  const x = sharedTo.value
+  if (!x) return ''
+  if (!x.title) return x.n > 1 ? `대화방 ${x.n}곳에 공유했어요` : '대화방에 공유했어요'
+  return x.n > 1 ? `「${x.title}」 외 ${x.n - 1}곳에 공유했어요` : `「${x.title}」에 공유했어요`
+})
+const openRoom = (id) => team.openMessenger(id)
 onMounted(async () => {
   if (!media.value || c.value.url || !c.value.path) return
   try { resolved.value = (await api(`/messages/${encodeURIComponent(props.msg.id)}/open-file`, { method: 'POST' }))?.url || '' } catch (e) { mediaErr.value = `${media.value === 'image' ? '미리 볼' : '재생할'} 파일을 가져오지 못했어요 · ${e.message}` }
@@ -217,7 +255,7 @@ onMounted(async () => {
     <template v-else-if="msg.kind === 'text'">
       <!-- the answer of a CLI on my PC (its last words at the end of a turn) -->
       <small v-if="c.localAgent?.label" class="via" data-test="msg-local-answer">{{ c.localAgent.label }} · {{ c.localAgent.where || '내 PC' }}</small>
-      <div class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <div v-hold="holdable ? onHold : null" class="bubble agent md" :class="{ holdable }" v-html="md(replies ? replies.body : c.text)" />
       <LinkPreviews :text="replies ? replies.body : c.text" />
       <MailChips v-if="mailRefs.length" :refs="mailRefs" :event="c.mailEvent || ''" />
       <!-- 회사 프로세스 지도의 업무 에이전트: 일 정의의 점검 항목마다 지켰는지(근거는 마우스를 올리면) -->
@@ -269,9 +307,16 @@ onMounted(async () => {
       <div v-if="replies" class="replies">
         <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
       </div>
+      <div v-if="actions" class="aacts" data-test="answer-actions">
+        <button class="aact press" data-test="answer-share-btn" @click="openShare('menu')"><Icon name="share" :size="14" /><span>공유</span></button>
+        <button class="aact press" :disabled="offerBusy" data-test="answer-project-btn" @click="startProject"><Icon name="folder" :size="14" /><span>{{ offerBusy ? '카드를 준비하는 중…' : '프로젝트로 시작' }}</span></button>
+        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
+          <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></span>
+      </div>
+      <p v-if="offerErr" class="aerr" role="alert">{{ offerErr }}</p>
     </template>
 
-    <div v-else-if="doc" class="doc" :class="{ open: expanded }">
+    <div v-else-if="doc" v-hold="holdable ? onHold : null" class="doc" :class="{ open: expanded, holdable }">
       <h3 class="serif">{{ doc.title }}</h3>
       <div class="inner md" v-html="doc.body" />
       <button class="more press" :aria-label="expanded ? '접기' : '펼치기'" @click="expanded = !expanded">
@@ -279,6 +324,8 @@ onMounted(async () => {
       </button>
     </div>
 
+    <!-- 대화를 프로젝트로: the confirm card (name · the template folders that fit · 만들기) -->
+    <ProjectOfferCard v-else-if="msg.kind === 'project_offer'" :msg="msg" />
     <TaskCard v-else-if="msg.kind === 'task'" :msg="msg" />
     <VaultCard v-else-if="msg.kind === 'vault'" :msg="msg" />
     <!-- Agentic BPM (docs/agentic-bpm): a policy decision, a decision brief, the alternatives of a blocked action -->
@@ -371,6 +418,13 @@ onMounted(async () => {
     <button v-else-if="msg.kind === 'chip' && c.instId" class="chip link press" @click="router.push(`/routines/${encodeURIComponent(c.instId)}`)">
       <Icon :name="chipIcon[c.icon] || 'check'" :size="16" /> <span class="ct">{{ c.text }}</span> <Icon name="chevron" :size="14" />
     </button>
+    <!-- 대화를 프로젝트로 (server lib/chatProject.js): in the chat 「프로젝트로 옮겼어요 · 열기」, in the project 「채팅에서 이어 온 프로젝트예요 · 원래 대화 열기」 -->
+    <button v-else-if="msg.kind === 'chip' && c.project?.id" class="chip link press" data-test="moved-to-project" :data-project="c.project.id" @click="router.push(`/projects/${c.project.id}`)">
+      <Icon name="folder" :size="16" /> <span class="ct" data-no-i18n>{{ c.text }}</span> <span class="cgo">열기</span> <Icon name="chevron" :size="14" />
+    </button>
+    <button v-else-if="msg.kind === 'chip' && c.fromChat" class="chip link press" data-test="from-chat" @click="router.push(c.fromChat.conversationId ? `/chat/c/${encodeURIComponent(c.fromChat.conversationId)}` : '/chat')">
+      <Icon name="chat" :size="16" /> <span class="ct">{{ c.text }}</span> <span class="cgo">원래 대화 열기</span> <Icon name="chevron" :size="14" />
+    </button>
     <!-- a change of the project's plan (server lib/projectNote.js): what changed, 「되돌리기」 (back to the plan before it) and 「계획 보기」 -->
     <div v-else-if="msg.kind === 'chip' && c.planChange" class="chip planchg" data-testid="plan-change">
       <Icon name="plan" :size="16" /> <span class="ct" data-testid="plan-change-text">{{ c.text }}</span>
@@ -402,6 +456,15 @@ onMounted(async () => {
         <li v-for="(w, i) in work" :key="i"><b>{{ w.phase || w.tool }}</b><template v-if="w.n > 1"> ×{{ w.n }}</template><small v-if="workWhere(w)">{{ workWhere(w) }}</small></li>
       </ol>
     </div>
+    <template v-if="msg.kind === 'doc'">
+      <div v-if="actions" class="aacts" data-test="answer-actions">
+        <button class="aact press" data-test="answer-share-btn" @click="openShare('menu')"><Icon name="share" :size="14" /><span>공유</span></button>
+        <button class="aact press" :disabled="offerBusy" data-test="answer-project-btn" @click="startProject"><Icon name="folder" :size="14" /><span>{{ offerBusy ? '카드를 준비하는 중…' : '프로젝트로 시작' }}</span></button>
+        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
+          <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></span>
+      </div>
+      <p v-if="offerErr" class="aerr" role="alert">{{ offerErr }}</p>
+    </template>
   </div>
 </template>
 
@@ -547,4 +610,14 @@ button.uref { text-align: left; }
 .sched { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); color: var(--text-primary); font-size: 14px; font-weight: 500; box-shadow: 0 2px 10px rgba(0 0 0 / .06); margin-top: 6px; }
 .row.k-divider { align-items: center; }
 .divider { align-self: stretch; text-align: center; font-size: 14px; color: var(--text-tertiary); padding-top: 18px; border-top: 1px solid var(--hairline); margin-top: 10px; }
+.aacts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; max-width: 100%; }
+.aact { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; border-radius: 16px; font-size: 13px; font-weight: 500;
+  color: var(--text-primary); background: var(--field-bg, rgba(127, 127, 127, .12)); border: 1px solid var(--hairline); }
+.aact:disabled { opacity: .6; }
+.ashared { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.ashared > :deep(svg) { color: var(--color-success); flex: none; }
+.alink { margin-left: 4px; font-size: 12px; font-weight: 600; color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
+.chip.link .cgo { flex: none; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+/* a phone's long press opens the answer's menu, not the text selection (as the messenger's bubbles — its 「글 선택」 gives the selection back) */
+@media (pointer: coarse) { .holdable:not([data-selecting]) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
 </style>

@@ -42,6 +42,8 @@ import { verbLabel } from '../../mailKind.js'
 import FileRefCard from './FileRefCard.vue'
 // a mail mentioned (server lib/mailMention.js): a summary for everyone but its owner, the body only when the owner shares it
 import MailRefCard from './MailRefCard.vue'
+// an AI answer a teammate shared from their chat (server lib/answerShare.js): its title and words
+import AnswerRefCard from './AnswerRefCard.vue'
 // an attachment of a mail mentioned in the room (server lib/mailAttachments.js)
 import MailAttRefCard from './MailAttRefCard.vue'
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords, startDrag, shareItem, same, MAX as MAX_ITEMS } from '../../fileDrag.js'
@@ -122,7 +124,7 @@ const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션', askteam: 'AI 가 대신 묻는 중' }
+const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션', askteam: 'AI 가 대신 묻는 중', answer: 'AI 답 공유' }
 // team assist: the suggestion cards under the message that prompted them (lib/team/assist.js)
 const sugOf = (id) => (team.suggestions[team.active] || []).filter((x) => x.messageId === id)
 
@@ -464,7 +466,7 @@ const rx = ref(null)           // {m, anchor: {top, bottom, left}, x, top, left,
 const rxOf = (m) => (list.value.find((x) => x.id === m.id) || m).reactions || []
 async function openRx(m, el, at = {}) {
   // (no reactions in this database yet — sql/062: the long press still offers 「복사」, a message with no words has nothing then)
-  if (!canReact(m) || !el || !pane.value || (team.rxOff && !m.body)) return
+  if (!canReact(m) || !el || !pane.value || (team.rxOff && !m.body && !m.answer?.text)) return
   const b = el.getBoundingClientRect()
   rx.value = { m, anchor: { top: b.top, bottom: b.bottom, left: b.left }, x: Number.isFinite(at.x) ? at.x : null, top: 0, left: 0, ready: false }
   await nextTick()
@@ -481,17 +483,17 @@ async function openRx(m, el, at = {}) {
 const rxMine = computed(() => (rx.value ? rxOf(rx.value.m).filter((c) => c.mine).map((c) => c.key) : []))
 const react = (m, key) => { rx.value = null; team.react(m, key).catch((e) => { err.value = e.message || '반응을 남기지 못했어요.' }) }
 async function copyRx() {
-  const text = rx.value?.m?.body ? hidePaths(team.trBody(rx.value.m) || rx.value.m.body) : ''
+  // (an AI answer shared from a chat — lib/answerShare.js: what the bubble shows, the word sent with it and the answer's words)
+  const m = rx.value?.m
+  const parts = [m?.body ? team.trBody(m) || m.body : '', m?.answer?.text || ''].filter(Boolean)
+  const text = parts.length ? hidePaths(parts.join('\n\n')) : ''
   rx.value = null
   if (!text) return
   try { await navigator.clipboard.writeText(text); team.say('복사했어요') } catch { err.value = '복사하지 못했어요.' }
 }
-// the long press · right-click (components/holdMenu.js) on the bubbles that take a reaction only — my own keep the browser's own menu
-const vRxHold = {
-  mounted(el, b) { if (b.value) hold.mounted(el, b) },
-  updated(el, b) { if (el._holdOpen) hold.updated(el, b) },
-  unmounted(el) { hold.unmounted(el) },
-}
+// the long press · right-click (components/holdMenu.js) on the bubbles that take a reaction only — my own keep the browser's own menu (the
+// directive reads the binding at each press: a bubble that becomes reactable later — or stops — follows)
+const vRxHold = hold
 const rxButton = (m, e) => openRx(m, e.currentTarget?.closest('.msg')?.querySelector('.bub'))
 
 // Esc puts the floating sheet away; a docked column stays until its ✕ (Esc there is the page's — an open document's, a dialog's)
@@ -544,6 +546,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               <!-- (a mail its owner's rule posted as it arrived — server lib/mailRooms.js: said as such) -->
               <span class="who"><span><b>{{ m.sender.name }}</b> · <span :data-test="m.auto ? 'msg-auto' : null">{{ m.auto ? '메일 자동 공유' : kindWord[m.kind] }}</span></span><small>{{ when(m.at) }}</small></span></div>
             <p v-if="m.context?.title" class="ctitle">{{ m.context.title }}</p>
+            <p v-if="m.answer?.title" class="ctitle" data-no-i18n>✦ {{ m.answer.title }}</p>
             <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ hidePaths(team.trBody(m) || m.body) }}</p>
             <p v-if="team.tr[m.id]?.body" class="trl"><span>AI 번역</span><button class="press" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
             <div v-if="m.artifacts.length" class="arts">
@@ -655,6 +658,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                   <MailAttRefCard v-else-if="r.type === 'mailatt'" :m="m" :r="r" :i="i" />
                   <FileRefCard v-else :m="m" :r="r" :i="i" />
                 </template>
+                <!-- an AI answer shared from someone's chat (server lib/answerShare.js) -->
+                <AnswerRefCard v-if="m.kind === 'answer' && m.answer" :answer="m.answer" />
                 <!-- a request the AI sent for someone (server lib/askTeammate.js): the form for the one asked, the answer for both -->
                 <AskTeamForm v-if="m.kind === 'askteam' && m.ask" :m="m" />
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
@@ -690,7 +695,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div v-if="aiWait" class="aiwait" data-test="ai-status" role="status"><span class="spark">✦</span><span class="shimmer-text">{{ aiWait.text }}</span></div>
           </div>
           <!-- the reactions bar over the bubble it was opened on (its place measured once it is drawn) -->
-          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="rx.m.body || ''" :data-for="rx.m.id"
+          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="[rx.m.body, rx.m.answer?.text].filter(Boolean).join('\n\n')" :data-for="rx.m.id"
             :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
           <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>{{ dropWords }}</p></div></div></Transition>
           <footer class="cmp">

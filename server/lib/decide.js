@@ -110,7 +110,8 @@ export async function choose(state, question, options, { odds = oddsOf, json = c
 // options of one question are told apart by the same letters as choose). A model without log-probabilities answers in JSON — answerJson
 // says how ({"choices": [{"choice": "<letter>", "confidence": 0-1}]}). → {picks: [{key, p}], probabilities, strategy: 'logprob'|'json',
 // model} or null when nothing could be read. (a mail's follow-up actions — lib/mailFollow.js)
-export async function chooseSome(state, question, options, { odds = oddsOf, json = chatJson, answerJson, timeoutMs = 8000, max = 3, min = 0.15 } = {}) {
+// jsonTimeoutMs: how long the JSON answer may take (a caller with its own limit — lib/chatProject.js — passes it; 30 s otherwise)
+export async function chooseSome(state, question, options, { odds = oddsOf, json = chatJson, answerJson, timeoutMs = 8000, jsonTimeoutMs = 30000, max = 3, min = 0.15 } = {}) {
   const r = await odds(state, question, options, { timeoutMs }).catch(() => null)
   if (r?.probabilities) {
     const picks = Object.entries(r.probabilities).filter(([, p]) => p >= min).sort((a, b) => b[1] - a[1]).slice(0, max).map(([key, p]) => ({ key, p }))
@@ -118,7 +119,7 @@ export async function chooseSome(state, question, options, { odds = oddsOf, json
   }
   try {
     const j = await json(`${question}\n${answerJson || 'JSON {"choices": [{"choice": "<letter>", "confidence": 0-1}]} only, the best first.'}`,
-      `${state}\n\n${options.map((o, i) => `${LETTERS[i]}) ${o.label}`).join('\n')}`, { timeoutMs: 30000, temperature: 0 })
+      `${state}\n\n${options.map((o, i) => `${LETTERS[i]}) ${o.label}`).join('\n')}`, { timeoutMs: jsonTimeoutMs, temperature: 0 })
     const list = Array.isArray(j?.choices) ? j.choices : j?.choice ? [j] : null
     if (!list) return null
     const picks = []

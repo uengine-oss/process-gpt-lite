@@ -75,6 +75,8 @@ export const useApp = defineStore('app', {
     turns: {},
     turnPanel: null,           // the turn whose progress panel is open (its id), or null
     planOpen: null,            // the project whose plan sheet is open (its thread id — ProjectNote.vue, a change chip's 「계획 보기」), or null
+    // an AI answer whose 「공유」 sheet is open (AnswerShareSheet.vue — server lib/answerShare.js): {msg, step: 'menu' | 'room'}, or null
+    answerShare: null,
     planTick: {},              // threadId -> bumps when the project's plan changed (server event projectNote)
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
@@ -766,6 +768,14 @@ export const useApp = defineStore('app', {
     // not only a reply (server lib/mailFollow.js): the sheet's row of follow-up actions, and an agent action run when pressed
     mailFollow(id) { return api(`/actions/${id}/follow`) },
     runMailFollow(id, key, again = false) { return api(`/actions/${id}/follow/${encodeURIComponent(key)}`, { method: 'POST', body: { again } }) },
+    // an AI answer of the chat (server lib/answerShare.js): the rooms to send it to, the send, the answer as a document
+    answerRooms(id) { return api(`/messages/${id}/share/rooms`) },
+    shareAnswer(id, body) { return api(`/messages/${id}/share/room`, { method: 'POST', body }) },
+    saveAnswerDoc(id) { return api(`/messages/${id}/share/doc`, { method: 'POST' }) },
+    // 대화를 프로젝트로 (server lib/chatProject.js): the confirm card for an answer, then 「만들기」 · 「아니요」 on it
+    projectOffer(id) { return api(`/messages/${id}/project-offer`, { method: 'POST' }) },
+    makeProject(offerId, body) { return api(`/project-offers/${offerId}/make`, { method: 'POST', body }) },
+    declineProject(offerId) { return api(`/project-offers/${offerId}/decline`, { method: 'POST' }) },
     // the mail to a conversation (server lib/mailRooms.js): the picker (only 'shared': where it is shared now), 보내기, and 끄기 (body · files · follow)
     mailRooms(id, { only } = {}) { return api(`/actions/${id}/rooms${only ? `?only=${only}` : ''}`) },
     shareMailToRoom(id, body) { return api(`/actions/${id}/rooms`, { method: 'POST', body }) },

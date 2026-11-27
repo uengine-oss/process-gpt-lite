@@ -1,0 +1,17 @@
+
+Running 8 tests using 1 worker
+
+◇ injected env (12) from ../server/.env
+[answer-project] stack on BFF 8997 · web 5397
+  ✓  1 [feature] › tests/feature/answer-share-project.spec.js:206:1 › F-AS-01 답 카드의 「공유」 → 대화방 고르기 → 무엇이 보일지 확인 · 한마디 → 보내기 → 방에 AI 답 카드로 도착 (6.1s)
+  ✓  2 [feature] › tests/feature/answer-share-project.spec.js:261:1 › F-AS-02 「문서로 남기기」 → 채팅에 Markdown 파일 카드(공유 · 내려받기 · 편집이 되는 보통 파일 카드) (3.6s)
+  ✓  3 [feature] › tests/feature/answer-share-project.spec.js:284:3 › F-AS-03 휴대폰 390(밝은): 길게 누르면 같은 메뉴가 아래 시트로 · 「글 선택」 · 화면 안 (4.6s)
+  ✓  4 [feature] › tests/feature/answer-share-project.spec.js:284:3 › F-AS-03 휴대폰 390(어두운): 길게 누르면 같은 메뉴가 아래 시트로 · 「글 선택」 · 화면 안 (4.5s)
+  ✓  5 [feature] › tests/feature/answer-share-project.spec.js:328:1 › F-CP-01 말로 「이 내용을 기반으로 프로젝트를 하나 만들자」 → 확인 카드 → 「프로젝트」 탭에 생김 · 계획 · 첫 문서 · 채팅에 「프로젝트로 옮겼어요」 (5.6s)
+  ✓  6 [feature] › tests/feature/answer-share-project.spec.js:391:1 › F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿을 고르고 만들기 → 「템플릿으로 시작」과 같은 전용 작업 공간 (3.5s)
+  ✓  7 [feature] › tests/feature/answer-share-project.spec.js:431:3 › F-CP-03 휴대폰 390(밝은): 확인 카드가 화면 안 · 옆으로 밀리지 않음 (3.1s)
+  ✓  8 [feature] › tests/feature/answer-share-project.spec.js:431:3 › F-CP-03 휴대폰 390(어두운): 확인 카드가 화면 안 · 옆으로 밀리지 않음 (3.0s)
+
+  8 passed (38.3s)
+
+# 검토 2 반영 뒤(2026-11-28): PASS (8) FAIL (0)

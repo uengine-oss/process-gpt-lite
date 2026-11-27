@@ -5,6 +5,8 @@ const P = {
   plus: 'M12 5v14M5 12h14',
   mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3',
   up: 'M12 19V6M6 11.5 12 5.5l6 6',
+  // 공유 (an answer to a room, a person, a document — AnswerShareSheet.vue)
+  share: 'M12 3.5v11M7.5 8 12 3.5 16.5 8M5.5 12.5V19a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-6.5',
   // a download (내려받기)
   down: 'M12 4v12M6 10.5l6 6 6-6M5 20h14',
   undo: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2',
