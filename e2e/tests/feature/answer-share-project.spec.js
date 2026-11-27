@@ -10,6 +10,12 @@
 //   F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿 고르기 → 「템플릿으로 시작」과 같은 작업 공간 막대
 //   F-CP-03 휴대폰 390(밝은 · 어두운): 확인 카드가 화면 안
 //   F-CP-04 휴대폰 390(밝은 · 어두운): 산출물 더미(「MD 1 산출물」)가 떠 있어도 맨 아래 카드의 「만들기」 · 「아니요」가 더미 밑에 깔리지 않음(스펙 chat-artifacts)
+//   F-AS-04 휴대폰 390(밝은 · 어두운, 가짜 navigator.share): 「다른 앱으로 보내기」 → 휴대폰 공유 시트에 제목과 정리된 평문(경로 · 비공개 주소 · Markdown 기호
+//           없음, 12,000자에서 「…(이어짐)」) · 취소(AbortError)는 조용히 · 열지 못하면 「글 복사」로 안내 · 글이 늦게 오면 「준비하고 있어요…」 뒤에 넘김 ·
+//           「글 복사」는 서버가 정리한 전체 Markdown(서명 주소 없음) · 글이 오기 전에 눌러도 기다렸다 그 글로(ClipboardItem 을 누른 순간에 시작)
+//           (2026-11-28 사용자 결정 「Phone share sheet」)
+//   F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 「다른 앱으로 보내기」 없음 · 「글 복사」는 서버가 정리한 글(글이 늦으면 기다렸다 쓰기,
+//           못 받으면 화면 규칙)
 // 자기 스택(lib/localStack.js: 회사 answer-project-ui 의 BFF + Vite, 8997 · 5397 에서 빈 곳)을 띄우고 지운다. 가짜 모델 · 가짜 deepagents 는 이 파일이
 // 빈 포트에 띄운다 — 실제 모델 · 에이전트 · 판정 서버는 부르지 않는다. 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js
@@ -154,8 +160,9 @@ test.afterAll(async () => {
   await S.stop()
 })
 
-async function open(browser, who, opts, { theme = 'light' } = {}) {
+async function open(browser, who, opts, { theme = 'light', init = null } = {}) {
   const ctx = await browser.newContext({ ...opts, baseURL: S.web })
+  if (init) await ctx.addInitScript(init)
   await ctx.addInitScript(([s, th]) => {
     if (window.top !== window) return
     localStorage.setItem('pgpt-pro-session', s)
@@ -500,3 +507,255 @@ for (const theme of ['light', 'dark']) {
     }
   })
 }
+
+// ---- 「다른 앱으로 보내기」 · 「글 복사」 (2026-11-28: the recording's 「웹 앱으로 공유를 한다든지」 — the user picked the phone's share sheet) ----
+// (after the others: a newer answer of the main chat would be the one 「이 내용으로 프로젝트」 means in F-CP-01)
+// an answer with a workspace path, a host path, a mail attachment's signed address, a signed link, an ordinary link and web address, bold,
+// inline code and a table — longer than 12,000 characters
+const OUT_TITLE = '가나정밀 견적 정리'
+const OUT_ANSWER = [`# ${OUT_TITLE}`, '',
+  '견적서 초안: `/workspace/.bpmn/conv-ap-out/견적서 초안.xlsx`',
+  '요청서 원본은 /Users/someone/Downloads/요청서.pdf 에 있어요.',
+  '메일 첨부(30분): https://files.lite.example/storage/v1/object/sign/private/pgpt-pro/u/att/abc/견적서.pdf?token=eyJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJ4In0.c2lnbmF0dXJlLXZhbHVl',
+  '참고: https://www.example.com/guide?page=2',
+  '**납기**: 2주 이내 · [견적 안내](https://www.example.com/quote) · [서명된 견적](https://bucket.s3.amazonaws.com/a/q.pdf?X-Amz-Signature=deadbeef&X-Amz-Credential=c)', '',
+  '| 품목 | 수량 |', '|---|---|', '| 센서 키트 | 3 |', '',
+  ...Array.from({ length: 320 }, (_, i) => `- 품목 ${i + 1}: 실습용 센서 키트 ${i + 1}세트 · 단가 확인 필요 · 납기 2주`),
+  '', '마지막 줄: 여기까지는 넘어가지 않아요'].join('\n')
+// (what never leaves: the paths, the signed and storage addresses and their keys)
+const SECRETS = ['/workspace', '/Users/', 'token=', 'eyJhbGci', '/storage/v1/', 'files.lite.example', 'X-Amz', 'bucket.s3']
+let OUT = null
+async function outAnswer() {
+  if (!OUT) [OUT] = await S.q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2) returning id`, [MAIN.id, { text: OUT_ANSWER }])
+  return OUT
+}
+// the clipboard, recorded
+const CLIPBOARD = () => {
+  window.__copied = []
+  Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get: () => ({ writeText: async (t) => { window.__copied.push(String(t)) } }) })
+}
+// a clipboard that takes a ClipboardItem whose words are still coming (Safari · Chrome): how it was written, whether in the press itself
+const CLIP_ITEM = () => {
+  window.__copied = []
+  window.__copyWay = []
+  Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get: () => ({
+    write: async (items) => {
+      window.__copyWay.push({ way: 'item', active: !!navigator.userActivation?.isActive })
+      for (const it of items) window.__copied.push(await (await it.getType('text/plain')).text())
+    },
+    writeText: async (t) => { window.__copyWay.push({ way: 'text', active: !!navigator.userActivation?.isActive }); window.__copied.push(String(t)) },
+  }) })
+}
+// the words for the sheet held back a while (a slow line) — 「글 복사」 pressed at once
+const slowWords = (page, ms = 1500) => page.route('**/share/text', async (route) => { await new Promise((ok) => setTimeout(ok, ms)); await route.continue() })
+async function copyAtOnce(page, ansId, phone) {
+  if (phone) await toChat(page, true)
+  else await page.goto('/chat')
+  const b = page.locator(`.row[data-id="${ansId}"] [data-test="answer-share-btn"]`)
+  await expect(b).toBeVisible({ timeout: 30000 })
+  await b.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  await b.click()
+  const c = page.locator('[data-test="answer-share-copy"]')
+  await c.click()
+  // (the words were not here yet: nothing on the clipboard until they come)
+  expect(await page.evaluate(() => window.__copied.length)).toBe(0)
+  await expect(c).toContainText('복사했어요', { timeout: 10000 })
+  const copied = await page.evaluate(() => window.__copied)
+  expect(copied).toHaveLength(1)
+  copiedClean(copied[0])
+  await expect(page.locator('[data-test="answer-share-error"]')).toHaveCount(0)
+  return page.evaluate(() => window.__copyWay || [])
+}
+// the phone's share sheet, faked: what it was handed (and whether a press had just happened), and how the person leaves it — shared, closed
+// (AbortError), or it could not open (DataError)
+const FAKE_SHARE = () => {
+  window.__shared = []
+  window.__shareAs = 'ok'
+  Object.defineProperty(Navigator.prototype, 'share', { configurable: true, writable: true, value: function share(data) {
+    window.__shared.push({ title: data?.title, text: data?.text, active: !!navigator.userActivation?.isActive })
+    if (window.__shareAs === 'abort') return Promise.reject(new DOMException('Share canceled', 'AbortError'))
+    if (window.__shareAs === 'fail') return Promise.reject(new DOMException('Share failed', 'DataError'))
+    return Promise.resolve()
+  } })
+  window.__copied = []
+  Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get: () => ({ writeText: async (t) => { window.__copied.push(String(t)) } }) })
+}
+const CUT = '\n\n…(이어짐)'
+// 「글 복사」 with the server's words here: the whole answer (not cut), its Markdown as it is — and no path, no signed address, no key
+const copiedClean = (t) => {
+  for (const bad of SECRETS) expect(t, `on the clipboard: ${bad}`).not.toContain(bad)
+  for (const kept of [`# ${OUT_TITLE}`, '견적서 초안: `견적서 초안.xlsx`', '메일 첨부(30분): 견적서.pdf', '**납기**', '[견적 안내](https://www.example.com/quote)', '서명된 견적', '| 센서 키트 | 3 |', '마지막 줄']) {
+    expect(t).toContain(kept)
+  }
+}
+
+for (const theme of ['light', 'dark']) {
+  test(`F-AS-04 휴대폰 390(${theme === 'light' ? '밝은' : '어두운'}): 「다른 앱으로 보내기」 → 휴대폰 공유 시트에 정리된 평문(경로 · 비공개 주소 · 서식 기호 없음 · 「…(이어짐)」) · 취소는 조용히 · 복사는 정리된 글`, async ({ browser }) => {
+    const ans = await outAnswer()
+    const p = await open(browser, HY, PHONE, { theme, init: FAKE_SHARE })
+    const asked = []
+    p.on('request', (r) => { if (r.url().includes('/share/text')) asked.push(r.url()) })
+    await toChat(p, true)
+    const row = p.locator(`.row[data-id="${ans.id}"]`)
+    // the screen reads the path as its file's name (src/paths.js) — the words that go say the same
+    await expect(row).toContainText('견적서 초안.xlsx', { timeout: 30000 })
+    await expect(row).not.toContainText('/workspace/')
+    const btn = row.locator('[data-test="answer-share-btn"]')
+    await btn.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await btn.click()
+    const sheet = p.locator('[data-test="answer-share"]')
+    await expect(sheet).toHaveAttribute('data-step', 'menu')
+    const item = sheet.locator('[data-test="answer-share-apps"]')
+    await expect(item).toBeVisible()
+    await expect(item.locator('b')).toHaveText('다른 앱으로 보내기')
+    // right under 「대화방 · 사람에게 보내기」
+    expect(await sheet.getByRole('menuitem').nth(1).getAttribute('data-test')).toBe('answer-share-apps')
+    // the words asked for as the sheet opened: a long answer says it before anything goes
+    await expect(item.locator('[data-test="answer-apps-truncated"]')).toHaveText('글이 길어서 앞부분 12,000자만 보내요.')
+    expect(asked).toHaveLength(1)
+    await inView(item, p)
+    const sb = await inView(sheet, p)
+    expect(sb.y + sb.height).toBeGreaterThan(844 - 2)   // a sheet from the bottom
+    await noSideScroll(p)
+    await shot(p, 'share', `f-as-04-apps-${theme}`)
+    await item.click()
+    await expect.poll(() => p.evaluate(() => window.__shared.length)).toBe(1)
+    const [got] = await p.evaluate(() => window.__shared)
+    expect(got.title).toBe(OUT_TITLE)
+    expect(got.active, 'handed over right on the press (the words were already here)').toBe(true)
+    // plain text: no path, no private address, no Markdown mark — a link keeps its address only when it survived the cleaning
+    for (const bad of [...SECRETS, '마지막 줄', '# ', '**', '`', '|', '](']) expect(got.text, `left in: ${bad}`).not.toContain(bad)
+    for (const kept of [`${OUT_TITLE}\n`, '견적서 초안: 견적서 초안.xlsx', '요청서 원본은 요청서.pdf 에 있어요.', '메일 첨부(30분): 견적서.pdf', '참고: https://www.example.com/guide?page=2',
+      '납기: 2주 이내 · 견적 안내 (https://www.example.com/quote) · 서명된 견적\n', '품목 · 수량\n센서 키트 · 3', '• 품목 1: 실습용 센서 키트 1세트']) {
+      expect(got.text).toContain(kept)
+    }
+    expect(got.text.startsWith(OUT_TITLE)).toBe(true)
+    expect(got.text.endsWith(CUT)).toBe(true)
+    expect(got.text.length).toBeLessThanOrEqual(12000 + CUT.length)
+    await expect(item.locator('b')).toHaveText('다른 앱으로 보냈어요')
+    await expect(sheet.locator('[data-test="answer-share-error"]')).toHaveCount(0)
+    await shot(p, 'share', `f-as-04-sent-${theme}`)
+    // closed there (cancelled): nothing said, the sheet as it was
+    await p.evaluate(() => { window.__shareAs = 'abort' })
+    await item.click()
+    await expect.poll(() => p.evaluate(() => window.__shared.length)).toBe(2)
+    await p.waitForTimeout(300)
+    await expect(sheet.locator('[data-test="answer-share-error"]')).toHaveCount(0)
+    await expect(sheet).toHaveAttribute('data-step', 'menu')
+    await expect(item.locator('b'), 'a press again: the last 「보냈어요」 goes').toHaveText('다른 앱으로 보내기')
+    // it could not open: said so, 「글 복사」 the way — and no 「보냈어요」 beside it
+    await p.evaluate(() => { window.__shareAs = 'fail' })
+    await item.click()
+    await expect(sheet.locator('[data-test="answer-share-error"]')).toHaveText('다른 앱으로 보내지 못했어요. 「글 복사」로 복사해 붙여 넣어 주세요.')
+    await expect(item.locator('b')).toHaveText('다른 앱으로 보내기')
+    await noSideScroll(p)
+    await shot(p, 'share', `f-as-04-failed-${theme}`)
+    // 「글 복사」 then: the server's cleaned words, whole, Markdown as it is — the signed address not on the clipboard
+    await sheet.locator('[data-test="answer-share-copy"]').click()
+    await expect(sheet.locator('[data-test="answer-share-copy"]')).toContainText('복사했어요')
+    const copied = await p.evaluate(() => window.__copied)
+    expect(copied).toHaveLength(1)
+    copiedClean(copied[0])
+    if (theme === 'dark') {
+      const [fg, bg] = await sheet.evaluate((el) => [getComputedStyle(el).color, getComputedStyle(el).backgroundColor])
+      const lum = (c) => { const [r, g, b2] = c.match(/[\d.]+/g).map(Number); return 0.2126 * r + 0.7152 * g + 0.0722 * b2 }
+      expect(lum(fg)).toBeGreaterThan(lum(bg))
+    }
+    expect(asked, 'asked once, as the sheet opened').toHaveLength(1)
+    expect(p.errors).toEqual([])
+    await p.context().close()
+    if (theme === 'light') {
+      // pressed before the words came (a slow line): 「보낼 글을 준비하고 있어요…」, then the phone's sheet with them
+      const q = await open(browser, HY, PHONE, { theme, init: FAKE_SHARE })
+      let release
+      const gate = new Promise((ok) => { release = ok })
+      await q.route('**/share/text', async (route) => { await gate; await route.continue() })
+      await toChat(q, true)
+      const b2 = q.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`)
+      await expect(b2).toBeVisible({ timeout: 30000 })
+      await b2.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await b2.click()
+      const it2 = q.locator('[data-test="answer-share-apps"]')
+      await it2.click()
+      await expect(it2.locator('b')).toHaveText('보낼 글을 준비하고 있어요…')
+      expect(await q.evaluate(() => window.__shared.length)).toBe(0)
+      release()
+      await expect.poll(() => q.evaluate(() => window.__shared.length)).toBe(1)
+      const [late] = await q.evaluate(() => window.__shared)
+      expect(late.title).toBe(OUT_TITLE)
+      expect(late.text.endsWith(CUT) && !late.text.includes('token=') && !late.text.includes('**')).toBe(true)
+      await expect(it2.locator('b')).toHaveText('다른 앱으로 보냈어요')
+      expect(q.errors).toEqual([])
+      await q.context().close()
+      // 「글 복사」 pressed before the words came: it waits for the server's words — started in the press itself, the words to come in it
+      const c = await open(browser, HY, PHONE, { theme, init: CLIP_ITEM })
+      await slowWords(c)
+      const way = await copyAtOnce(c, ans.id, true)
+      expect(way).toEqual([{ way: 'item', active: true }])
+      expect(c.errors).toEqual([])
+      await c.context().close()
+    }
+  })
+}
+
+test('F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 「다른 앱으로 보내기」 없음 · 「글 복사」는 서버가 정리한 글(서명 주소 없음)', async ({ browser }) => {
+  const ans = await outAnswer()
+  // a computer's browser with no share sheet (most of them) — its copy recorded
+  const p = await open(browser, HY, DESK, { init: () => {
+    delete Navigator.prototype.share
+    window.__copied = []
+    Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get: () => ({ writeText: async (t) => { window.__copied.push(String(t)) } }) })
+  } })
+  const asked = []
+  p.on('request', (r) => { if (r.url().includes('/share/text')) asked.push(r.url()) })
+  await p.goto('/chat')
+  const row = p.locator(`.row[data-id="${ans.id}"]`)
+  // (the words for 「글 복사」 are asked for as the sheet opens, here too)
+  const words = p.waitForResponse((r) => r.url().includes(`/messages/${ans.id}/share/text`) && r.ok())
+  await row.locator('[data-test="answer-share-btn"]').click({ timeout: 30000 })
+  const sheet = p.locator('[data-test="answer-share"]')
+  await expect(sheet).toHaveAttribute('data-step', 'menu')
+  for (const t of ['대화방 · 사람에게 보내기', '문서로 남기기', '프로젝트로 시작', '글 복사']) await expect(sheet.getByRole('menuitem').filter({ hasText: t })).toHaveCount(1)
+  await expect(sheet.locator('[data-test="answer-share-apps"]')).toHaveCount(0)
+  await words
+  await sheet.locator('[data-test="answer-share-copy"]').click()
+  await expect(sheet.locator('[data-test="answer-share-copy"]')).toContainText('복사했어요')
+  const copied = await p.evaluate(() => window.__copied)
+  expect(copied).toHaveLength(1)
+  copiedClean(copied[0])
+  await shot(p, 'share', 'f-as-05-desktop-no-share')
+  expect(asked, 'asked once, as the sheet opened').toHaveLength(1)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+  // the words could not come: 「글 복사」 still copies — the page's own reading, the paths as their files' names (as before)
+  const f = await open(browser, HY, DESK, { init: CLIPBOARD })
+  await f.route('**/share/text', (route) => route.abort())
+  await f.goto('/chat')
+  await f.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`).click({ timeout: 30000 })
+  await f.locator('[data-test="answer-share-copy"]').click()
+  await expect(f.locator('[data-test="answer-share-copy"]')).toContainText('복사했어요')
+  const fell = await f.evaluate(() => window.__copied)
+  expect(fell).toHaveLength(1)
+  expect(fell[0]).toContain('견적서 초안.xlsx')
+  expect(fell[0]).not.toContain('/workspace/')
+  await expect(f.locator('[data-test="answer-share-error"]')).toHaveCount(0)
+  await f.context().close()
+  // pressed before the words came, a clipboard that takes words only (no ClipboardItem write): it waits for the server's words, then writes
+  const w = await open(browser, HY, DESK, { init: CLIPBOARD })
+  await slowWords(w)
+  await copyAtOnce(w, ans.id, false)
+  expect(w.errors).toEqual([])
+  await w.context().close()
+  // the desktop app (its preload's window.pglDesktop): its window opens no share sheet — no item even where navigator.share is defined
+  const d = await open(browser, HY, DESK, { init: () => {
+    window.pglDesktop = Object.freeze({ app: 'process-gpt-lite', version: '0.2.8', platform: 'darwin' })
+    Object.defineProperty(Navigator.prototype, 'share', { configurable: true, value: () => Promise.reject(new DOMException('Share is not supported', 'NotAllowedError')) })
+  } })
+  await d.goto('/chat')
+  await d.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`).click({ timeout: 30000 })
+  await expect(d.locator('[data-test="answer-share"]')).toHaveAttribute('data-step', 'menu')
+  await expect(d.locator('[data-test="answer-share-copy"]')).toBeVisible()
+  await expect(d.locator('[data-test="answer-share-apps"]')).toHaveCount(0)
+  expect(d.errors).toEqual([])
+  await d.context().close()
+})

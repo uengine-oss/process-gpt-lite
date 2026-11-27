@@ -38,8 +38,10 @@ export function toPlain(md) {
   let s = String(md ?? '').replace(/\r\n?/g, '\n')
   s = s.replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code) => code.replace(/\n$/, ''))     // code fences: keep the code
   s = s.replace(/<br\s*\/?>/gi, '\n')
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_, alt, url) => (alt ? `${alt} (${url})` : url))
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, (_, text, url) => (text === url ? url : `${text} (${url})`))
+  // (each part bounded, and the address and its title never able to take the same characters: a run of 「[a](」 with no 「)」 — an answer
+  // shared to another app, lib/answerShare.js — is read once per 「[」, not once per way to split it; it froze the server before)
+  s = s.replace(/!\[([^[\]\n]{0,500})\]\(([^)\s]{1,2048})(?:\s[^)\n]{0,300})?\)/g, (_, alt, url) => (alt ? `${alt} (${url})` : url))
+  s = s.replace(/\[([^[\]\n]{1,500})\]\(([^)\s]{1,2048})(?:\s[^)\n]{0,300})?\)/g, (_, text, url) => (text === url ? url : `${text} (${url})`))
   const lines = []
   for (let line of s.split('\n')) {
     if (/^[\s|:-]+$/.test(line) && line.includes('-') && line.includes('|')) continue                                  // |---|---|

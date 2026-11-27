@@ -2,6 +2,7 @@
 //   GET  /api/messages/:id/share/rooms        an answer of my chat: the rooms and teammates to send it to (lib/answerShare.js)
 //   POST /api/messages/:id/share/room         {room | person, note} → the answer in that room
 //   POST /api/messages/:id/share/doc          the answer as a Markdown file card under it
+//   GET  /api/messages/:id/share/text         the cleaned words for 「글 복사」 (text) and 「다른 앱으로 보내기」 (plain — the phone's share sheet)
 //   POST /api/messages/:id/project-offer      「프로젝트로 시작」 on an answer → the confirm card (lib/chatProject.js)
 //   POST /api/project-offers/:id/make         {title, template} → the project
 //   POST /api/project-offers/:id/decline      「아니요」
@@ -43,6 +44,8 @@ export function answerRoutes(auth) {
     return AS.shareToRoom(me(req), req.params.id, { room: b.room ? String(b.room) : null, person: b.person ? String(b.person) : null, note: b.note })
   }))
   r.post('/messages/:id/share/doc', auth, h((req) => AS.saveDoc(me(req), req.params.id)))
+  // (「글 복사」 · 「다른 앱으로 보내기」: the words only — the person's clipboard or phone takes them, wherever they pick; their own answer, no team rule)
+  r.get('/messages/:id/share/text', auth, h((req) => AS.textFor(me(req), req.params.id)))
   r.post('/messages/:id/project-offer', auth, h(async (req) => {
     const msg = await AS.answerOf(me(req), req.params.id)
     return { offer: await CP.offer(me(req), { threadId: msg.thread_id, messageId: msg.id, via: 'button' }) }
