@@ -33,3 +33,5 @@ cd server && node test/room-rules.e2e.mjs && node test/browser-walls.live.mjs   
 | office-mobile: 휴대폰 세로로 연다 / 넓은 화면 / 넘겨 본다 / 가로로 돌린다 / 다른 문서 | F-OM-01~04 |
 
 결과(`results/`): 단위 56/56, `browser-walls.e2e.mjs` 15/15. 그 밖의 실행 결과는 PR #4 본문에 있다: `takeover.e2e.mjs` 10/10, Playwright F-NB · F-RR · F-BD · F-MR 20/20, F-OM 4/4.
+
+2026-11-27 프로젝트 계획: 스펙의 새 요건(「계획에 넣는 말은 규칙을 덮어쓰지 않는다」 · 「프로젝트 방의 상시 지시는 습관보다 방 판정이 먼저 읽는다」 · 「규칙을 정할 때 계획과 대화를 읽는다」 · 「규칙 막대는 누가 하는지 보이고 바꾼다」)의 시험과 실제 모델 결과는 `openspec/specs/project-room/e2e/README.md` 「프로젝트 계획」에 있다 — `server/test/projectNote.test.js`(PP-U) · `projectPlan.integration.test.js`(PP-I) · `e2e/tests/feature/project-plan.spec.js`(F-PP). 방 판정의 보기에 `plan` 이 더해져 `browser-replaces-turn.test.js` · `browser-queue-answers.test.js`(BQ-I-09) 의 보기 목록과 F-NB-06 의 막대 글(「· 에이전트가 처리」)을 고쳤다.

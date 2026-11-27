@@ -366,7 +366,8 @@ test.describe('녹화 검토 11-21 · 채팅 화면', () => {
     await page.goto(`/projects/${id}`)
     const bar = page.getByTestId('room-rule')
     await expect(bar).toContainText('이 방의 규칙', { timeout: 20_000 })
-    await expect(bar.locator('.tx')).toHaveText(`이 방의 규칙·${action}2번 실행`)
+    // (who does it — design turnplan §4.4: a rule without a skill is the agent's; lib/roomRules.js label, RoomRuleBar.vue)
+    await expect(bar.locator('.tx')).toHaveText(`이 방의 규칙·${action}·에이전트가 처리2번 실행`)
     await expect(bar).toContainText('2번 실행')
     await fitsPhone(page, bar)
     // at the top, above the conversation

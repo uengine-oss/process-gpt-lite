@@ -409,7 +409,8 @@ test('BQ-I-09 규칙이 있는 방: 작업이 있으면 규칙을 정하는 말�
   let j0 = judgeCalls.length
   await runTurn({ user, session, threadId: tid, text: said })
   const rc = judgeCalls.slice(j0).find((c) => c.kind === 'room')
-  assert.deepEqual(rc.options.map((o) => o.key), ['set_rule', 'run_rule', 'steer', 'other'])
+  // (a project room is read with its plan: 계획에 넣기 is offered too — lib/projectNote.js)
+  assert.deepEqual(rc.options.map((o) => o.key), ['set_rule', 'plan', 'run_rule', 'steer', 'other'])
   assert.match(rc.state, /최근에 끝났거나 멈춘 브라우저 작업:\n1\. 「노트북에 소스 넣기」 — 끝남/)
   assert.match(rc.state, /끝맺은 말: 원하시면 다른 방식으로 이어서 해 드릴게요\./)
   assert.equal((await R.ruleOf(user.id, tid)).action, '이 링크로 노트북 LM 의 슬라이드와 팟캐스트를 만든다')

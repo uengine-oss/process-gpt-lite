@@ -57,23 +57,29 @@ export const taskBlock = (lines = []) => (lines.length ? `${L('이 대화의 최
 // ---------- the front call ----------
 
 // what the person's message is shown with: up to four earlier messages and the message itself
-export function frontMessages({ text, files = [], hist = [], tasks = [] }) {
+// project: the message is a project room's — its plan (lib/projectNote.js noteText, '' when it has none) is background, and the answer says
+// whether the message is one the plan should keep (memory — design turnplan §4.2: the plan is rewritten after such a turn)
+export function frontMessages({ text, files = [], hist = [], tasks = [], project = false, note = '' }) {
   const lang = isEn()
     ? 'Write "understood" and "steps" in English.'
     : 'Write "understood" and "steps" in the language of the person\'s message. When the message has no words of its own (only a link, a file or an attachment), write them in Korean, in polite 해요체.'
   const system = [
     "You read a person's message to their work assistant and say, before any work starts, what you understood and how the work will go.",
-    'Answer with JSON only: {"understood": "<one sentence>", "steps": ["<step>", "..."], "tier": "light|standard|deep", "certainty": "sure|likely|unsure"}',
+    `Answer with JSON only: {"understood": "<one sentence>", "steps": ["<step>", "..."], "tier": "light|standard|deep", "certainty": "sure|likely|unsure"${project ? ', "memory": true|false' : ''}}`,
     '- understood: one sentence in the assistant\'s own voice restating what the person wants done (for example, that they want the linked article summarised). Not a request to the person, not a greeting, not a promise of results.',
     '- steps: 2 to 4 short steps (each under 40 characters), in the order the work will go. Plan only what was asked: never add a deliverable the person did not ask for. A message that is only a link means: read that page and summarise it.',
     '- tier: light = a short answer from what is known or one lookup, a summary of one page; standard = most work (research over several sources, one document, a mail draft, work in a connected service); deep = several deliverables that must agree, analysis across many sources, editing the person\'s existing documents, or anything the person says must be thorough.',
     '- certainty: how sure you are of what the person wants.',
+    ...(project ? [
+      '- memory: true when the message states something this project should keep from now on (its purpose, a tool it uses, a way or condition to keep to, a decision); false for one piece of work, a question or thanks.',
+      '- The project plan, when given, is background: when the message is only a link or a file and the plan says what this project does with them, plan that work with the plan\'s tool; otherwise the message decides.',
+    ] : []),
     `- Language: ${lang}`,
     '- The earlier messages are background; the message now decides.',
   ].join('\n')
   const earlier = hist.slice(-4).map((m) => `${m.role === 'user' ? 'Person' : 'Assistant'}: ${String(m.text || '').replace(/\s+/g, ' ').slice(0, 300)}`)
   const names = files.map((f) => f?.name).filter(Boolean).slice(0, 10)
-  const user = [earlier.length ? `Earlier messages:\n${earlier.join('\n')}\n` : '', tasks.length ? `Recent task cards in this chat (oldest first):\n${tasks.map((l) => `- ${l}`).join('\n')}\n` : '',
+  const user = [note ? `${note}\n` : '', earlier.length ? `Earlier messages:\n${earlier.join('\n')}\n` : '', tasks.length ? `Recent task cards in this chat (oldest first):\n${tasks.map((l) => `- ${l}`).join('\n')}\n` : '',
     `The message now:\n${String(text || '').slice(0, 2000)}`,
     names.length ? `(attached: ${names.join(', ')})` : ''].filter(Boolean).join('\n')
   return [{ role: 'system', content: system }, { role: 'user', content: user }]
@@ -94,16 +100,17 @@ export function readPlan(content) {
     steps: steps.map((t, i) => ({ id: `p${i + 1}`, text: t })),
     tier: TIERS.includes(j.tier) ? j.tier : 'standard',
     certainty: CERTAINTY.includes(j.certainty) ? j.certainty : 'likely',
+    ...(j.memory === true ? { memory: true } : {}),
   }
 }
 
 // The front call: the front model first; if it errors, or has not answered by hedgeMs, the same call on the fast model — the first
 // plan to come back within limitMs wins (the other is aborted). → {understood, steps, tier, certainty, model, ms, hedge} or null.
 // (with no front model of its own — the default — a slow call is not asked twice; an error is retried once)
-export function frontPlan({ text, files = [], hist = [], tasks = [], signal, front = config.llm.frontModel, fast = config.llm.fastModel,
+export function frontPlan({ text, files = [], hist = [], tasks = [], project = false, note = '', signal, front = config.llm.frontModel, fast = config.llm.fastModel,
   limitMs = FRONT_MS, hedgeMs = HEDGE_MS, call = chat } = {}) {
   const t0 = Date.now()
-  const messages = frontMessages({ text, files, hist, tasks })
+  const messages = frontMessages({ text, files, hist, tasks, project, note })
   const deadline = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(limitMs)])
   return new Promise((resolve) => {
     const runs = []
@@ -190,16 +197,16 @@ export function begin({ turn, userId, threadId, msgId, text, files = [], plan = 
 }
 
 async function runFront(v, text, files) {
-  const [rows, tasks] = await Promise.all([history(v.threadId, 6).catch(() => []), taskCards(v.threadId)])
+  const [rows, tasks, room] = await Promise.all([history(v.threadId, 6).catch(() => []), taskCards(v.threadId), projectPlanOf(v)])
   // (the message itself is the last row: it is given as the message now)
   const hist = rows.filter((r) => ['text', 'doc'].includes(r.kind) && r.content?.text).map((r) => ({ role: r.role, text: r.content.text }))
   if (hist.length && hist[hist.length - 1].role === 'user') hist.pop()
   const signal = AbortSignal.any([v.abort.signal, v.turn.abort.signal])
-  const p = await frontPlan({ text, files, hist, tasks, signal }).catch(() => null)
+  const p = await frontPlan({ text, files, hist, tasks, ...room, signal }).catch(() => null)
   if (v.ended) return null
   if (p) {
     console.log(`[turn-plan] model=${p.model} ms=${p.ms}${p.hedge ? ` hedge=${p.hedge}` : ''} tier=${p.tier} certainty=${p.certainty} steps=${p.steps.length} thread=${String(v.threadId).slice(0, 8)}`)
-    v.plan = { understood: p.understood, steps: p.steps, tier: p.tier, certainty: p.certainty, model: p.model, ms: p.ms, source: 'front' }
+    v.plan = { understood: p.understood, steps: p.steps, tier: p.tier, certainty: p.certainty, model: p.model, ms: p.ms, source: 'front', ...(p.memory ? { memory: true } : {}) }
   } else {
     if (v.turn.stopped) return null
     console.log(`[turn-plan] fallback after ${Date.now() - v.startedAt} ms thread=${String(v.threadId).slice(0, 8)}`)
@@ -209,6 +216,13 @@ async function runFront(v, text, files) {
   sendPlan(v)
   if (v.handler) logReadings(v)
   return v.plan
+}
+// a project room's message: its plan as text (lib/projectNote.js — the one there is now; a plan filled in on this turn is read from the next)
+async function projectPlanOf(v) {
+  const t = await getThread(v.userId, v.threadId).catch(() => null)
+  if (t?.kind !== 'project') return { project: false }
+  const PN = await import('./projectNote.js')
+  return { project: true, note: PN.noteText((await PN.noteRow(v.userId, v.threadId).catch(() => null))?.note) }
 }
 function sendPlan(v) {
   if (!v.plan) return
