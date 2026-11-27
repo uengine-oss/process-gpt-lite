@@ -40,12 +40,16 @@ const WIN = process.platform === 'win32'
 // (macOS's own temporary folder is under /var — a system folder the tools refuse, the person's temporary files with it: this PC's folders
 // for the test are made under /tmp there)
 const TMP = process.platform === 'darwin' ? '/tmp' : os.tmpdir()
-const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(TMP, 'pgl-tools-')))
+// (the disk's own spelling, as the tools read a folder — realpathSync.native: on Windows the long name, not RUNNER~1)
+const ROOT = fs.realpathSync.native(fs.mkdtempSync(path.join(TMP, 'pgl-tools-')))
 const HOME = path.join(ROOT, 'home')
 const DATA = path.join(ROOT, 'app', 'data')
 const WORK = path.join(ROOT, 'work')
 const CLAUDE = path.join(HOME, '.claude')
-const ENV = { ...process.env, CLAUDE_CONFIG_DIR: CLAUDE, CODEX_HOME: path.join(HOME, '.codex') }
+// (this PC's environment for HOME: on Windows its AppData is HOME's — the runner's own %TEMP% is in its real LOCALAPPDATA, a system folder
+// the tools refuse, and the test's folders outside HOME are there)
+const ENV = { ...process.env, CLAUDE_CONFIG_DIR: CLAUDE, CODEX_HOME: path.join(HOME, '.codex'),
+  ...(WIN ? { APPDATA: path.join(HOME, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(HOME, 'AppData', 'Local') } : {}) }
 const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text) }
 const SKILL = (name, desc, extra = '') => `---\nname: ${name}\ndescription: ${desc}\n${extra}---\n# ${name}\n본문\n`
 fs.mkdirSync(DATA, { recursive: true })

@@ -249,18 +249,22 @@ async function packSkill(dir, { gitDir, rules = SY.compileRules(), places } = {}
   if (s.files.length > SKILL_MAX_FILES) return { error: 'too_many', detail: { files: s.files.length, max: SKILL_MAX_FILES } }
   const files = []
   let bytes = 0
+  // (the folder as the disk spells it, like each file below — on Windows a short 8.3 name and its long one are the same folder)
+  const root = realOr(dir)
   for (const rel of s.files) {
     const abs = path.join(dir, ...rel.split('/'))
     // (each file once more as it is now: a plain file inside the folder, never a link)
     const st = await fsp.lstat(abs).catch(() => null)
     if (!st || !st.isFile() || st.isSymbolicLink()) continue
-    if (!isInside(realOr(abs), dir)) continue
+    if (!isInside(realOr(abs), root)) continue
     bytes += st.size
     if (bytes > SKILL_MAX_BYTES) return { error: 'too_big', detail: { bytes, max: SKILL_MAX_BYTES } }
     const buf = await fsp.readFile(abs)
     files.push({ path: rel, size: buf.length, data: buf.toString('base64') })
   }
   const md = files.find((f) => f.path === 'SKILL.md')
+  // (its SKILL.md was listed but is not a plain file inside the folder now — gone, or a link since)
+  if (!md) return { error: 'no_skill_md' }
   const text = Buffer.from(md.data, 'base64').toString('utf8')
   const fm = SY.frontMatter(text)
   // what would run on the computer of whoever uses it: the front matter's run keys (hooks, allowed-tools …) and settings files in it

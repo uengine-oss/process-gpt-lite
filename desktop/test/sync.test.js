@@ -358,6 +358,18 @@ test('동의하지 않으면(시스템 창 「취소」) 서버에 아무것도 
   assert.throws(() => bare('rev-parse', '--verify', '--quiet', `refs/heads/${BRANCH}`), '이 기기의 가지는 아직 없다')
 })
 
+// a folder's copy, file by file with plain fs calls (Node 22's fs.cpSync is native code — this test file once ended its process on the Windows
+// runner, 0xC0000409, inside the test that used it)
+function copyTree(from, to) {
+  fs.mkdirSync(to, { recursive: true })
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    const a = path.join(from, e.name)
+    const b = path.join(to, e.name)
+    if (e.isDirectory()) copyTree(a, b)
+    else if (e.isFile()) fs.copyFileSync(a, b)
+  }
+}
+
 test('동의한 뒤 바뀐 폴더(채팅 카드 — strict): 첫 올리기는 「예」 한 그대로만 — 그 뒤 더한 파일 · 같은 크기로 고친 파일 · 링크로 바뀐 위 폴더 · 스냅숏이 읽는 동안 고친 파일 · 읽는 동안 바꿨다 되돌린 위 폴더면 아무것도 올리지 않는다(changed), pick 은 남는다', async () => {
   const f = makeSync()
   const top = path.join(ROOT, 'people2')
@@ -373,10 +385,11 @@ test('동의한 뒤 바뀐 폴더(채팅 카드 — strict): 첫 올리기는 �
     // (while the round's snapshot reads the files — after its own look found them as they were: the look after the snapshot stops it)
     ['an edit while the snapshot reads them', () => write('README.md', '# 견적 자뢰\n'), 'snapshot'],
     // (the folder above swapped for a copy — same names and sizes, other bytes — while the snapshot read, and swapped back before the
-    // look after it: only what the snapshot itself recorded of the files it read shows it)
-    ...(symlinks ? [['the folder above swapped while the snapshot read, and back', () => {
+    // look after it: only what the snapshot itself recorded of the files it read shows it — its inode. Not on Windows: git's index there
+    // keeps no inode, and a copy made within the same second has the same size and modification second — nothing to tell it by)
+    ...(symlinks && process.platform !== 'win32' ? [['the folder above swapped while the snapshot read, and back', () => {
       fs.renameSync(top, `${top}-진짜`)
-      fs.cpSync(`${top}-진짜`, `${top}-사본`, { recursive: true })
+      copyTree(`${top}-진짜`, `${top}-사본`)
       fs.writeFileSync(path.join(`${top}-사본`, '견적 자료', 'README.md'), '# 견적 가짜\n')
       fs.symlinkSync(`${top}-사본`, top, process.platform === 'win32' ? 'junction' : 'dir')
     }, 'snapshot', () => { if (process.platform === 'win32') fs.rmdirSync(top); else fs.unlinkSync(top); fs.renameSync(`${top}-진짜`, top); rmQuiet(`${top}-사본`) }]] : []),
