@@ -19,6 +19,8 @@
 //     run used meanwhile is brought back to the line, and the CLI is told
 //   · a run already reported is not run again when the server offers it again (its outbox is said again, in order) · the same run under a
 //     new branch name keeps its folder · a turn carried into a folder brought back to the line goes without files
+//   · a retry of the same job (offered without its session) is run — the earlier attempt's report in the outbox goes; a late 'finished'
+//     of the earlier attempt does not end it
 // Run: cd desktop && node --test test/restart.test.js
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -811,4 +813,31 @@ test('LA-TERM-RESUME-23 작업 폴더를 서버 상태로 다시 맞춘 뒤 이�
   assert.equal(done.type, 'done', JSON.stringify(done))
   assert.deepEqual(done.files, [])
   await r2.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
+})
+
+test('LA-TERM-RESUME-24 같은 일의 「다시 시도」(세션 없이 새로 내줌)는 보낼 메시지함에 남은 지난 시도의 보고(failed)가 있어도 받아서 돌린다 — 지난 보고는 버리고, 지난 시도의 늦은 「finished」는 새 시도를 끝내지 않는다', async () => {
+  // (the earlier attempt failed; the server took the failure but its 'finished' never reached the app — it was closed right after)
+  const j = stepJob('claude-code', 'SLEEP 1500\nWRITE_OUT 재시도.md :: 이번엔 됨')
+  fs.mkdirSync(dataDir, { recursive: true })
+  const box = path.join(dataDir, 'outbox.json')
+  const kept = fs.existsSync(box) ? JSON.parse(fs.readFileSync(box, 'utf8')) : []
+  fs.writeFileSync(box, JSON.stringify([...kept, { type: 'failed', jobId: j.id, error: '지난번 실패' }]))
+  const r = runner()
+  // (the app said hello: the stale report went again; the server — the job already failed — answered nothing, as a retry was coming)
+  const from = sent.length
+  r.handle({ type: 'job', job: j })
+  await pause(1500)
+  assert.deepEqual(sent.slice(from).filter((m) => m.jobId === j.id && ['accept', 'failed', 'done'].includes(m.type)).map((m) => m.type), ['accept'], 'the retry is accepted, the stale report not said')
+  assert.ok(!r.outbox.some((m) => m.jobId === j.id), 'the earlier attempt\'s report let go')
+  // (a 'finished' of the earlier attempt arrives late: the new attempt goes on)
+  await waitFor(() => sent.some((m) => m.type === 'term-open' && m.ref === j.id))
+  await r.handle({ type: 'finished', jobId: j.id, state: 'failed' })
+  assert.ok(r.jobs.has(j.id), 'the new attempt still runs')
+  await waitFor(() => of(j.id, 'idle').some((m) => m.until))
+  await r.handle({ type: 'finish', jobId: j.id })
+  const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed').find((m) => sent.indexOf(m) >= from))
+  assert.equal(done.type, 'done', JSON.stringify(done))
+  assert.equal(show(j.git.branch, `${j.outDir}/재시도.md`), '이번엔 됨\n')
+  await r.handle({ type: 'finished', jobId: j.id, state: 'done' })
+  assert.equal(r.jobs.has(j.id), false)
 })

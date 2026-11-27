@@ -289,9 +289,15 @@ class Runner extends EventEmitter {
     const bad = this.valid(job)
     if (bad) { this.log('[runner] refused a job:', bad); if (UUID.test(String(job?.id || ''))) this.send({ type: 'decline', jobId: job.id, reason: 'invalid' }); return }
     if (this.jobs.has(job.id)) return this.again(job)
-    // (a run this app already reported, its report not confirmed yet — the app restarted, and the server offered the run it no longer
-    // holds again while the app said hello: it is not run again; what the outbox has of it is said again, the report last)
-    if (this.outbox.some((m) => m.jobId === job.id && (m.type === 'done' || m.type === 'failed'))) { this.resend(job.id); return }
+    if (this.outbox.some((m) => m.jobId === job.id && (m.type === 'done' || m.type === 'failed'))) {
+      // (a run this app already reported, its report not confirmed yet — the app restarted, and the server offered the same attempt again
+      // while the app said hello, with its session: it is not run again; what the outbox has of it is said again, the report last)
+      if (job.resume?.sessionId) { this.resend(job.id); return }
+      // (without its session it is a new attempt of the same job — 「다시 시도」: what the outbox kept of the earlier one is stale, and goes)
+      this.outbox = this.outbox.filter((m) => m.jobId !== job.id)
+      this.saveOutbox()
+      this.log(`[runner] ${job.activity}: a new attempt — the earlier one's report let go`)
+    }
     if (this.user?.id && job.person?.id && String(job.person.id) !== String(this.user.id)) { this.send({ type: 'decline', jobId: job.id, reason: 'invalid' }); return }
     const prefs = this.prefs() || {}
     if (prefs.enabled === false) { this.send({ type: 'decline', jobId: job.id, reason: 'disabled' }); return }
@@ -991,7 +997,8 @@ class Runner extends EventEmitter {
     this.outbox = this.outbox.filter((m) => m.jobId !== msg.jobId)
     this.saveOutbox()
     const st = this.jobs.get(msg.jobId)
-    if (!st) return
+    // (a run here that has not reported is another attempt than the one the server took a report of: it goes on)
+    if (!st || !st.reported) return
     this.jobs.delete(msg.jobId)
     this.changed()
     // the folder follows the line the server just moved (the next step on this computer starts there)

@@ -169,7 +169,15 @@ export async function delegate(job, why, detail = '') {
 // only about its own job: the job is this person's and was given to this very device
 const mine = (job, link) => !!job && String(job.user_id) === link.userId && String(job.device_id) === link.id
 
+// The attempt a desktop's report (done · failed) or answer (reply) is about is still the job's: it runs, or it was offered again to the
+// desktop it ran on (that app restarted — the attempt began: started_at). A retry of the step — the same job, a new attempt — clears
+// started_at: an earlier attempt's report that comes late never closes the new one.
+const attempted = (job) => job.state === 'running' || (job.state === 'offered' && !!job.started_at)
+
 export async function onMessage(link, msg) {
+  // (a report of an attempt that is over: 'finished', so the desktop lets it go — never for a job that is open again, a retry the desktop
+  // may be running: that 'finished' would end it there)
+  const stale = (job) => { if (!OPEN.includes(job.state)) link.send({ type: 'finished', jobId: job.id, state: job.state }) }
   const job = await byId(msg.jobId)
   if (!mine(job, link)) {
     // (its person's job, no longer offered to it — taken back meanwhile: it is told to drop it, never to run it)
@@ -219,16 +227,17 @@ export async function onMessage(link, msg) {
       return hk(job).note(await setSteer(job, msg.steerId, { failed: true, reason: String(msg.reason || 'refused').slice(0, 40) }), 'steer')
     // the CLI's answer at a turn's end (a chat — chat.js): its words, and what the turn changed in the folder (pushed on the run's branch).
     // Acknowledged by its turn number, so a desktop that says it again after a dropped link does not post it twice.
-    // (offered too, as 'done' is: a desktop app that restarted says the answers it kept before the run's report, and the server put the run
-    // it no longer holds back in the queue and offered it to it again while it said hello — hub.js online — so they come while 'offered')
+    // (offered too, as a report is — attempted(): a desktop app that restarted says the answers it kept before the run's report, and the
+    // server put the run it no longer holds back in the queue and offered it to it again while it said hello — hub.js online. Only a kind
+    // that answers in a conversation takes one: a step has no answers.)
     case 'reply': {
-      if (!['running', 'offered'].includes(job.state)) { link.send({ type: 'replied', jobId: job.id, turn: msg.turn, state: job.state }); return }
+      if (!attempted(job) || typeof hk(job).reply !== 'function') { link.send({ type: 'replied', jobId: job.id, turn: msg.turn, state: job.state }); return }
       await hk(job).reply(job, msg, link)
       link.send({ type: 'replied', jobId: job.id, turn: msg.turn })
       return
     }
     case 'done': {
-      if (!['running', 'offered'].includes(job.state)) { link.send({ type: 'finished', jobId: job.id, state: job.state }); return }
+      if (!attempted(job)) { stale(job); return }
       const result = { branch: String(msg.branch || '').slice(0, 200), commit: String(msg.commit || '').slice(0, 64) || null, pushed: !!msg.pushed,
         files: (Array.isArray(msg.files) ? msg.files : []).slice(0, 200).map((f) => String(f).slice(0, 300)), summary: String(msg.summary || '').slice(0, 8000),
         sessionId: msg.sessionId ? String(msg.sessionId).slice(0, 100) : job.session_id, agentVersion: msg.agentVersion ? String(msg.agentVersion).slice(0, 40) : null,
@@ -252,7 +261,7 @@ export async function onMessage(link, msg) {
       return hk(j).note(j, j.state)
     }
     case 'failed': {
-      if (!['running', 'offered'].includes(job.state)) return
+      if (!attempted(job)) { stale(job); return }
       const j = await endSteers(await set(job, { state: 'failed', error: String(msg.error || 'failed').slice(0, 800), finished_at: new Date(), idle_until: null }), 'failed')
       await hk(j).fail(j, j.error)
       link.send({ type: 'finished', jobId: j.id, state: 'failed' })
