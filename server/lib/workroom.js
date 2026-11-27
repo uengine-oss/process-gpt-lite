@@ -18,6 +18,7 @@ import { L, isEn, withLang, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
 import { scopePattern } from './projectTopics.js'
 import { assertNoLink } from './noLinks.js'
+import { gitPart } from './gitPart.js'
 
 // node-pty is a native module: a build without it still serves the workroom's files, and the page
 // says why there is no terminal (terminalStatus)
@@ -69,12 +70,28 @@ export async function canAccess(user, room) {
   if (!user || !room) return false
   if (room.folder) return folderRoomAccess(user, room)
   const [me] = await q('select is_admin from users where id=$1', [user.id]).catch(() => [])
-  if (me?.is_admin) return true
+  // (an administrator opens any room — but not a conversation that holds a project's workspace made from a template: that is its person's
+  // only, folders/templates.js)
+  if (me?.is_admin && !(await holdsWorkspace(room))) return true
   if (room.kind === 'todo') {
     const [t] = await q(`select t.user_id, i.participants from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id where t.id::text=$1`, [room.id])
     return !!t && takesPart(user, t)
   }
   return ownsConversation(user.id, room.id)
+}
+// A conversation's folder with a checkout of a template's workspace in it (<room>/folders/<slug> of a template folder, while a turn runs) —
+// when it cannot be told, it counts as one (no administrator's way in by doubt)
+export async function holdsWorkspace(room) {
+  if (room?.kind !== 'chat' || !room.root) return false
+  const slugs = await fs.readdir(path.join(room.root, 'folders')).catch((e) => (e.code === 'ENOENT' ? [] : null))
+  if (slugs === null) return true
+  if (!slugs.length) return false
+  // (by the folders' own workspace rows as well as the template mark: a folder checked out here that holds a project workspace counts,
+  // marked or not — a template no longer marked still has its projects' workspaces; the room's id is a conversation, never a thread)
+  const rows = await q(`select 1 from pro_folders f where f.tenant_id=$1 and f.slug = any($2::text[])
+                        and (f.settings ? 'template' or exists (select 1 from pro_folder_variations v where v.folder_id=f.id and v.source ? 'template')) limit 1`,
+  [T(), slugs]).catch(() => null)
+  return rows === null ? true : rows.length > 0
 }
 // a step's assignee (a comma list of ids or emails) or a participant of its process instance
 const takesPart = (user, t) => {
@@ -140,7 +157,7 @@ export async function publishFile(room, rel, user) {
 // A path from the browser, kept inside the room (no "..", symlinks may not lead out) and out of
 // the repository's own data: a room is a git work tree, and its `.git` (a folder, or a file that
 // points to one) is the server's to keep — read, written, renamed or listed by nobody else.
-export const gitPart = (rel) => String(rel || '').split(/[\\/]+/).some((seg) => /^\.git\.*$/i.test(seg.trim()))
+export { gitPart }
 export function inside(room, rel) {
   if (gitPart(rel)) throw Object.assign(new Error('not a document path'), { status: 400 })
   const p = path.resolve(room.root, String(rel || '').replace(/^\/+/, ''))

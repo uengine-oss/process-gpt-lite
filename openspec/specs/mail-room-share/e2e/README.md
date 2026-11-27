@@ -23,7 +23,7 @@ cd e2e && PGPT_URL=http://localhost:5197 API_URL=http://127.0.0.1:8796 RT_WORKER
   npx playwright test tests/feature/mail-room-share.spec.js --project=feature
 ```
 
-- 가짜 판정 모델은 「…어느 방에 올릴…」 질문에서 이름이 「에이스정밀 납품」으로 시작하는 방을 84% 확신으로 고른다. 메일 비서의 새 메일 읽기에는 시험이 정한 제목의 메일마다 할 일 카드를 만든다.
+- 가짜 판정 모델은 「…어느 방에 올릴…」 질문에서 이름이 「예시정밀 납품」으로 시작하는 방을 84% 확신으로 고른다. 메일 비서의 새 메일 읽기에는 시험이 정한 제목의 메일마다 할 일 카드를 만든다.
 - 같은 서버에 `mail-follow-up.spec.js` 를 돌릴 때는 그 스펙의 가짜 모델 · 가짜 deepagents 포트(`PRO_LLM_BASE_URL=http://127.0.0.1:59981/v1`, `PRO_DEEPAGENTS_URL=http://127.0.0.1:59982`)로 서버를 다시 띄운다.
 - 결과: `results/e2e-F-MR.txt`. 사진의 대화방 목록에서는 이 데이터베이스의 다른 팀원 줄을 가린다(F-MR-01a).
 

@@ -52,7 +52,7 @@ BFF 포트는 8963(`CH_PORT`), 회사는 `champion-e2e`를 사용한다. 테스�
 - **CH-E-04 비밀 정보 차단 및 복구:** 개인 키가 포함된 파일을 push하면 push 자체는 수락되지만, 응답이 완료되기 전에 브랜치가 직전 커밋으로 복원된다. `sync:refused secret`에는 경로, 2번째 줄, `private_key`가 포함되며 `main`은 유지된다. 키 값은 응답과 서버 로그 모두에 포함되지 않는다. 해당 파일을 제거한 뒤 다시 push하면 정상 반영된다.
 - **CH-E-05 구조 · 한도 · 속성:** 실제 git으로 심볼릭 링크 · gitlink · `.gitmodules` · 새 커밋 21개 · 50 MB 초과 파일을 push한다. push 자체는 수락하지만 응답이 완료될 때 브랜치는 이미 이전 상태로 복구되어 있다. `sync:pushed`는 `structure` · `too_big`으로 거절하고 main은 그대로 유지한다. `.gitattributes`(`eol=crlf` · `union`)는 수락하지만 서버의 main 작업 트리 파일에는 CR이 생기지 않는다.
 - **CH-E-06 브랜치 숨김:** 클러스터 토큰으로 실행한 `ls-remote`에는 main만 표시되고 동기화 브랜치는 표시되지 않는다. 클러스터 토큰으로 동기화 브랜치에 push하면 거절하고, 데스크톱 토큰으로 `/api/git`에 접근하면 403을 반환한다.
-- **CH-E-07 연결 제한 · 권한 변경 · 기기 연결 해제:** 파일이 있는 폴더는 김동료의 PC가 연결하지 못한다(`not_empty`). 빈 폴더에서는 김동료의 토큰에 박챔피언의 동기화 브랜치가 보이지 않는다. 편집자였던 김동료의 권한을 보기로 변경하면 push는 403으로 거절되지만 fetch는 허용된다. 기기 연결을 해제하면 링크가 코드 4401로 종료되고, 토큰을 사용한 요청은 403으로 거절된다.
+- **CH-E-07 연결 제한 · 권한 변경 · 기기 연결 해제:** 파일이 있는 폴더는 김동료의 PC가 연결하지 못한다(`not_empty`). 빈 폴더에서는 김동료의 토큰에 박챔피언의 동기화 브랜치가 보이지 않는다. 그 브랜치에만 있는 파일과 같은 내용의 파일도 김동료의 PC에서 올라간다. 편집자였던 김동료의 권한을 보기로 변경하면 push는 403으로 거절되지만 fetch는 허용된다. 기기 연결을 해제하면 링크가 코드 4401로 종료되고, 토큰을 사용한 요청은 403으로 거절된다.
 - **CH-E-08 원본 연결 제어:** 웹에서 일시 중지, 재개, 원본 연결 제거를 수행한다. 해당 컴퓨터가 상태에 따라 `sync:refused paused` 또는 `sync:refused source_removed`를 즉시 수신하는지 확인한다. 토큰을 사용한 요청의 403 응답과 `sync:token` 거절, 재연결 및 연결 해제도 검증한다.
 - **CH-E-09 폴더 삭제 및 자산 수:** 업로드되지 않은 빈 챔피언 폴더는 삭제할 수 있다. 파일이 있으면 409, 일반 폴더이면 400, 소유자가 아니면 403을 반환한다. 폴더 목록의 자산 수도 확인한다.
 
@@ -96,3 +96,18 @@ cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js
 | 시스템 대화상자에서 「취소」를 선택하면 「올리지 않았어요」가 표시됨. 원본 레코드와 폴더가 남지 않으며, 앱 목록도 변경되지 않음 | (데스크톱 시험 5) |
 
 스크린샷: `f-ch-01-desktop-preview.png` · `f-ch-02-desktop-folder.png` · `f-ch-02-desktop-kit.png`
+
+## 폴더를 끌어다 놓아 올리기 · 「파일 올리기」 · 「폴더 올리기」 · 작업실의 까닭 (사용자 녹화 11-27)
+
+`e2e/README.md` 71절. 화면은 자기 스택(여러 회사 · 터미널 열쇠 없음 — 운영과 같은 설정)으로 본다.
+
+```bash
+cd server && node --test test/folderDrop.test.js test/folderDropUpload.test.js test/bodyAfterAuth.test.js
+cd e2e && npx playwright test --project=feature tests/feature/folder-drop.spec.js
+cd e2e && npx playwright test --project=desktop tests/desktop/folder-drop.spec.js
+```
+
+- 단위(16, `folderDrop.test.js`): 서버와 같은 갈래 읽기(`groupOf` 견주기) · 들어가지 않는 폴더(`.git` · `node_modules` · `.ssh` · `.claude/projects`) · 따라 내려가기(`readEntries` 여러 번) · 빠지는 것과 까닭 · 열쇠 모양(줄 · 종류, 값 없음) · 새 폴더는 그 안의 것을 맨 위부터 · 한도와 가장 큰 것 · 여럿 놓기 · `webkitdirectory` 목록 · 원격 주소(이름 · 토큰 지움) · 요청 나누기 · 서버의 파일별 거절(`refusalOf`) · 자기 안으로 이어지는 폴더(깊이에서 멈춤) · 폴더의 `.gitignore`(걷기 · 「폴더 올리기」) · NFC · 긴 경로 · `.gitattributes` · 요청 본문을 오는 대로 한도 안에서 읽기(50만 개 · 큰 파일 · 설명 없음 · 남는 바이트) · 여러 요청에 한 묶음 표시 · 중간 실패 · 그만두기.
+- DB 와 실제 git(8, `folderDropUpload.test.js`): DR-U-01 한 요청 한 커밋 · DR-U-02 파일마다 다시 보기(git 제어 경로의 여러 철자 · 대소문자만 다른 두 번째 · NFC) · DR-U-03 폴더의 `.gitignore`(따르고, 올리지는 않음) · DR-U-04 커밋이 실패하면 되돌림 · DR-U-05 참조 자리 · 관리형만 · DR-U-06 한 번의 올리기 한도 · DR-U-07 이미 있는 것과 대소문자만 다른 이름 · 맥의 이름 형식 · DR-U-08 작업실 쓰기의 git 제어 경로.
+- 본문 다음에 로그인(1, `bodyAfterAuth.test.js`): 몸통을 받는 경로가 로그인 확인 뒤에 본문을 읽어도 회사(테넌트)가 그대로이고, 로그인 없는 요청은 본문을 기다리지 않는다.
+- 화면 F-DR-01~09 · 12 · 데스크톱 F-DR-10 · 11 — 증거 사진(`results/`): `f-dr-01-drop-sheet` · `f-dr-01-uploaded` · `f-dr-02-list-dropzone` · `f-dr-02-new-sheet` · `f-dr-03-over` · `f-dr-04-menu` · `f-dr-05-sheet-390` · `f-dr-06-dark` · `f-dr-07-desktop-old` · `f-dr-07-desktop-ways` · `f-dr-09-workroom` · `f-dr-10-desktop-dir-sheet` · `f-dr-11-desktop-workroom`.

@@ -7,6 +7,8 @@
 //   - what is unreachable goes after 7 days (reflog entries and loose objects): an undo the same week works
 //   - never --aggressive (hours of CPU for a few percent) nor --prune=now (races a write in flight)
 //   - a folder with little to do is left alone
+//   - what a push stopped half way left of its quarantine (objects/tmp_objdir-incoming-…: what it received, never in the repository) goes
+//     every night, packing or not — inside the lock no push is running
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from '../../config.js'
@@ -50,8 +52,9 @@ export async function gcFolder(folder, { reflogExpire = '7.days', pruneExpire = 
   if (!EXPIRY.test(reflogExpire) || !EXPIRY.test(pruneExpire)) throw new Error('bad expiry')
   return S.serial(folder.id, async () => {
     if (!(await fs.stat(path.join(folder.repo_path, '.git')).catch(() => null))) return { skipped: 'missing' }
+    const leftover = await dropQuarantines(folder.repo_path)
     const before = await countObjects(folder.repo_path)
-    if (!force && littleToDo(before, folder.settings?.gc?.at)) return { skipped: 'little', before }
+    if (!force && littleToDo(before, folder.settings?.gc?.at)) return { skipped: 'little', before, leftover }
     const t0 = Date.now()
     await G.git(folder.repo_path, ['-c', 'pack.threads=1', '-c', 'pack.windowMemory=256m',
       '-c', `gc.reflogExpireUnreachable=${reflogExpire}`, '-c', `gc.pruneExpire=${pruneExpire}`, 'gc', '--quiet'], { timeout: GC_TIMEOUT })
@@ -59,8 +62,18 @@ export async function gcFolder(folder, { reflogExpire = '7.days', pruneExpire = 
     const gc = { at: new Date().toISOString(), beforeKiB: kib(before), afterKiB: kib(after) }
     // pro_folders.settings is jsonb: the last pass rides along with the folder, no table of its own
     await q(`update pro_folders set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('gc', $2::jsonb) where id=$1`, [folder.id, gc])
-    return { ...gc, ms: Date.now() - t0, before, after }
+    return { ...gc, ms: Date.now() - t0, before, after, leftover }
   })
+}
+// the quarantine folders a stopped push left (git's receive-pack: objects/tmp_objdir-incoming-XXXXXX) → how many went
+export async function dropQuarantines(repo) {
+  const objects = path.join(repo, '.git', 'objects')
+  let n = 0
+  for (const name of await fs.readdir(objects).catch(() => [])) {
+    if (!/^tmp_objdir-incoming-[A-Za-z0-9]+$/.test(name)) continue
+    await fs.rm(path.join(objects, name), { recursive: true, force: true }).then(() => { n++ }).catch(() => {})
+  }
+  return n
 }
 
 // every folder of the current tenant, one at a time, one log line each

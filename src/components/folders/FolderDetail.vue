@@ -20,6 +20,11 @@ import { folders as F, whoOf, holderName, roleLabel, statusLabel, sourceLabel, i
 import { kindOf, kindLabel, baseName, fmtSize } from './fileKind.js'
 // files another app shared (Android's share sheet), put in this folder after 「이 폴더에 넣기」 (components/ShareArrival.vue)
 import { inbox } from '../../shareInbox.js'
+// 「템플릿으로 시작」 opens the new project (server lib/folders/templates.js)
+import { useApp } from '../../stores/app.js'
+// a folder of the computer dropped here or picked with 「폴더 올리기」: walked, previewed, then up once (src/folderDrop.js)
+import FolderDropSheet from './FolderDropSheet.vue'
+import { compileRules, entriesOf, walk, fromPicked } from '../../folderDrop.js'
 
 const props = defineProps({ slug: String })
 const emit = defineEmits(['preview'])
@@ -43,6 +48,11 @@ const cand = ref(null)
 const skill = ref(null)        // skill folders: author, visibility, agents & bosses, contributions, merge right
 const sharing2 = ref(false)
 const fileInput = ref(null)
+const dirInput = ref(null)
+const dropSheet = ref(null)    // {scan, rules} — the preview of a folder from the computer
+const scanning = ref('')       // 「폴더를 살피는 중…」 while a dropped folder is walked
+// 「폴더 올리기」 where a folder can be picked (a computer's browser · the desktop app; not a phone's)
+const canPickDir = typeof window !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype && !!window.matchMedia?.('(hover: hover)').matches
 // the folder's reference slots as I see them: ok (its files come with the tree, each with `ref`) · locked · dangling
 const refs = ref([])
 const addingRef = ref(false)
@@ -52,6 +62,31 @@ const can = (need) => ({ viewer: 1, runner: 2, editor: 3, owner: 4 })[folder.val
 const kit = ref([])
 const sources = ref([])
 const champion = computed(() => !!folder.value?.settings?.champion)
+// a template (server lib/folders/templates.js): {description, outputs, file} from its TEMPLATE.md, or null
+const app = useApp()
+const tpl = computed(() => folder.value?.template || null)
+const mayTemplate = computed(() => folder.value?.kind === 'managed' && !folder.value?.settings?.work && can('owner'))
+const starting = ref(false)
+async function toggleTemplate() {
+  const on = !tpl.value
+  if (!on && !confirm('템플릿 지정을 풀까요? 이미 시작한 프로젝트의 작업 공간은 그대로예요.')) return
+  try { await F.setTemplate(props.slug, on); await load(); say(on ? '템플릿으로 지정했어요 — 이 폴더에서 프로젝트를 시작할 수 있어요' : '템플릿 지정을 풀었어요') } catch (e) { say(e.message) }
+}
+// 「템플릿으로 시작」: the project's name in the band itself (a browser prompt is not part of the page — nor of a recording)
+const naming = ref(false)
+const projectName = ref('')
+const nameBox = ref(null)
+async function askName() { naming.value = true; projectName.value = ''; await new Promise((r) => setTimeout(r)); nameBox.value?.focus() }
+async function startFromTemplate() {
+  const title = projectName.value.trim()
+  if (!title) return
+  starting.value = true
+  try {
+    const t = await F.startProject(props.slug, title)
+    await app.loadProjects().catch(() => {})
+    router.push(`/projects/${t.id}`)
+  } catch (e) { say(e.message) } finally { starting.value = false }
+}
 // this computer's upload of this folder (only in the desktop app — its bridge's list(); no path)
 const mine = computed(() => (folder.value && pcFolders.ready ? pcFolderOf(folder.value.id) : null))
 const syncing = ref('')
@@ -66,7 +101,12 @@ async function load() {
     if (f.kind === 'linked' && !cand.value) cand.value = await F.candidates(props.slug).catch(() => null)
   } catch (e) { err.value = e.message }
 }
-onMounted(load)
+onMounted(() => {
+  load()
+  // a folder just made from a dropped one (FolderList dropDone): what is to be said about it, and its index a moment later
+  const note = window.history.state?.dropNote
+  if (note) { say(note); setTimeout(load, 1500); window.history.replaceState({ ...window.history.state, dropNote: null }, '') }
+})
 defineExpose({ load })
 watch(() => props.slug, () => { folder.value = null; cand.value = null; load() })
 // agents finish runs and cards get made in the background: keep the view fresh meanwhile
@@ -240,7 +280,57 @@ function onDrop(e) {
   if (k === 'pgl') { if (pgl.value) { e.preventDefault(); onPglDrop(e) } return }
   e.preventDefault()
   dragging.value = false
+  // (the entries are read now: a drop's items are gone once this returns) a folder among them: walked and previewed first
+  const entries = entriesOf(e.dataTransfer)
+  if (entries.some((x) => x.isDirectory)) return dropFolder(entries)
   if (e.dataTransfer?.files?.length) uploadFiles([...e.dataTransfer.files])
+}
+// a folder from the computer: the champion folders' rules (what stays here), the walk down, then the sheet
+let rules = null
+const rulesNow = async () => (rules ||= compileRules(await F.uploadRules()))
+// (「그만두기」 on the note, or leaving the folder, stops the walk)
+let walking = null
+onBeforeUnmount(() => walking?.abort())
+async function dropFolder(entries) {
+  if (!can('editor') || folder.value?.kind !== 'managed') return say(folder.value?.kind !== 'managed' ? '이 폴더에는 올릴 수 없어요.' : '올리려면 편집 권한이 필요해요.')
+  walking?.abort()
+  const stop = (walking = new AbortController())
+  scanning.value = '폴더를 살피는 중…'
+  try {
+    const r = await rulesNow()
+    const scan = await walk(entries, r, { signal: stop.signal, onProgress: (n) => { scanning.value = `폴더를 살피는 중… 파일 ${n.toLocaleString()}개` } })
+    if (!stop.signal.aborted) dropSheet.value = { scan, rules: r }
+  } catch (e) { if (e.name !== 'AbortError') say(e.message) } finally { if (walking === stop) { walking = null; scanning.value = '' } }
+}
+const stopWalk = () => { walking?.abort(); walking = null; scanning.value = '' }
+async function pickedDir(e) {
+  const list = [...(e.target.files || [])]
+  e.target.value = ''
+  if (!list.length) return
+  try { const r = await rulesNow(); dropSheet.value = { scan: await fromPicked(list, r), rules: r } } catch (err2) { say(err2.message) }
+}
+function pickedFiles(e) {
+  const list = [...(e.target.files || [])]
+  e.target.value = ''
+  if (list.length) uploadFiles(list)
+}
+// (the server brings the folder's index up to date a moment after the last request: the list is read now and again shortly)
+function dropDone(r) {
+  dropSheet.value = null
+  load()
+  setTimeout(load, 1500)
+  const bad = r.refused || []
+  const n = Number(r.written || 0).toLocaleString()
+  if (r.stopped) return say(`그만뒀어요 — 파일 ${n}개는 올라갔어요`)
+  if (r.partial) return say(`파일 ${n}개를 올린 뒤 멈췄어요 — ${r.partial}`)
+  say(`올렸어요 — 파일 ${n}개${bad.length ? ` · 서버가 받지 않은 것 ${bad.length}개(${bad.slice(0, 3).map((x) => `${x.path} ${reasonText(x.reason)}`).join(', ')})` : ''}`)
+}
+// 「파일 올리기」 · 「폴더 올리기」: the system's file window, opened from the click itself — the inputs stay in the page whatever the
+// menu or the tab row do (a menu item that closes does not take its input with it), out of sight rather than display:none
+function choose(input) {
+  upMenu.value = null
+  if (!input) return say('이 폴더에는 올릴 수 없어요.')
+  input.click()
 }
 async function removeFile(f) {
   if (!confirm(`'${f.path}' 을(를) main 에서 지울까요? 이력에는 남아요.`)) return
@@ -308,7 +398,7 @@ const ix = computed(() => folder.value?.index_state || {})
         <button class="back press" title="폴더 목록" @click="router.push('/folders')"><Icon name="back" :size="18" /></button>
         <span class="fic folder" :class="{ linked: folder.kind === 'linked', skill: isSkill }"><FIcon :name="folder.kind === 'linked' ? 'link' : isSkill ? 'agent' : 'folder'" :size="22" /></span>
         <div class="ttl">
-          <h1><span class="hn">{{ folder.name }}</span> <span v-if="isSkill" class="kb" :class="skill?.visibility">{{ skill?.visibility === 'private' ? '내 스킬' : '전사 공유 스킬' }}</span><span v-else-if="work" class="kb work" data-test="folder-work-badge">작업 폴더</span></h1>
+          <h1><span class="hn">{{ folder.name }}</span> <span v-if="isSkill" class="kb" :class="skill?.visibility">{{ skill?.visibility === 'private' ? '내 스킬' : '전사 공유 스킬' }}</span><span v-else-if="work" class="kb work" data-test="folder-work-badge">작업 폴더</span><span v-else-if="tpl" class="kb tpl" data-test="folder-template-badge">템플릿</span></h1>
           <small v-if="isSkill">작성자 {{ skill?.author?.name || '—' }} · {{ canMerge ? '반영할 수 있어요' : '고칠 점은 변형으로 제안해요' }}</small>
           <small v-else>{{ folder.description }} · 내 권한 {{ roleLabel[folder.role] }}</small>
           <!-- a work folder (server lib/mailWork.js): back to the instance it belongs to -->
@@ -319,9 +409,26 @@ const ix = computed(() => folder.value?.index_state || {})
           <Avatar v-for="m in folder.members.slice(0, 6)" :key="m.type + m.id" :who="whoOf(m)" :size="30" />
         </button>
  <button v-if="!isSkill" class="pill-btn hbtn" @click="sharing = true"><FIcon name="people" :size="16" /> 공유</button>
+        <button v-if="mayTemplate && !tpl" class="pill-btn hbtn" data-test="folder-template-on" title="이 폴더에서 프로젝트를 시작할 수 있게 해요" @click="toggleTemplate"><FIcon name="branch" :size="16" /> 템플릿으로 지정</button>
         <button v-if="can('editor') && folder.kind === 'managed'" class="pill-btn hbtn" title="main 을 작업실(파일·셸)에서 열기" @click="router.push(`/workroom/folder/${folder.slug}`)"><FIcon name="terminal" :size="16" /> 작업실</button>
       </div>
 
+      <!-- a template: what it is for (TEMPLATE.md), where a project's outputs stay, and 「템플릿으로 시작」 -->
+      <div v-if="tpl" class="banner tplbar glass" data-test="folder-template">
+        <FIcon name="branch" :size="18" />
+        <span class="tt"><span class="l1"><b>템플릿</b><span class="dot"> · </span><span data-test="folder-template-desc">{{ tpl.description || '프로젝트를 시작할 때 쓰는 폴더예요' }}</span></span><small>프로젝트마다 전용 작업 공간이 생기고, 결과물은 그 프로젝트의 「{{ tpl.outputs }}/」에만 남아요 · 이 폴더는 그대로예요</small></span>
+        <span class="sp" />
+        <button v-if="mayTemplate" class="tb press" data-test="folder-template-off" @click="toggleTemplate">지정 풀기</button>
+        <form v-if="naming" class="tplname" data-test="folder-template-name" @submit.prevent="startFromTemplate">
+          <input ref="nameBox" v-model="projectName" maxlength="60" placeholder="새 프로젝트 이름" aria-label="새 프로젝트 이름" @keydown.esc="naming = false" />
+          <button class="dark-btn sm2" data-test="folder-template-go" :disabled="starting || !projectName.trim()">{{ starting ? '만드는 중…' : '시작' }}</button>
+        </form>
+        <button v-else-if="can('runner')" class="dark-btn sm2" data-test="folder-template-start" @click="askName">템플릿으로 시작</button>
+      </div>
+      <template v-if="can('editor') && folder.kind === 'managed'">
+        <input ref="fileInput" class="pick" type="file" multiple tabindex="-1" aria-hidden="true" data-test="folder-file-input" @change="pickedFiles($event)" />
+        <input ref="dirInput" class="pick" type="file" webkitdirectory multiple tabindex="-1" aria-hidden="true" data-test="folder-dir-input" @change="pickedDir($event)" />
+      </template>
       <div v-if="mine" class="pcbar glass" data-test="folder-pc-sync" :class="{ stop: stopped(mine.state) || mine.why }">
         <FIcon name="pc" :size="17" />
         <span class="pt"><b>이 PC 의 「{{ mine.label }}」 폴더와 연결됨</b><small class="meta"><span>{{ mine.why ? `멈춤 · ${whyText(mine.why)}` : stateText(mine.state) }}</span><span v-if="mine.lastPushedAt">{{ ago(mine.lastPushedAt) }} 올림</span></small></span>
@@ -355,10 +462,7 @@ const ix = computed(() => folder.value?.index_state || {})
             <span class="ref"><FIcon name="branch" :size="14" /> {{ folder.default_branch }} · <code>{{ folder.history[0]?.short }}</code></span>
             <span class="sp" />
             <span v-if="uploading" class="up"><span class="spin" /> {{ uploading }}</span>
-            <template v-if="tab === 'files' && can('editor') && folder.kind === 'managed'">
-              <input ref="fileInput" type="file" multiple hidden @change="uploadFiles([...$event.target.files]); $event.target.value = ''" />
-              <button class="tb press" data-test="folder-add-menu" :aria-expanded="!!upMenu" @click="openUpMenu"><FIcon name="upload" :size="15" /> 올리기<span class="caret" aria-hidden="true">▾</span></button>
-            </template>
+            <button v-if="tab === 'files' && can('editor') && folder.kind === 'managed'" class="tb press" data-test="folder-add-menu" :aria-expanded="!!upMenu" @click="openUpMenu"><FIcon name="upload" :size="15" /> 올리기<span class="caret" aria-hidden="true">▾</span></button>
           </div>
 
           <div v-if="tab === 'files'" class="files scroll" :class="{ drag: dragging }">
@@ -409,7 +513,7 @@ const ix = computed(() => folder.value?.index_state || {})
               </div>
             </template>
             <p v-if="!files.length && !refs.length" class="none">아직 파일이 없어요.</p>
-            <p v-if="can('editor') && folder.kind === 'managed'" class="drop">파일을 여기로 끌어다 놓으면 main 에 올라가요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어 가면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)</p>
+            <p v-if="can('editor') && folder.kind === 'managed'" class="drop" data-test="folder-drop-hint">파일이나 폴더를 여기로 끌어다 놓으면 main 에 올라가요 · 폴더는 올릴 내용을 먼저 확인해요 · 올린 사람과 시각이 이력에 남아요 · 파일을 대화방이나 채팅으로 끌어다 놓으면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)</p>
           </div>
 
           <div v-else-if="tab === 'history'" class="hist scroll">
@@ -478,6 +582,8 @@ const ix = computed(() => folder.value?.index_state || {})
                   <span class="when">{{ ago(v.updated_at) }}</span>
                 </span>
                 <span v-if="v.source?.pr_id" class="prb">반영 요청됨</span>
+                <!-- sent from a project started from this template (server lib/folders/templates.js) -->
+                <span v-else-if="v.source?.request" class="prb" data-test="variation-request-badge">반영 요청</span>
                 <span v-if="v.change_card?.summary" class="from">{{ v.change_card.summary }}</span>
                 <span v-else class="from">{{ v.source?.label }}</span>
               </button>
@@ -510,11 +616,13 @@ const ix = computed(() => folder.value?.index_state || {})
 
       <MergeSheet v-if="merging" :folder="folder" :ids="merging.ids" :integration="merging.integration" @close="merging = null; load()" @done="merged" />
       <ShareSheet v-if="sharing" :folder="folder" :pick="pickShare" @close="sharing = false; pickShare = ''; load()" />
+      <FolderDropSheet v-if="dropSheet" :scan="dropSheet.scan" :rules="dropSheet.rules" mode="into" :folder="folder" @close="dropSheet = null" @done="dropDone" />
       <RefSheet v-if="addingRef" :folder="folder" :taken="[...refs.map((r) => r.label), ...refs.map((r) => r.slot)]" @close="addingRef = false" @added="refAdded" />
       <!-- the menus: beside their button on a wide screen, a sheet from the bottom on a phone -->
       <div v-if="upMenu" class="mveil" @click.self="upMenu = null">
         <div class="pop glass" role="menu" :style="{ left: `${upMenu.x}px`, top: `${upMenu.y}px` }">
-          <button class="mi press" role="menuitem" @click="upMenu = null; fileInput.click()"><FIcon name="upload" :size="16" /> 파일 올리기</button>
+          <button class="mi press" role="menuitem" data-test="folder-upload-files" @click="choose(fileInput)"><FIcon name="upload" :size="16" /> 파일 올리기</button>
+          <button v-if="canPickDir" class="mi press" role="menuitem" data-test="folder-upload-dir" @click="choose(dirInput)"><FIcon name="folder" :size="16" /> 폴더 올리기<small>폴더째 — 안의 파일을 경로 그대로</small></button>
           <button class="mi press" role="menuitem" data-test="folder-add-ref" @click="upMenu = null; addingRef = true"><FIcon name="ref" :size="16" /> 참조 더하기<small>다른 폴더 · 파일을 가리키기만 해요</small></button>
         </div>
       </div>
@@ -527,7 +635,8 @@ const ix = computed(() => folder.value?.index_state || {})
         </div>
       </div>
     </template>
-    <Transition name="fade"><div v-if="toast" class="toast">{{ toast }}</div></Transition>
+    <Transition name="fade"><div v-if="toast" class="toast" data-test="folder-toast">{{ toast }}</div></Transition>
+    <Transition name="fade"><div v-if="scanning" class="toast scan" data-test="folder-scanning" role="status"><span class="spin" /> {{ scanning }}<button class="press" data-test="folder-scanning-stop" @click="stopWalk">그만두기</button></div></Transition>
     <Transition name="fade">
       <div v-if="filedNote" class="toast filed" data-test="folder-filed" role="status">
         <FIcon name="folder" :size="16" /><span>{{ filedNote.text }}{{ filedNote.count > 1 ? ` · ${filedNote.count}개` : '' }}</span>
@@ -560,6 +669,12 @@ h1 .kb { flex: none; align-items: center; line-height: 1; }
 .kb { display: inline-flex; vertical-align: middle; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background: rgba(150 240 176 / .2); color: var(--color-success); letter-spacing: 0; }
 .kb.private { background: rgba(255 160 60 / .18); color: #e08a2c; }
 .kb.work { background: rgba(226 169 59 / .2); color: #c98a1a; }
+.kb.tpl { background: rgba(124 92 214 / .15); color: #6b4fc8; }
+:root[data-theme="dark"] .kb.tpl { color: #c3b2ff; }
+.tplbar .tt { display: flex; flex-direction: column; gap: 2px; min-width: 0; line-height: 1.45; }
+.tplbar .tt small { color: var(--text-secondary); font-size: 12.5px; }
+.tplname { display: flex; gap: 8px; align-items: center; flex: 0 1 340px; min-width: 0; }
+.tplname input { flex: 1; min-width: 0; height: 36px; border-radius: 18px; border: 1px solid var(--hairline); background: var(--field-bg); padding: 0 14px; font-size: 14px; outline: 0; }
 .wk { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 13px; color: var(--text-secondary); text-decoration: none; }
 .wk:hover { color: var(--text-primary); }
 .fic.folder.skill { background: #7b5cd6; }
@@ -683,6 +798,10 @@ section.pane { position: relative; }
 .ask { flex: none; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; font-weight: 500; background: var(--ink); color: var(--ink-inverse); white-space: nowrap; }
 .asked { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
 .mveil { position: fixed; inset: 0; z-index: 46; }
+/* the system's file window opens from these (not display:none — kept in the page, out of sight) */
+.pick { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.toast.scan { display: inline-flex; align-items: center; gap: 8px; }
+.toast.scan button { margin-left: 4px; padding: 3px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #f5f5f7; background: rgba(255, 255, 255, .16); }
 .pop { position: fixed; width: 220px; padding: 6px; border-radius: 16px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 12px 40px rgba(0, 0, 0, .22); --regular-bg: var(--regular-solid-bg); animation: pop-in .25s var(--spring) both; }
 .mh { padding: 8px 10px 6px; font-size: 13.5px; font-weight: 600; display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
 .mh small, .mi small { font-size: 11.5px; font-weight: 400; color: var(--text-secondary); }

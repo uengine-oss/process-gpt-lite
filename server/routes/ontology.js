@@ -65,7 +65,7 @@ export function ontologyRoutes(auth) {
   r.get('/ontology/jobs/:id', auth, h((req) => S.job(req.params.id)))
   // 규정 · 업무 정의서(design-v0.3 §17): 파일 그대로 올리면 process-gpt 의 문서 읽기로 절차를 뽑아 지도 곁에 둔다
   // the same upload takes a chat export (카카오톡 대화 내보내기 CSV · TXT, design-v0.3 §21): its messages are read like mail
-  r.post('/ontology/documents', express.raw({ type: () => true, limit: '60mb' }), auth, h(async (req) => {
+  r.post('/ontology/documents', auth, express.raw({ type: () => true, limit: '60mb' }), h(async (req) => {
     const name = decodeURIComponent(String(req.headers['x-file-name'] || 'document.txt'))
     const C = await import('../lib/ontology/chatlog.js')
     return C.isChatExport(name, req.body) ? C.startChatHistory(req.user, { name, buf: req.body }) : DOC.startDocument(req.user, { name, buf: req.body })

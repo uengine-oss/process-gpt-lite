@@ -18,6 +18,8 @@ export async function folderRoom(kind, id, user = null) {
   }
   const v = /^[0-9a-f-]{36}$/.test(String(id)) ? await S.variationById(id) : null
   if (!v) return null
+  // (a project's workspace from a template is no room at all for anyone but its person — the same answer as one that is not there)
+  if (user && !S.visibleTo(v, user)) return null
   const f = await S.folderById(v.folder_id)
   // (a variation id of another company's folder is no room here)
   if (!f || f.tenant_id !== config.tenantId) return null
@@ -42,6 +44,8 @@ export async function folderRoomAccess(user, room) {
   const f = room.folderRow || await S.folderById(room.folder)
   const role = await S.roleOf(f, user)
   room.role = role
+  // (a project's workspace from a template: only its person — read only or not, the room is no one else's: folders/templates.js)
+  if (room.variationRow && !S.visibleTo(room.variationRow, user)) return false
   return !!role && S.RANK[role] >= S.RANK[room.need]
 }
 

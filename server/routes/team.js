@@ -223,7 +223,7 @@ export function teamRoutes(auth) {
   // a file from the computer (dropped, pasted or picked in the messenger): stored and made a card of mine, then sent like any card
   // (lib/team/uploads.js). The body is the file itself; its name and type in X-File-Name / X-File-Type (the body goes as
   // application/octet-stream, so the JSON parser in front never takes a .json file)
-  r.post('/team/uploads', express.raw({ type: () => true, limit: '50mb' }), auth, h(async (req) => {
+  r.post('/team/uploads', auth, express.raw({ type: () => true, limit: '50mb' }), h(async (req) => {
     const type = String(req.headers['x-file-type'] || '').slice(0, 120)
     let name = 'file'
     try { name = decodeURIComponent(String(req.headers['x-file-name'] || 'file')) } catch { /* the raw header */ }

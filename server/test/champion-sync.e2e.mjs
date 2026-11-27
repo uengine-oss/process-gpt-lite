@@ -335,7 +335,7 @@ await step('CH-E-06 동기화 가지는 다른 토큰에 보이지 않고 닿지
 })
 
 let kimLink, kimDevice, kimTok
-await step('CH-E-07 김동료: 파일이 있는 폴더는 묶지 못하고(not_empty) · 빈 폴더에서는 다른 기기의 가지가 안 보이며 · 보기 권한이 되면 올리기만 막히고 · 기기를 끊으면 다 막힌다', async () => {
+await step('CH-E-07 김동료: 파일이 있는 폴더는 묶지 못하고(not_empty) · 빈 폴더에서는 다른 기기의 가지가 안 보이며 · 그 가지에만 있는 것과 같은 파일도 올라가고 · 보기 권한이 되면 올리기만 막히고 · 기기를 끊으면 다 막힌다', async () => {
   await api(PC.token, `/folders/${folder.slug}/members`, { method: 'POST', body: { type: 'user', id: KIM.id, role: 'editor' } })
   kimDevice = await api(KIM.token, '/local-agents/devices', { method: 'POST', body: { name: '김동료의 PC', platform: 'win32', appVersion: 'e2e' } })
   kimLink = await openLink(kimDevice.token, '김동료의 PC')
@@ -350,7 +350,9 @@ await step('CH-E-07 김동료: 파일이 있는 폴더는 묶지 못하고(not_e
   const pcTwo = await pcLink.ask({ type: 'sync:token', folderId: two.id }, ['sync:token', 'sync:refused'])
   const pw = path.join(ROOT, 'pc-two')
   assert.equal((await git(ROOT, ['clone', '-q', remote(two.id), pw], pcTwo.token)).code, 0)
-  await write(pw, { '박챔피언.md': '# 아직 main 이 아님\n' })
+  // (a file the two PCs both have — the team's logo: the same bytes, the same object)
+  const logo = `<svg xmlns="http://www.w3.org/2000/svg"><!-- ${crypto.randomUUID()} --><circle r="4"/></svg>\n`
+  await write(pw, { '박챔피언.md': '# 아직 main 이 아님\n', '공용/로고.svg': logo })
   await git(pw, ['add', '-A'])
   await git(pw, ['commit', '-q', '-m', '동기화 · 박챔피언의 맥'])
   assert.equal((await git(pw, ['push', '-q', 'origin', `HEAD:refs/heads/${pcTwo.branch}`], pcTwo.token)).code, 0)
@@ -361,6 +363,14 @@ await step('CH-E-07 김동료: 파일이 있는 폴더는 묶지 못하고(not_e
   assert.doesNotMatch(herView.out, new RegExp(pcTwo.branch), '다른 기기의 동기화 가지는 보이지 않는다')
   const kw = path.join(ROOT, 'kim')
   assert.equal((await git(ROOT, ['clone', '-q', remote(two.id), kw], kimTok.token)).code, 0)
+  // her upload has the same logo as his branch (which she cannot see, not yet in main): she sent it whole — it goes up
+  await write(kw, { '공용/로고.svg': logo })
+  await git(kw, ['add', '-A'])
+  await git(kw, ['commit', '-q', '-m', '동기화 · 김동료의 PC'])
+  const same = await git(kw, ['push', '-q', 'origin', `HEAD:refs/heads/${kimTok.branch}`], kimTok.token)
+  assert.equal(same.code, 0, `같은 바이트의 파일: ${same.err}`)
+  const mine = (await git(kw, ['rev-parse', 'HEAD'])).out
+  assert.equal((await git(ROOT, ['ls-remote', remote(two.id), `refs/heads/${kimTok.branch}`], kimTok.token)).out.split(/\s+/)[0], mine, '그녀의 가지에 섰다')
   await write(kw, { '견적/김동료 메모.md': '# 메모\n' })
   await git(kw, ['add', '-A'])
   await git(kw, ['commit', '-q', '-m', '동기화 · 김동료의 PC'])
@@ -377,7 +387,7 @@ await step('CH-E-07 김동료: 파일이 있는 폴더는 묶지 못하고(not_e
   const after = await git(ROOT, ['ls-remote', remote(two.id)], kimTok.token)
   assert.notEqual(after.code, 0)
   assert.match(after.err, /403/)
-  return `파일 있는 폴더 → not_empty · 다른 기기의 가지 안 보임 · 보기 권한 push → 403 · ls-remote 0 · 끊은 기기 → 링크 닫힘(${kimLink.closed}) · 403`
+  return `파일 있는 폴더 → not_empty · 다른 기기의 가지 안 보임 · 그 가지와 같은 파일 push → 0 · 보기 권한 push → 403 · ls-remote 0 · 끊은 기기 → 링크 닫힘(${kimLink.closed}) · 403`
 })
 
 await step('CH-E-08 웹에서 원본 PC 를 빼면: 그 PC 가 바로 듣고, 토큰 · sync:token 이 막힌다 · 다시 묶을 수 있다', async () => {

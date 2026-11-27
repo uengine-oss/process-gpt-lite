@@ -94,8 +94,8 @@ test('방 순서: 스레드 > 보낸 사람 > 회사 > 같이 받은 사람 > �
 })
 
 test('판정이 읽는 것: 방 이름 · 사람(나 빼고) · 최근 메시지, 메일은 보낸 사람 · 제목 · 첨부 · 본문 앞부분(자료)', () => {
-  const label = R.roomLabel({ title: '에이스정밀 납품', members: [{ id: 'me', name: '정하윤' }, { id: 'k', name: '김서연' }, { id: 'p', name: '박도윤' }], last: { body: '3분기 납품 일정 정리했어요' } }, { id: 'me' })
-  assert.equal(label, '「에이스정밀 납품」 · 사람: 김서연, 박도윤 · 최근 메시지: "3분기 납품 일정 정리했어요"')
+  const label = R.roomLabel({ title: '예시정밀 납품', members: [{ id: 'me', name: '정하윤' }, { id: 'k', name: '김서연' }, { id: 'p', name: '박도윤' }], last: { body: '3분기 납품 일정 정리했어요' } }, { id: 'me' })
+  assert.equal(label, '「예시정밀 납품」 · 사람: 김서연, 박도윤 · 최근 메시지: "3분기 납품 일정 정리했어요"')
   const st = R.mailState({ source: { subject: '견적 요청' } }, { from: '김하늘 <haneul@ace-precision.example>', subject: '3분기 부품 견적 요청드립니다', attachments: [{ name: '부품목록.xlsx' }], text: 'a'.repeat(900) }, 800)
   assert.match(st, /보낸 사람: 김하늘 <haneul@ace-precision\.example>/)
   assert.match(st, /첨부: 부품목록\.xlsx/)

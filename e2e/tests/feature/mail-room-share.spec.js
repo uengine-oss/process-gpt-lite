@@ -3,7 +3,7 @@
 // 대화가 없는 팀원. 한마디 · 「본문도 공유」 · 「앞으로 오는 메일도 이 방에 올리기」(보낸 사람 · 회사)를 정하고, 방에 무엇이 보일지 읽은 뒤 「보내기」.
 // 약속을 정하면 그 회사의 새 메일은 들어올 때 그 방에 저절로 올라간다(「메일 자동 공유」, 본문은 약속을 정할 때의 「본문도 공유」대로 — 화면에서는 켜짐이 기본).
 // 서버는 가짜 모델(PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59961>/v1)로 띄운다 — 이 파일이 띄운다. 메일함은 데모 메일함(보내지 않음).
-// 사람 이름 · 회사 · 메일은 지어낸 것이다(에이스정밀 김하늘 · 이준호).
+// 사람 이름 · 회사 · 메일은 지어낸 것이다(예시정밀 김하늘 · 이준호).
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -21,10 +21,10 @@ test.describe.configure({ mode: 'serial' })
 const MAIL = {
   sender: '김하늘 <haneul@ace-precision.example>',
   subject: '3분기 부품 견적 요청드립니다',
-  body: '안녕하세요, 에이스정밀 구매팀 김하늘입니다.\n3분기에 필요한 베어링 하우징 1,200개와 샤프트 800개의 견적을 부탁드립니다.\n납기는 9월 말까지 희망합니다.\n\n김하늘 드림',
-  text: '에이스정밀 3분기 부품 견적 요청을 확인합니다',
+  body: '안녕하세요, 예시정밀 구매팀 김하늘입니다.\n3분기에 필요한 베어링 하우징 1,200개와 샤프트 800개의 견적을 부탁드립니다.\n납기는 9월 말까지 희망합니다.\n\n김하늘 드림',
+  text: '예시정밀 3분기 부품 견적 요청을 확인합니다',
 }
-const ROOM = '에이스정밀 납품'
+const ROOM = '예시정밀 납품'
 
 // ---- the fake model: the room judge picks the room named ROOM; the triage makes a card for each mail whose subject is in `cards` ----
 const llm = { calls: [], cards: [] }
@@ -104,7 +104,7 @@ async function setup(pageAs, as, db, area, { viewport = WIDE, touch = false, the
   const title = `${ROOM} ${uniq('r').slice(-4)}`
   const t = await u.post('/team/threads', { members: [mate.id, mate2.id], title })
   expect(t.status).toBe(200)
-  expect((await mate.post(`/team/threads/${t.body.id}/messages`, { text: '에이스정밀 3분기 납품 일정 정리했어요' })).status).toBe(200)
+  expect((await mate.post(`/team/threads/${t.body.id}/messages`, { text: '예시정밀 3분기 납품 일정 정리했어요' })).status).toBe(200)
   const other = await u.post('/team/threads', { members: [mate2.id], title: `주간 회의 ${uniq('w').slice(-4)}` })
   return { page, u, a, mate, mate2, room: t.body.id, title, rooms: [t.body.id, other.body.id] }
 }

@@ -484,7 +484,7 @@ test('F-RF-04 원본의 구성원이 아닌 동료: 잠긴 자리(이름표만)�
 test('F-RF-05 자리에 올리기는 거절된다 — 같은 이름의 파일 · 자리 아래 경로 · 지우기', async ({ browser }) => {
   const p = await open(browser, A, DESK)
   await toFolder(p, COMP)
-  await p.locator('input[type=file]').setInputFiles({ name: '가격표.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from('PK 덮어쓰려는 표') })
+  await p.locator('[data-test="folder-file-input"]').setInputFiles({ name: '가격표.xlsx', mimeType: 'application/octet-stream', buffer: Buffer.from('PK 덮어쓰려는 표') })
   await expect(p.locator('.toast')).toContainText('참조된 자료예요. 원본 폴더에서 고쳐 주세요.')
   await shot(p, 'f-rf-05-refused-light')
   for (const [method, q] of [['POST', `/folders/${COMP.slug}/files?path=${enc('폴더1/새 파일.md')}`], ['DELETE', `/folders/${COMP.slug}/files?path=${enc('폴더2/휴가 규정.md')}`]]) {

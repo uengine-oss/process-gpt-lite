@@ -24,10 +24,11 @@ export const gitEnv = () => ({ ...ENV })
 
 // how many git processes this server started (the tests hold reads under a reference slot to a few per request)
 export const stats = { spawns: 0 }
-export function git(cwd, args, { buffer = false, check = true, input, timeout = TIMEOUT } = {}) {
+// env: more variables for this one call (a temporary index: GIT_INDEX_FILE — folders/templates.js builds a commit without a work tree)
+export function git(cwd, args, { buffer = false, check = true, input, timeout = TIMEOUT, env = null } = {}) {
   stats.spawns++
   return new Promise((resolve, reject) => {
-    const child = execFile('git', [...BASE, ...args], { cwd, env: ENV, timeout, maxBuffer: 256 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
+    const child = execFile('git', [...BASE, ...args], { cwd, env: env ? { ...ENV, ...env } : ENV, timeout, maxBuffer: 256 * 1024 * 1024, encoding: buffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
       if (err && check) return reject(new GitError(args, err.code, stderr, stdout))
       resolve(buffer ? stdout : String(stdout))
     })
@@ -92,8 +93,17 @@ export async function head(cwd, ref = 'HEAD') {
 export async function isRepo(dir) {
   return (await git(dir, ['rev-parse', '--is-inside-work-tree'], { check: false })).trim() === 'true'
 }
+// exactly that branch (show-ref --verify on the whole ref name): never a revision (`x^0`, `x~1`, `:/text`) that happens to name a commit,
+// never a name git would not take as a branch
 export async function branchExists(cwd, branch) {
-  return !!(await head(cwd, `refs/heads/${branch}`))
+  const b = String(branch || '')
+  if (!b || !(await isBranchName(cwd, b))) return false
+  return /^[0-9a-f]{40}$/.test((await git(cwd, ['show-ref', '--verify', '-s', `refs/heads/${b}`], { check: false })).trim())
+}
+// a name git takes as a branch (check-ref-format --branch, without @{-n} shorthands)
+export async function isBranchName(cwd, b) {
+  if (!b || /[\s~^:?*[\\]|@\{|\.\.|^-|^\/|\/$|\.lock$|\/\./.test(b)) return false
+  return (await git(cwd, ['check-ref-format', '--branch', b], { check: false })).trim() === b
 }
 
 // every file of a ref: [{path, size, sha}]

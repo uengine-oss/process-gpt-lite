@@ -20,7 +20,10 @@ import * as PS from '../privateStore.js'
 import { people } from '../people.js'
 import { isAdmin } from '../team.js'
 import { assertNoLink } from '../noLinks.js'
+import { gitPart } from '../gitPart.js'
 import { kitCounts } from './kit.js'
+// what a folder uploaded from the page may not carry (uploadMany) — the champion folders' rules
+import * as SECRETS from './secrets.js'
 import { stillHeld } from './diskLease.js'
 
 const T = () => config.tenantId
@@ -33,7 +36,7 @@ export const foldersRoot = () => path.join(config.foldersRoot || path.join(os.ho
 export const workspaceDir = () => path.join(PGPT, 'services/deepagents/workspace', config.tenantId)
 
 export const RANK = { viewer: 1, runner: 2, editor: 3, owner: 4 }
-const err = (status, message) => Object.assign(new Error(message), { status })
+const err = (status, message, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) })
 
 // ---------- folders & permissions ----------
 // a linked folder (a repository registered where it is) exists only where linking is on (linkingOn)
@@ -199,9 +202,9 @@ export async function registerLinked(user, dir, { name, description = '' } = {})
 // ---------- listing ----------
 export async function listFolders(user) {
   const rows = await q(`select f.*, m.role,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status in ('open','ready','conflicted'))::int as live,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='open')::int as open,
-      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready')::int as ready
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status in ('open','ready','conflicted') and ${UNLISTED})::int as live,
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='open' and ${UNLISTED})::int as open,
+      (select count(*) from pro_folder_variations v where v.folder_id=f.id and v.status='ready' and ${UNLISTED})::int as ready
     from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_type='user' and m.principal_id=$2
     where f.tenant_id=$1 and f.kind <> 'skill' and (f.kind <> 'linked' or $3) order by f.updated_at desc`, [T(), String(user.id), linkingOn()])
   // (everyone's members at once: one lookup of names for the whole list, not one per folder)
@@ -239,7 +242,7 @@ export async function membersOfFolders(folderIds, { resolve = people } = {}) {
   return out
 }
 async function lastActivity(f) {
-  const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations where folder_id=$1 order by updated_at desc limit 1`, [f.id])
+  const [v] = await q(`select title, holder_name, status, updated_at from pro_folder_variations v where folder_id=$1 and ${UNLISTED} order by updated_at desc limit 1`, [f.id])
   const [c] = (await G.log(f.repo_path, f.default_branch, 1)) || []
   const vAt = v ? new Date(v.updated_at) : null
   const cAt = c ? new Date(c.at) : null
@@ -286,19 +289,194 @@ export const touch = (folder) => q('update pro_folders set updated_at=now() wher
 
 export function safeRel(rel) {
   const p = path.posix.normalize(String(rel || '').replace(/\\/g, '/').replace(/^\/+/, ''))
-  if (!p || p === '.' || p.startsWith('..') || p.split('/').some((s) => s === '.git' || s === '..')) throw err(400, L('올바르지 않은 경로예요.', 'That path is not valid.'))
+  if (!p || p === '.' || p.startsWith('..') || p.split('/').some((s) => s === '..') || gitPart(p)) throw err(400, L('올바르지 않은 경로예요.', 'That path is not valid.'))
   return p
 }
 
 export async function upload(folder, user, rel, buf) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더에는 아직 올릴 수 없어요.', "You can't upload to a linked folder yet."))
-  const p = safeRel(rel)
+  // (one Unicode form, as a drop's paths: a Mac's name and the same name typed elsewhere are one file)
+  const p = safeRel(String(rel ?? '').normalize('NFC'))
+  if (SECRETS.attributesOf(p)) throw err(400, L('.gitattributes 는 올릴 수 없어요 — 폴더의 속성은 서버가 정해요.', "A .gitattributes can't be uploaded — the server keeps the folder's attributes."))
+  if (SECRETS.ignoreFileOf(p)) throw err(400, L('.gitignore 는 올릴 수 없어요 — 폴더에 무엇을 둘지는 올리는 사람이 정해요.', "A .gitignore can't be uploaded — what goes into the folder is up to whoever uploads."))
   await REFS.assertWritable(folder, p)
-  await assertNoLink(folder.repo_path, p)
-  const host = path.join(folder.repo_path, p)
-  await fs.mkdir(path.dirname(host), { recursive: true })
-  await fs.writeFile(host, buf)
-  return commitMain(folder, { name: user.name, email: user.email }, L(`올리기: ${p}`, `Upload: ${p}`))
+  // looked at, written and committed in one writer's turn of the folder: a name the folder's .gitignore leaves out, or one that differs
+  // only in case from a file or folder already there, is said and not written
+  return serial(folder.id, async () => {
+    if ((await ignoredOf(folder.repo_path, [p])).has(p)) {
+      throw err(409, L(`이 폴더의 .gitignore 가 빼는 이름이라 ‘${p}’ 는 올리지 않았어요.`, `This folder's .gitignore leaves out "${p}", so it was not uploaded.`), 'ignored')
+    }
+    const clash = (await caseClashes(folder.repo_path, [p])).get(p)
+    if (clash) throw err(409, L(`이미 ‘${clash}’ 가 있어요 — 대소문자만 다른 이름으로는 올리지 않아요.`, `"${clash}" is already there — a name that differs only in case is not uploaded.`), 'clash')
+    await assertNoLink(folder.repo_path, p)
+    const host = path.join(folder.repo_path, p)
+    await fs.mkdir(path.dirname(host), { recursive: true })
+    await fs.writeFile(host, buf)
+    return commitWritten(folder, [p], { name: user.name, email: user.email }, L(`올리기: ${p}`, `Upload: ${p}`))
+  })
+}
+// which of `paths` the folder's .gitignore files leave out (git's own reading — its case and Unicode settings; a file already tracked is
+// not left out) → Set
+export async function ignoredOf(repo, paths) {
+  if (!paths.length) return new Set()
+  const out = await G.git(repo, ['check-ignore', '-z', '--stdin'], { input: paths.join('\0') + '\0', check: false })
+  return new Set(String(out || '').split('\0').filter(Boolean))
+}
+// the paths of `paths` (or a folder on their way) that differ only in case from a file or folder main's work tree already has → Map(path →
+// the name there). Refused on every server: a checkout on a Mac or Windows could not hold both.
+export async function caseClashes(repo, paths) {
+  // (lower case → every name the tree has for it: a tree that already holds both 「Docs/」 and 「docs/」 — from a server that keeps case
+  // apart — still takes writes into either one by its own name)
+  const key = (x) => x.normalize('NFC').toLowerCase()
+  const have = new Map()
+  for (const f of (await G.git(repo, ['ls-files', '-z'])).split('\0').filter(Boolean)) {
+    const segs = f.normalize('NFC').split('/')
+    for (let i = 1; i <= segs.length; i++) {
+      const x = segs.slice(0, i).join('/')
+      const k = key(x)
+      if (!have.has(k)) have.set(k, new Set())
+      have.get(k).add(x)
+    }
+  }
+  const out = new Map()
+  for (const p of paths) {
+    const segs = p.normalize('NFC').split('/')
+    for (let i = 1; i <= segs.length; i++) {
+      const x = segs.slice(0, i).join('/')
+      const there = have.get(key(x))
+      if (there && !there.has(x)) { out.set(p, [...there][0]); break }
+    }
+  }
+  return out
+}
+// written files taken back off the disk (and empty folders they leave), so nothing uncommitted stays in main's work tree
+async function dropWritten(repo, paths) {
+  for (const p of paths) {
+    await fs.rm(path.join(repo, p), { force: true }).catch(() => {})
+    for (let d = path.posix.dirname(p); d && d !== '.'; d = path.posix.dirname(d)) {
+      if (!(await fs.rmdir(path.join(repo, d)).then(() => true, () => false))) break
+    }
+  }
+}
+// commit main with what was just written; when the commit fails, those paths go back to main's last commit (a file that was there — by
+// its name there, whatever the case the write used) or off the disk (a new one) before the failure is said
+async function commitWritten(folder, written, author, message) {
+  try { return await commitMainNow(folder, author, message) } catch (e) {
+    const repo = folder.repo_path
+    await G.git(repo, ['reset', '-q', '--', ...written.map((x) => `:(literal)${x}`)], { check: false }).catch(() => {})
+    const before = await namesAt(repo, 'HEAD')
+    for (const p of written) {
+      // (the exact name when the last commit has it, otherwise its name there in another case)
+      const there = before.exact.has(p) ? p : before.get(p.toLowerCase())
+      if (there) await G.git(repo, ['checkout', '-q', 'HEAD', '--', `:(literal)${there}`], { check: false }).catch(() => {})
+      else await dropWritten(repo, [p])
+    }
+    throw e
+  }
+}
+// the files of a commit, by their names in any case → Map(lower case → the name)
+async function namesAt(repo, ref) {
+  const out = await G.git(repo, ['ls-tree', '-r', '-z', '--name-only', ref], { check: false }).catch(() => '')
+  const names = String(out || '').split('\0').filter(Boolean)
+  return Object.assign(new Map(names.map((x) => [x.toLowerCase(), x])), { exact: new Set(names) })
+}
+
+// ---------- a folder going up from the page (a dropped folder, 「폴더 올리기」 — src/folderDrop.js, POST /folders/:slug/files/batch) ----------
+// one request's files at most (secrets.js BATCH — the page sends a large folder in several requests)
+export const BATCH_MAX_FILES = SECRETS.BATCH.files
+// One upload (the page's session id for one drop) may carry BATCH.uploadFiles files and BATCH.uploadBytes bytes, all its requests
+// together; what is over is refused before anything of that request is written. An upload is kept two hours after its last request
+// (swept every ten minutes), a person's newest SESSIONS_PER_PERSON at most (the oldest goes first).
+const sessions = new Map()       // tenant:person:folder:session → {files, bytes, at, person}
+const sessionsOf = new Map()     // tenant:person → Set(session keys)
+const SESSION_MS = 2 * 60 * 60 * 1000
+const SESSIONS_PER_PERSON = 50
+function forgetSession(key) {
+  const s = sessions.get(key)
+  if (!s) return
+  sessions.delete(key)
+  const mine = sessionsOf.get(s.person)
+  if (mine) { mine.delete(key); if (!mine.size) sessionsOf.delete(s.person) }
+}
+setInterval(() => { const now = Date.now(); for (const [k, v] of sessions) if (now - v.at > SESSION_MS) forgetSession(k) }, 10 * 60 * 1000).unref?.()
+function chargeSession(folder, user, session, items) {
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(String(session || ''))) throw err(400, L('올리기 묶음 표시가 없어요.', 'The upload has no session.'))
+  const now = Date.now()
+  const person = `${T()}:${user.id}`
+  const key = `${person}:${folder.id}:${session}`
+  let s = sessions.get(key)
+  if (s && now - s.at > SESSION_MS) { forgetSession(key); s = null }
+  const files = (s?.files || 0) + items.length
+  const bytes = (s?.bytes || 0) + items.reduce((a, it) => a + it.buf.length, 0)
+  if (files > SECRETS.BATCH.uploadFiles) throw Object.assign(err(413, L(`한 번에 올릴 수 있는 파일 수(${SECRETS.BATCH.uploadFiles.toLocaleString()}개)를 넘어요.`, `Over the number of files one upload can take (${SECRETS.BATCH.uploadFiles.toLocaleString()}).`), 'upload_limit'), { limit: { kind: 'files', value: files, max: SECRETS.BATCH.uploadFiles } })
+  if (bytes > SECRETS.BATCH.uploadBytes) throw Object.assign(err(413, L('한 번에 올릴 수 있는 크기를 넘어요.', 'Over the size one upload can take.'), 'upload_limit'), { limit: { kind: 'bytes', value: bytes, max: SECRETS.BATCH.uploadBytes } })
+  if (!s) {
+    const mine = sessionsOf.get(person) || new Set()
+    sessionsOf.set(person, mine)
+    while (mine.size >= SESSIONS_PER_PERSON) {
+      let oldest = null
+      for (const k of mine) if (!oldest || (sessions.get(k)?.at ?? 0) < (sessions.get(oldest)?.at ?? 0)) oldest = k
+      forgetSession(oldest)
+    }
+    mine.add(key)
+  }
+  sessions.set(key, { files, bytes, at: now, person })
+}
+// Many files at once, one commit. The page has already left out what the champion folders' rules leave out; here the server looks again
+// at each file and refuses — file by file, said back with the reason — a secret's name, git's control files and attributes, a file over
+// the size limit, a key of a sure shape (secrets.js refusalOf), a path that is not a document path, a reference slot's place, and a
+// second path that differs from one before it only in case. In one writer's turn of the folder (serial) a name the folder's own
+// .gitignore leaves out ('ignored') or one that differs only in case from a file or folder already there ('clash') is said and not
+// written; the rest is written and committed together — nobody else's commit takes half of it. When the commit fails the written paths
+// are put back before the failure is said.
+// Only a managed folder takes it (not a linked repository, not a skill's folder).
+// items: [{path, buf}] · label: what went up (the dropped folder's name) · part/parts: this request's place in the upload · session: the
+// upload's id → {commit, written: [path], refused: [{path, reason, line}]}
+export async function uploadMany(folder, user, items, { label = '', part = 1, parts = 1, session = '' } = {}) {
+  if (folder.kind !== 'managed') throw err(400, L('이 폴더에는 폴더째 올릴 수 없어요.', "A folder can't be uploaded into this folder."))
+  chargeSession(folder, user, session, items)
+  const refused = []
+  const take = new Map()
+  const seen = new Set()
+  const writable = await REFS.writableCheck(folder)
+  for (const it of items) {
+    let p
+    try { p = safeRel(String(it.path ?? '').normalize('NFC')) } catch { refused.push({ path: String(it.path || '').slice(0, 300), reason: 'path', line: null }); continue }
+    const k = p.toLowerCase()
+    if (seen.has(k)) { refused.push({ path: p, reason: 'clash', line: null }); continue }
+    seen.add(k)
+    const why = SECRETS.refusalOf(p, it.buf)
+    if (why) { refused.push({ path: p, ...why }); continue }
+    try { writable(p) } catch (e) { refused.push({ path: p, reason: e.code || 'ref_readonly', line: null }); continue }
+    take.set(p, it.buf)
+  }
+  if (!take.size) return { commit: null, written: [], refused }
+  const name = String(label || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 80)
+  const what = name || L('파일', 'files')
+  const of = Number(parts) > 1 ? ` (${Math.max(1, Number(part) | 0)}/${Number(parts) | 0})` : ''
+  let written = []
+  const commit = await serial(folder.id, async () => {
+    // what the folder's own .gitignore leaves out (git would not take it) and what differs only in case from a file or folder already there:
+    // said, never written
+    const ignored = await ignoredOf(folder.repo_path, [...take.keys()])
+    const clashes = await caseClashes(folder.repo_path, [...take.keys()].filter((p) => !ignored.has(p)))
+    for (const p of [...take.keys()]) {
+      if (ignored.has(p)) { refused.push({ path: p, reason: 'ignored', line: null }); take.delete(p) } else if (clashes.has(p)) { refused.push({ path: p, reason: 'clash', line: null }); take.delete(p) }
+    }
+    for (const [p, buf] of take) {
+      try {
+        await assertNoLink(folder.repo_path, p)
+        const host = path.join(folder.repo_path, p)
+        await fs.mkdir(path.dirname(host), { recursive: true })
+        await fs.writeFile(host, buf)
+        written.push(p)
+      } catch { refused.push({ path: p, reason: 'conflict', line: null }) } // (a file where a folder is, or the other way round)
+    }
+    if (!written.length) return null
+    const message = L(`폴더 올리기: ${what} · 파일 ${written.length}개${of}`, `Upload a folder: ${what} · ${written.length} files${of}`)
+    return commitWritten(folder, written, { name: user.name, email: user.email }, message)
+  })
+  return { commit, written, refused }
 }
 export async function removeFile(folder, user, rel) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 지울 수 없어요.', "Files of a linked folder can't be deleted."))
@@ -357,12 +535,26 @@ export async function publishFile(folder, rel, ref) {
   const r = await revOf(folder, ref)
   const sha = (await G.git(folder.repo_path, ['rev-parse', `${r}:${p}`], { check: false })).trim()
   if (!sha) throw err(404, L('파일이 없어요.', "That file isn't there."))
-  return publishBlob(folder, p, sha)
+  return publishBlob(folder, p, sha, { private: await privateRef(folder, ref) })
 }
-// one version of a file by its blob id (a file mention opens the version it named, lib/fileRefs.js)
-export async function publishBlob(folder, rel, sha) {
+// a version only some may read (a project's workspace, or a commit no shared branch holds): its copy is never at the shared public address
+export async function privateRef(folder, ref) {
+  if (!ref || ref === 'main') return false
+  if (COMMIT.test(String(ref))) return !(await sharedCommit(folder, String(ref)))
+  const v = /^[0-9a-f-]{36}$/.test(String(ref)) ? await variationById(ref) : null
+  return !!v?.source?.template || isWorkspaceBranch(v?.branch)
+}
+// one version of a file by its blob id (a file mention opens the version it named, lib/fileRefs.js). private: in the private bucket,
+// handed out by a signed address for an hour (PS.folderKey — never the content-addressed public copy everyone can guess); its key comes
+// back too: a card keeps the key, never the address (lib/fileCards.js signs one each time the card is opened)
+export async function publishBlob(folder, rel, sha, { private: priv = false } = {}) {
   const p = safeRel(rel)
   if (!/^[0-9a-f]{40}$/.test(String(sha || '')) || (await G.git(folder.repo_path, ['cat-file', '-t', sha], { check: false })).trim() !== 'blob') throw err(404, L('파일이 없어요.', "That file isn't there."))
+  if (priv) {
+    const key = PS.folderKey({ tenant: T(), folderId: folder.id, sha }, p)
+    if (!(await PS.exists(key))) await PS.put(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), MIME[path.extname(p).slice(1).toLowerCase()] || 'application/octet-stream')
+    return { url: await PS.signedUrl(key, 3600), key, name: path.basename(p), sha, private: true }
+  }
   const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
   const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`
   const { data: there } = await admin.storage.from('files').list(`pgpt-pro/folders/${folder.id}`, { search: `${sha}.${ext}` })
@@ -456,6 +648,72 @@ export async function variation(folder, id) {
   if (!v) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
   return v
 }
+// …for this person: a project's workspace made from a template (source.template — folders/templates.js) exists only for the project's
+// person; anyone else is told it is not there
+export const UNLISTED = `not (coalesce(v.source, '{}'::jsonb) ? 'template')`
+export const visibleTo = (v, user) => !v?.source?.template || (v.holder_type === 'user' && !!user?.id && String(v.holder_id) === String(user.id))
+export async function variationFor(folder, id, user) {
+  const v = await variation(folder, id)
+  if (!visibleTo(v, user)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
+  return v
+}
+// a workspace's branch (folders/templates.js) — the prefix nothing else in a folder uses; git tokens never advertise it (gitHttp.js)
+export const WORKSPACE_PREFIX = 'var/t/'
+// (a ref name in any spelling git reads as a branch — refs/heads/x, heads/x, x)
+export const isWorkspaceBranch = (b) => String(b || '').replace(/^(refs\/)?heads\//, '').startsWith(WORKSPACE_PREFIX)
+// the folder's branches that hold this commit: full ref names (for-each-ref %(refname) — never the short form, which may read heads/…)
+async function branchesHolding(folder, sha) {
+  return (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', '--contains', String(sha), 'refs/heads/'], { check: false }))
+    .split('\n').map((x) => x.trim()).filter((x) => x.startsWith('refs/heads/')).map((x) => x.slice('refs/heads/'.length))
+}
+// A commit this person may read — an ALLOWLIST: it is on main, or on the branch of a variation row of this folder they may see. A branch
+// with no row (a desktop's run branch, one left behind) gives nothing, nor does a commit no branch holds. workspaces: false — not even
+// their own workspace counts (a new variation may not start inside one: its outputs would be in a variation everyone sees).
+export async function commitVisible(folder, sha, user, { workspaces = true } = {}) {
+  if (!COMMIT.test(String(sha || ''))) return false
+  if ((await G.git(folder.repo_path, ['cat-file', '-t', String(sha)], { check: false })).trim() !== 'commit') return false
+  const heads = await branchesHolding(folder, sha)
+  if (!heads.length) return false
+  if (heads.includes(folder.default_branch)) return true
+  const rows = await q(`select branch, holder_type, holder_id, source from pro_folder_variations where folder_id=$1 and branch = any($2::text[])`, [folder.id, heads])
+  return rows.some((v) => visibleTo(v, user) && (workspaces || !v.source?.template) && !(!v.source?.template && isWorkspaceBranch(v.branch)))
+}
+// A commit anyone of the folder may read (main, or a variation row that is no one's workspace): what is published to the shared public
+// address; anything else is published privately (publishBlob { private })
+export async function sharedCommit(folder, sha) {
+  if (!COMMIT.test(String(sha || ''))) return false
+  const heads = await branchesHolding(folder, sha)
+  if (heads.includes(folder.default_branch)) return true
+  if (!heads.length) return false
+  const rows = await q(`select branch, source from pro_folder_variations where folder_id=$1 and branch = any($2::text[])`, [folder.id, heads])
+  return rows.some((v) => !v.source?.template && !isWorkspaceBranch(v.branch))
+}
+// a ref a route was given (main, a commit, a variation id): refused when it names a workspace — or a commit only a workspace holds — this
+// person may not see
+export async function assertRefVisible(folder, ref, user) {
+  if (!ref || ref === 'main') return null
+  if (COMMIT.test(String(ref))) {
+    if (!(await commitVisible(folder, String(ref), user))) throw err(404, L('그 판을 찾지 못했어요.', "I couldn't find that version."))
+    return null
+  }
+  return variationFor(folder, ref, user)
+}
+// What a person may start a new variation from (POST …/variations {base}): main, a variation they may see — not a workspace (its
+// outputs would leave it: 「원본에 반영 요청」 sends what may) — or a commit they may read. Nothing else (no branch name, no git revision).
+export async function baseFor(folder, base, user) {
+  const b = String(base ?? '').trim()
+  if (!b || b === 'main') return 'main'
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(b)) {
+    const v = await variationFor(folder, b, user)
+    if (v.source?.template) throw err(409, L('프로젝트의 작업 공간에서는 새 변형을 만들지 않아요. 템플릿 파일의 고침은 「원본에 반영 요청」으로 보내 주세요.', "No new variation is made from a project's workspace. Send the template files you fixed with “Request a merge into the original”."))
+    return v.id
+  }
+  if (COMMIT.test(b)) {
+    if (!(await commitVisible(folder, b, user, { workspaces: false }))) throw err(404, L('그 판을 찾지 못했어요.', "I couldn't find that version."))
+    return b
+  }
+  throw err(400, L('기준은 main, 변형, 또는 판(커밋)이어야 해요.', 'The base must be main, a variation or a version (commit).'))
+}
 export async function variationById(id) {
   const [v] = await q('select * from pro_folder_variations where id=$1', [id])
   return v || null
@@ -467,8 +725,14 @@ export async function createVariation(folder, { title, kind = 'person', base, ho
   const id = crypto.randomUUID()
   let baseRef = folder.default_branch
   if (base && base !== 'main') {
-    const bv = /^[0-9a-f-]{36}$/.test(base) ? await variation(folder, base).catch(() => null) : null
-    baseRef = bv ? bv.branch : base
+    // the base is a variation id, a commit, or the exact name of a branch there (never a revision expression — git.js branchExists)
+    const bv = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(base)) ? await variation(folder, base).catch(() => null) : null
+    if (bv) baseRef = bv.branch
+    else if (COMMIT.test(String(base))) baseRef = String(base)
+    else if (await G.branchExists(folder.repo_path, String(base))) baseRef = String(base)
+    else throw err(400, L(`기준을 찾지 못했어요: ${String(base).slice(0, 80)}`, `I couldn't find the base: ${String(base).slice(0, 80)}`))
+    // (nothing grows from a project's workspace but its own work: its files would be in a variation everyone sees — templates.js)
+    if (bv?.source?.template || isWorkspaceBranch(baseRef)) throw err(409, L('프로젝트의 작업 공간에서는 새 변형을 만들지 않아요.', "No new variation is made from a project's workspace."))
   }
   if (!branch) {
     branch = kind === 'person' || kind === 'handover'
@@ -965,7 +1229,8 @@ export async function release(folder, v, { keep = false, mode = 'person', who = 
 }
 
 export async function variations(folder) {
-  const rows = await q('select * from pro_folder_variations where folder_id=$1 order by updated_at desc', [folder.id])
+  // (a project's workspace made from a template is the project's only — folders/templates.js: never in the folder's list)
+  const rows = await q(`select * from pro_folder_variations v where folder_id=$1 and ${UNLISTED} order by updated_at desc`, [folder.id])
   for (const v of rows) {
     if (['open', 'ready', 'conflicted'].includes(v.status)) Object.assign(v, await G.aheadBehind(folder.repo_path, folder.default_branch, v.branch))
   }
@@ -1021,10 +1286,14 @@ export async function linkedCandidates(folder) {
     staleWorktrees: missing,
   }
 }
+// Only a linked repository's agent branches (pgpt-agent/…, the names linkedCandidates lists), each by its exact name: never a revision
+// expression, never a workspace's branch, never a branch of a managed folder (its desktops' run branches, a branch left behind)
 export async function importBranches(folder, user, names) {
+  if (folder.kind !== 'linked') throw err(400, L('가져오기는 연결형 폴더의 에이전트 브랜치만 해요.', 'Only a linked folder\'s agent branches can be imported.'))
   const out = []
-  for (const name of names || []) {
-    if (!(await G.branchExists(folder.repo_path, name))) continue
+  for (const raw of Array.isArray(names) ? names.slice(0, 200) : []) {
+    const name = String(raw || '')
+    if (!/^pgpt-agent\//.test(name) || isWorkspaceBranch(name) || !(await G.branchExists(folder.repo_path, name))) continue
     const [t] = await q(`select t.id, t.activity_name, t.proc_inst_id, i.proc_inst_name from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id
                          where t.output->'worktree'->>'branch'=$1 limit 1`, [name])
     const base = await G.mergeBase(folder.repo_path, folder.default_branch, name)

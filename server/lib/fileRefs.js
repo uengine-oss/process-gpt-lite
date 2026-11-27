@@ -88,8 +88,10 @@ export async function folderRef(user, it) {
   if (folder.kind === 'skill') throw fail(400, L('스킬 폴더의 파일은 멘션하지 않아요.', "Files of a skill's folder aren't mentioned."))
   const p = S.safeRel(it.path)
   let v = null, commit = null, blob = ''
+  // (only what this person may read: a variation they may see — never a project's workspace that is not theirs — and a commit they may
+  // read; anything else is this path's current version — folders/service.js visibleTo · commitVisible)
   if (it.variation) {
-    const x = await S.variation(folder, it.variation).catch(() => null)
+    const x = await S.variationFor(folder, it.variation, user).catch(() => null)
     // a variation still open is what it names; a merged one is main now
     if (x && !['merged', 'discarded'].includes(x.status)) {
       commit = await G.head(folder.repo_path, `refs/heads/${x.branch}`)
@@ -97,7 +99,7 @@ export async function folderRef(user, it) {
       if (blob) v = { id: x.id, title: x.title, status: x.status }
     }
   }
-  if (!blob && it.commit) {
+  if (!blob && it.commit && await S.commitVisible(folder, it.commit, user)) {
     blob = await S.blobAt(folder, it.commit, p).catch(() => '')
     if (blob) commit = it.commit
   }
@@ -106,7 +108,7 @@ export async function folderRef(user, it) {
   // commit of the folder — the commit where it was is the one kept. Anything else is not this file (a blob of another file would show
   // its contents under this name — PR #45 review): this path's current version instead.
   if (!blob && it.blob) {
-    const at = await commitOfBlob(folder, p, it.blob)
+    const at = await commitOfBlob(folder, p, it.blob, { visible: (c) => S.commitVisible(folder, c, user) })
     if (at) { blob = it.blob; commit = at }
   }
   if (!blob) { commit = head; blob = head ? await S.blobAt(folder, head, p) : '' }
@@ -115,12 +117,13 @@ export async function folderRef(user, it) {
 }
 
 // the newest commit (main first, then any branch) whose version of `rel` is that blob, or null (git log --find-object)
-export async function commitOfBlob(folder, rel, sha) {
+// visible(commit): only a commit the person may read counts (a project's workspace they may not see holds none of theirs)
+export async function commitOfBlob(folder, rel, sha, { visible = async () => true } = {}) {
   if (!COMMIT.test(String(sha || ''))) return null
   for (const range of [[folder.default_branch], ['--all']]) {
     // (the commits that put this blob at this path or took it away: the ones where it went in are its versions)
     const list = (await G.git(folder.repo_path, ['log', ...range, '--format=%H', '-n', '50', `--find-object=${sha}`, '--', rel], { check: false })).split('\n').filter(Boolean)
-    for (const c of list) if ((await S.blobAt(folder, c, rel).catch(() => '')) === sha) return c
+    for (const c of list) if ((await S.blobAt(folder, c, rel).catch(() => '')) === sha && await visible(c)) return c
   }
   return null
 }
@@ -238,6 +241,13 @@ export const requestUrl = (slug, userId) => `/folders/${slug}?share=${userId}`
 async function stateOf(viewer, r, cache) {
   const folder = cache.folders[r.folderId] ??= await S.folderById(r.folderId).catch(() => null)
   if (!folder) return { access: 'none', gone: true, card: 'gone' }
+  // a mention of a project's workspace this viewer may not see (or of a commit only such a place holds): nothing of it but that it is
+  // not there for them — decorate() then gives its name and path only (folders/templates.js)
+  if (r.variation?.id) {
+    const v = await S.variationById(r.variation.id).catch(() => null)
+    if (v && (v.folder_id !== folder.id || !S.visibleTo(v, viewer))) return { gone: true, card: 'gone', hidden: true }
+  }
+  if (COMMIT.test(String(r.commit || '')) && !(await S.commitVisible(folder, r.commit, viewer).catch(() => false))) return { gone: true, card: 'gone', hidden: true }
   const role = cache.roles[folder.id] ??= (await S.roleOf(folder, viewer).catch(() => null)) || ''
   if (!role) {
     const [asked] = await q(`select 1 from notifications where tenant_id=$1 and type='folder_access' and from_user_id=$2 and url=$3 limit 1`, [T(), viewer.email || viewer.id, requestUrl(folder.slug, viewer.id)]).catch(() => [])
@@ -268,7 +278,10 @@ export async function decorate(viewer, m) {
       const st = await MA.stateOf(viewer, r, m).catch(() => ({ card: 'summary', share: null }))
       return { ...r, share: st.share, state: { card: st.card } }
     }
-    return { ...r, state: await stateOf(viewer, r, cache).catch(() => ({ access: 'none', card: 'noaccess' })) }
+    const state = await stateOf(viewer, r, cache).catch(() => ({ access: 'none', card: 'noaccess' }))
+    // (not there for this viewer: its name and path only — no folder id, commit, blob or variation)
+    if (state.hidden) return { name: r.name, path: r.path, state: { card: state.card, gone: true } }
+    return { ...r, state }
   })) }
 }
 export const decorateAll = (viewer, list) => Promise.all((list || []).map((m) => decorate(viewer, m)))
@@ -287,27 +300,36 @@ export async function open(user, messageId, index, { latest = false } = {}) {
     throw e.status === 403 ? fail(403, L(`「${r.folder}」 폴더 권한이 없어요.`, `You have no access to the "${r.folder}" folder.`)) : e
   })
   let rev = folder.default_branch, vid = null
+  const notThere = () => fail(404, L('그 파일이 지금은 폴더에 없어요.', "That file isn't in the folder any more."))
   if (r.variation?.id) {
     const v = await S.variationById(r.variation.id).catch(() => null)
+    // (a project's workspace that is not the opener's: not there for them — folders/templates.js)
+    if (v && (v.folder_id !== folder.id || !S.visibleTo(v, user))) throw notThere()
     if (v && v.folder_id === folder.id && !['merged', 'discarded'].includes(v.status)) { rev = v.branch; vid = v.id }
   }
   const current = await S.blobAt(folder, rev, r.path)
   const blob = latest || !r.blob ? current : r.blob
-  if (!blob) throw fail(404, L('그 파일이 지금은 폴더에 없어요.', "That file isn't in the folder any more."))
+  if (!blob) throw notThere()
   const isCurrent = blob === current
+  // an older version: only at a commit this person may read, and only the blob that commit really has at this path
+  if (!isCurrent && !(COMMIT.test(String(r.commit || '')) && await S.commitVisible(folder, r.commit, user) && (await S.blobAt(folder, r.commit, r.path).catch(() => '')) === blob)) throw notThere()
   const out = { slug: folder.slug, folder: folder.name, path: r.path, name: r.name, ref: isCurrent ? (vid || 'main') : r.commit, latest: isCurrent }
   if (!editable(r.name)) return out
-  const pub = await S.publishBlob(folder, r.path, blob)
+  // (a version only some may read — a project's workspace, a commit no shared branch holds — is published privately: folders/service.js)
+  const pub = await S.publishBlob(folder, r.path, blob, { private: vid ? await S.privateRef(folder, vid) : !isCurrent ? await S.privateRef(folder, r.commit) : false })
   const ext = r.path.split('.').pop().toLowerCase()
   const canEdit = isCurrent && !vid && folder.kind === 'managed' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(ext)
   const { filesThread, LINKS_REF } = await import('./team/uploads.js')
   const t = await filesThread(user.id, LINKS_REF)
-  const content = { name: r.name, url: pub.url, folder: { slug: folder.slug, name: folder.name, path: r.path, sha: blob, editable: canEdit }, link: { messageId, index } }
-  // (never a private card of the same version — a mail's attachment opened from its sheet, lib/mailAttachments.js: kept apart, review 11-25 #2)
-  const [had] = await q(`select * from pro_messages where thread_id=$1 and kind='file' and not (content ? 'private') and content->'folder'->>'slug'=$2 and content->'folder'->>'path'=$3
-                         and content->'folder'->>'sha'=$4 order by created_at desc limit 1`, [t.id, folder.slug, r.path, blob])
+  // (a private copy — a workspace's version, a commit no shared branch holds: the card keeps its key and each opening signs an address,
+  // lib/fileCards.js; never an address that runs out)
+  const where = pub.private ? { private: { key: pub.key } } : { url: pub.url }
+  const content = { name: r.name, ...where, folder: { slug: folder.slug, name: folder.name, path: r.path, sha: blob, editable: canEdit }, link: { messageId, index } }
+  // (never a mail's attachment card of the same version — opened from its sheet, lib/mailAttachments.js: kept apart, review 11-25 #2)
+  const [had] = await q(`select * from pro_messages where thread_id=$1 and kind='file' and not (content ? 'mailAtt') and (content ? 'private') = $5 and content->'folder'->>'slug'=$2
+                         and content->'folder'->>'path'=$3 and content->'folder'->>'sha'=$4 order by created_at desc limit 1`, [t.id, folder.slug, r.path, blob, !!pub.private])
   const [m] = had
-    ? await q(`update pro_messages set content = content || $2::jsonb where id=$1 returning *`, [had.id, JSON.stringify({ url: pub.url, folder: content.folder })])
+    ? await q(`update pro_messages set content = (content - 'url' - 'private') || $2::jsonb where id=$1 returning *`, [had.id, JSON.stringify({ ...where, folder: content.folder })])
     : await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','file',$2) returning *`, [t.id, content])
   return { ...out, message: m }
 }
@@ -395,7 +417,7 @@ export async function turnRefs(user, list, { copies = false, deps = {} } = {}) {
           lines.push(L(`- 공유 폴더 「${r.folder}」의 「${r.path}」 — folder_read 도구(folder: '${r.slug}', path: '${r.path}')로 읽으세요`,
             `- "${r.path}" in the shared folder "${r.folder}" — read it with the folder_read tool (folder: '${r.slug}', path: '${r.path}')`))
         } else {
-          const pub = await publishBlob(folder, r.path, r.blob)
+          const pub = await publishBlob(folder, r.path, r.blob, { private: r.variation?.id ? await S.privateRef(folder, r.variation.id) : await S.privateRef(folder, r.commit) })
           const which = r.variation ? L(`반영 전 변형 「${r.variation.title}」의 판`, `the version in the unmerged variation "${r.variation.title}"`)
             : main === r.blob ? L('지금의 판(main)', 'its current version (main)') : L(`멘션한 때의 판(${String(r.commit).slice(0, 7)})`, `the version at the mention (${String(r.commit).slice(0, 7)})`)
           lines.push(L(`- 공유 폴더 「${r.folder}」의 「${r.path}」, ${which} — 이 사본을 읽으세요: ${pub.url}`, `- "${r.path}" in the shared folder "${r.folder}", ${which} — read this copy: ${pub.url}`))

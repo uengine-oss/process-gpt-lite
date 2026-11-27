@@ -34,7 +34,8 @@ watch(() => [app.activeId, app.mode], () => { app.folderPicker = false })
 
 async function pick(f) {
   error.value = ''
-  if (newProject.value) { app.newProjectFolder = { id: f.id, slug: f.slug, name: f.name }; app.folderPicker = false; return }
+  // (a template: the project gets its own workspace of it — server lib/folders/templates.js)
+  if (newProject.value) { app.newProjectFolder = { id: f.id, slug: f.slug, name: f.name, template: !!f.settings?.template }; app.folderPicker = false; return }
   try { await app.attachFolder(f); app.folderPicker = false } catch (e) { error.value = e.message }
 }
 async function startNaming() { naming.value = true; await nextTick(); nameBox.value?.focus() }
@@ -59,7 +60,7 @@ const roleText = { owner: '소유자', editor: '편집', runner: '실행', viewe
     <!-- 새 프로젝트: pick the folder before starting -->
     <div v-if="newProject" class="chips">
       <span v-if="chosen" class="fchip glass-thin" data-testid="project-folder-chip">
-        <FIcon name="folder" :size="15" /><b data-no-i18n>{{ chosen.name }}</b><small>{{ chosen.newName ? '· 새 폴더' : '· 이 폴더에서 작업' }}</small>
+        <FIcon name="folder" :size="15" /><b data-no-i18n>{{ chosen.name }}</b><small>{{ chosen.newName ? '· 새 폴더' : chosen.template ? '· 템플릿으로 시작' : '· 이 폴더에서 작업' }}</small>
         <button class="x" aria-label="폴더 빼기" @click="remove">×</button>
       </span>
       <button v-else class="fchip pick glass-thin press" data-testid="project-folder-pick" @click="app.folderPicker = !app.folderPicker">
@@ -88,6 +89,7 @@ const roleText = { owner: '소유자', editor: '편집', runner: '실행', viewe
           <button v-for="f in shown" :key="f.id" class="row press" :class="{ on: link?.id === f.id || chosen?.id === f.id }" @click="pick(f)">
             <FIcon name="folder" :size="17" />
             <span class="nm" data-no-i18n>{{ f.name }}</span>
+            <small v-if="f.settings?.template" class="tplk" data-test="picker-template">템플릿</small>
             <small>{{ roleText[f.role] || f.role }}</small>
           </button>
         </div>
@@ -113,6 +115,8 @@ const roleText = { owner: '소유자', editor: '편집', runner: '실행', viewe
 .fchip b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 200px; }
 .fchip small { color: var(--text-secondary); white-space: nowrap; flex: none; }
 .fchip.working small { color: var(--color-info); }
+.tplk { color: #6b4fc8; font-weight: 600; }
+:root[data-theme="dark"] .tplk { color: #c3b2ff; }
 .fname { display: inline-flex; align-items: center; gap: 6px; min-width: 0; cursor: default; }
 .fchip.working .fname { cursor: pointer; }
 .x { width: 22px; height: 22px; flex: none; border-radius: 11px; color: var(--text-secondary); font-size: 16px; line-height: 20px; }
