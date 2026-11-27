@@ -14,6 +14,9 @@ import SettingsSheet from '../components/SettingsSheet.vue'
 import Typewriter from '../components/Typewriter.vue'
 import InstanceHeader from '../components/InstanceHeader.vue'
 import ConversationBar from '../components/ConversationBar.vue'
+import ConversationMoveSheet from '../components/ConversationMoveSheet.vue'
+import { topicPath } from '../projectTopics.js'
+import { followedNotice, movedNotice, backNotice } from '../convMove.js'
 import ProjectFolderBar from '../components/folders/ProjectFolderBar.vue'
 import ArtifactStack from '../components/ArtifactStack.vue'
 import ArtifactList from '../components/ArtifactList.vue'
@@ -154,6 +157,8 @@ async function syncRoute() {
   instError.value = ''
   instLoading.value = false
   app.convFilter = app.mode === 'chat' && route.params.cid ? decodeURIComponent(route.params.cid) : null
+  // a link to a conversation the chat no longer has (moved into a project — server lib/conversationMove.js): the page follows it there
+  if (app.convFilter && !Object.values(app.convOf).includes(app.convFilter)) followMoved(app.convFilter, seq)
   // one sub-topic of a project (/projects/:id/t/:tid — src/projectTopics.js)
   app.topicFilter = app.mode === 'project' && route.params.id && route.params.tid ? decodeURIComponent(route.params.tid) : null
   if (app.draftProject && route.params.id !== app.draftProject.id) { app.draftProject = null; gen.value++ }
@@ -177,6 +182,25 @@ async function syncRoute() {
   } else if (route.params.id) await app.open(route.params.id)
   else app.activeId = null
 }
+// (asked once per link; the person may have gone elsewhere meanwhile)
+async function followMoved(conv, seq) {
+  const place = await app.placeOf(conv)
+  if (!place?.project?.id || seq !== routeSeq || app.convFilter !== conv) return
+  router.replace(topicPath(place.project.id, place.topic || conv))
+  app.notice = { text: followedNotice(place.project.title), tone: 'ok' }
+}
+// a conversation moved (or back) on this or another screen of this person: a view of it goes along
+watch(() => app.moved?.at, () => {
+  const d = app.moved
+  if (!d) return
+  if (!d.back && app.mode === 'chat' && app.convFilter === d.conv) {
+    router.replace(topicPath(d.project.id, d.conv))
+    app.notice = { text: movedNotice(d.project.title), tone: 'ok' }
+  } else if (d.back && app.mode === 'project' && app.topicFilter === d.conv && String(route.params.id) === String(d.project.id)) {
+    router.replace(`/chat/c/${encodeURIComponent(d.conv)}`)
+    app.notice = { text: backNotice(), tone: 'ok' }
+  }
+})
 // 닫기 on an instance page: back where it was opened from (Home, a chat card, the list), else the list
 function closeInstance() {
   if (window.history.state?.back) router.back()
@@ -330,6 +354,8 @@ function onConnect() {
     <Transition name="fade"><SettingsSheet v-if="settings && ready" /></Transition>
     <Transition name="fade"><SearchOverlay v-if="app.searchOpen" /></Transition>
     <HandoffView v-if="app.handoff" />
+    <!-- 「프로젝트로 옮기기」 of a conversation of the chat (ConversationBar) -->
+    <ConversationMoveSheet v-if="app.moveSheet" />
     <!-- the open document (OfficeSheet) and a mail's sheet (MailReplySheet) are on every page: App.vue -->
     <MailConnect v-if="connecting" @close="connecting = false" />
   </div>

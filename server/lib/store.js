@@ -13,6 +13,13 @@ export const getThread = async (userId, id) =>
   (await q('select * from pro_threads where id=$1 and user_id=$2', [id, userId]))[0]
 
 export async function addMessage(userId, threadId, role, kind, content) {
+  // a line filed aside into a conversation of the main chat that now lives in a project (lib/conversationMove.js — a mail's line, a
+  // follow-up's): it goes there, under its sub-topic, so the conversation stays in one place
+  const aside = content?.context?.action === 'aside' && content.context.conversationId ? String(content.context.conversationId) : null
+  if (aside) {
+    const to = await import('./conversationMove.js').then((CM) => CM.redirectOf(userId, threadId, aside)).catch(() => null)
+    if (to) { threadId = to; content = { ...content, conv: aside } }
+  }
   const [m] = await q(
     `insert into pro_messages(thread_id,role,kind,content) values ($1,$2,$3,$4) returning *`,
     [threadId, role, kind, content])

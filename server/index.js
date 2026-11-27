@@ -17,6 +17,10 @@ import { turnRoutes } from './lib/turnPlan.js'
 import { projectNoteRoutes } from './routes/projectNote.js'
 // 답을 공유(대화방 · 사람 · 문서) · 대화를 프로젝트로(확인 카드 · 템플릿 추천) — routes/answers.js
 import { answerRoutes } from './routes/answers.js'
+// 대화를 프로젝트로 옮기기(lib/conversationMove.js): GET · POST /conversations/:cid/move, …/move/undo, …/move/offer, …/place
+import { conversationMoveRoutes } from './routes/conversationMove.js'
+import { placeOf as movedPlaceOf } from './lib/conversationMove.js'
+import { searchMessages } from './lib/search.js'
 import { ruleOf, removeRule, settleRuleConfirm } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
@@ -775,6 +779,7 @@ app.use('/api', turnRoutes(auth))
 app.use('/api', projectNoteRoutes(auth))
 // 답을 공유 · 대화를 프로젝트로(lib/answerShare.js · lib/chatProject.js): GET · POST /messages/:id/share/…, POST /messages/:id/project-offer, POST /project-offers/:id/make · decline
 app.use('/api', answerRoutes(auth))
+app.use('/api', conversationMoveRoutes(auth))
 app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await removeRule(req.user.id, req.params.id)))
 // 「규칙을 바꿀까요?」 card (a room that has a rule, words judged to set a new one): 「바꾸기」 (choice replace) makes that card hold the new
 // rule; 「이번 작업에만 적용」 (once) keeps the rule and gives the words to the browser task here (lib/agent.js onceTurn)
@@ -838,6 +843,12 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   try { return await postMessage(req, res, t, clientId) } finally { if (clientId) SO.release(t.id, clientId) }
 })
 async function postMessage(req, res, t, clientId) {
+  // a page still open on a conversation of the chat that has since moved into a project (lib/conversationMove.js): not answered here —
+  // the chat would have it again; the page goes there (409 moved, with where)
+  if (t.kind === 'chat' && req.body?.conversation?.id) {
+    const place = await movedPlaceOf(req.user, String(req.body.conversation.id)).catch(() => null)
+    if (place) return res.status(409).json({ error: L(`이 대화는 프로젝트 「${String(place.project.title || '').slice(0, 40)}」로 옮겼어요. 그 프로젝트에서 이어서 질문해 주세요.`, `This conversation moved to the project "${String(place.project.title || '').slice(0, 40)}". Ask there to go on.`), code: 'moved', place })
+  }
   // the composer's picker named a CLI on the sender's own PC (lib/localAgents/chat.js): the message goes to their desktop — the server
   // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
   if (req.body?.agent && req.body.agent !== 'default') {
@@ -1370,12 +1381,8 @@ app.post('/api/browser/show', auth, async (req, res) => {
 // own setting, kept by the desktop app and sent with its link; shown here, changed only on that PC
 app.get('/api/browser/where', auth, async (req, res) => res.json(await browserRemote.whereFor(req.user)))
 // ---------- search ----------
-app.get('/api/search', auth, async (req, res) => {
-  const like = `%${req.query.q || ''}%`
-  res.json(await q(`select m.id, m.thread_id, t.kind, t.title, m.content->>'text' as text, m.created_at
-    from pro_messages m join pro_threads t on t.id=m.thread_id
-    where t.user_id=$1 and m.content->>'text' ilike $2 order by m.created_at desc limit 30`, [req.user.id, like]))
-})
+// (lib/search.js — a message of a conversation moved into a project is found there, with its sub-topic)
+app.get('/api/search', auth, async (req, res) => res.json(await searchMessages(req.user.id, req.query.q)))
 
 const server = app.listen(config.port, async () => {
   console.log(`pgpt-pro server on :${config.port}`)

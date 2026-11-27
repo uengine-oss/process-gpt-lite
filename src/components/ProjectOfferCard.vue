@@ -9,6 +9,8 @@ import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { ro } from '../josa.js'
+import { topicPath } from '../projectTopics.js'
+import { moveNewNotice, movedNotice } from '../convMove.js'
 
 const props = defineProps({ msg: Object })
 const app = useApp()
@@ -53,14 +55,23 @@ async function make() {
   busy.value = true; err.value = ''
   const d = draft.value
   try {
-    await app.makeProject(props.msg.id, { title, intent: d.intent.trim(), background: d.background.trim(), deliverables: d.deliverables.map((x) => x.text.trim()).filter(Boolean), template: picked.value })
+    const r = await app.makeProject(props.msg.id, { title, intent: d.intent.trim(), background: d.background.trim(), deliverables: d.deliverables.map((x) => x.text.trim()).filter(Boolean), template: picked.value })
+    // 「새 프로젝트로」 옮기기: the conversation is in the new project now — the page goes there (spec thread-to-project)
+    if (r?.moved?.topic) {
+      app.onConversationMove('conversation.moved', { conv: r.moved.topic, from: r.moved.from, project: r.moved.project || r.project, ids: r.moved.ids })
+      router.push(topicPath(r.project.id, r.moved.topic))
+      app.notice = { text: movedNotice(r.project.title), tone: 'ok' }
+    }
   } catch (e) { err.value = e.message } finally { busy.value = false }
 }
+// 「새 프로젝트로」 옮기기 (server lib/conversationMove.js offerNew): the card is about the whole conversation, which goes into the project it makes
+const moving = computed(() => !!c.value.move?.conversationId)
+const moveNotice = computed(() => (moving.value ? moveNewNotice({ count: c.value.move.count }) : ''))
 async function no() {
   busy.value = true; err.value = ''
   try { await app.declineProject(props.msg.id) } catch (e) { err.value = e.message } finally { busy.value = false }
 }
-const open = () => c.value.project?.id && router.push(`/projects/${c.value.project.id}`)
+const open = () => c.value.project?.id && router.push(c.value.moved?.topic ? topicPath(c.value.project.id, c.value.moved.topic) : `/projects/${c.value.project.id}`)
 </script>
 
 <template>
@@ -68,8 +79,10 @@ const open = () => c.value.project?.id && router.push(`/projects/${c.value.proje
     <header>
       <span class="pi"><Icon name="folder" :size="17" /></span>
       <div class="ph">
-        <b>{{ state === 'made' ? '프로젝트를 만들었어요' : state === 'declined' ? '프로젝트를 만들지 않았어요' : '프로젝트로 시작할까요?' }}</b>
-        <small v-if="state === 'offered' || state === 'making'">아직 만들지 않았어요 · 이름과 템플릿을 확인하고 「만들기」를 눌러 주세요</small>
+        <b v-if="moving">{{ state === 'made' ? (c.moved ? '프로젝트를 만들고 대화를 옮겼어요' : '프로젝트를 만들었어요') : state === 'declined' ? '옮기지 않았어요' : '이 대화를 새 프로젝트로 옮길까요?' }}</b>
+        <b v-else>{{ state === 'made' ? '프로젝트를 만들었어요' : state === 'declined' ? '프로젝트를 만들지 않았어요' : '프로젝트로 시작할까요?' }}</b>
+        <small v-if="(state === 'offered' || state === 'making') && moving">아직 만들지 않았어요 · 이름과 템플릿을 확인하고 「만들고 옮기기」를 눌러 주세요</small>
+        <small v-else-if="state === 'offered' || state === 'making'">아직 만들지 않았어요 · 이름과 템플릿을 확인하고 「만들기」를 눌러 주세요</small>
       </div>
     </header>
 
@@ -100,7 +113,9 @@ const open = () => c.value.project?.id && router.push(`/projects/${c.value.proje
       <dl class="facts">
         <template v-if="mailLine"><dt>출처</dt><dd data-test="offer-source" data-no-i18n>{{ mailLine }}</dd></template>
         <template v-if="c.source?.answer"><dt>첫 문서</dt><dd data-test="offer-doc"><span data-no-i18n>「{{ c.source.answer.title }}」</span> 답을 문서로 남겨요</dd></template>
+        <template v-if="moving"><dt>옮길 대화</dt><dd data-test="offer-move-conv"><span data-no-i18n>「{{ c.move.title }}」</span> · 메시지 {{ c.move.count }}개</dd></template>
       </dl>
+      <p v-if="moving" class="mvn" role="note" data-test="offer-move-notice">{{ moveNotice }}</p>
       <!-- the template folders that fit (the judge's picks, each with why) — none at all: no row -->
       <section v-if="recs.length" class="tpls" data-test="offer-templates">
         <p class="cap">템플릿 폴더 추천 <small>템플릿을 고르면 해당 자료 · 양식 · 스킬로 시작해요</small></p>
@@ -118,14 +133,16 @@ const open = () => c.value.project?.id && router.push(`/projects/${c.value.proje
       <p v-if="err" class="err" role="alert" data-test="offer-error">{{ err }}</p>
       <footer>
         <button class="sub press" :disabled="busy" data-test="offer-no" @click="no">아니요</button>
-        <button class="go press" :disabled="busy" data-test="offer-make" @click="make">{{ busy ? '만드는 중…' : '만들기' }}</button>
+        <button class="go press" :disabled="busy" data-test="offer-make" @click="make">{{ moving ? (busy ? '만들고 옮기는 중…' : '만들고 옮기기') : busy ? '만드는 중…' : '만들기' }}</button>
       </footer>
     </template>
 
     <!-- made: where it is, and the way there -->
     <div v-else-if="state === 'made'" class="done" data-test="offer-made" :data-project="c.project?.id">
       <p><b data-no-i18n>「{{ c.project?.title || c.title }}」</b><template v-if="startedFrom"> · <span data-test="offer-started-from">{{ startedFrom }}</span></template></p>
-      <small>원래 대화는 그대로 있어요</small>
+      <small v-if="moving && c.moved" data-test="offer-moved">대화(메시지 {{ c.moved.count }}개)를 이 프로젝트로 옮겼어요</small>
+      <small v-else-if="moving && c.moveError" class="err" data-test="offer-move-error">{{ c.moveError }}</small>
+      <small v-else>원래 대화는 그대로 있어요</small>
       <button class="go press" data-test="offer-open" @click="open">프로젝트 열기 <Icon name="chevron" :size="13" /></button>
     </div>
   </div>
@@ -156,6 +173,7 @@ header { display: flex; align-items: flex-start; gap: 10px; }
 .facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; line-height: 1.45; }
 .facts dt { color: var(--text-secondary); }
 .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.mvn { margin: 0; padding: 8px 10px; border-radius: 12px; background: var(--cell-bg, rgba(127, 127, 127, .08)); font-size: 13px; line-height: 1.45; word-break: keep-all; overflow-wrap: anywhere; }
 .tpls { display: flex; flex-direction: column; gap: 4px; }
 .cap { margin: 2px 0 2px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
 .cap small { font-weight: 400; color: var(--text-tertiary); margin-left: 4px; }
@@ -176,4 +194,5 @@ footer { display: flex; justify-content: flex-end; gap: 8px; }
 .done { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .done p { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
 .done small { font-size: 12px; color: var(--text-secondary); }
+.done small.err { color: var(--color-error, #c62828); }
 </style>

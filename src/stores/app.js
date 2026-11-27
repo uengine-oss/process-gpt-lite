@@ -34,6 +34,8 @@ const endedTurns = new Map()
 
 // a routed turn that came as a live event (another device, an answer after a dropped connection): the list's titles and summaries
 // again, once things settle (the router writes its row as the turn ends)
+// rooms a conversation moved into (or back to) before they were opened here: read whole when they open (onConversationMove)
+const unread = new Set()
 let convReload = null
 // the same for a project's sub-topics (src/projectTopics.js): threadId → timer
 const topicReload = {}
@@ -92,7 +94,9 @@ export const useApp = defineStore('app', {
     clicks: {},                // taskId -> {x,y,w,h,kind,n}: where the browser agent is about to click (the live screen's ripple)
     takeover: null,            // task id whose full view opens with 직접 제어 already on (직접 로그인)
     draftProject: null,        // 새 프로젝트 sent, its room still being made: {tmp, id} — the chat shows the message meanwhile
-    notice: null,              // a short line over the composer: {text} (새 프로젝트 could not be made, the text is back in the box)
+    notice: null,              // a short line over the composer: {text, tone?} (새 프로젝트 could not be made, the text is back in the box; tone 'ok': a done move)
+    moved: null,               // the last move of a conversation into a project or back (server lib/conversationMove.js): MainView follows it
+    moveSheet: null,           // 「프로젝트로 옮기기」 open for a conversation of the chat: {conv, title, count} (components/ConversationMoveSheet.vue)
     // Home's dock (the left column on a wide screen, the 홈 tab on a phone) — closed at start when the chat's thread list was left open
     dockOpen: !readListOpen(),
     // the chat's thread list (components/ThreadList.vue): the left column in place of Home on a wide screen, a sheet on a phone; opened
@@ -329,6 +333,8 @@ export const useApp = defineStore('app', {
             if (ed && !CRAFT_APPS.has(ed)) { this.setOfficeDoc(officeDocOf(d.id, d.content)); delete this.askedAt[d.thread_id] }
           }
         }
+      } else if (type === 'conversation.moved' || type === 'conversation.unmoved') {
+        this.onConversationMove(type, d)
       } else if (type === 'projectNote') {
         this.planTick = { ...this.planTick, [d.threadId]: (this.planTick[d.threadId] || 0) + 1 }
       } else if (type === 'thread') {
@@ -723,7 +729,8 @@ export const useApp = defineStore('app', {
       this.activeId = id
       // a project's sub-topics come beside its messages (not waited for: the chat shows at once)
       if (this.projects.some((p) => p.id === id)) this.loadTopics(id)
-      if (!this.messages[id]) await this.load(id)
+      // (a room a conversation just moved into is read whole — a live line that came before it was opened is not all of it)
+      if (!this.messages[id] || unread.delete(id)) await this.load(id)
     },
     // a card button: the step's choice is submitted right there (with no choice the answer names the instance to open)
     async actNotification(n, choice) {
@@ -774,6 +781,39 @@ export const useApp = defineStore('app', {
     saveAnswerDoc(id) { return api(`/messages/${id}/share/doc`, { method: 'POST' }) },
     // the words of the sheet's 「글 복사」 (text) and 「다른 앱으로 보내기」 (plain — the phone's share sheet): cleaned as the room's are, never the raw answer
     answerOutText(id) { return api(`/messages/${id}/share/text`) },
+    // 대화를 프로젝트로 옮기기 (server lib/conversationMove.js): where it may go, the move, back to the chat, 「새 프로젝트로」's card, where one went
+    moveTargets(conv) { return api(`/conversations/${encodeURIComponent(conv)}/move`) },
+    // (this screen follows at once — the live event comes to the person's other screens, and here a moment later)
+    async moveConversation(conv, body) {
+      const r = await api(`/conversations/${encodeURIComponent(conv)}/move`, { method: 'POST', body })
+      if (r?.project?.id && !r.already) this.onConversationMove('conversation.moved', { conv, from: r.from, project: r.project, ids: r.ids })
+      return r
+    },
+    async undoMove(conv, project) {
+      const r = await api(`/conversations/${encodeURIComponent(conv)}/move/undo`, { method: 'POST', body: { project } })
+      if (r?.to) this.onConversationMove('conversation.unmoved', { conv, to: r.to, project: r.project, ids: r.ids, notes: r.notes })
+      return r
+    },
+    moveOffer(conv) { return api(`/conversations/${encodeURIComponent(conv)}/move/offer`, { method: 'POST' }) },
+    placeOf(conv) { return api(`/conversations/${encodeURIComponent(conv)}/place`).catch(() => null) },
+    // A conversation went into a project (or back): its messages leave the room they were in on every screen of this person at once, the
+    // room they went to is read again (with the chip about the move), and the lists follow; MainView takes the view along (this.moved).
+    onConversationMove(type, d) {
+      if (!d?.conv || !d.project?.id) return
+      const back = type === 'conversation.unmoved'
+      const gone = new Set([...(d.ids || []), ...(back ? d.notes || [] : [])])
+      const from = back ? d.project.id : d.from
+      const to = back ? d.to : d.project.id
+      if (from && this.messages[from]) this.messages[from] = this.messages[from].filter((m) => !gone.has(m.id))
+      // (the room it went to is read again — or for the first time when it opens: what a line pushed in meanwhile left there is not all of it)
+      if (to && this.messages[to]) this.load(to).catch(() => {})
+      else if (to) unread.add(to)
+      this.loadConversations()
+      this.loadTopics(d.project.id)
+      const i = this.projects.findIndex((p) => p.id === d.project.id)
+      if (i >= 0) this.projects[i] = { ...this.projects[i], updated_at: new Date().toISOString() }
+      this.moved = { ...d, back, at: Date.now() }
+    },
     // 대화를 프로젝트로 (server lib/chatProject.js): the confirm card for an answer, then 「만들기」 · 「아니요」 on it
     projectOffer(id) { return api(`/messages/${id}/project-offer`, { method: 'POST' }) },
     makeProject(offerId, body) { return api(`/project-offers/${offerId}/make`, { method: 'POST', body }) },

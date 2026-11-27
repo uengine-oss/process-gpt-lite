@@ -40,6 +40,7 @@ import LocalRunCard from './LocalRunCard.vue'
 import MediaPreview from './MediaPreview.vue'
 // 대화를 프로젝트로: 「프로젝트로 시작할까요?」 (server lib/chatProject.js)
 import ProjectOfferCard from './ProjectOfferCard.vue'
+import ConvMoveCard from './ConvMoveCard.vue'
 // 답을 공유 · 프로젝트로 시작 — the answer's own buttons and its message menu (a long press · a right-click opens the same 공유 sheet)
 import { hold } from './holdMenu.js'
 import { showsActions, isAnswer, startProjectFrom } from '../answerActions.js'
@@ -138,6 +139,16 @@ async function replacePlan(index) {
   planBusy.value = true
   planErr.value = ''
   try { await api(`/threads/${props.msg.thread_id}/note/replace`, { method: 'POST', body: { messageId: props.msg.id, index } }) } catch (e) { planErr.value = e.message } finally { planBusy.value = false }
+}
+// a conversation moved in from the chat (server lib/conversationMove.js): 「채팅으로 되돌리기」 — only for the one who moved it, asked once more
+const mineMove = computed(() => !!c.value.moved?.note && String(c.value.moved.by || '') === String(app.me?.user?.id || ''))
+const backAsk = ref(false)
+const backBusy = ref(false)
+const backErr = ref('')
+async function moveBack() {
+  backBusy.value = true
+  backErr.value = ''
+  try { await app.undoMove(c.value.moved.conv, props.msg.thread_id) } catch (e) { backErr.value = e.message } finally { backBusy.value = false }
 }
 async function undoPlan() {
   planBusy.value = true
@@ -329,6 +340,8 @@ onMounted(async () => {
 
     <!-- 대화를 프로젝트로: the confirm card (name · the template folders that fit · 만들기) -->
     <ProjectOfferCard v-else-if="msg.kind === 'project_offer'" :msg="msg" />
+    <!-- 「이 대화 프로젝트로 옮겨 줘」 (server lib/conversationMove.js offerByWords): the same picker and notice as the bar's 「프로젝트로 옮기기」 -->
+    <ConvMoveCard v-else-if="msg.kind === 'conv_move'" :msg="msg" />
     <TaskCard v-else-if="msg.kind === 'task'" :msg="msg" />
     <VaultCard v-else-if="msg.kind === 'vault'" :msg="msg" />
     <!-- Agentic BPM (docs/agentic-bpm): a policy decision, a decision brief, the alternatives of a blocked action -->
@@ -430,6 +443,19 @@ onMounted(async () => {
     <button v-else-if="msg.kind === 'chip' && c.fromChat" class="chip link press" data-test="from-chat" @click="router.push(c.fromChat.conversationId ? `/chat/c/${encodeURIComponent(c.fromChat.conversationId)}` : '/chat')">
       <Icon name="chat" :size="16" /> <span class="ct">{{ c.text }}</span> <span class="cgo">원래 대화 열기</span> <Icon name="chevron" :size="14" />
     </button>
+    <!-- a conversation moved in from the chat (server lib/conversationMove.js): where it came from, and 「채팅으로 되돌리기」 (its mover only) -->
+    <div v-else-if="msg.kind === 'chip' && c.moved?.note" class="chip planchg movednote" data-test="moved-note" :data-conv="c.moved.conv">
+      <Icon name="chat" :size="16" /> <span class="ct" data-test="moved-note-text">{{ c.text }}</span>
+      <span class="pacts">
+        <template v-if="backAsk">
+          <small class="bq" data-test="moved-back-ask">채팅으로 되돌릴까요? 프로젝트에서 이어서 나눈 이야기도 함께 옮겨요</small>
+          <button class="pbtn press" :disabled="backBusy" data-test="moved-back-yes" @click="moveBack">{{ backBusy ? '되돌리는 중…' : '되돌리기' }}</button>
+          <button class="pbtn press" :disabled="backBusy" data-test="moved-back-no" @click="backAsk = false">아니요</button>
+        </template>
+        <button v-else-if="mineMove" class="pbtn press" data-test="moved-back" @click="backAsk = true">채팅으로 되돌리기</button>
+      </span>
+      <small v-if="backErr" class="aerr" role="alert">{{ backErr }}</small>
+    </div>
     <!-- a change of the project's plan (server lib/projectNote.js): what changed, 「되돌리기」 (back to the plan before it) and 「계획 보기」 -->
     <div v-else-if="msg.kind === 'chip' && c.planChange" class="chip planchg" data-testid="plan-change">
       <Icon name="plan" :size="16" /> <span class="ct" data-testid="plan-change-text">{{ c.text }}</span>
@@ -590,6 +616,7 @@ button.uref { text-align: left; }
 .chip.planchg .pbtn:disabled { opacity: .5; }
 .chip.planchg .pdone { align-self: center; color: var(--text-tertiary); font-size: 12.5px; }
 .chip.planchg .aerr { flex-basis: 100%; margin: 0; font-size: 12.5px; color: var(--color-error); }
+.chip.movednote .bq { flex-basis: 100%; font-size: 12.5px; color: var(--text-secondary); line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
 .planfull { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; max-width: 424px; }
 .planfull .pf { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 12px; border-radius: 14px; background: var(--cell-bg); color: var(--text-primary); font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
 .planfull .pf small { color: var(--text-tertiary); font-size: 11.5px; }

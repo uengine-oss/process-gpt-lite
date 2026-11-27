@@ -3618,7 +3618,39 @@
   "보낼 글을 준비하지 못했어요.": "Couldn't prepare the words to send.",
   "글을 준비했어요. 한 번 더 눌러 주세요.": "The words are ready. Press it once more.",
   "다른 앱으로 보내지 못했어요. 「글 복사」로 복사해 붙여 넣어 주세요.": "Couldn't send it to another app. Use \"Copy text\" and paste it there.",
-  "정리한 글을 받지 못했어요. 다시 눌러 주세요.": "Couldn't get the cleaned words. Please press again."
+  "정리한 글을 받지 못했어요. 다시 눌러 주세요.": "Couldn't get the cleaned words. Please press again.",
+  "프로젝트로 옮기기": "Move to a project",
+  "이 대화를 통째로 프로젝트로 옮겨요 · 채팅 목록에서는 빠져요": "Moves this whole conversation into a project · it leaves the chat list",
+  "옮기기 전에 확인해 주세요": "Check before moving",
+  "프로젝트를 불러오는 중…": "Loading projects…",
+  "옮긴 대화는 고른 프로젝트에서만 볼 수 있어요. 채팅 목록과 전체 대화에서는 사라져요.": "A moved conversation can be seen only in the project you pick. It disappears from the chat list and the whole chat.",
+  "새 프로젝트로 옮기기": "Move to a new project",
+  "이 대화로 새 프로젝트를 만들어 옮겨요 · 이름과 템플릿을 먼저 확인해요": "Makes a new project from this conversation and moves it there · you check the name and template first",
+  "내 프로젝트": "My projects",
+  "프로젝트 찾기": "Find a project",
+  "맞는 프로젝트가 없어요": "No matching project",
+  "아직 프로젝트가 없어요 · 새 프로젝트로 옮길 수 있어요": "No projects yet · you can move it to a new project",
+  "구성원도 볼 수 있다는 것을 확인했어요": "I understand the members can see it",
+  "프로젝트의 이 대화에서 「채팅으로 되돌리기」를 누르면 다시 채팅으로 가져와요.": "Press 「Move back to the chat」 on this conversation in the project to bring it back to the chat.",
+  "옮기기": "Move",
+  "옮기는 중…": "Moving…",
+  "채팅으로 되돌리기": "Move back to the chat",
+  "채팅으로 되돌릴까요? 프로젝트에서 이어서 나눈 이야기도 함께 옮겨요": "Move it back to the chat? What was said in the project goes along too",
+  "되돌리는 중…": "Moving back…",
+  "이 대화를 프로젝트로 옮길까요?": "Move this conversation to a project?",
+  "대화를 프로젝트로 옮겼어요": "Moved the conversation to the project",
+  "옮기지 않았어요": "Not moved",
+  "아직 옮기지 않았어요 · 프로젝트를 고르고 확인하면 옮겨요": "Not moved yet · it moves once you pick a project and confirm",
+  "다른 프로젝트 고르기": "Pick another project",
+  "프로젝트 고르기": "Pick a project",
+  "이 대화를 새 프로젝트로 옮길까요?": "Move this conversation to a new project?",
+  "프로젝트를 만들고 대화를 옮겼어요": "Made the project and moved the conversation",
+  "아직 만들지 않았어요 · 이름과 템플릿을 확인하고 「만들고 옮기기」를 눌러 주세요": "Not made yet · check the name and template, then press 「Make and move」",
+  "만들고 옮기기": "Make and move",
+  "만들고 옮기는 중…": "Making and moving…",
+  "옮길 대화": "Conversation to move",
+  "채팅으로 되돌렸어요 · 채팅 목록에 다시 있어요": "Moved back to the chat · it is in the chat list again",
+  "옮길 프로젝트": "Project to move to"
  },
  "patterns": [
   [
@@ -8168,6 +8200,70 @@
   [
    "{0}분 뒤에 사라져요",
    "Goes away in {0} min"
+  ],
+  [
+   "옮기면 이 대화(메시지 {0}개)는 프로젝트 「{1}」에서만 볼 수 있어요. 채팅 목록과 전체 대화에서는 사라져요.",
+   "Once moved, this conversation ({0} messages) can be seen only in the project \"{1}\". It disappears from the chat list and the whole chat."
+  ],
+  [
+   "만들면 이 대화(메시지 {0}개)를 새 프로젝트로 옮겨요. 옮긴 대화는 그 프로젝트에서만 볼 수 있고, 채팅 목록과 전체 대화에서는 사라져요.",
+   "Making it moves this conversation ({0} messages) into the new project. It can then be seen only in that project and disappears from the chat list and the whole chat."
+  ],
+  [
+   "이 프로젝트는 공유 폴더 「{0}」를 사용해요. 옮긴 뒤 이 대화에서 만드는 파일은 프로젝트 구성원 {1}명({2})도 볼 수 있어요.",
+   "This project works in the shared folder \"{0}\". Once moved, files this conversation makes can also be seen by the project's {1} members ({2})."
+  ],
+  [
+   "프로젝트 「{0}」로 옮겼어요 · 채팅 목록에서는 빠졌어요",
+   "Moved to the project \"{0}\" · it left the chat list"
+  ],
+  [
+   "프로젝트 「{0}」으로 옮겼어요 · 채팅 목록에서는 빠졌어요",
+   "Moved to the project \"{0}\" · it left the chat list"
+  ],
+  [
+   "이 대화는 프로젝트 「{0}」로 옮겼어요",
+   "This conversation moved to the project \"{0}\""
+  ],
+  [
+   "이 대화는 프로젝트 「{0}」으로 옮겼어요",
+   "This conversation moved to the project \"{0}\""
+  ],
+  [
+   "채팅에서 옮겨 온 대화예요 · 메시지 {0}개",
+   "A conversation moved from the chat · {0} messages"
+  ],
+  [
+   "구성원 {0}명",
+   "{0} members"
+  ],
+  [
+   "공유 폴더 「{0}」",
+   "Shared folder \"{0}\""
+  ],
+  [
+   "템플릿 「{0}」의 전용 작업 공간",
+   "Template \"{0}\" — its own workspace"
+  ],
+  [
+   "「{0}」로 옮기기",
+   "Move to \"{0}\""
+  ],
+  [
+   "「{0}」으로 옮기기",
+   "Move to \"{0}\""
+  ],
+  [
+   "대화(메시지 {0}개)를 이 프로젝트로 옮겼어요",
+   "Moved the conversation ({0} messages) to this project"
+  ],
+  [
+   "· 메시지 {0}개",
+   "· {0} messages"
+  ],
+  [
+   "이 프로젝트는 공유 폴더 「{0}」을 사용해요. 옮긴 뒤 이 대화에서 만드는 파일은 프로젝트 구성원 {1}명({2})도 볼 수 있어요.",
+   "This project works in the shared folder \"{0}\". Once moved, files this conversation makes can also be seen by the project's {1} members ({2})."
   ]
  ],
  "context": [

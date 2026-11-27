@@ -5,5 +5,6 @@
   "draftTimeoutMs": 20000,
   "draftMaxTokens": 1500,
   "templates": { "judge": 12, "max": 3, "minP": 0.3, "timeoutMs": 8000, "kitItems": 6 },
-  "limits": { "title": 40, "intent": 200, "background": 120, "deliverables": 3 }
+  "limits": { "title": 40, "intent": 200, "background": 120, "deliverables": 3 },
+  "move": { "minP": 0.7, "timeoutMs": 6000 }
 }

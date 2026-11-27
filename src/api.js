@@ -211,7 +211,9 @@ const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'p
   // a chat turn while it runs: its plan, stage, to-dos, steps and notes (server lib/turnPlan.js — the plan card and the progress panel)
   'turn.start', 'turn.plan', 'turn.stage', 'turn.todos', 'turn.step', 'turn.note', 'turn.call', 'turn.end',
   // a project's plan changed (server lib/projectNote.js — an automatic update, 계획에 넣기, an undo): its chip and sheet load it again
-  'projectNote']
+  'projectNote',
+  // a conversation of the chat moved into a project, or back (server lib/conversationMove.js): every screen of the person follows
+  'conversation.moved', 'conversation.unmoved']
 // Live events over SSE; if the stream never says hello (a proxy in front holding it back, as
 // Cloudflare quick tunnels do), the same events come by long polling instead.
 // One stream per page, however many ask for it: the chat (app.js boot) and the team messenger (stores/team.js boot — a messenger
