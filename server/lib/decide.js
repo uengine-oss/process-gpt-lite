@@ -91,12 +91,13 @@ export async function oddsOf(state, question, options, { timeoutMs = ODDS_MS } =
 // One choice among options by the first token's probability (oddsOf); a model without log-probabilities answers the same question in
 // JSON (answerJson says how). → {choice, probabilities, confidence, strategy: 'logprob'|'json', model} or null when nothing could be read.
 // (folder filing — lib/folders/filing.js; what a mail card is for — lib/mailCard.js)
-export async function choose(state, question, options, { odds = oddsOf, json = chatJson, answerJson, timeoutMs = 8000 } = {}) {
+// jsonTimeoutMs: how long the JSON answer may take (a reading on a chat turn's path waits less — lib/folders/threadFolders.js)
+export async function choose(state, question, options, { odds = oddsOf, json = chatJson, answerJson, timeoutMs = 8000, jsonTimeoutMs = 30000 } = {}) {
   const r = await odds(state, question, options, { timeoutMs }).catch(() => null)
   if (r?.probabilities) return { choice: r.choice, probabilities: r.probabilities, confidence: r.confidence, strategy: 'logprob', model: r.model || null }
   try {
     const j = await json(`${question}\n${answerJson || 'JSON {"choice": "<letter>", "confidence": 0-1} only.'}`,
-      `${state}\n\n${options.map((o, i) => `${LETTERS[i]}) ${o.label}`).join('\n')}`, { timeoutMs: 30000, temperature: 0 })
+      `${state}\n\n${options.map((o, i) => `${LETTERS[i]}) ${o.label}`).join('\n')}`, { timeoutMs: jsonTimeoutMs, temperature: 0 })
     const i = LETTERS.indexOf(String(j?.choice || '').trim().toUpperCase().slice(0, 1))
     if (i < 0 || i >= options.length) return null
     const p = Math.max(0, Math.min(1, Number(j.confidence)))

@@ -3,7 +3,8 @@
 //   GET  /mail/cards               [action]                                          받은 편지함's mail list
 //   GET  /actions/:id/mail         {provider, mode, mail, files, to, reply, sent}   the mail as it arrived
 //   POST /actions/:id/reply-draft  → {reply, files}                                  a draft to read and change
-//   POST /actions/:id/reply        {to, cc, subject, body, files} → {ok, sent}        sent (or put in Drafts)
+//   POST /actions/:id/reply        {to, cc, subject, body, files} → {ok, sent}        sent (or put in Drafts); no answer in time → 504 send_unknown
+//   POST /actions/:id/reply/resolve {sent} → {ok}                                    after send_unknown: 보냈어요 · 안 나갔어요
 // What the card is for, and the calendar card's event (lib/mailCard.js) — nothing is made until the person presses 캘린더에 추가:
 //   GET  /actions/:id/kind         {kind: calendar|reply|task, by, p}               decided once (the judge) and kept on the card
 //   GET  /actions/:id/event?tz=    {mode: google|demo|none|scope, draft, event?}     the event read from the mail, to edit
@@ -44,6 +45,8 @@ export function mailReplyRoutes(auth) {
   r.get('/actions/:id/mail', auth, (req, res) => send(res, R.mailOfCard(req.user, req.params.id)))
   r.post('/actions/:id/reply-draft', auth, (req, res) => send(res, R.draftReply(req.user, req.params.id)))
   r.post('/actions/:id/reply', auth, (req, res) => send(res, R.sendReply(req.user, req.params.id, req.body || {})))
+  // after 「보냈는지 확인하지 못했어요」 (a send with no answer in time): 보냈어요 · 안 나갔어요
+  r.post('/actions/:id/reply/resolve', auth, (req, res) => send(res, R.resolveReply(req.user, req.params.id, { sent: req.body?.sent === true })))
   r.get('/actions/:id/kind', auth, (req, res) => send(res, C.kindOfCard(req.user, req.params.id)))
   r.get('/actions/:id/event', auth, (req, res) => send(res, C.eventOfCard(req.user, req.params.id, { tz: req.query.tz ? String(req.query.tz) : null })))
   r.post('/actions/:id/event', auth, (req, res) => send(res, C.addEvent(req.user, req.params.id, req.body || {})))

@@ -73,7 +73,7 @@ export async function gmail(userId, path, init = {}) {
   } catch (e) { throw timedOut(e) ? tooSlow() : e }
   if (!res.ok) {
     const why = (() => { try { return JSON.parse(text).error?.message } catch { return '' } })() || `HTTP ${res.status}`
-    throw fail(res.status === 404 ? 404 : 502, L(`Gmail이 요청을 받지 않았어요 (${why}).`, `Gmail didn't accept the request (${why}).`), 'gmail_error')
+    throw Object.assign(fail(res.status === 404 ? 404 : 502, L(`Gmail이 요청을 받지 않았어요 (${why}).`, `Gmail didn't accept the request (${why}).`), 'gmail_error'), { upstream: res.status })
   }
   return text ? JSON.parse(text) : {}
 }
@@ -187,6 +187,16 @@ export async function filesFor(userId, mailId) {
 // Drafts folder (IMAP — this server has no SMTP account). Each of these Gmail scopes may send.
 const SEND_SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.modify', 'https://mail.google.com/']
+// A send that failed in a way that does not say whether the mail left: no answer in time (mail_timeout), a gateway that gave up
+// waiting (504), or the connection dropped with no answer at all. Any other answer from Gmail (a 4xx refusal, a 5xx error it
+// reported) means it did not take the mail. IMAP's Drafts: only a timeout is unsure (a draft put twice is not a mail sent twice).
+export function sendUncertain(e, mode = 'send') {
+  if (e?.code === 'mail_timeout') return true
+  if (mode === 'drafts') return false
+  if (e?.code === 'gmail_error') return e.upstream === 504
+  return !e?.status && !e?.upstream
+}
+
 export async function sendMode(userId, provider) {
   if (provider === 'imap') return 'drafts'
   if (provider !== 'gmail') return 'send'
@@ -210,7 +220,7 @@ export async function mailOfCard(user, actionId) {
   return {
     provider: acc.provider, mode: await sendMode(user.id, acc.provider), files,
     mail: { from: original.from, to: original.to, cc: original.cc, date: original.date, subject: original.subject, text: original.text, attachments: original.attachments },
-    reply: a.source.reply || null, sent: a.source.sent || null,
+    reply: a.source.reply || null, sent: a.source.sent || null, unknown: a.source.send_unknown || null,
     to: back.to.map(formatAddress).join(', '),
   }
 }
@@ -324,10 +334,23 @@ export async function imapDraft(userId, raw) {
   } finally { await client.logout().catch(() => {}) }
 }
 
+// POST /actions/:id/reply/resolve {sent} — after 「보냈는지 확인하지 못했어요」: the person looked in the Sent folder. sent → the card is
+// answered (nothing is mailed); not sent → the claim is lifted and 보내기 can be pressed again.
+export async function resolveReply(user, actionId, { sent } = {}) {
+  const a = await cardOf(user.id, actionId)
+  if (!a.source.send_unknown) throw fail(409, L('확인할 답장이 없어요.', 'There is no reply to confirm.'), 'closed')
+  const [row] = sent === true
+    ? await q(`update pro_actions set status='done', source = (source - 'sending' - 'send_unknown') || jsonb_build_object('sent', jsonb_build_object('checked', true, 'at', now())) where id=$1 returning *`, [a.id])
+    : await q(`update pro_actions set source = source - 'sending' - 'send_unknown' where id=$1 returning *`, [a.id])
+  if (row) emit(user.id, 'action', row)
+  return { ok: true, action: row }
+}
+
 // POST /actions/:id/reply {to, cc, subject, body, files}
 export async function sendReply(user, actionId, input = {}) {
   const a = await cardOf(user.id, actionId)
   if (a.source.sent) throw fail(409, L('이 메일에는 이미 답장을 보냈어요.', 'A reply to this mail was already sent.'))
+  if (a.source.send_unknown) throw fail(409, L('보냈는지 확인하지 못했어요. 메일함의 보낸 편지함을 확인해 주세요.', "Couldn't confirm it was sent. Check the Sent folder of your mailbox."), 'send_unknown')
   const acc = await accountOf(user.id)
   const mode = await sendMode(user.id, acc.provider)
   if (mode === 'none') throw fail(403, L('Gmail에서 메일 보내기를 허락받지 않았어요. 설정에서 메일을 다시 연결해 주세요.', "Gmail hasn't allowed sending. Connect your mail again in Settings."), 'gmail_scope')
@@ -349,6 +372,14 @@ export async function sendReply(user, actionId, input = {}) {
     if (mode === 'drafts') await imapDraft(user.id, raw)
     else if (acc.provider === 'gmail') await gmailSend(user.id, raw, original.threadId)
   } catch (e) {
+    // it may have left (no answer in time): the claim stays and the sheet asks the person to check the Sent folder — 보내기 again
+    // would mail it twice. A refusal lifts the claim.
+    if (sendUncertain(e, mode)) {
+      const [u] = await q(`update pro_actions set source = source || jsonb_build_object('send_unknown', jsonb_build_object('at', now(), 'code', $2::text)) where id=$1 returning *`,
+        [a.id, e.code || null]).catch(() => [])
+      if (u) emit(user.id, 'action', u)
+      throw fail(504, L('보냈는지 확인하지 못했어요. 메일함의 보낸 편지함을 확인해 주세요.', "Couldn't confirm it was sent. Check the Sent folder of your mailbox."), 'send_unknown')
+    }
     await q(`update pro_actions set source = source - 'sending' where id=$1`, [a.id]).catch(() => {})
     throw e
   }

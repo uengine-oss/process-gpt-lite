@@ -28,6 +28,7 @@ import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, offi
 import { AsyncLocalStorage } from 'node:async_hooks'
 import * as llmKeys from './llmKeys.js'
 import * as turns from './turns.js'
+import { agentMetadata, isHiddenTool } from './agentMeta.js'
 import { refer as referContext } from './context/refer.js'
 import { rebuildSoon } from './context/digest.js'
 import { findRepeat } from './context/repeat.js'
@@ -506,6 +507,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (conversation?.id && !mine) console.warn(`[turn] conversation from the page is not this person's — not taken user=${userId.slice(0, 8)}`)
   if (mine) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || ''), ...(mine.kind ? { kind: mine.kind } : {}) })
   // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
+  // (and the address itself: what the page sends is cut to the person's own uploads at the route — lib/attachments.js pageFiles —
+  // before it gets here; the server's own callers — a teammate's shared copies — pass their files as they made them)
   const ownPath = (p) => typeof p === 'string' && p.startsWith(`/workspace/uploads/${user.id}/`) && !p.split('/').includes('..')
   files = (files || []).filter((f) => f?.url).map((f) => ({ ...f,
     ...(f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { key: undefined } : {}),
@@ -1751,13 +1754,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         files: chatFiles(sent),
         user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
         conversation_id: conv, stream: true,
-        metadata: { client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
+        metadata: agentMetadata({ client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
           // (the language in every mode: a message that is only a link has none of its own — design turnplan §1.5)
           language: isEn() ? 'en' : 'ko',
-          // the company's tools a person's turn must not use (config.hiddenTools — its shared-account mail tool: a mail goes out from the
-          // person's own mailbox through send_mail_as_me's card instead, lib/mailOut.js)
-          ...(config.hiddenTools.length ? { hidden_tools: config.hiddenTools } : {}),
-          ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents', ...(facts?.contexts?.length ? { contexts: facts.contexts } : {}) } : {}) },
+          // (the company's tools a person's turn must not use — its shared-account mail: lib/agentMeta.js, added last by agentMetadata)
+          ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents', ...(facts?.contexts?.length ? { contexts: facts.contexts } : {}) } : {}) }),
       }),
     })
   }
@@ -1873,7 +1874,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (j.type === 'tool_start') {
         const tool = j.tool || j.tool_name || j.name || ''
         // a tool Lite's turns must not get reached the agent anyway (a deepagents that does not read metadata.hidden_tools yet)
-        if (config.hiddenTools.includes(tool)) console.warn(`[delegate] hidden tool '${tool}' ran anyway user=${user.id.slice(0, 8)} — deepagents did not hide it`)
+        if (isHiddenTool(tool)) console.warn(`[delegate] hidden tool '${tool}' ran anyway user=${user.id.slice(0, 8)} — deepagents did not hide it`)
         usedTools.add(tool)
         inputs.set(tool, j.input ?? null)
         const entry = trail.add(tool, j.input, toolPhase(tool))

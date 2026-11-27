@@ -5,20 +5,26 @@
 // References); IMAP puts it in that mailbox's Drafts; the demo mailbox records it.
 // 2026-11-27 (production, a recording): asked in the chat 「이렇게 보내」, the agent sent a customer's reply itself through the
 // company's mail tool (a tenant MCP send_email) — from the company's shared sending address, not the person's, and as a new
-// mail instead of a reply in the customer's thread. Lite's turns no longer get that tool (config.agent.hiddenTools →
-// deepagents metadata.hidden_tools); this is the tool they get instead.
+// mail instead of a reply in the customer's thread. Lite's turns no longer get that tool (lib/agentMeta.js → deepagents
+// metadata.hidden_tools · hidden_tool_servers); this is the tool they get instead.
 //   senderOf      — who the mail goes out as now: the person's connected mailbox and how it leaves (send · drafts · none · connect)
-//   findOriginal  — the mail it answers, in the person's own mailbox (by its id, else by subject among the mails with the recipient)
-//   propose       — the card, in the chat of the agent turn that asked (nothing leaves)
-//   cardView      — what the card shows now (GET /api/mail-out/:id): the sender is read again, never taken from the card
-//   sendOut       — 보내기: once, claimed first; the From is the connected mailbox's address, whatever the card says
+//   findOriginal  — the mail it answers, in the person's own mailbox: by its id, or by subject among the mails exchanged with a
+//                   recipient the agent named — never guessed from the subject alone
+//   propose       — the card, in the chat of the agent turn that asked — found by its conversation (nothing leaves)
+//   cardView      — what the card shows now (GET /api/mail-out/:id): the sender is read again, never taken from the card, and a
+//                   confirmation bound to exactly what is shown
+//   editOut       — the person's edits, saved on the card first (POST …/edit)
+//   sendOut       — 보내기: only the saved card, only with the confirmation of what was shown; once, claimed first
+//   resolveOut    — after a send that could not be confirmed (a timeout): 「보냈어요」 or 「안 나갔어요」, after checking the Sent folder
 //   keepOut · reopenOut · cancelOut — 초안으로 두기 · 다시 열기 · 그만두기
-import { q } from './supa.js'
+import crypto from 'node:crypto'
+import { q, admin } from './supa.js'
 import { emit } from './bus.js'
 import { getThread } from './store.js'
 import { L } from './lang.js'
 import * as turns from './turns.js'
-import { addresses, formatAddress, recipients, originalOf, sendMode, buildReply, gmail, gmailSend, imapDraft, imapClient, parsed, storageKey, download } from './mailReply.js'
+import { addresses, formatAddress, recipients, originalOf, sendMode, buildReply, gmail, gmailSend, imapDraft, imapClient, parsed,
+  storageKey, ownUpload, filesFor, download, sendUncertain } from './mailReply.js'
 
 const BODY_MAX = 20000
 const FILES_MAX = 10
@@ -27,6 +33,8 @@ const fail = (status, message, code) => Object.assign(new Error(message), { stat
 const clean = (s, n = 300) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
 const list = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((x) => String(x || '').trim()).filter(Boolean)
 const asAddresses = (v) => addresses(list(v).join(', '))
+const lower = (a) => String(a?.address || a || '').toLowerCase()
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // RFC 5322 §3.6.5: a reply's subject is the original's with "Re: " in front (forwards: "Fw:" / "Fwd:") — a format, not words read
 const REPLY_PREFIX = /^\s*((re|fwd?)\s*:\s*)+/i
@@ -45,15 +53,26 @@ export async function senderOf(user) {
 }
 
 // ---------- the mail it answers ----------
-const replyOf = (o) => (o ? { mailId: String(o.id), threadId: o.threadId || null, subject: o.subject || '', from: o.from ? formatAddress(o.from) : '', date: o.date || null } : null)
-// the newest mail in this person's own mailbox with that subject, exchanged with one of these people
+const participants = (o) => [o?.from, ...(o?.to || []), ...(o?.cc || []), ...(o?.replyTo || [])].filter(Boolean).map(lower)
+function replyOf(o, by, to) {
+  if (!o) return null
+  const from = o.from ? lower(o.from) : ''
+  const rt = (o.replyTo || []).map(lower).filter(Boolean)
+  const seen = participants(o)
+  return {
+    mailId: String(o.id), threadId: o.threadId || null, subject: o.subject || '', from: o.from ? formatAddress(o.from) : '', date: o.date || null, by, seen,
+    // the mail asks replies to go somewhere other than its sender — said on the card
+    ...(rt.length && rt.some((a) => a !== from) ? { replyTo: (o.replyTo || []).map(formatAddress).join(', ') } : {}),
+    // the mail goes to someone who was not in that conversation — said on the card
+    ...(to.length && !to.some((a) => seen.includes(lower(a))) ? { outsider: true } : {}),
+  }
+}
+// the newest mail in this person's own mailbox with that subject, exchanged with one of the people the agent named
 async function bySubject(user, provider, base, people) {
-  if (!base) return null
-  const matches = (o) => o && baseSubject(o.subject) === base
-    && (!people.length || [o.from, ...(o.to || []), ...(o.cc || []), ...(o.replyTo || [])].some((a) => a && people.some((x) => x.toLowerCase() === String(a.address).toLowerCase())))
+  if (!base || !people.length) return null
+  const matches = (o) => o && baseSubject(o.subject) === base && participants(o).some((a) => people.includes(a))
   if (provider === 'gmail') {
-    const who = people.length ? ` {${people.map((a) => `from:${a} to:${a}`).join(' ')}}` : ''
-    const qs = `subject:"${base.replace(/["\\]/g, ' ')}"${who} -in:drafts`
+    const qs = `subject:"${base.replace(/["\\]/g, ' ')}" {${people.map((a) => `from:${a} to:${a}`).join(' ')}} -in:drafts`
     const found = await gmail(user.id, `messages?maxResults=5&q=${encodeURIComponent(qs)}`)
     for (const m of found.messages || []) {
       const o = await originalOf(user.id, 'gmail', m.id).catch(() => null)
@@ -84,41 +103,67 @@ async function bySubject(user, provider, base, people) {
   }
   return null
 }
-// → the original as lib/mailReply.js reads it, or null (not found, not this person's, no mailbox)
+// → {original, by: 'id'|'subject'} — the original as lib/mailReply.js reads it — or {original: null} (not found, not this person's,
+// no mailbox, or nothing to find it by: no mail id and no recipient named)
 export async function findOriginal(user, sender, { mailId = null, subject = '', people = [] } = {}) {
-  if (!sender?.provider) return null
+  if (!sender?.provider) return { original: null }
   if (mailId) {
     // (an id from a Home card: the card's mail — only a card of this person's)
-    const [card] = /^[0-9a-f-]{36}$/i.test(String(mailId)) ? await q(`select source from pro_actions where id=$1 and user_id=$2`, [String(mailId), user.id]).catch(() => []) : []
+    const [card] = UUID.test(String(mailId)) ? await q(`select source from pro_actions where id=$1 and user_id=$2`, [String(mailId), user.id]).catch(() => []) : []
     const id = card?.source?.mail_id ? String(card.source.mail_id) : String(mailId)
     const o = await originalOf(user.id, sender.provider, id).catch(() => null)
-    if (o) return o
+    return o ? { original: o, by: 'id' } : { original: null, notFound: true }
   }
-  return bySubject(user, sender.provider, baseSubject(subject), people).catch((e) => { console.warn('[mail out] thread', e.code || e.message); return null })
+  const o = await bySubject(user, sender.provider, baseSubject(subject), people.map(lower)).catch((e) => { console.warn('[mail out] thread', e.code || e.message); return null })
+  return o ? { original: o, by: 'subject' } : { original: null }
+}
+// The person's Home card for that mail (or its thread) was already answered — from its sheet or from another card
+async function answeredOf(userId, original) {
+  if (!original) return null
+  const [a] = await q(`select source->'sent' as sent from pro_actions where user_id=$1 and source ? 'sent'
+                       and (source->>'mail_id' = $2 or ($3::text is not null and source->>'thread_id' = $3)) order by created_at desc limit 1`,
+  [userId, String(original.id), original.threadId ? String(original.threadId) : null]).catch(() => [])
+  return a?.sent ? { at: a.sent.at || null, to: a.sent.to || '', subject: a.sent.subject || '' } : null
 }
 
 // ---------- the files ----------
-// a file named by the agent: a file card of this chat (a document it made, a file someone put here) with that name, the newest
-async function filesOf(threadId, names) {
-  const want = list(names).slice(0, FILES_MAX)
+// What may go with the mail is what the reply sheet allows (lib/mailReply.js): a file the person uploaded themselves (their own
+// storage folder) or a draft document made for the mail it answers — named by the agent, found in this chat (an upload's card) or
+// among that mail's draft cards. A name two different files share is not guessed: it is left out, and the card says why.
+async function sizeOf(key) {
+  const dir = key.split('/').slice(0, -1).join('/'), base = key.split('/').pop()
+  const { data } = await admin.storage.from('files').list(dir, { search: base, limit: 5 }).catch(() => ({ data: null }))
+  const hit = (data || []).find((x) => x.name === base)
+  return Number(hit?.metadata?.size) || null
+}
+async function filesOf(user, threadId, names, original) {
+  const want = list(names).slice(0, FILES_MAX).map((n) => n.split('/').pop())
   if (!want.length) return { files: [], missing: [] }
-  const rows = await q(`select id, content from pro_messages where thread_id=$1 and kind='file' order by created_at desc limit 200`, [threadId])
+  const rows = await q(`select id, content, created_at from pro_messages where thread_id=$1 and kind='file' order by created_at desc limit 200`, [threadId])
+  const uploads = rows.map((r) => ({ messageId: r.id, name: r.content?.name, key: storageKey(r.content?.url || ''), at: r.created_at }))
+    .filter((x) => x.key && ownUpload(user.id, x.key)).map((x) => ({ ...x, origin: 'upload' }))
+  const drafts = original ? (await filesFor(user.id, String(original.id)).catch(() => [])).map((d) => ({ messageId: d.messageId, name: d.name, key: storageKey(d.url), origin: 'draft' })).filter((x) => x.key) : []
+  const allowed = [...uploads, ...drafts]
   const files = [], missing = []
-  for (const n of want) {
-    const base = n.split('/').pop()
-    const hit = rows.find((r) => r.content?.name === base && storageKey(r.content?.url || ''))
-    if (hit && !files.some((f) => f.messageId === hit.id)) files.push({ messageId: hit.id, name: base })
-    else if (!hit) missing.push(base)
+  for (const name of [...new Set(want)]) {
+    const hits = allowed.filter((x) => x.name === name)
+    const keys = [...new Set(hits.map((x) => x.key))]
+    if (!hits.length) { missing.push({ name, why: rows.some((r) => r.content?.name === name) ? 'not_allowed' : 'not_found' }); continue }
+    if (keys.length > 1) { missing.push({ name, why: 'ambiguous', count: keys.length }); continue }
+    const f = hits[0]
+    files.push({ messageId: f.messageId, name, origin: f.origin, size: await sizeOf(f.key), ...(f.at ? { at: new Date(f.at).toISOString() } : {}) })
   }
   return { files, missing }
 }
-async function attachments(threadId, files) {
+async function attachments(user, threadId, files, original) {
   const out = []
   let total = 0
+  const drafts = original ? await filesFor(user.id, String(original.id)).catch(() => []) : []
   for (const f of files || []) {
-    const [row] = await q(`select content from pro_messages where id=$1 and thread_id=$2 and kind='file'`, [f.messageId, threadId])
-    const key = row && storageKey(row.content?.url || '')
-    if (!key) throw fail(409, L(`첨부할 파일 「${f.name}」을 찾지 못했어요.`, `Couldn't find the file "${f.name}" to attach.`), 'file_missing')
+    // checked again when it leaves: still this chat's upload of theirs, or still a draft of the mail it answers
+    const [row] = f.origin === 'upload' ? await q(`select content from pro_messages where id=$1 and thread_id=$2 and kind='file'`, [f.messageId, threadId]) : []
+    const key = f.origin === 'upload' ? storageKey(row?.content?.url || '') : storageKey(drafts.find((d) => d.messageId === f.messageId)?.url || '')
+    if (!key || (f.origin === 'upload' && !ownUpload(user.id, key))) throw fail(409, L(`첨부할 파일 「${f.name}」을 찾지 못했어요.`, `Couldn't find the file "${f.name}" to attach.`), 'file_missing')
     const got = await download(key, f.name)
     total += got.buf.length
     if (total > ATTACH_MAX) throw fail(413, L('첨부 파일이 모두 20MB를 넘어요.', 'The attachments are over 20 MB together.'))
@@ -127,81 +172,123 @@ async function attachments(threadId, files) {
   return out
 }
 
-// ---------- the card ----------
-// the agent turn that is calling (the MCP call carries only the person's token): theirs, running now — the newest when several.
-// A chat's agent turns are in lib/turns.js; an agent run that is not one (a skill on a schedule — lib/missions.js) is registered here
-// for as long as it runs, with the chat it reports to.
-const runs = new Map() // id → {id, userId, threadId, conv}
+// ---------- which chat the card goes in ----------
+// The agent turn that is calling, by the conversation the agent runs in (deepagents fills X-Conversation-Id from {{conversation_id}}):
+// a chat's agent turns are in lib/turns.js; an agent run that is not one (a skill on a schedule — lib/missions.js) is registered here
+// for as long as it runs, with the chat it reports to and the agent's conversation. Without a conversation, only when this person has
+// exactly one agent run under way; two or more cannot be told apart — refused rather than guessed (a background turn of another chat).
+const runs = new Map() // id → {id, userId, threadId, conv, agentConv}
 let runSeq = 0
-export async function asAgentRun({ userId, threadId, conv = null }, fn) {
+export async function asAgentRun({ userId, threadId, conv = null, agentConv = null }, fn) {
   const id = `run-${++runSeq}`
-  runs.set(id, { id, userId, threadId, conv })
+  runs.set(id, { id, userId, threadId, conv, agentConv })
   try { return await fn() } finally { runs.delete(id) }
 }
-export function callingTurn(userId) {
-  const live = turns.agentTurnsOf(userId)
-  if (live.length) return live[live.length - 1]
-  const other = [...runs.values()].filter((r) => r.userId === userId)
-  return other.length ? other[other.length - 1] : null
+const ambiguous = () => fail(409, L('어느 대화의 작업인지 알 수 없어 보낼 메일 카드를 띄우지 않았어요. 사람에게 초안을 보여 주고 다시 요청하도록 안내해 주세요.',
+  "Couldn't tell which conversation this task is in, so the mail card was not shown. Show the person the draft and ask them to request it again."), 'ambiguous_turn')
+export function callingTurn(userId, conv = null) {
+  const chats = turns.agentTurnsOf(userId)
+  const others = [...runs.values()].filter((r) => r.userId === userId)
+  if (conv) {
+    const hit = [...chats.filter((t) => t.conv === conv), ...others.filter((r) => r.agentConv === conv)]
+    if (hit.length > 1) throw ambiguous()
+    return hit[0] || null
+  }
+  const all = [...chats, ...others]
+  if (all.length > 1) throw ambiguous()
+  return all[0] || null
 }
 
+// ---------- the card ----------
+// A recipient list, a subject (empty matches nothing), the mail it answers: the same mail written again
+const sameMail = (a, b) => !!baseSubject(a.subject) && baseSubject(a.subject) === baseSubject(b.subject)
+  && [...new Set(addresses(a.to || '').map(lower))].sort().join(',') === [...new Set(addresses(b.to || '').map(lower))].sort().join(',')
+  && (a.reply?.mailId || null) === (b.reply?.mailId || null)
+
 // input: {to, cc, subject, body, reply_to: {mail_id, subject}, attachments} (the tool's arguments) → {card, view}
-export async function propose(user, input = {}, { turn = callingTurn(user.id) } = {}) {
-  if (!turn) throw fail(409, L('보낼 메일 카드는 Process GPT Lite 채팅의 에이전트 작업에서만 띄울 수 있어요. 사람에게 초안을 보여 주고 직접 보내게 하세요.',
-    'The mail card can only be shown from an agent task in a Process GPT Lite chat. Show the person the draft and let them send it themselves.'), 'no_turn')
+// conv: the agent's conversation (X-Conversation-Id)
+export async function propose(user, input = {}, { conv = null, turn = callingTurn(user.id, conv) } = {}) {
+  if (!turn) throw fail(409, L('보낼 메일 카드는 Process GPT Lite 의 에이전트 작업에서만 띄울 수 있어요. 사람에게 초안을 보여 주고 직접 보내게 하세요.',
+    'The mail card can only be shown from an agent task in Process GPT Lite. Show the person the draft and let them send it themselves.'), 'no_turn')
   const body = String(input.body || '').trim().slice(0, BODY_MAX)
   if (!body) throw fail(400, L('보낼 본문이 없어요.', 'There is no body to send.'))
   const subject = clean(input.subject, 300)
   const sender = await senderOf(user)
-  const people = asAddresses(input.to).map((a) => a.address)
-  const rt = input.reply_to && typeof input.reply_to === 'object' ? input.reply_to : {}
-  const original = await findOriginal(user, sender, { mailId: rt.mail_id ? String(rt.mail_id) : null, subject: rt.subject || subject, people })
-  // whom: what the agent wrote; a reply with no one named goes where the mail asks replies to go (its headers — lib/mailReply.js)
   let to = asAddresses(input.to)
-  if (!to.length && original) to = recipients(original, [sender.address, user.email].filter(Boolean)).to
+  const rt = input.reply_to && typeof input.reply_to === 'object' ? input.reply_to : {}
+  // the mail it answers: by its id, else only among the mails exchanged with someone the agent named (never by subject alone)
+  const found = await findOriginal(user, sender, { mailId: rt.mail_id ? String(rt.mail_id) : null, subject: rt.subject || subject, people: to.map((a) => a.address) })
+  const original = found.original
+  // whom: what the agent wrote; a reply to a mail named by its id with no one named goes where that mail asks replies to go (its
+  // headers — lib/mailReply.js). With neither, no one: the card cannot be sent until the person writes a recipient.
+  if (!to.length && original && found.by === 'id') to = recipients(original, [sender.address, user.email].filter(Boolean)).to
   const cc = asAddresses(input.cc)
   const thread = await getThread(user.id, turn.threadId)
   if (!thread) throw fail(404, L('대화를 찾지 못했어요.', "Couldn't find the conversation."))
-  const { files, missing } = await filesOf(turn.threadId, input.attachments)
+  const { files, missing } = await filesOf(user, turn.threadId, input.attachments, original)
   const out = {
     to: to.map(formatAddress).join(', '), cc: cc.map(formatAddress).join(', '),
     subject: subject || (original ? `Re: ${baseSubject(original.subject)}` : ''), body,
-    reply: replyOf(original), files, missing,
+    reply: replyOf(original, found.by, to.map((a) => a.address)), ...(found.notFound ? { replyNotFound: String(rt.mail_id).slice(0, 80) } : {}),
+    answered: await answeredOf(user.id, original), files, missing,
     // (who it would go out as when it was proposed — shown again from the mailbox when the card is read, and used only from there)
     from: sender.address ? formatAddress({ name: sender.name, address: sender.address }) : null,
     state: 'pending', at: new Date().toISOString(),
   }
-  const conv = turn.conv && !String(turn.conv).startsWith('none:') ? String(turn.conv) : null
-  const tag = conv ? (thread.kind === 'chat' ? { context: { conversationId: conv, action: 'aside' }, conv } : { conv }) : {}
+  const where = turn.conv && !String(turn.conv).startsWith('none:') ? String(turn.conv) : null
+  const tag = where ? (thread.kind === 'chat' ? { context: { conversationId: where, action: 'aside' }, conv: where } : { conv: where }) : {}
   const [card] = await q(`insert into pro_messages(thread_id, role, kind, content) values ($1,'agent','mail_out',$2) returning *`,
     [turn.threadId, { text: L(`보낼 메일 · ${out.subject}`, `Mail to send · ${out.subject}`), mail_out: out, owner: user.id, turn: turn.id, ...tag }])
   await q('update pro_threads set updated_at=now() where id=$1', [turn.threadId])
   emit(user.id, 'message', card)
-  // the same mail written again (a correction, 「…로 고쳐서」): the earlier card of it still waiting in this chat is that draft's, now replaced —
-  // one card to press, never two versions of the same mail
+  // the same mail written again (a correction, 「…로 고쳐서」 — same subject, same recipients, same mail answered): the earlier card of
+  // it still waiting in this chat is that draft's, now replaced — one card to press, never two versions of the same mail
   const waiting = await q(`select id, content from pro_messages where thread_id=$1 and kind='mail_out' and id<>$2 and content->>'owner'=$3
                            and content->'mail_out'->>'state' = 'pending' and created_at > now() - interval '2 days'`, [turn.threadId, card.id, user.id])
-  for (const w of waiting) {
-    if (baseSubject(w.content?.mail_out?.subject) === baseSubject(out.subject)) await setState(user, w.id, 'replaced', ['pending']).catch(() => {})
-  }
-  console.log(`[mail out] card ${card.id.slice(0, 8)} user=${user.id.slice(0, 8)} mode=${sender.mode} reply=${original ? 'thread' : 'new'} files=${files.length}${missing.length ? ` missing=${missing.length}` : ''}`)
+  for (const w of waiting) if (sameMail(w.content?.mail_out || {}, out)) await setState(user, w.id, 'replaced', ['pending']).catch(() => {})
+  console.log(`[mail out] card ${card.id.slice(0, 8)} user=${user.id.slice(0, 8)} mode=${sender.mode} reply=${original ? found.by : 'new'} files=${files.length}${missing.length ? ` missing=${missing.length}` : ''}`)
   return { card, view: viewOf(card, sender) }
 }
 
 async function cardOf(user, id) {
-  if (!/^[0-9a-f-]{36}$/i.test(String(id))) throw fail(404, L('메일 카드를 찾지 못했어요.', "Couldn't find the mail card."))
+  if (!UUID.test(String(id))) throw fail(404, L('메일 카드를 찾지 못했어요.', "Couldn't find the mail card."))
   const [m] = await q(`select m.* from pro_messages m join pro_threads t on t.id=m.thread_id where m.id=$1 and m.kind='mail_out'`, [String(id)])
   // (a card in a room shared with others is still only its writer's to send: the turn that proposed it was theirs)
   if (!m || m.content?.owner !== user.id) throw fail(404, L('메일 카드를 찾지 못했어요.', "Couldn't find the mail card."))
   return m
 }
+
+// ---------- what was shown is what leaves ----------
+// GET returns a confirmation bound to exactly the card's content (recipients, subject, body, files, the mail it answers) as shown;
+// 보내기 must bring it back. An edit (the person's, on the card) gives a new one; a card changed by anything else since it was shown
+// — or a confirmation older than CONFIRM_MS — is refused (409 stale) and the card is shown again. Kept in memory (one server): a
+// restart only asks for one more look.
+const SECRET = crypto.randomBytes(32)
+const CONFIRM_MS = 15 * 60_000
+const contentHash = (out) => crypto.createHash('sha256').update(JSON.stringify([out.to || '', out.cc || '', out.subject || '', out.body || '',
+  (out.files || []).map((f) => f.messageId), out.reply?.mailId || null])).digest('hex')
+const sign = (userId, cardId, hash, at) => crypto.createHmac('sha256', SECRET).update(`${userId}:${cardId}:${hash}:${at}`).digest('base64url')
+export const confirmFor = (userId, cardId, out, at = Date.now()) => `${at}.${sign(userId, cardId, contentHash(out), at)}`
+export function confirmOk(userId, cardId, out, token, now = Date.now()) {
+  const [at, mac] = String(token || '').split('.')
+  const t = Number(at)
+  if (!t || !mac || now - t > CONFIRM_MS || t > now + 60_000) return false
+  const want = Buffer.from(sign(userId, cardId, contentHash(out), t)), got = Buffer.from(mac)
+  return want.length === got.length && crypto.timingSafeEqual(want, got)
+}
+
+const MISSING_WHY = { not_found: ['이 대화에 없는 파일이에요', 'not in this chat'], not_allowed: ['내가 올린 파일이나 이 메일의 초안만 첨부할 수 있어요', 'only your own uploads or drafts for this mail can be attached'],
+  ambiguous: ['같은 이름의 파일이 여러 개예요', 'several files have this name'] }
 function viewOf(card, sender) {
   const out = card.content.mail_out || {}
   return {
     id: card.id, state: out.state, mode: sender.mode, provider: sender.provider,
     from: sender.address ? formatAddress({ name: sender.name, address: sender.address }) : null,
-    to: out.to, cc: out.cc, subject: out.subject, body: out.body, reply: out.reply || null,
-    files: (out.files || []).map((f) => f.name), missing: out.missing || [], sent: out.sent || null,
+    to: out.to, cc: out.cc, subject: out.subject, body: out.body, reply: out.reply || null, replyNotFound: out.replyNotFound || null, answered: out.answered || null,
+    files: (out.files || []).map((f) => ({ name: f.name, origin: f.origin, size: f.size ?? null, at: f.at || null })),
+    missing: (out.missing || []).map((m) => (typeof m === 'string' ? { name: m, why: 'not_found' } : m)).map((m) => ({ ...m, reason: L(...(MISSING_WHY[m.why] || MISSING_WHY.not_found)) })),
+    sent: out.sent || null, unknown: out.unknown || null, edited: !!out.edited_at,
+    confirm: ['pending', 'kept'].includes(out.state) ? confirmFor(card.content.owner, card.id, out) : null,
   }
 }
 // GET /api/mail-out/:id
@@ -218,48 +305,103 @@ async function setState(user, id, state, from, extra = {}) {
   return m
 }
 
-// POST /api/mail-out/:id/send {to, cc, subject, body} — 보내기 (IMAP: 임시 보관함에 넣기)
+// POST /api/mail-out/:id/edit {to, cc, subject, body} — the person's edits, saved on the card (a pending or kept card) → the view, with a
+// new confirmation for what is now shown
+export async function editOut(user, id, input = {}) {
+  const card = await cardOf(user, id)
+  const out = card.content.mail_out || {}
+  if (!['pending', 'kept'].includes(out.state)) throw fail(409, L('이미 보냈거나 그만둔 메일이에요.', 'This mail was already sent or dropped.'), 'closed')
+  const pick = (k) => (input[k] != null ? String(input[k]) : String(out[k] || ''))
+  const to = addresses(pick('to')), cc = addresses(pick('cc'))
+  const body = pick('body').trim().slice(0, BODY_MAX)
+  if (!body) throw fail(400, L('보낼 내용을 적어 주세요.', 'Write what the mail says.'))
+  const patch = { to: to.map(formatAddress).join(', '), cc: cc.map(formatAddress).join(', '), subject: clean(pick('subject'), 300), body, edited_at: new Date().toISOString() }
+  // (the recipients changed: whether they were in the conversation it answers is said again)
+  if (out.reply) {
+    const { outsider, ...reply } = out.reply
+    const seen = Array.isArray(reply.seen) ? reply.seen : []
+    patch.reply = { ...reply, ...(to.length && !to.some((a) => seen.includes(lower(a))) ? { outsider: true } : {}) }
+  }
+  const m = await setState(user, card.id, out.state, ['pending', 'kept'], patch)
+  if (!m) throw fail(409, L('이미 보냈거나 그만둔 메일이에요.', 'This mail was already sent or dropped.'), 'closed')
+  return viewOf(m, await senderOf(user))
+}
+
+// Gmail · IMAP said nothing usable in time: it may have left — the card says 「확인하지 못했어요」 instead of offering 보내기 again
+const UNKNOWN_TEXT = () => L('보냈는지 확인하지 못했어요. 메일함의 보낸 편지함을 확인해 주세요.', "Couldn't confirm it was sent. Check the Sent folder of your mailbox.")
+
+// POST /api/mail-out/:id/send {confirm} — 보내기 (IMAP: 임시 보관함에 넣기). Only the saved card leaves: recipients, subject and body in the
+// request are not read — the person edits them on the card (…/edit) first.
 export async function sendOut(user, id, input = {}) {
   const card = await cardOf(user, id)
   const out = card.content.mail_out || {}
   if (['sent', 'drafted', 'sending'].includes(out.state)) throw fail(409, L('이 메일은 이미 보냈거나 보내는 중이에요. 보낸 편지함을 확인해 주세요.', 'This mail was already sent or is being sent. Check your Sent folder.'), 'already')
+  if (out.state === 'unknown') throw fail(409, UNKNOWN_TEXT(), 'send_unknown')
   if (!['pending', 'kept'].includes(out.state)) throw fail(409, L('보내기를 그만둔 메일이에요. 보내려면 채팅에서 다시 부탁해 주세요.', 'This mail was dropped. Ask again in the chat to send it.'), 'closed')
+  if (!confirmOk(user.id, card.id, out, input.confirm)) throw fail(409, L('카드 내용이 바뀌었거나 오래됐어요. 카드를 다시 확인하고 「보내기」를 눌러 주세요.', 'The card changed or was shown too long ago. Check it again and press it.'), 'stale')
   const sender = await senderOf(user)
   if (sender.mode === 'connect') throw fail(409, L('메일을 연결하면 내 계정으로 보낼 수 있어요.', 'Connect your mail to send it from your own account.'), 'mail_not_connected')
   if (sender.mode === 'none') throw fail(403, L('Gmail의 메일 전송 권한이 없어요. 메일을 다시 연결해 주세요.', "Gmail hasn't allowed sending. Connect your mail again."), 'gmail_scope')
-  const pick = (k) => (input[k] != null ? String(input[k]) : String(out[k] || ''))
-  const to = addresses(pick('to')), cc = addresses(pick('cc'))
-  const subject = clean(pick('subject'), 300), body = pick('body').trim().slice(0, BODY_MAX)
-  if (!to.length) throw fail(400, L('받는 사람을 적어 주세요.', 'Add who the mail goes to.'))
+  if (!(sender.mode === 'drafts' || sender.provider === 'gmail' || sender.provider === 'demo')) throw fail(409, L('이 메일함으로는 보낼 수 없어요. 메일을 다시 연결해 주세요.', "This mailbox can't send. Connect your mail again."), 'unknown_provider')
+  const to = addresses(String(out.to || '')), cc = addresses(String(out.cc || ''))
+  const subject = clean(out.subject, 300), body = String(out.body || '').trim().slice(0, BODY_MAX)
+  if (!to.length) throw fail(400, L('받는 사람을 적어 주세요.', 'Add who the mail goes to.'), 'no_recipient')
   if (!body) throw fail(400, L('보낼 내용을 적어 주세요.', 'Write what the mail says.'))
   // the mail it answers, read again from this mailbox (a card made with another mailbox connected answers nothing here)
   const original = out.reply?.mailId ? await originalOf(user.id, sender.provider, out.reply.mailId).catch(() => null) : null
-  const files = await attachments(card.thread_id, out.files)
+  // answered meanwhile (its sheet, another card): not again
+  const answered = await answeredOf(user.id, original)
+  if (answered) throw fail(409, L(`이 메일에는 이미 답장을 보냈어요${answered.at ? `(${new Date(answered.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })})` : ''}. 보낸 편지함을 확인해 주세요.`,
+    'This mail was already answered. Check your Sent folder.'), 'already_answered')
+  const files = await attachments(user, card.thread_id, out.files, original)
   const from = { name: sender.name, address: sender.address }
   const raw = await buildReply({ from, to, cc, subject: subject || (original ? `Re: ${baseSubject(original.subject)}` : ''), body, original, attachments: files })
-  // one send per card, even when two presses arrive together: the card is claimed before anything leaves; the claim is lifted only
-  // when the send itself failed (lib/mailReply.js sendReply does the same)
+  // one send per card, even when two presses arrive together: the card is claimed before anything leaves
   const claimed = await setState(user, card.id, 'sending', ['pending', 'kept'])
   if (!claimed) throw fail(409, L('이 메일은 이미 보냈거나 보내는 중이에요. 보낸 편지함을 확인해 주세요.', 'This mail was already sent or is being sent. Check your Sent folder.'), 'already')
   let res = null
   try {
     if (sender.mode === 'drafts') await imapDraft(user.id, raw)
     else if (sender.provider === 'gmail') res = await gmailSend(user.id, raw, original?.threadId || null)
+    // (demo: recorded only)
   } catch (e) {
+    // a refusal (Gmail answered no) frees the card; no answer in time, or an answer that says nothing — it may have left: the card
+    // asks the person to check the Sent folder instead of offering 보내기 again (a second press would mail it twice)
+    if (sendUncertain(e, sender.mode)) {
+      await setState(user, card.id, 'unknown', ['sending'], { unknown: { at: new Date().toISOString(), code: e.code || null } }).catch(() => {})
+      console.warn(`[mail out] unknown card=${card.id.slice(0, 8)} user=${user.id.slice(0, 8)} (${e.code || e.message})`)
+      throw fail(504, UNKNOWN_TEXT(), 'send_unknown')
+    }
     await setState(user, card.id, out.state, ['sending']).catch(() => {})
     throw e
   }
   const via = sender.mode === 'drafts' ? 'drafts' : sender.provider
   const sent = { from: formatAddress(from), to: to.map(formatAddress).join(', '), cc: cc.map(formatAddress).join(', '), subject: subject || out.subject,
     files: files.map((f) => f.filename), via, thread: !!original, ...(res?.threadId ? { threadId: String(res.threadId) } : {}), at: new Date().toISOString() }
-  const m = await setState(user, card.id, via === 'drafts' ? 'drafted' : 'sent', ['sending'], { sent, to: sent.to, cc: sent.cc, subject: sent.subject, body })
-  // the mail's Home card (if it made one) is answered now — its sheet must not offer the same reply again
-  if (original) {
-    await q(`update pro_actions set status='done', source = source || jsonb_build_object('sent', $3::jsonb) where user_id=$1 and source->>'mail_id'=$2 and not (source ? 'sent')`,
-      [user.id, String(original.id), { to: sent.to, cc: sent.cc, subject: sent.subject, files: sent.files, via, at: sent.at, from: 'chat' }]).catch((e) => console.warn('[mail out] card', e.message))
-  }
+  const m = await setState(user, card.id, via === 'drafts' ? 'drafted' : 'sent', ['sending'], { sent })
+  if (original) await markAnswered(user.id, original, sent, via)
   console.log(`[mail out] ${via} card=${card.id.slice(0, 8)} user=${user.id.slice(0, 8)} thread=${original ? 'yes' : 'no'} files=${files.length}`)
   return { ok: true, sent, card: m }
+}
+// the mail's Home card (if it made one) is answered now — its sheet must not offer the same reply again
+async function markAnswered(userId, original, sent, via) {
+  await q(`update pro_actions set status='done', source = source || jsonb_build_object('sent', $3::jsonb) where user_id=$1 and source->>'mail_id'=$2 and not (source ? 'sent')`,
+    [userId, String(original.id), { to: sent.to, cc: sent.cc, subject: sent.subject, files: sent.files, via, at: sent.at, from: 'chat' }]).catch((e) => console.warn('[mail out] card', e.message))
+}
+
+// POST /api/mail-out/:id/resolve {sent: true|false} — after 「보냈는지 확인하지 못했어요」: the person looked in the Sent folder
+export async function resolveOut(user, id, { sent } = {}) {
+  const card = await cardOf(user, id)
+  const out = card.content.mail_out || {}
+  if (out.state !== 'unknown') throw fail(409, L('확인할 메일이 아니에요.', 'There is nothing to confirm for this mail.'), 'closed')
+  if (sent === true) {
+    const s = { from: out.from || '', to: out.to, cc: out.cc, subject: out.subject, files: (out.files || []).map((f) => f.name), checked: true, thread: !!out.reply, at: new Date().toISOString() }
+    const m = await setState(user, card.id, 'sent', ['unknown'], { sent: s })
+    if (out.reply?.mailId) await markAnswered(user.id, { id: out.reply.mailId }, s, 'checked')
+    return { ok: true, card: m }
+  }
+  const m = await setState(user, card.id, 'pending', ['unknown'], { unknown: null })
+  return { ok: true, card: m }
 }
 
 // POST /api/mail-out/:id/keep — 초안으로 두기: nothing leaves; the card keeps the draft in the chat
@@ -296,8 +438,9 @@ export function toolResult(view) {
         `The mail card is in the chat. Nothing has been sent — it leaves from the person's own mailbox (${view.from}) only when they press "${view.mode === 'drafts' ? 'Put in Drafts' : 'Send'}" on the card. Don't say it was sent; ask them briefly to check the card and press it.`)
   return {
     card: view.id, sent: false, mode: view.mode, from: view.from,
-    thread: view.reply ? { continues: true, subject: view.reply.subject, from: view.reply.from } : { continues: false },
-    to: view.to, subject: view.subject, files: view.files, ...(view.missing.length ? { files_not_found: view.missing } : {}), note,
+    thread: view.reply ? { continues: true, subject: view.reply.subject, from: view.reply.from } : { continues: false, ...(view.replyNotFound ? { mail_not_found: true } : {}) },
+    to: view.to || null, ...(view.to ? {} : { needs_recipient: true }), subject: view.subject, files: view.files.map((f) => f.name),
+    ...(view.missing.length ? { files_not_attached: view.missing.map((m) => ({ name: m.name, why: m.why })) } : {}),
+    ...(view.answered ? { already_answered: true } : {}), note,
   }
 }
-

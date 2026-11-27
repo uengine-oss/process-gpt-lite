@@ -1,7 +1,8 @@
 // 「내 계정으로 보내기」 for agents at /mcp/mail (pgpt-mail — a built-in tool server like /mcp/folders: process-gpt's common MCP list
 // gives it to every company's agent, mcp/toolServers.js). Its one tool never sends: it puts a 「보낼 메일」 card in the chat of the
 // agent turn that called it (lib/mailOut.js), and the mail leaves from the person's own connected mailbox when they press 보내기.
-// The caller's JWT (Authorization: Bearer {{user_jwt}}) says whose mail it is; nothing here takes a sender from the arguments.
+// The caller's JWT (Authorization: Bearer {{user_jwt}}) says whose mail it is; nothing here takes a sender from the arguments. The agent's
+// conversation (X-Conversation-Id: {{conversation_id}}, filled by deepagents) says which chat the card goes in.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -14,15 +15,15 @@ export const MAIL_TOOL = 'send_mail_as_me'
 const schema = (en) => ({
   type: 'object',
   properties: {
-    to: { type: 'array', items: { type: 'string' }, description: en ? 'Recipients ("Name <address>" or an address). For a reply you may leave it empty: it then goes where the mail asks replies to go.' : '받는 사람("이름 <주소>" 또는 주소). 받은 메일에 대한 답장이면 비워도 된다 — 그 메일의 Reply-To(없으면 보낸 사람)로 간다.' },
+    to: { type: 'array', items: { type: 'string' }, description: en ? 'Recipients ("Name <address>" or an address). May be empty only for a reply whose reply_to.mail_id you give: it then goes where that mail asks replies to go.' : '받는 사람("이름 <주소>" 또는 주소). reply_to.mail_id 를 준 답장일 때만 비워도 된다 — 그 메일의 Reply-To(없으면 보낸 사람)로 간다.' },
     cc: { type: 'array', items: { type: 'string' }, description: en ? 'Cc' : '참조' },
     subject: { type: 'string', description: en ? 'Subject. A reply keeps the original subject with "Re: " in front.' : '제목. 답장이면 원래 제목 앞에 "Re: "를 붙인 그대로.' },
     body: { type: 'string', description: en ? 'The whole body, plain text, exactly as it should go — with every correction the person asked for in this conversation applied.' : '보낼 본문 전체(일반 텍스트). 이 대화에서 사람이 고쳐 달라고 한 것을 모두 반영한 최종본 그대로.' },
     reply_to: {
-      type: 'object', description: en ? 'The mail this answers, if it answers one: its id when you know it (a Home card or mail chip id), and its subject.' : '받은 메일에 대한 답장이면 그 메일: 알면 id(Home 카드 · 메일 칩의 id)와 원래 제목.',
+      type: 'object', description: en ? 'The mail this answers, if it answers one: its id when you know it (a Home card or mail chip id), and its subject. Without an id it is looked up only among the mails exchanged with the recipients you name.' : '받은 메일에 대한 답장이면 그 메일: 알면 id(Home 카드 · 메일 칩의 id)와 원래 제목. id 가 없으면 적은 받는 사람과 주고받은 메일에서만 찾는다.',
       properties: { mail_id: { type: 'string' }, subject: { type: 'string' } },
     },
-    attachments: { type: 'array', items: { type: 'string' }, description: en ? 'File names to attach — files in this chat (a document made here, a file put here).' : '첨부할 파일 이름 — 이 채팅의 파일(여기서 만든 문서, 여기에 올린 파일).' },
+    attachments: { type: 'array', items: { type: 'string' }, description: en ? 'File names to attach — a file the person uploaded in this chat, or a draft made for the mail it answers.' : '첨부할 파일 이름 — 사람이 이 채팅에 올린 파일, 또는 답하는 메일을 위해 만든 초안.' },
   },
   required: ['subject', 'body'],
 })
@@ -43,20 +44,26 @@ const TOOLS_EN = [{
 
 const text = (o) => ({ content: [{ type: 'text', text: typeof o === 'string' ? o : JSON.stringify(o, null, 1) }] })
 
-export async function callMailTool(user, name, args = {}) {
+export async function callMailTool(user, name, args = {}, { conv = null } = {}) {
   if (name !== MAIL_TOOL) return { isError: true, ...text(`unknown tool ${name}`) }
-  const { view } = await propose(user, args)
+  const { view } = await propose(user, args, { conv })
   return text(toolResult(view))
 }
 
-function buildServer(user) {
+// the agent's conversation from the header — an unfilled placeholder (an older deepagents) or an odd value is none
+export const conversationOf = (v) => {
+  const s = String(v || '').trim()
+  return s && !/^\{\{.*\}\}$/.test(s) && /^[A-Za-z0-9_.:-]{1,200}$/.test(s) ? s : null
+}
+
+function buildServer(user, conv) {
   const server = new Server({ name: 'pgpt-mail', version: '1.0.0' }, { capabilities: { tools: {} } })
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: isEn() ? TOOLS_EN : TOOLS }))
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     if (!user) return { isError: true, ...text('unauthorized: call with the user JWT (Authorization: Bearer {{user_jwt}})') }
     try {
       console.log(`[mcp] mail.${params.name} user=${user.id.slice(0, 8)}`)
-      return await callMailTool(user, params.name, params.arguments || {})
+      return await callMailTool(user, params.name, params.arguments || {}, { conv })
     } catch (e) {
       if (!e.status) console.warn('[mcp] mail', e.message)
       return { isError: true, ...text(e.status ? e.message : L('보낼 메일 카드를 띄우지 못했어요.', "Couldn't show the mail card.")) }
@@ -75,7 +82,7 @@ export function mountMail(app) {
     const user = u ? { id: u.id, email: u.email, name: (await signedIn(u)).name } : null
     // an agent calls this without the page's X-PGL-Lang: the caller's saved language decides
     await withLang(isEn() ? 'en' : user ? await langOf(user.id) : 'ko', async () => {
-      const server = buildServer(user)
+      const server = buildServer(user, conversationOf(req.headers['x-conversation-id']))
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
       res.on('close', () => { transport.close(); server.close() })
       await server.connect(transport)

@@ -7,6 +7,7 @@
 // recorded in the task's run history and announced in chat and on Home.
 import { config } from '../config.js'
 import { asAgentRun } from './mailOut.js'
+import { agentMetadata } from './agentMeta.js'
 import { q, sessionFor } from './supa.js'
 import { emit } from './bus.js'
 import { notifyUser } from './notify.js'
@@ -154,7 +155,7 @@ export async function createMission({ userId, name, cron, skill, params = {}, no
 
 // Both process-gpt agent types serve the SDK's chat SSE, so one reader covers them. deepagents
 // streams 'token' chunks; cli-agent streams 'text' chunks and puts the whole answer on 'done'.
-async function streamAgent({ user, session, message, agent, gitSkills }) {
+async function streamAgent({ user, session, message, agent, gitSkills, agentConv = crypto.randomUUID().replace(/-/g, '') }) {
   const cli = agent?.orch === 'cliagents'
   const base = cli ? config.cliAgentUrl : config.deepagentsUrl
   const res = await fetch(`${base}/chat/stream`, {
@@ -164,11 +165,11 @@ async function streamAgent({ user, session, message, agent, gitSkills }) {
       message, message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
       // a fresh conversation of its own: deepagents files a chat sent without one under one shared history
-      conversation_id: crypto.randomUUID().replace(/-/g, ''), stream: true,
-      metadata: cli
+      conversation_id: agentConv, stream: true,
+      metadata: agentMetadata(cli
         ? { client: 'pgpt-pro-mission', agent_cli: agent.cli || 'claude-code', agent_model: agent.model || '', agent_permission: agent.permission || 'command_exec', ...(isEn() ? { language: 'en' } : {}),
             ...(gitSkills ? { skills: Object.keys(gitSkills), git_skills: gitSkills } : {}) }
-        : { client: 'pgpt-pro-mission', ...(isEn() ? { language: 'en', style: 'English, concise.' } : {}), ...(config.hiddenTools.length ? { hidden_tools: config.hiddenTools } : {}) },
+        : { client: 'pgpt-pro-mission', ...(isEn() ? { language: 'en', style: 'English, concise.' } : {}) }),
     }),
   })
   if (!res.ok) throw new Error(`${cli ? 'cli-agent' : 'deepagents'} ${res.status}`)
@@ -376,9 +377,11 @@ async function runMissionAs(s, trigger, opts = {}) {
       : `/${s.skill} ${ask}`) + connectorHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + marketHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + langInstruction()
     // (a mail the run writes for the person — 「내 계정으로 보내기」, lib/mailOut.js — becomes a 「보낼 메일」 card where this task reports: the
     // run is an agent turn of that chat while it lasts, never sent by itself)
+    // (the agent's conversation is made here, so its 「보낼 메일」 card finds this run by it — lib/mailOut.js callingTurn)
     const at = await reportTo(s, opts.threadId).catch(() => null)
-    const go = () => streamAgent({ user, session, message, agent: s.agent, gitSkills })
-    const out = at?.threadId ? await asAgentRun({ userId: s.user_id, threadId: at.threadId, conv: at.own?.conversationId || null }, go) : await go()
+    const agentConv = crypto.randomUUID().replace(/-/g, '')
+    const go = () => streamAgent({ user, session, message, agent: s.agent, gitSkills, agentConv })
+    const out = at?.threadId ? await asAgentRun({ userId: s.user_id, threadId: at.threadId, conv: at.own?.conversationId || null, agentConv }, go) : await go()
     const result = parseResult(out.text)
     // no result line: the run still finished (or not) — read the answer itself
     const plain = result ? null : outcomeOf(out.text)

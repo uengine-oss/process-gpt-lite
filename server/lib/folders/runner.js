@@ -3,6 +3,7 @@
 // folder, so the sandbox's per-run scope already covers it; git stays with this server.
 import crypto from 'node:crypto'
 import { config } from '../../config.js'
+import { agentMetadata } from '../agentMeta.js'
 import { L, isEn, langInstruction } from '../lang.js'
 import { refusal } from '../agent.js'
 
@@ -21,7 +22,7 @@ export async function runAgent({ jwt, user, conversationId, message, onText, sig
       message: message + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: jwt,
       conversation_id: conversationId, stream: true,
-      metadata: { client: 'pgpt-pro', origin: 'pgpt-pro-folders', style: isEn() ? 'English, concise.' : 'Korean 해요체, concise.', ...(config.hiddenTools.length ? { hidden_tools: config.hiddenTools } : {}) },
+      metadata: agentMetadata({ client: 'pgpt-pro', origin: 'pgpt-pro-folders', style: isEn() ? 'English, concise.' : 'Korean 해요체, concise.' }),
     }),
   })
   if (!res.ok) throw new Error(`deepagents ${res.status}${await refusal(res)}`)

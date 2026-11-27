@@ -1,5 +1,19 @@
 {
  "exact": {
+  "보냈는지 확인하지 못했어요": "Couldn't confirm it was sent",
+  "보낸 편지함을 확인해 주세요. 다시 보내면 중복으로 갈 수 있어 「보내기」를 막아 두었어요.": "Check your Sent folder. Send is held, as sending again could deliver it twice.",
+  "보내지 못했어요": "It wasn't sent",
+  "보낸 편지함에 있어요": "It's in my Sent folder",
+  "보낸 편지함에서 확인했어요": "Confirmed in the Sent folder",
+  "받는 사람이 없어요": "No recipient",
+  "· 제목과 받는 사람으로 찾은 메일이에요": "· found by subject and recipient",
+  "답장할 메일을 내 메일함에서 찾지 못해 새 메일로 보내요": "Couldn't find the mail to reply to in your mailbox, so it goes as a new mail",
+  "답장받을 주소(Reply-To)가 보낸 사람 주소와 달라요:": "The reply address (Reply-To) differs from the sender's:",
+  "받는 사람이 이 메일을 주고받은 사람이 아니에요.": "The recipient wasn't part of this mail's conversation.",
+  "내가 올린 파일": "uploaded by me",
+  "이 메일을 위해 만든 초안": "draft made for this mail",
+  "이 메일에는 이미 답장을 보냈어요. 보낸 편지함을 확인해 주세요.": "This mail was already answered. Check your Sent folder.",
+  "받는 사람이 없어요. 「고치기」를 눌러 받는 사람을 적어 주세요.": "No recipient. Press Edit and add one.",
   "보낼 메일": "Mail to send",
   "「보내기」를 눌러야 나가요": "It leaves only when you press Send",
   "「임시 보관함에 넣기」를 눌러야 나가요": "It goes in only when you press Put in Drafts",
@@ -3360,6 +3374,10 @@
   "작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 볼 수 있어요.": "Changes that came up from a PC after the working copy moved somewhere else. Like this workspace, only you can see them."
  },
  "patterns": [
+  [
+   "· 빼고 보내요({0})",
+   "· left out ({0})"
+  ],
   [
    "이 폴더에는 실행되는 설정이 있어요: {0} — 이 폴더에서 일하는 사람의 컴퓨터에서 훅 · MCP 서버 · 허용 목록이 돌아요",
    "This folder has settings that run: {0} — hooks, MCP servers and allow lists run on the computer of whoever works in this folder"

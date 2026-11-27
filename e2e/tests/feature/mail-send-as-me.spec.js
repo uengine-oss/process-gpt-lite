@@ -12,6 +12,8 @@
 //           에이전트에게 간 요청은 회사 메일 도구를 숨기라고 했다(metadata.hidden_tools)
 //   F-MY-04 메일을 연결하지 않은 사람: 카드는 「메일을 연결하면 내 계정으로 보낼 수 있어요」 · 「연결하기」(메일 연결 시트) · 「초안으로 두기」, 아무것도 나가지 않는다
 //   F-MY-05 휴대폰 390px 밝은 · 밤: 카드가 화면 안, 옆으로 넘치지 않음
+//   F-MY-06 보내기가 제때 답을 받지 못하면(게이트웨이 504) 「보냈는지 확인하지 못했어요」 — 「보내기」를 막고, 「안 나갔어요」를 누르면 다시 보낼 수 있다
+// 카드는 보내기 전에 모든 것을 보인다(본문 전체 · 첨부의 크기와 출처). 사람이 고친 것은 카드에 먼저 저장되고, 보내기는 저장되어 보인 그대로를 보낸다(F-MY-03).
 // 자기 스택(lib/localStack.js — 테넌트 mailout-ui, BFF 8989~ · Vite 5389~), 이 파일이 띄우는 가짜 Gmail · 가짜 회사 SMTP · 가짜 deepagents
 // (운영의 에이전트처럼: hidden_tools 에 send_email 이 없으면 회사 SMTP 로 보내고, 있으면 Lite 의 send_mail_as_me 를 부른다 — 대화마다 앞의 말을
 // 기억한다) · 가짜 모델(폴더 고치기 판정만 「그 밖의 일」, 채팅 라우터는 DELEGATE). 실제 메일 · 실제 모델 · 공용 deepagents 는 부르지 않는다.
@@ -66,7 +68,7 @@ const servers = []
 const listen = (srv, port) => new Promise((ok, no) => srv.once('error', no).listen(port, '127.0.0.1', () => { servers.push(srv); ok(srv) }))
 
 // ---------- the fake Gmail: the customer's mail in its thread; what is sent ----------
-const gmail = { raw: null, sends: [] }
+const gmail = { raw: null, sends: [], answer: 'ok' }
 function google() {
   return http.createServer((rq, res) => {
     let raw = []
@@ -75,6 +77,8 @@ function google() {
       const u = new URL(rq.url, 'http://x')
       const json = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)) }
       if (rq.method === 'POST' && u.pathname === '/upload/gmail/v1/users/me/messages/send') {
+        // (a gateway in front of Gmail that gave up waiting: nobody knows whether it left)
+        if (gmail.answer === '504') return json(504, { error: { message: 'gateway timeout' } })
         gmail.sends.push(Buffer.concat(raw))
         return json(200, { id: `sent-${gmail.sends.length}`, threadId: THREAD })
       }
@@ -167,7 +171,8 @@ function deepagents() {
       }
       sse(res, { type: 'tool_start', tool: 'send_mail_as_me', input: args })
       const r = await fetch(`http://127.0.0.1:${S.apiPort}/mcp/mail`, {
-        method: 'POST', headers: { Authorization: `Bearer ${body.user_jwt}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        // (deepagents fills X-Conversation-Id from {{conversation_id}}: the conversation this request runs in)
+        method: 'POST', headers: { Authorization: `Bearer ${body.user_jwt}`, 'X-Conversation-Id': conv, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'send_mail_as_me', arguments: args } }),
       }).then((x) => x.json()).catch((e) => ({ error: e.message }))
       sse(res, { type: 'tool_end', tool: 'send_mail_as_me', output: r?.result?.content?.[0]?.text || JSON.stringify(r) })
@@ -319,6 +324,15 @@ test('F-MY-03 카드의 「보내기」 → 내 Gmail 에서 받은 메일의 �
   await p.goto('/chat')
   const box = p.locator('[data-test="mail-out"][data-state="pending"]').last()
   await expect(box).toBeVisible({ timeout: 30_000 })
+  // the body is shown whole before 보내기 (never folded)
+  await expect(box.locator('[data-test="mail-out-body"]')).toContainText('정하윤 드림')
+  expect(await box.locator('[data-test="mail-out-body"]').evaluate((el) => el.classList.contains('folded'))).toBe(false)
+  // the person's edit is saved on the card first; 보내기 waits for it
+  await box.locator('[data-test="mail-out-edit"]').click()
+  await expect(box.locator('[data-test="mail-out-send"]')).toHaveCount(0)
+  await box.locator('[data-test="mail-out-body-input"]').fill(`${await box.locator('[data-test="mail-out-body-input"]').inputValue()}\n납기는 다음 주 금요일입니다.`)
+  await box.locator('[data-test="mail-out-save"]').click()
+  await expect(box.locator('[data-test="mail-out-body"]')).toContainText('납기는 다음 주 금요일입니다.')
   await box.locator('[data-test="mail-out-send"]').click()
   const done = p.locator('[data-test="mail-out"][data-state="sent"]').last()
   await expect(done).toBeVisible({ timeout: 30_000 })
@@ -334,6 +348,7 @@ test('F-MY-03 카드의 「보내기」 → 내 Gmail 에서 받은 메일의 �
   expect(mail.to.value[0].address).toBe(CUSTOMER.address)
   expect(mail.inReplyTo).toBe('<cust-1@customer.example>')
   expect(mail.text).toContain('품번: 900101')
+  expect(mail.text, '저장한 고침이 그대로 나갔다').toContain('납기는 다음 주 금요일입니다.')
   // the company's shared account: nobody reached it, and the agent was told to hide its mail tool
   expect(smtp.hits, '회사 공용 발송 계정에 닿은 연결').toBe(0)
   for (const b of agent.bodies) expect(b.metadata?.hidden_tools).toContain('send_email')
@@ -398,3 +413,33 @@ for (const theme of ['light', 'dark']) {
     await p.context().close()
   })
 }
+
+test('F-MY-06 보내기가 제때 답을 받지 못하면(504) 「보냈는지 확인하지 못했어요」 — 「보내기」를 막고, 「안 나갔어요」를 누르면 다시 보낼 수 있다', async ({ browser }) => {
+  const p = await pageOf(browser, ME)
+  await p.goto('/chat')
+  await composer(p).waitFor()
+  const n0 = agent.bodies.length
+  await say(p, PASTE.replace(`제목: Re: ${SUBJECT}`, `제목: Re: ${SUBJECT} (추가분)`).replace('품번: 90101', '품번: 900103'))
+  await expect.poll(() => agent.bodies.length, { timeout: 90_000 }).toBe(n0 + 1)
+  const box = p.locator('[data-test="mail-out"][data-state="pending"]').last()
+  await expect(box).toBeVisible({ timeout: 60_000 })
+  const sends = gmail.sends.length
+  gmail.answer = '504'
+  await box.locator('[data-test="mail-out-send"]').click()
+  const unknown = p.locator('[data-test="mail-out"][data-state="unknown"]').last()
+  await expect(unknown).toBeVisible({ timeout: 30_000 })
+  await expect(unknown).toContainText('보냈는지 확인하지 못했어요')
+  await expect(unknown.locator('[data-test="mail-out-send"]')).toHaveCount(0)
+  await unknown.scrollIntoViewIfNeeded()
+  await p.screenshot({ path: path.join(SHOTS, 'F-MY-06-unknown.png') })
+  gmail.answer = 'ok'
+  await unknown.locator('[data-test="mail-out-not-sent"]').click()
+  const again = p.locator('[data-test="mail-out"][data-state="pending"]').last()
+  await expect(again).toBeVisible()
+  const sentBefore = await p.locator('[data-test="mail-out"][data-state="sent"]').count()
+  await again.locator('[data-test="mail-out-send"]').click()
+  await expect(p.locator('[data-test="mail-out"][data-state="sent"]')).toHaveCount(sentBefore + 1, { timeout: 30_000 })
+  await expect.poll(() => gmail.sends.length, { timeout: 30_000 }).toBe(sends + 1)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})

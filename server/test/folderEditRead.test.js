@@ -45,3 +45,16 @@ test('확률을 주지 않는 모델의 JSON 답도 읽는다', async () => {
   const r = await TF.readFolderEdit({ folder: FOLDER, text: PASTE, judges: { odds: async () => null, json: async () => ({ choice: 'A', confidence: 0.8 }) } })
   assert.deepEqual([r.edit, r.by], [false, 'json'])
 })
+
+test('긴 말은 앞과 끝을 읽는다(붙여 넣은 글 아래 마지막 줄이 시키는 말) · 확률을 주지 않는 모델의 JSON 답은 오래 기다리지 않는다', async () => {
+  const long = `견적서 초안입니다.\n${'납품 조건 설명 줄입니다. '.repeat(200)}\n위 내용 그대로 견적 넣어서 보내 줘`
+  let jsonOpts = null
+  const r = await TF.readFolderEdit({ folder: FOLDER, text: long, judges: { odds: async (state) => { seen.push({ state }); return null }, json: async (sys, user, opts) => { jsonOpts = opts; seen.push({ state: user }); return { choice: 'A', confidence: 0.9 } } } })
+  assert.equal(r.edit, false)
+  const state = seen.at(-1).state
+  assert.match(state, /견적서 초안입니다/, '앞')
+  assert.match(state, /위 내용 그대로 견적 넣어서 보내 줘/, '끝')
+  assert.ok(state.length < long.length)
+  assert.ok(jsonOpts.timeoutMs <= 6000, `JSON 답 대기 ${jsonOpts.timeoutMs} ms`)
+  assert.equal(TF.headAndTail('짧은 말', 1500), '짧은 말')
+})

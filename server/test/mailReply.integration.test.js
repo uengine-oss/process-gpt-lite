@@ -190,6 +190,32 @@ test('보내다 실패하면(Gmail 오류) 카드는 열린 채로 남고 다시
   assert.equal(r.ok, true)
 })
 
+test('제때 답이 없으면(시간 초과) 보냈는지 모른다 — 다시 보내기를 막고, 사람이 보낸 편지함을 본 뒤 「안 나갔어요」면 다시 보낼 수 있다', async () => {
+  const { user, action } = await gmailCard()
+  const ok = globalThis.fetch
+  globalThis.fetch = async (url, init) => { if (String(url).includes('/messages/send')) throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); return ok(url, init) }
+  try {
+    await assert.rejects(R.sendReply(user, action.id, { to: 'haneul.kim@northwind.example', body: '본문' }), (e) => e.status === 504 && e.code === 'send_unknown')
+    await assert.rejects(R.sendReply(user, action.id, { to: 'haneul.kim@northwind.example', body: '본문' }), (e) => e.code === 'send_unknown', '확인 전에는 다시 보내지 않는다')
+  } finally { globalThis.fetch = ok }
+  let [row] = await q('select status, source from pro_actions where id=$1', [action.id])
+  assert.ok(row.source.send_unknown)
+  assert.ok((await R.mailOfCard(user, action.id)).unknown, '시트가 「확인하지 못했어요」를 안다')
+  await R.resolveReply(user, action.id, { sent: false })
+  ;[row] = await q('select status, source from pro_actions where id=$1', [action.id])
+  assert.equal(row.source.send_unknown, undefined)
+  assert.equal(row.source.sending, undefined)
+  assert.equal((await R.sendReply(user, action.id, { to: 'haneul.kim@northwind.example', body: '본문' })).ok, true)
+  // 「보낸 편지함에 있어요」: answered, nothing mailed again
+  const other = await gmailCard()
+  globalThis.fetch = async (url, init) => { if (String(url).includes('/messages/send')) throw Object.assign(new Error('timed out'), { name: 'TimeoutError' }); return ok(url, init) }
+  try { await assert.rejects(R.sendReply(other.user, other.action.id, { to: 'haneul.kim@northwind.example', body: '본문' }), (e) => e.code === 'send_unknown') } finally { globalThis.fetch = ok }
+  await R.resolveReply(other.user, other.action.id, { sent: true })
+  const [done] = await q('select status, source from pro_actions where id=$1', [other.action.id])
+  assert.equal(done.status, 'done')
+  assert.equal(done.source.sent.checked, true)
+})
+
 test('보내기 권한이 없는 Gmail 연결(읽기만)은 보내지 않고 다시 연결하라고 한다', async () => {
   const { user, action } = await gmailCard({ scope: 'openid email https://www.googleapis.com/auth/gmail.readonly' })
   const m = await R.mailOfCard(user, action.id)

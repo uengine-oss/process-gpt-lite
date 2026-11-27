@@ -15,6 +15,15 @@ const pgpt = fs.existsSync(path.join(PGPT_ROOT, '.env'))
   ? dotenv.parse(fs.readFileSync(path.join(PGPT_ROOT, '.env')))
   : {}
 const get = (k, d) => process.env[k] ?? local[k] ?? pgpt[k] ?? d
+// a list setting that adds to its defaults ("x" adds, "-x" takes a default out)
+export function withDefaults(defaults, raw) {
+  const out = new Set(defaults)
+  for (const x of String(raw || '').split(',').map((v) => v.trim()).filter(Boolean)) {
+    if (x.startsWith('-')) out.delete(x.slice(1).trim())
+    else out.add(x)
+  }
+  return [...out]
+}
 
 export const config = {
   port: Number(get('PRO_PORT', 8787)),
@@ -50,11 +59,15 @@ export const config = {
   bridgeUrl: get('PRO_BRIDGE_URL', ''),
   // context-router in front of the agents: picks the conversation a chat message belongs to
   contextRouterUrl: get('PRO_CONTEXT_ROUTER_URL', ''),
-  // tools of the company's agent that Lite's turns must not get (deepagents metadata.hidden_tools — by tool name). send_email is the
-  // company mail MCP's: it mails from the company's shared sending account, and a person's mail goes out from their own mailbox after
-  // they press 보내기 on its card instead (mcp/mail.js send_mail_as_me — 2026-11-27 production: a customer reply went out from the shared
-  // address, as a new mail). Comma separated; '' hides nothing.
-  hiddenTools: String(get('PRO_AGENT_HIDDEN_TOOLS', 'send_email')).split(',').map((s) => s.trim()).filter(Boolean),
+  // tools of the company's agent that Lite's turns must not get (lib/agentMeta.js → deepagents metadata.hidden_tools · hidden_tool_servers):
+  // mail sent for a person from the company's shared sending account. A person's mail goes out from their own mailbox after they press
+  // 보내기 on its card instead (mcp/mail.js send_mail_as_me — 2026-11-27 production: a customer reply went out from the shared address,
+  // as a new mail). By tool name (also with a server's name in front) and by server: the company mailbox's MCP server goes whole, as
+  // its tools cannot all be named. PRO_AGENT_HIDDEN_TOOLS · PRO_AGENT_HIDDEN_SERVERS ADD to these (comma separated); "-name" takes a
+  // default out.
+  hiddenTools: withDefaults(['send_email', 'reply_email', 'reply_to_email', 'forward_email', 'send_draft', 'draft_send', 'send_bulk_email', 'batch_send_email',
+    'gmail_send_email', 'gmail_send_message', 'gmail_reply', 'gmail_forward'], get('PRO_AGENT_HIDDEN_TOOLS', '')),
+  hiddenServers: withDefaults(['gmail-mcp'], get('PRO_AGENT_HIDDEN_SERVERS', '')),
   // template office-mcp generate_hwpx fills when someone asks for a 한글 document
   hwpxTemplateUrl: get('PRO_HWPX_TEMPLATE_URL', ''),
   // the template office-mcp fills for a proposal (제안서) a customer mail asks for (lib/mail.js drafts)
