@@ -84,6 +84,8 @@ async function onPc(v, { anyway = false, again = 0 } = {}) {
     }
     // (the server told this app to make the working copy: wait for it here — the app answers once it holds it)
     const r = await bridge().open(v.id)
+    // (what this PC fetched is not what the server named — the variation moved: looked at again before anything comes here)
+    if (!r?.ok && r?.why === 'moved' && again < 3) { busy.value = null; return onPc(v, { again: again + 1 }) }
     if (!r?.ok) throw new Error(seatWhy(r?.why))
     await refreshPcSeats()
     emit('close')

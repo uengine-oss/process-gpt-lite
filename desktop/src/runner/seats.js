@@ -116,9 +116,10 @@ function quietPairs(hooks) {
 // (ensureRepo) and what git keeps itself. A setting there that pulls in more settings, sends a request elsewhere or changes how the server is
 // reached — include · includeIf · url (insteadOf) · http (a proxy, certificates, headers — all but a buffer size or a speed limit) · https ·
 // a remote named by an address · core.sshCommand · core.gitProxy · core.askPass — stops the app's fetch and push instead of riding along
-// with the folder's token (an included file or a URL rewrite cannot be outranked from the command line the way a single value can). A
-// credential helper there never applies: the app's calls reset it (git.js authEnv).
-const FOREIGN = /^(include|includeif|url|https)\.|^http\.(?!(postbuffer|lowspeedlimit|lowspeedtime)$)|^remote\.[a-z][a-z0-9+.-]*:\/\/|^core\.(sshcommand|gitproxy|askpass)$/i
+// with the folder's token (an included file or a URL rewrite cannot be outranked from the command line the way a single value can). So does
+// a list of other object stores (objects/info/alternates — git would read and offer what is there) or a command that names their refs
+// (core.alternateRefsCommand). A credential helper there never applies: the app's calls reset it (git.js authEnv).
+const FOREIGN = /^(include|includeif|url|https)\.|^http\.(?!(postbuffer|lowspeedlimit|lowspeedtime)$)|^remote\.[a-z][a-z0-9+.-]*:\/\/|^core\.(sshcommand|gitproxy|askpass|alternaterefscommand|alternaterefsprefixes)$/i
 // (where the person's global and system git settings would be: none — a push option, a credential helper, an alias of theirs never applies)
 const NO_CONFIG = process.platform === 'win32' ? 'NUL' : '/dev/null'
 // A call in a working copy (cwd, no gitDir) never looks for a repository above it: GIT_CEILING_DIRECTORIES is the folder the working copies
@@ -154,7 +155,8 @@ function wcGitOnce(args, { gitDir = null, cwd, hooks, token = '', url = '', inpu
     child.stdout.on('data', (d) => out.push(d))
     child.stderr.on('data', (d) => { if (errs.length < 64) errs.push(d) })
     const timer = setTimeout(() => { try { child.kill() } catch { /* gone */ } }, timeout)
-    child.on('error', (err) => { clearTimeout(timer); reject(new G.GitError(err.code === 'ENOENT' ? 'git is not installed on this computer' : err.message)) })
+    // (ENOENT is also a folder to run in that is gone — a working copy deleted outside the app: said as that, never as git missing)
+    child.on('error', (err) => { clearTimeout(timer); reject(new G.GitError(err.code === 'ENOENT' ? (cwd && !fs.existsSync(cwd) ? 'the folder git was to run in is gone' : 'git is not installed on this computer') : err.message)) })
     child.on('close', (code) => {
       clearTimeout(timer)
       const stdout = Buffer.concat(out).toString('utf8')
@@ -352,7 +354,8 @@ class WorkingCopies extends Uploader {
     this.netCache = new Map() // server address → {at, pairs}
     this.prepAt = new Map() // variation → the server's time on the seat:prepare this computer last had
     this.lastListAt = 0
-    this.hooks = path.join(this.root, 'no-hooks')
+    // (no hooks folder at all — the same as the server's: a folder of that name, made by anyone, is never one git runs from)
+    this.hooks = NO_CONFIG
     this.store = store
     this.deviceName = String(device?.name || '')
     this.userFn = user
@@ -411,12 +414,18 @@ class WorkingCopies extends Uploader {
     return wcGit(args, { hooks: this.hooks, ...o, net })
   }
   // (before a call that reaches the server) the repository's own settings: only what the app uses — else it throws ({why: 'config'})
+  // (the settings git reads for that call — the repository's, and the worktree's own when the repository turned that on: for a call with
+  // --git-dir as much as for one in a working copy)
   async fenceConfig({ gitDir = null, cwd }) {
     const names = async (scope) => (await this.git(['config', scope, '--name-only', '--list'], { gitDir, cwd, check: false }).catch(() => '')).split('\n').map((x) => x.trim().toLowerCase()).filter(Boolean)
     const local = await names('--local')
-    const all = local.includes('extensions.worktreeconfig') && !gitDir ? [...local, ...await names('--worktree')] : local
+    const all = local.includes('extensions.worktreeconfig') ? [...local, ...await names('--worktree')] : local
     const bad = all.find((k) => FOREIGN.test(k))
-    if (bad) throw Object.assign(new G.GitError(`the folder repository's settings have ${bad.slice(0, 60)} — the app does not reach the server with it`), { why: 'config' })
+    const refuse = (what) => { throw Object.assign(new G.GitError(`the folder repository's settings have ${what} — the app does not reach the server with it`), { why: 'config' }) }
+    if (bad) refuse(bad.slice(0, 60))
+    const common = gitDir || (await this.git(['rev-parse', '--git-common-dir'], { cwd })).trim()
+    const store = path.resolve(cwd || '.', common)
+    if (fs.existsSync(path.join(store, 'objects', 'info', 'alternates'))) refuse('objects/info/alternates')
   }
   // the person's proxy and certificate settings for this address (git config --get-urlmatch http <url> — their system and global settings,
   // nothing of any repository), kept for a few minutes → [[key, value]]
@@ -651,6 +660,13 @@ class WorkingCopies extends Uploader {
           { gitDir: repo, cwd: path.dirname(repo), token: m.token, url, timeout: NETWORK_MS })
         const tip = (await this.git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { gitDir: repo, cwd: path.dirname(repo), check: false })).trim()
         if (!tip) throw new G.GitError('the variation is not on the server')
+        // (not the head the server named in its seat:prepare — what the sheet showed before it asked: the copy is not opened, the sheet looks
+        // again)
+        if (m.head && tip !== String(m.head)) throw Object.assign(new G.GitError(`the variation moved (${tip.slice(0, 8)}, not ${String(m.head).slice(0, 8)})`), { why: 'moved' })
+        // (this computer's branch of it with commits the server does not have — a copy deleted before they went up: kept before -B resets it;
+        // a keep that cannot be made stops here)
+        const old = (await this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${e.branch}^{commit}`], { gitDir: repo, cwd: path.dirname(repo), check: false })).trim()
+        if (old && old !== tip && Number((await this.git(['rev-list', '--count', `${tip}..${old}`], { gitDir: repo, cwd: path.dirname(repo) })).trim()) > 0) await this.keepCommit(e, old)
         fs.mkdirSync(path.dirname(dir), { recursive: true })
         made = true
         // (a working copy of this folder deleted outside the app is still registered with git — its branch "checked out" there: forgotten
@@ -663,12 +679,13 @@ class WorkingCopies extends Uploader {
         return this.becomeReady(e)
       } catch (err) {
         this.log(`[seats] ${var8(vid)}: prepare failed — ${err.message}`)
-        this.send({ type: 'seat:failed', variation: vid, epoch, why: 'git' })
+        const why = err.why === 'moved' ? 'moved' : err.why === 'config' ? 'config' : 'failed'
+        this.send({ type: 'seat:failed', variation: vid, epoch, why: why === 'failed' ? 'git' : why })
         // (what was made of it goes to the trash — nothing of the person's is in a copy that never became ready)
         if (made && fs.existsSync(dir) && this.inside(dir)) await this.aside(e, 'unfinished').catch((x) => this.log(`[seats] ${x.message}`))
         this.drop(vid)
-        this.fail(vid, 'failed')
-        return { ok: false, why: 'failed' }
+        this.fail(vid, why)
+        return { ok: false, why }
       } finally { clearInterval(beating) }
     })
   }
@@ -745,7 +762,9 @@ class WorkingCopies extends Uploader {
   }
   async sendStatus(vid) {
     const e = this.get(vid)
-    if (!e || !['held', 'blocked'].includes(e.state) || !e.dir || !fs.existsSync(e.dir)) return
+    if (!e || !['held', 'blocked'].includes(e.state)) return
+    // (its folder deleted outside the app while the app is on: the server hears it went — in the variation's lock, as a save would)
+    if (!e.dir || !fs.existsSync(e.dir)) { if (this.connected) await this.locked(vid, () => this.missingNow(vid, Number(e.epoch))); return }
     const c = await this.counts(e)
     this.statusAt.set(vid, Date.now())
     this.mark(vid, c)
@@ -879,6 +898,8 @@ class WorkingCopies extends Uploader {
       if (this.other) return { ok: false, why: 'other_user' }
       if (!['held', 'blocked'].includes(e.state)) return { ok: false, why: e.state }
       if (!this.connected) { this.later(vid); return { ok: false, why: 'offline' } }
+      // (its folder deleted outside the app while the app stays on: the server hears it went — 보관 중 — and it can come here again at once)
+      if (!e.dir || !fs.existsSync(e.dir)) { await this.missingNow(vid, Number(e.epoch)); return { ok: false, why: 'missing' } }
       this.busy.add(vid); this.changed()
       try {
         // (a merge · cherry-pick · revert · rebase the person has not finished there comes first — a rebase also leaves no branch checked out)
@@ -928,6 +949,7 @@ class WorkingCopies extends Uploader {
       if (!e || e.state === 'left' || e.state === 'preparing') return { ok: false, why: e ? e.state : 'not_here' }
       if (this.other) return { ok: false, why: 'other_user' }
       if (!this.connected) return { ok: false, why: 'offline' }
+      if (!e.dir || !fs.existsSync(e.dir)) { await this.missingNow(vid, Number(e.epoch)); return { ok: false, why: 'missing' } }
       // (a merge the person has not finished there: given back only once it is finished or aborted — nothing of it goes up half done)
       if (e.dir && fs.existsSync(e.dir) && await this.inProgress(e).catch(() => false)) { this.mark(vid, { why: 'in_progress' }); return { ok: false, why: 'in_progress' } }
       if (!(await this.branchOk(e))) { this.mark(vid, { why: 'branch', branchOk: false }); return { ok: false, why: 'branch' } }
@@ -989,7 +1011,8 @@ class WorkingCopies extends Uploader {
   async leftoverNow(e) {
     if (!e) return { ok: true }
     const vid = e.variationId
-    if (!e.dir || !fs.existsSync(e.dir) || !this.inside(e.dir)) { this.unwatchOne(vid); this.drop(vid); return { ok: true, left: null, kept: 0 } }
+    // (its folder gone — deleted outside the app: git forgets the working copy, and a commit only its branch had stays in refs/kept/)
+    if (!e.dir || !fs.existsSync(e.dir) || !this.inside(e.dir)) { this.unwatchOne(vid); await this.forgetMissing(e); this.drop(vid); return { ok: true, left: null, kept: 0 } }
     // (a CLI working here finishes its turn first, as for 「돌려놓기」 — what it writes then is part of what goes up)
     await this.waitTurn(vid)
     // (a terminal or a program still in the folder: it stays a leftover here until they are closed — the next list tries again)
@@ -1088,7 +1111,12 @@ class WorkingCopies extends Uploader {
       if (a) {
         try { kept = await this.trimBin(bin, a, ignored) } catch (err) { this.log(`[seats] trash trim ${err.message}`); kept = await countFiles(bin) }
       } else kept = await countFiles(bin)
-    } else this.unwatchOne(vid)
+    } else {
+      // (the folder went before: what only its branch had is kept first — never a branch deleted with commits nothing else holds)
+      this.unwatchOne(vid)
+      await this.forgetMissing(e)
+      return kept
+    }
     await this.forgetWorktree(e)
     return kept
   }
@@ -1174,20 +1202,38 @@ class WorkingCopies extends Uploader {
     const repo = this.repoOf(e)
     await this.git(['update-ref', ref, sha], { gitDir: repo, cwd: path.dirname(repo) })
     this.log(`[seats] ${var8(e.variationId)}: a commit the server does not have (${String(sha).slice(0, 8)}) kept as ${ref}`)
+    // (said to the person once — a notice — and listed with the folder while it is kept: keptOf)
+    const note = { variationId: e.variationId, folderId: e.folderId, folderName: String(e.folderName || '').slice(0, 120), title: String(e.title || '').slice(0, 120), ref, at: t.toISOString() }
+    this.keptNotes([...this.keptNotes(), note])
+    this.emit('kept', note)
     return ref
+  }
+  // the commits kept for this person on this server (refs/kept/ — 30 days): what the page shows with the folder, no path, nothing of a file
+  keptNotes(next) {
+    const file = path.join(this.root, 'kept.json')
+    if (next) { fs.mkdirSync(this.root, { recursive: true }); fs.writeFileSync(`${file}.tmp`, JSON.stringify(next.slice(-200))); fs.renameSync(`${file}.tmp`, file); return next }
+    try { const a = JSON.parse(fs.readFileSync(file, 'utf8')); return Array.isArray(a) ? a : [] } catch { return [] }
+  }
+  keptOf(folderId = null) {
+    return this.keptNotes().filter((n) => !folderId || n.folderId === String(folderId)).map((n) => ({ variationId: n.variationId, folderId: n.folderId, title: n.title, ref: n.ref, at: n.at }))
   }
   // A working copy deleted outside the app (its folder gone, its record still here): git forgets it, and a commit on its branch the server
   // never took (made there before it was deleted) stays reachable in the folder's repository (refs/kept/, 30 days) before the branch goes
   async forgetMissing(e) {
-    if (!e?.folderId) return
+    if (!e?.folderId) return true
     const repo = this.repoOf(e)
-    if (!fs.existsSync(path.join(repo, 'HEAD'))) return
+    if (!fs.existsSync(path.join(repo, 'HEAD'))) return true
     const at = { gitDir: repo, cwd: path.dirname(repo), check: false }
     await this.git(['worktree', 'prune'], at).catch(() => {})
     const tip = e.branch ? (await this.git(['rev-parse', '--verify', '--quiet', `refs/heads/${e.branch}^{commit}`], at).catch(() => '')).trim() : ''
     const took = (await this.git(['rev-parse', '--verify', '--quiet', `refs/remotes/lite/${e.variationId}^{commit}`], at).catch(() => '')).trim()
-    if (tip && tip !== e.head && tip !== took) await this.keepCommit(e, tip).catch((err) => this.log(`[seats] ${err.message}`))
+    if (tip && tip !== e.head && tip !== took) {
+      // (a keep that did not happen: the branch stays as it is — the next prepare keeps it before anything resets it, or does not go on)
+      const ok = await this.keepCommit(e, tip).then(() => true, (err) => { this.log(`[seats] ${var8(e.variationId)}: could not keep ${String(tip).slice(0, 8)} — ${err.message}`); return false })
+      if (!ok) return false
+    }
     await this.forgetWorktree(e)
+    return true
   }
   // git forgets a worktree that is gone, and the app's own branch and fetched ref of it
   async forgetWorktree(e) {
@@ -1263,6 +1309,10 @@ class WorkingCopies extends Uploader {
         if (m && now - new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() > TRASH_DAYS * 86400_000) await this.git(['update-ref', '-d', r], at).catch(() => {})
       }
     }
+    // (the kept commits' notes go with their 30 days too)
+    const notes = this.keptNotes()
+    const fresh = notes.filter((n) => now - Date.parse(n.at || 0) <= TRASH_DAYS * 86400_000)
+    if (fresh.length !== notes.length) this.keptNotes(fresh)
     const total = bins.reduce((n, b) => n + b.bytes, 0)
     if (maxBytes > 0 && total > maxBytes && say) { this.fullSaidAt = now; this.emit('trash-full', { bytes: total, maxBytes, bins: bins.length }) }
     return { bytes: total }

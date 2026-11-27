@@ -3513,11 +3513,14 @@
   "이 작업본 폴더에서 터미널이나 프로그램이 열려 있어요. 닫은 뒤 다시 시도해 주세요.": "A terminal or program is open in this working copy's folder. Close it, then try again.",
   "병합 중이라 올리지 않았어요 — 터미널에서 병합(cherry-pick · revert · rebase)을 마치거나 취소하면 다시 올라가요.": "Not uploaded — a merge is in progress. Finish or abort the merge (cherry-pick, revert or rebase) in the terminal and it uploads again.",
   "작업본의 git 설정에 앱이 쓰지 않는 항목(프록시 · 주소 바꾸기 · 설정 불러오기 같은 것)이 있어 올리지 않았어요 — 터미널에서 그 설정을 지운 뒤 다시 올려 주세요.": "Not uploaded — the working copy's git settings have entries the app does not use (a proxy, an address rewrite, an included settings file and the like). Remove them in the terminal, then upload again.",
-  "Claude Code 설정 — 명령을 실행하거나 권한 · MCP 서버를 미리 허락해요": "Claude Code settings — run commands or allow permissions and MCP servers in advance",
   "Codex 설정 — 명령 · MCP 서버를 실행할 수 있어요": "Codex settings — may run commands and MCP servers",
   "VS Code 설정 · 실행 구성 — 명령을 실행할 수 있어요": "VS Code settings · launch configurations — may run commands",
   "도구 버전 설정(mise · asdf) — 폴더에 들어가면 도구를 받거나 실행해요": "Tool version settings (mise · asdf) — fetch or run tools when you enter the folder",
-  "폴더 맨 위의 실행 파일 — Windows 터미널에서 같은 이름의 명령 대신 실행될 수 있어요": "A program at the top of the folder — a Windows terminal may run it instead of a command of the same name"
+  "폴더 맨 위의 실행 파일 — Windows 터미널에서 같은 이름의 명령 대신 실행될 수 있어요": "A program at the top of the folder — a Windows terminal may run it instead of a command of the same name",
+  "이 PC의 작업본 폴더가 없어져서 이 변형을 보관 중 상태로 바꿨어요. 다시 「이 PC 에서 작업」을 누르면 새로 받아요.": "The working copy's folder on this PC is gone, so this variation is put away. Press \"Work on this PC\" again to fetch it anew.",
+  "그사이 이 변형이 바뀌었어요. 다시 확인한 뒤에 받아요.": "The variation changed meanwhile. It is checked again before it comes here.",
+  "Claude Code 설정 — 명령 실행 · 환경 변수 · 플러그인 · 권한 · MCP 서버를 미리 설정해요": "Claude Code settings — set commands, environment variables, plugins, permissions and MCP servers in advance",
+  "이 폴더의 작업본 터미널에서 git log refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.": "See them with git log refs/kept/ in a terminal of this folder's working copy, and bring back what you need with git cherry-pick."
  },
  "patterns": [
   [
@@ -8011,6 +8014,10 @@
   [
    "{0}의 작업본에서 병합(cherry-pick · revert · rebase)이 끝나지 않아 가져오지 못했어요 — 그 PC 의 터미널에서 마치거나 취소한 뒤 다시 「여기로 가져오기」를 눌러 주세요.",
    "A merge (cherry-pick, revert or rebase) is unfinished in the working copy on {0}, so it could not be brought here — finish or abort it in a terminal on that PC, then press \"Bring it here\" again."
+  ],
+  [
+   "서버에 올라가지 않은 커밋 {0}개를 이 PC에 30일 동안 보관해요.",
+   "{0} commit(s) that never reached the server are kept on this PC for 30 days."
   ]
  ],
  "context": [

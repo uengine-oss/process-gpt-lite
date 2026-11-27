@@ -644,6 +644,10 @@ function seatNotice(n) {
   } else if (n.kind === 'recall') {
     title = ko ? `${n.by || '다른 사람'} 님이 「${t}」 작업본을 돌려 달라고 해요` : `${n.by || 'Someone'} asks for "${t}" back`
     body = n.why || (ko ? '앱의 작업실에서 「돌려놓기」를 누르면 돌아가요.' : 'Press "Give back" in the app\'s workroom.')
+  } else if (n.kind === 'kept') {
+    // (a commit only this PC had, of a working copy that went: kept in the app's repository — said once, listed with the folder)
+    title = ko ? `「${t}」 — 서버에 올라가지 않은 커밋을 이 PC에 보관했어요` : `"${t}" — a commit that never reached the server is kept on this PC`
+    body = ko ? '30일 동안 보관해요. 이 폴더의 작업본을 다시 열고 터미널에서 git log refs/kept/ 명령어로 확인할 수 있어요.' : 'It is kept for 30 days. Open the folder\'s working copy again and see it in its terminal with git log refs/kept/.'
   } else if (n.kind === 'trash-full') {
     // (nothing in the trash goes before its 30 days — what is there is what only this PC had)
     const gb = (Number(n.bytes) || 0) / 1024 ** 3
@@ -679,10 +683,12 @@ function terminalAt(dir) {
   if (process.platform === 'darwin') return go('open', ['-a', 'Terminal', dir])
   if (process.platform === 'win32') {
     const wt = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
-    if (process.env.LOCALAPPDATA && fs.existsSync(wt)) return go(wt, ['-d', dir])
-    // (a detached child gets a console window of its own on Windows: cmd in the folder — told not to run a program of that folder for a
-    // command typed there: a git.bat or a claude.cmd in the working copy never stands in for the real one)
-    return go(process.env.ComSpec || 'cmd.exe', ['/K'], { cwd: dir, env: { ...process.env, NoDefaultCurrentDirectoryInExePath: '1' } })
+    // (either terminal is told not to run a program of that folder for a command typed there: a git.bat or a claude.cmd in the working copy
+    // never stands in for the real one)
+    const env = { ...process.env, NoDefaultCurrentDirectoryInExePath: '1' }
+    if (process.env.LOCALAPPDATA && fs.existsSync(wt)) return go(wt, ['-d', dir], { env })
+    // (a detached child gets a console window of its own on Windows: cmd in the folder)
+    return go(process.env.ComSpec || 'cmd.exe', ['/K'], { cwd: dir, env })
   }
   return (async () => {
     for (const [cmd, args] of [['x-terminal-emulator', ['--working-directory', dir]], ['gnome-terminal', ['--working-directory', dir]], ['konsole', ['--workdir', dir]]]) {
@@ -692,6 +698,7 @@ function terminalAt(dir) {
   })()
 }
 ipcMain.handle('pgl:seats:list', (e) => (fromServerPage(e) ? seatEngine()?.list() || [] : []))
+ipcMain.handle('pgl:seats:kept', (e, folderId) => (fromServerPage(e) ? seatEngine()?.keptOf(VID.test(String(folderId || '')) ? String(folderId) : null) || [] : []))
 ipcMain.handle('pgl:seats:leftovers', (e) => (fromServerPage(e) ? seatEngine()?.leftovers() || [] : []))
 // wait until this computer holds the variation (after the page asked the server for it)
 ipcMain.handle('pgl:seats:open', async (e, id) => {

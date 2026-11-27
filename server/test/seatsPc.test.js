@@ -460,6 +460,20 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
   await S.upload(f, mate, '.tool-versions', Buffer.from('nodejs 22\n'))
   await S.upload(f, mate, 'git.bat', Buffer.from('@echo off\n'))
   await S.upload(f, mate, '도구/build.cmd', Buffer.from('@echo off\n'))
+  // (re-review of #112: variables, plugins, marketplaces, a file-suggestion command; hooks in a skill's or an agent's front matter — read as
+  // a mapping, not looked for in the text; VS Code's MCP servers and workspaces; every type Windows runs by name; more shell files)
+  await S.upload(f, mate, '변수/.claude/settings.json', Buffer.from('{"env":{"NODE_OPTIONS":"--require ./x.js"}}\n'))
+  await S.upload(f, mate, '플러그인/.claude/settings.json', Buffer.from('{"enabledPlugins":{"x@y":true},"extraKnownMarketplaces":{"y":{"source":{"source":"github","repo":"a/b"}}}}\n'))
+  await S.upload(f, mate, '제안/.claude/settings.json', Buffer.from('{"fileSuggestion":{"type":"command","command":"sh s.sh"}}\n'))
+  await S.upload(f, mate, '.claude/skills/보고/SKILL.md', Buffer.from('---\nname: 보고\ndescription: 보고서를 쓴다 hooks: 없음\nhooks:\n  Stop:\n    - hooks:\n        - type: command\n          command: sh x.sh\n---\n# 보고\n'))
+  await S.upload(f, mate, '.claude/skills/조용/SKILL.md', Buffer.from('---\nname: 조용\ndescription: "hooks: 라는 말만 있음"\nmetadata:\n  hooks: no\n---\nhooks:\n  Stop: []\n'))
+  await S.upload(f, mate, '.claude/agents/검토자.md', Buffer.from('---\nname: 검토자\nhooks: {PreToolUse: [{matcher: Bash}]}\n---\n검토\n'))
+  await S.upload(f, mate, '.claude/agents/빈칸.md', Buffer.from('---\nname: 빈칸\nhooks: {}\n---\n'))
+  await S.upload(f, mate, '.vscode/mcp.json', Buffer.from('{"servers":{}}\n'))
+  await S.upload(f, mate, '팀.code-workspace', Buffer.from('{"folders":[]}\n'))
+  for (const x of ['run.vbs', 'run.js', 'run.wsf', 'run.msc']) await S.upload(f, mate, x, Buffer.from('x\n'))
+  await S.upload(f, mate, '보기.scf', Buffer.from('[Shell]\n'))
+  await S.upload(f, mate, '찾기.searchConnector-ms', Buffer.from('<searchConnectorDescription/>\n'))
   const v = await personVar(f, owner, '설정 보기')
   const t = await T.trustOf(await S.folderById(f.id), await S.variationById(v.id), owner)
   const got = t.files.map((x) => [x.path, x.reason, x.author])
@@ -481,7 +495,22 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
     ['엠씨피/.claude/settings.json', 'claude', '김동료'],
     ['키/.claude/settings.json', 'claude', '김동료'],
     ['허락/.claude/settings.json', 'claude', '김동료'],
-  ].sort(), '훅도 명령도 허락도 없는 설정(settings.local.json · plan 모드) · 하위 폴더의 .cmd 는 아니다')
+    ['변수/.claude/settings.json', 'claude', '김동료'],
+    ['플러그인/.claude/settings.json', 'claude', '김동료'],
+    ['제안/.claude/settings.json', 'claude', '김동료'],
+    ['.claude/skills/보고/SKILL.md', 'hooks', '김동료'],
+    ['.claude/agents/검토자.md', 'hooks', '김동료'],
+    ['.vscode/mcp.json', 'mcp', '김동료'],
+    ['팀.code-workspace', 'vscode', '김동료'],
+    ['run.js', 'run', '김동료'],
+    ['run.msc', 'run', '김동료'],
+    ['run.vbs', 'run', '김동료'],
+    ['run.wsf', 'run', '김동료'],
+    ['보기.scf', 'shell', '김동료'],
+    ['찾기.searchConnector-ms', 'shell', '김동료'],
+  ].sort(), '훅도 명령도 허락도 없는 설정(settings.local.json · plan 모드) · 앞머리에 훅이 없거나 비어 있는 스킬 · 에이전트 · 하위 폴더의 .cmd 는 아니다')
+  // (the list fails closed: a tree git cannot list is refused — never taken for nothing there)
+  await assert.rejects(T.trustAt({ ...f, repo_path: path.join(ROOT, 'no-such-repository') }, t.head), (e) => e.status === 503 && e.why === 'unchecked')
   assert.equal(t.head, await G.head(f.repo_path, `refs/heads/${(await S.variationById(v.id)).branch}`), '본 판을 함께 준다')
   assert.equal(t.warn, true)
   assert.equal(t.verified, false, '커밋에 적힌 이름은 누구든 적을 수 있다 — 확인한 사람이라고 하지 않는다')

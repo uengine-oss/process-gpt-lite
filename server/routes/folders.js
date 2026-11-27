@@ -461,12 +461,26 @@ export function folderRoutes(auth) {
       epoch = out.epoch
     }
     const opened = (await q(`update pro_folder_variations set status='open' where id=$1 and status='ready' returning id`, [v.id])).length > 0
+    // (the seat goes back to none — 보관 중 — when this computer is not told after all; a variation that was ready to review is again)
+    const undo = async (note) => {
+      await SE.transition(v.id, (vv, s) => (s && s.place === 'device' && Number(s.epoch) === Number(epoch) ? { ok: true, next: null, bump: true, action: 'fail' } : { ok: false, why: 'none' }), { by: req.user.id, note })
+      if (opened) await q(`update pro_folder_variations set status='ready', updated_at=now() where id=$1 and status='open'`, [v.id])
+    }
+    // (my server workroom was committed as it was on the way here: what of it runs by itself and was not shown at the checked head — the
+    // sheet looks again first; one that cannot be checked is not sent either)
+    const head = await G.head(folder.repo_path, `refs/heads/${v.branch}`)
+    if (asked && head !== asked) {
+      const { trustAdded } = await import('../lib/folders/seatTrust.js')
+      const added = await trustAdded(folder, asked, head).catch(async (e) => { await undo('could not check what came with the server workroom'); throw e })
+      if (added.length) {
+        await undo('more that runs by itself came with the server workroom')
+        throw seatErr(409, L('그사이 이 변형이 바뀌었어요 — 받기 전에 다시 확인할게요.', 'The variation changed meanwhile — it is checked again before it comes here.'), 'moved')
+      }
+    }
     const now = await S.variationById(v.id)
     const seat = await SE.seatOf(v.id, { v: now })
     if (!(await SL.prepare(link, folder, now, { epoch, autoSave: seat?.auto_save !== false }))) {
-      await SE.transition(v.id, (vv, s) => (s && s.place === 'device' && Number(s.epoch) === Number(epoch) ? { ok: true, next: null, bump: true, action: 'fail' } : { ok: false, why: 'none' }), { by: req.user.id, note: 'the PC did not take it' })
-      // (it was ready to review before this: it is again — nothing was opened)
-      if (opened) await q(`update pro_folder_variations set status='ready', updated_at=now() where id=$1 and status='open'`, [v.id])
+      await undo('the PC did not take it')
       throw seatErr(409, L(`${d.name}에 보내지 못했어요 — 잠시 뒤에 다시 해 주세요.`, `Couldn't reach ${d.name} — try again in a moment.`), 'offline')
     }
     emit(req.user.id, 'folders', { slug: folder.slug, variation: v.id })

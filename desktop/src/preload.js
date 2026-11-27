@@ -99,6 +99,8 @@ const seats = local ? undefined : Object.freeze({
   release: (id) => ipcRenderer.invoke('pgl:seats:release', sid(id)),
   setAuto: (id, on) => ipcRenderer.invoke('pgl:seats:auto', sid(id), on === true),
   leftovers: () => ipcRenderer.invoke('pgl:seats:leftovers'),
+  // (commits only this PC had of a working copy that went — kept in the app's repository 30 days: variation · title · ref name · when, no path)
+  kept: (folderId) => ipcRenderer.invoke('pgl:seats:kept', sid(folderId)),
   dropLeft: (id) => ipcRenderer.invoke('pgl:seats:drop-left', sid(id)),
   // (the app's trash for working copies, in Finder · Explorer — no path to the page)
   openTrash: () => ipcRenderer.invoke('pgl:seats:open-trash'),

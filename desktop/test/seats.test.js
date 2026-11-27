@@ -1404,6 +1404,156 @@ test('5차 검토 7 — 폴더 저장소 자체 설정(설정 불러오기 · �
   await w.release(v)
 })
 
+// ---------- re-review of PR #112 (11-27): each failed before its fix ----------
+const keptRefs = () => git(appRepo(), 'for-each-ref', '--format=%(objectname) %(refname)', 'refs/kept/').trim().split('\n').filter(Boolean)
+const reachable = (sha) => { try { git(appRepo(), 'cat-file', '-e', `${sha}^{commit}`); return keptRefs().some((l) => l.startsWith(sha)) } catch { return false } }
+
+test('6차 검토 A1 · A4 — 폴더가 지워진 채 자리를 잃은 작업본: 안 올린 커밋은 refs/kept 에 남고(다시 받고 돌려놓아도), 그 사람에게 한 번 알리고 폴더에 한 줄', async () => {
+  const w = wc || make()
+  const v = variation('지운 채 잃음')
+  const e = await prepared(w, v)
+  put(e.dir, '터미널.md', '터미널에서 커밋\n'); git(e.dir, 'add', '-A'); git(e.dir, 'commit', '-qm', '터미널에서')
+  const unsent = git(e.dir, 'rev-parse', 'HEAD').trim()
+  const notes = []
+  w.on('kept', (n) => notes.push(n))
+  fs.rmSync(e.dir, { recursive: true, force: true })
+  // the seat goes elsewhere meanwhile (taken while off): the list has it no more — the leftover way, with the folder already gone
+  const sv = vars.get(v)
+  sv.epoch = 2; sv.state = null
+  w.handle({ type: 'seat:list', seats: heldNow(w, v) })
+  await waitFor(() => !w.get(v), 6000, 'gone the leftover way')
+  assert.ok(reachable(unsent), '안 올린 커밋은 refs/kept 에')
+  // opened here again, then given back: the kept commit is still there
+  sv.epoch = 3; sv.state = 'moving'
+  const e3 = await prepared(w, v)
+  assert.notEqual(git(e3.dir, 'rev-parse', 'HEAD').trim(), unsent, '새 작업본은 서버의 머리에서')
+  assert.equal((await w.release(v)).ok, true)
+  assert.ok(reachable(unsent), '돌려놓은 뒤에도 남는다')
+  // said once, and listed with the folder (no path)
+  assert.equal(notes.filter((n) => n.variationId === v).length, 1)
+  const listed = w.keptOf(FOLDER).filter((k) => k.variationId === v)
+  assert.equal(listed.length, 1)
+  assert.deepEqual(Object.keys(listed[0]).sort(), ['at', 'folderId', 'ref', 'title', 'variationId'])
+  assert.ok(!JSON.stringify(listed).includes(ROOT))
+})
+
+test('6차 검토 A5 — 보관하지 못하면 그 가지를 지우지 않고, 다음 받기도 그 가지를 덮지 않는다(받지 않음)', async () => {
+  const w = wc || make()
+  const v = variation('보관 실패')
+  const e = await prepared(w, v)
+  put(e.dir, '남길 것.md', '남길 것\n'); git(e.dir, 'add', '-A'); git(e.dir, 'commit', '-qm', '남길 것')
+  const unsent = git(e.dir, 'rev-parse', 'HEAD').trim()
+  const branch = vars.get(v).branch
+  fs.rmSync(e.dir, { recursive: true, force: true })
+  const real = w.keepCommit
+  w.keepCommit = async () => { throw new Error('no room to keep it') }
+  try {
+    w.handle({ type: 'seat:list', seats: heldNow(w) })
+    await waitFor(() => !w.get(v), 6000, 'forgotten')
+    assert.equal(git(appRepo(), 'rev-parse', `refs/heads/${branch}`).trim(), unsent, '가지는 그대로')
+    const sv = vars.get(v)
+    sv.epoch = 2; sv.state = 'moving'
+    w.handle(prepareMsg(v))
+    await waitFor(() => sentOf('seat:failed', v).some((m) => m.epoch === 2), 6000, 'prepare refused')
+    await settled(w, v)
+    assert.equal(git(appRepo(), 'rev-parse', `refs/heads/${branch}`).trim(), unsent, '받기가 가지를 덮지 않는다')
+  } finally { w.keepCommit = real }
+  // the keep works again: the next prepare keeps it, then opens
+  const sv = vars.get(v)
+  sv.epoch = 3; sv.state = 'moving'
+  w.handle(prepareMsg(v))
+  await waitFor(() => Number(w.get(v)?.epoch) === 3 && w.get(v).state === 'held', 15000, 'held at 3')
+  assert.ok(reachable(unsent))
+  await w.release(v)
+})
+
+test('6차 검토 A3 — 앱이 켜진 채 폴더를 지우면: 「지금 올리기」 · 「여기로 가져오기」가 바로 「없어졌어요」로 답하고, 다시 이어지지 않아도 다시 받는다', async () => {
+  const w = wc || make()
+  const v = variation('켜진 채 지움')
+  const e = await prepared(w, v)
+  fs.rmSync(e.dir, { recursive: true, force: true })
+  assert.deepEqual(await w.saveNow(v), { ok: false, why: 'missing' })
+  assert.equal(sentOf('seat:failed', v).at(-1)?.why, 'missing')
+  assert.equal(w.get(v), null)
+  const sv = vars.get(v)
+  sv.epoch = 2; sv.state = 'moving'
+  w.handle(prepareMsg(v))
+  const e2 = await waitFor(() => Number(w.get(v)?.epoch) === 2 && w.get(v).state === 'held' && w.get(v), 15000, 'held at 2')
+  // 「여기로 가져오기」 from elsewhere with the folder gone: said back at once — as the recall's answer, or already by the app's own look at it
+  fs.rmSync(e2.dir, { recursive: true, force: true })
+  w.handle({ type: 'seat:recall', variation: v, epoch: 2, auto: true })
+  await waitFor(() => sentOf('seat:refused', v).some((m) => m.re === 'seat:recall' && m.why === 'missing') || sentOf('seat:failed', v).some((m) => m.epoch === 2 && m.why === 'missing'), 6000, 'said back')
+  await settled(w, v)
+  assert.equal(w.get(v), null)
+  assert.ok(!logs.some((l) => /not installed/.test(l)), 'git 이 없다고 하지 않는다')
+})
+
+test('6차 검토 A2c — 훅 폴더는 아예 없다(/dev/null): 예전 판이 가리키던 자리에 누가 훅을 넣어도 돌지 않는다', async () => {
+  const w = wc || make()
+  const v = variation('훅 없음')
+  const e = await prepared(w, v)
+  const none = process.platform === 'win32' ? 'NUL' : '/dev/null'
+  assert.equal(git(appRepo(), 'config', 'core.hooksPath').trim(), none)
+  const marker = path.join(ROOT, 'hook-ran')
+  for (const h of ['post-commit', 'reference-transaction', 'pre-push']) {
+    const f = path.join(w.root, 'no-hooks', h)
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    fs.writeFileSync(f, `#!/bin/sh\necho ${h} >> "${marker}"\n`, { mode: 0o755 })
+  }
+  calls.length = 0
+  put(e.dir, 'b.md', 'b\n')
+  assert.equal((await w.saveNow(v)).ok, true)
+  assert.equal(fs.existsSync(marker), false, '훅이 돌지 않는다')
+  assert.ok(calls.every((c) => c.config['core.hooksPath'] === none))
+  await w.release(v)
+})
+
+test('6차 검토 A2b — 다른 객체 저장소(objects/info/alternates) · core.alternateRefsCommand 가 있으면 서버로 보내지 않는다', async () => {
+  const w = wc || make()
+  const v = variation('다른 저장소')
+  const e = await prepared(w, v)
+  const alt = path.join(appRepo(), 'objects', 'info', 'alternates')
+  fs.writeFileSync(alt, `${path.join(BARE, 'objects')}\n`)
+  put(e.dir, 'c.md', 'c\n')
+  try { assert.deepEqual(await w.saveNow(v), { ok: false, why: 'config' }, 'alternates') } finally { fs.rmSync(alt, { force: true }) }
+  git(appRepo(), 'config', 'core.alternateRefsCommand', 'true')
+  try { assert.deepEqual(await w.saveNow(v), { ok: false, why: 'config' }, 'alternateRefsCommand') } finally { git(appRepo(), 'config', '--unset', 'core.alternateRefsCommand') }
+  assert.equal((await w.saveNow(v)).ok, true)
+  await w.release(v)
+})
+
+test('6차 검토 A2a — 작업 트리별 설정은 --git-dir 로 받을 때도 본다: 그 설정에 프록시가 있으면 다음 받기를 하지 않는다', async () => {
+  const w = wc || make()
+  const v = variation('작업 트리별 설정')
+  await prepared(w, v)
+  git(appRepo(), 'config', 'core.repositoryformatversion', '1')
+  git(appRepo(), 'config', 'extensions.worktreeConfig', 'true')
+  git(appRepo(), 'config', '--worktree', 'http.proxy', 'http://127.0.0.1:9')
+  try {
+    const v2 = variation('작업 트리별 설정 둘')
+    w.handle(prepareMsg(v2))
+    await waitFor(() => sentOf('seat:failed', v2).length, 15000, 'prepare refused')
+    assert.equal(sentOf('seat:failed', v2).at(-1).why, 'config')
+    assert.equal(w.get(v2), null)
+  } finally {
+    git(appRepo(), 'config', '--worktree', '--unset', 'http.proxy')
+    git(appRepo(), 'config', '--unset', 'extensions.worktreeConfig')
+    git(appRepo(), 'config', 'core.repositoryformatversion', '0')
+  }
+  await w.release(v)
+})
+
+test('6차 검토 A6 — PC 가 받은 머리가 서버가 준비 요청에 적은 머리가 아니면 작업본을 열지 않고(moved) 시트가 다시 확인하게 한다', async () => {
+  const w = wc || make()
+  const v = variation('머리가 다름')
+  const waiting = w.open(v, 15000)
+  w.handle(prepareMsg(v, { head: '0'.repeat(40) }))
+  assert.deepEqual(await waiting, { ok: false, why: 'moved' })
+  assert.equal(sentOf('seat:failed', v).at(-1)?.why, 'moved')
+  assert.equal(w.get(v), null)
+  assert.ok(!fs.existsSync(path.join(wtRoot(), `${v.slice(0, 8)}-머리가-다름`)), '작업본을 남기지 않는다')
+})
+
 test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {
   wc.stop()
   const { createLocalRunner } = require('../src/runner')

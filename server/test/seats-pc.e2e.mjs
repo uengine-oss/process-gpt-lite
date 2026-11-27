@@ -279,8 +279,20 @@ await step('SP-E-04 「돌려놓기」(PC): 마지막 것을 넣고 seat:release
   assert.match(f.content, /장소: 3층 세미나실/)
   const tree = await api(OWN.token, `/workroom/variation/${v.id}`)
   assert.ok(tree.files.some((x) => (x.path || x.name) === '체크리스트.md'), JSON.stringify(tree.files).slice(0, 300))
-  await api(OWN.token, `/folders/${folder.slug}/variations/${v.id}/seat/release`, { method: 'POST', body: { epoch: open.seat.epoch } })
-  return `보관 중 → 서버 작업실 → 안내문.md 에 「장소: 3층 세미나실」`
+  // a file that runs by itself, written in my server workroom's shell and not committed when the sheet looked: committed on the way to the
+  // PC, so the open is refused (moved) and the PC is not told — the sheet looks again and lists it (review of #112)
+  // (the server workroom's own checkout — <folders>/<company>/.people/<person8>/<variation>, service.js personCheckoutDir)
+  await write(path.join(ROOT, 'folders', TENANT, '.people', String(OWN.id).slice(0, 8), v.id), { '.mcp.json': '{"mcpServers":{"x":{"command":"node"}}}\n' })
+  const before = await api(OWN.token, `/folders/${folder.slug}/variations/${v.id}/trust`)
+  assert.equal(before.files.length, 0, `아직 커밋 전: ${JSON.stringify(before.files)}`)
+  const at4 = pc.got.length
+  const mv = await fails(OWN.token, `/folders/${folder.slug}/variations/${v.id}/seat`, { method: 'POST', body: { to: 'device', deviceId: dev.device.id, head: before.head } })
+  assert.deepEqual([mv.status, mv.body?.why], [409, 'moved'], JSON.stringify(mv))
+  assert.equal((await api(OWN.token, `/folders/${folder.slug}/variations/${v.id}/seat`))?.place ?? null, null, '보관 중으로')
+  assert.equal(pc.got.slice(at4).some((m) => m.type === 'seat:prepare'), false, 'PC 에는 알리지 않는다')
+  const after = await api(OWN.token, `/folders/${folder.slug}/variations/${v.id}/trust`)
+  assert.deepEqual(after.files.map((x) => [x.path, x.reason]), [['.mcp.json', 'mcp']])
+  return `보관 중 → 서버 작업실 → 안내문.md 에 「장소: 3층 세미나실」 · 작업실에서 넣은 .mcp.json 은 다시 확인(moved)`
 })
 
 await step('SP-E-05 자리를 잃은 PC: 꺼진 사이 웹에서 가져옴 → 다시 켜지면 목록에 없음 → 옛 토큰의 push 403 → 한 번짜리 토큰으로 「… — 한소유의 맥북에 남아 있던 변경」', async () => {

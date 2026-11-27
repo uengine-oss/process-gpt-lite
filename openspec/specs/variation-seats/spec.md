@@ -229,10 +229,21 @@ PC가 자리를 가진 동안 데스크톱 앱은 작업 트리를 있는 그대
 - **AND** 다시 「이 PC 에서 작업」을 누르면(자리 목록 없이 바로 와도) 작업본이 새로 만들어진다
 - **AND** 서버가 아직 넘기는 중인 자리를 이 PC 가 아직 모르면(준비 요청이 오는 중) 「없음」이라고 하지 않는다
 
+#### Scenario: 6차 검토 A1 · A3 · A4 · A5 — 지운 작업본의 안 올린 커밋은 잃지 않는다
+- **WHEN** 김작업이 PC 작업본에서 터미널로 커밋한 뒤 그 폴더를 지우고, 그사이 자리가 다른 곳으로 옮겨 가거나(꺼진 동안 웹에서 가져감) 앱이 켜진 채 「지금 올리기」 · 「여기로 가져오기」가 온다
+- **THEN** 앱은 그 가지에만 있던 커밋을 앱 저장소에 30일 보관하고, 다시 「이 PC 에서 작업」으로 받고 돌려놓아도 그 커밋은 남는다. 김작업에게 한 번 알리고, 폴더 화면에 「서버에 올라가지 않은 커밋 N개를 이 PC에 30일 동안 보관해요」가 보인다
+- **AND** 앱이 켜진 채 지웠으면 「지금 올리기」 · 「여기로 가져오기」가 바로 「작업본 폴더가 없어져서 … 보관 중 상태로 바꿨어요」로 답하고, 다시 이어지지 않아도 다시 받는다
+- **AND** 보관하지 못하면 그 가지를 지우지 않으며, 다음 받기도 그 가지를 덮지 않고 받지 않는다
+
+#### Scenario: 6차 검토 A6 — 시트가 보여 준 판에서 받는다
+- **WHEN** 시트가 확인한 뒤 서버 작업실에서 저장 안 한 파일(예: `.mcp.json`)이 「이 PC 에서 작업」으로 옮기는 길에 커밋되거나, PC 가 받은 머리가 서버가 준비 요청에 적은 머리와 다르다
+- **THEN** 서버는 보여 주지 않은 저절로 실행되는 파일이 생겼으면 PC 에 알리지 않고 409 `moved` 로 답하며(자리는 보관 중), PC 는 받은 머리가 다르면 작업본을 열지 않는다. 시트는 다시 확인해 새 목록을 보여 준다
+
 #### Scenario: 5차 검토 7 — 앱의 git 은 저장소 자체 설정을 따라 서버에 가지 않는다
-- **WHEN** 앱 저장소의 설정에 다른 설정 파일 불러오기(`include` · `includeIf`), 주소 바꾸기(`url.*.insteadOf`), `http.*`(프록시 · 인증서 · 머리글), 주소로 이름 붙인 원격, `core.sshCommand` · `core.gitProxy` · `core.askPass` 가 들어 있다
+- **WHEN** 앱 저장소의 설정(작업 트리별 설정 포함 — 작업본에서든 저장소 자체로 받을 때든)에 다른 설정 파일 불러오기(`include` · `includeIf`), 주소 바꾸기(`url.*.insteadOf`), `http.*`(프록시 · 인증서 · 머리글), 주소로 이름 붙인 원격, `core.sshCommand` · `core.gitProxy` · `core.askPass` · `core.alternateRefsCommand` 가 들어 있거나, 다른 객체 저장소 목록(`objects/info/alternates`)이 있다
 - **THEN** 앱은 그 저장소로 받기 · 올리기를 하지 않고 「앱이 쓰지 않는 설정이 있어 올리지 않았어요」를 보이며, 그 설정을 지우면 다시 올린다. 서버의 인증서는 언제나 확인한다
 - **AND** 서버가 보낸 가지 이름이 `-` 로 시작하면 받지 않는다
+- **AND** 앱의 git 에는 훅 폴더가 아예 없다(`/dev/null`) — 어느 폴더에 훅을 넣어도 앱의 커밋 · 올리기에서 돌지 않는다
 
 #### Scenario: WL-P-14 · 15 데스크톱 토큰은 잠금 안에서 다시 보고, 지난 회차의 가지는 치운다
 - **WHEN** 한 번짜리 남은 변경 토큰으로 두 밀어 넣기가 거의 동시에 오거나, 밀어 넣기가 폴더 잠금을 기다리는 사이 자리가 옮겨 간다
@@ -266,7 +277,7 @@ PC의 「돌려놓기」는 작업 트리를 있는 그대로 커밋해 올려�
 ---
 
 ### Requirement: PC 로 받기 전에 저절로 실행되는 설정 파일을 알린다
-작업본에는 폴더의 다른 구성원이 작성한 파일이 들어 있으며, 사용자는 그 안에서 자신의 터미널 · Claude Code · Codex · 편집기를 연다. 「이 PC 에서 작업」을 누르면 시트는 작업본을 받기 전에 해당 변형에 열기만 해도 명령을 실행할 수 있는 파일이 있는지 보여 주어야 한다(SHALL). 대상은 훅이 포함된 Claude Code 설정(`.claude/settings*.json`)과 명령을 실행하거나 미리 허락하는 Claude Code 설정(`statusLine` 명령 · `apiKeyHelper` · `awsAuthRefresh` · `awsCredentialExport` · `otelHeadersHelper` · 비어 있지 않은 `permissions.allow` · 묻지 않는 `defaultMode` · `enableAllProjectMcpServers`), MCP 서버 설정(`.mcp.json`), Codex 프로젝트 설정(`.codex/config.toml`), `.envrc`, VS Code 작업 · 실행 구성 · 설정(`.vscode/tasks.json` · `launch.json` · `settings.json`), 도구 버전 설정(`mise.toml` · `.tool-versions`), Windows 바로 가기 · 폴더 설정(`.url` · `.lnk` · `.library-ms` · `desktop.ini`), 폴더 맨 위의 실행 파일(`.bat` · `.cmd` · `.exe` · `.com` · `.ps1` — Windows 터미널에서 같은 이름의 명령 대신 실행될 수 있다)이다. 앱이 Windows 에서 여는 터미널(cmd)은 작업본 폴더의 프로그램을 명령 이름으로 먼저 찾지 않는다. 시트가 보여 준 판(커밋)을 받기 요청에 함께 보내며, 그사이 변형이 바뀌었으면 서버는 받지 않고(409 `moved`) 시트가 다시 확인한다. 이런 파일이 하나라도 있으면 항상 알린다. 커밋에 적힌 이름은 누구나 적을 수 있으므로, 시트는 누가 바꿨는지 단정하지 않는다. 「누가 바꿨는지 확인할 수 없어요」와 함께 각 파일의 경로 · 하는 일 · 커밋에 적힌 이름을 보여 준다. 서버에 묻지 못하면 「확인하지 못했어요」라고 알린다. 사용자가 「그래도 열기」를 눌러야 작업본을 받으며, 받기를 막지는 않는다. 시트는 경로와 이름만 보여 주고 파일 내용은 보여 주지 않는다. 서버가 내용을 읽는 설정 파일의 수와 크기를 제한한다. 목록은 50개까지 보여 주고 나머지는 개수로 알린다.
+작업본에는 폴더의 다른 구성원이 작성한 파일이 들어 있으며, 사용자는 그 안에서 자신의 터미널 · Claude Code · Codex · 편집기를 연다. 「이 PC 에서 작업」을 누르면 시트는 작업본을 받기 전에 해당 변형에 열기만 해도 명령을 실행할 수 있는 파일이 있는지 보여 주어야 한다(SHALL). 대상은 훅이 포함된 Claude Code 설정(`.claude/settings*.json`)과 명령을 실행하거나 미리 정하는 Claude Code 설정(`statusLine` · `fileSuggestion` 명령 · `apiKeyHelper` · `awsAuthRefresh` · `awsCredentialExport` · `otelHeadersHelper` · `env` · 비어 있지 않은 `permissions.allow` · 묻지 않는 `defaultMode` · `enableAllProjectMcpServers` · `enabledPlugins` · `extraKnownMarketplaces`), 앞머리(front matter)에 훅이 있는 스킬 · 에이전트(`.claude/skills/**/SKILL.md` · `.claude/agents/**.md` — 앞머리를 키와 값으로 읽는다), MCP 서버 설정(`.mcp.json` · `.vscode/mcp.json`), Codex 프로젝트 설정(`.codex/config.toml`), `.envrc`, VS Code 작업 · 실행 구성 · 설정 · 작업 영역(`.vscode/tasks.json` · `launch.json` · `settings.json` · `*.code-workspace`), 도구 버전 설정(`mise.toml` · `.tool-versions`), Windows 바로 가기 · 폴더 설정(`.url` · `.lnk` · `.library-ms` · `.scf` · `.searchConnector-ms` · `desktop.ini`), 폴더 맨 위의 실행 파일(`.bat` · `.cmd` · `.exe` · `.com` · `.ps1` · `.vbs` · `.vbe` · `.js` · `.jse` · `.wsf` · `.wsh` · `.msc` — Windows 터미널에서 같은 이름의 명령 대신 실행될 수 있다)이다. 앱이 Windows 에서 여는 터미널(Windows Terminal · cmd)은 작업본 폴더의 프로그램을 명령 이름으로 먼저 찾지 않는다. 서버가 파일 목록을 만들지 못하면(오류 · 시간 초과) 「확인하지 못했어요」로 답하고 없는 것으로 치지 않는다. 시트가 보여 준 판(커밋)을 받기 요청에 함께 보내며, 그사이 변형이 바뀌었으면 서버는 받지 않고(409 `moved`) 시트가 다시 확인한다. 이런 파일이 하나라도 있으면 항상 알린다. 커밋에 적힌 이름은 누구나 적을 수 있으므로, 시트는 누가 바꿨는지 단정하지 않는다. 「누가 바꿨는지 확인할 수 없어요」와 함께 각 파일의 경로 · 하는 일 · 커밋에 적힌 이름을 보여 준다. 서버에 묻지 못하면 「확인하지 못했어요」라고 알린다. 사용자가 「그래도 열기」를 눌러야 작업본을 받으며, 받기를 막지는 않는다. 시트는 경로와 이름만 보여 주고 파일 내용은 보여 주지 않는다. 서버가 내용을 읽는 설정 파일의 수와 크기를 제한한다. 목록은 50개까지 보여 주고 나머지는 개수로 알린다.
 
 #### Scenario: F-WL-15 남이 넣은 MCP 설정
 - **WHEN** 박동료가 폴더 main에 `.mcp.json`을 올린 뒤, 김작업이 새 변형에서 데스크톱 앱의 「이 PC 에서 작업」을 누른다(1280px 밝은 테마 · 390px 어두운 테마)

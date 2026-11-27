@@ -46,6 +46,8 @@ const merging = ref(null)       // {ids} or {integration}
 const sharing = ref(false)
 const choosing = ref(false)
 if (seatBridge()) refreshPcSeats()
+// commits only this PC had of a working copy of this folder that went (kept in the app 30 days — desktop runner/seats.js keepCommit): a line here
+const pcKept = ref([])
 const toast = ref('')
 const closed = ref(new Set())
 const uploading = ref('')
@@ -102,6 +104,7 @@ async function load() {
     folder.value = f; files.value = t; kit.value = k; refs.value = rs
     sources.value = f.settings?.champion ? await F.sources(props.slug).catch(() => []) : []
     if (pcBridge()?.list) refreshPcFolders()
+    if (seatBridge()?.kept) pcKept.value = await seatBridge().kept(f.id).catch(() => [])
     if (f.kind === 'skill') skill.value = await F.skillInfo(props.slug).catch(() => null)
     picked.value = picked.value.filter((id) => f.variations.some((v) => v.id === id && v.status === 'ready'))
     if (f.kind === 'linked' && !cand.value) cand.value = await F.candidates(props.slug).catch(() => null)
@@ -440,6 +443,10 @@ const ix = computed(() => folder.value?.index_state || {})
         <span class="pt"><b>이 PC 의 「{{ mine.label }}」 폴더와 연결됨</b><small class="meta"><span>{{ mine.why ? `멈춤 · ${whyText(mine.why)}` : stateText(mine.state) }}</span><span v-if="mine.lastPushedAt">{{ ago(mine.lastPushedAt) }} 올림</span></small></span>
         <button v-if="pcBridge()?.reveal" class="tb press" @click="revealPc">폴더 열기</button>
         <button class="tb press dk" data-test="folder-pc-sync-now" :disabled="!!syncing || mine.state === 'pushing'" @click="syncNow">{{ syncing === 'push' || mine.state === 'pushing' ? '올리는 중…' : '지금 올리기' }}</button>
+      </div>
+      <div v-if="pcKept.length" class="pcbar glass stop" data-test="folder-pc-kept" role="status">
+        <FIcon name="pc" :size="17" />
+        <span class="pt"><b>{{ `서버에 올라가지 않은 커밋 ${pcKept.length}개를 이 PC에 30일 동안 보관해요.` }}</b><small>이 폴더의 작업본 터미널에서 git log refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.</small></span>
       </div>
       <div v-if="isSkill && skill?.visibility === 'private' && skill?.mine" class="banner ask glass">
         <FIcon name="people" :size="18" />
