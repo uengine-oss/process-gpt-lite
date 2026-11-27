@@ -14,7 +14,7 @@ import * as S from '../lib/folders/service.js'
 import * as M from '../lib/folders/merge.js'
 // reference slots (참조 자리): every read under one goes through REFS.resolve — the reader's role in the source, now
 import * as REFS from '../lib/folders/refs.js'
-import { reindex, search, changeCard, cardsSoon } from '../lib/folders/indexer.js'
+import { reindex, reindexSoon, search, changeCard, cardsSoon } from '../lib/folders/indexer.js'
 import { handover } from '../lib/folders/handover.js'
 import { listTeam } from '../lib/team.js'
 import * as SK from '../lib/folders/skills.js'
@@ -23,6 +23,8 @@ import * as KIT from '../lib/folders/kit.js'
 import * as SRC from '../lib/folders/sources.js'
 // template folders (lib/folders/templates.js): a project's own workspace from a template, and 「원본에 반영 요청」
 import * as TPL from '../lib/folders/templates.js'
+import * as SECRETS from '../lib/folders/secrets.js'
+import { readBatch } from '../lib/folders/batchBody.js'
 import * as SE from '../lib/folders/seats.js'
 import { emit } from '../lib/bus.js'
 
@@ -80,6 +82,8 @@ export function folderRoutes(auth) {
   }))
   // whether 「저장소 연결」 is offered to this person here (S.mayLink)
   r.get('/folders/caps', auth, h(async (req) => ({ link: await S.mayLink(req.user) })))
+  // what the page leaves out before a folder goes up (the champion folders' rules — secrets.js pageRules)
+  r.get('/folders/upload-rules', auth, h(() => SECRETS.pageRules()))
   r.get('/folders/search', auth, h((req) => search(req.user.id, req.query.q)))
   // people and agents a folder can be shared with / a variation handed to
   r.get('/folders/people', auth, h(async () => {
@@ -280,12 +284,46 @@ export function folderRoutes(auth) {
     if (out.commit || req.body?.final) cardsSoon(folder, req.body?.final ? 0 : 60_000)
     return out
   }))
-  r.post('/folders/:slug/files', express.raw({ type: () => true, limit: '200mb' }), auth, h(async (req) => {
+  r.post('/folders/:slug/files', auth, express.raw({ type: () => true, limit: '200mb' }), h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')
     const sha = await S.upload(folder, user(req), decodeURIComponent(String(req.query.path || req.headers['x-file-name'] || '')), req.body)
     await reindex(folder)
     return { ok: true, commit: sha }
   }))
+  // a folder from the person's computer (dropped on the page, or 「폴더 올리기」 — src/folderDrop.js): its files a request at a time, each one
+  // commit (S.uploadMany). The person and their right in the folder are known before the body is read; the body is read as it comes,
+  // within the limits (lib/folders/batchBody.js); one request at a time per person and folder, and at most SENDING_PER_PERSON for a person
+  // in all. The index follows a moment later. (any refusal ends the connection: the rest of a body is not read)
+  const SENDING_PER_PERSON = 2
+  const sending = new Set()
+  const sendingOf = new Map() // tenant:person → requests on their way
+  r.post('/folders/:slug/files/batch', auth, async (req, res) => {
+    const end = (status, body) => { if (res.headersSent || res.destroyed) return; res.status(status).set('Connection', 'close').json(body); res.on('finish', () => req.destroy()) }
+    let key = null, who = null
+    try {
+      const { folder } = await S.access(req.params.slug, req.user, 'editor')
+      if (folder.kind !== 'managed') return end(400, { error: L('이 폴더에는 폴더째 올릴 수 없어요.', "A folder can't be uploaded into this folder.") })
+      const person = `${config.tenantId}:${req.user.id}`
+      if (sending.has(`${person}:${folder.id}`) || (sendingOf.get(person) || 0) >= SENDING_PER_PERSON) {
+        return end(429, { error: L('올리는 중인 것이 있어요 — 끝난 뒤에 다시 해 주세요.', 'An upload is under way — try again when it is done.'), code: 'busy' })
+      }
+      key = `${person}:${folder.id}`; who = person
+      sending.add(key); sendingOf.set(who, (sendingOf.get(who) || 0) + 1)
+      const { meta, items } = await readBatch(req, SECRETS.BATCH)
+      const out = await S.uploadMany(folder, user(req), items, { label: meta.label, part: meta.part, parts: meta.parts, session: meta.session })
+      if (out.commit) reindexSoon(folder)
+      res.json({ ok: true, ...out })
+    } catch (e) {
+      const status = e.status || 500
+      // (the page went away mid-way — a stopped upload, a closed tab: nothing to say, nobody to say it to)
+      const gone = req.destroyed || res.destroyed || ['ERR_STREAM_PREMATURE_CLOSE', 'ECONNRESET', 'ECONNABORTED'].includes(e.code)
+      if (status >= 500 && !gone) console.warn('[folders]', req.method, req.path, e.message)
+      end(status, { error: status >= 500 ? hidePaths(e.message) : e.message, ...(e.code && status < 500 ? { code: e.code } : {}), ...(e.limit ? { limit: e.limit } : {}) })
+    } finally {
+      if (key) sending.delete(key)
+      if (who) { const n = (sendingOf.get(who) || 1) - 1; if (n > 0) sendingOf.set(who, n); else sendingOf.delete(who) }
+    }
+  })
   r.delete('/folders/:slug/files', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')
     await S.removeFile(folder, user(req), req.query.path)

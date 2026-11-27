@@ -103,6 +103,25 @@ export function cardsSoon(folder, ms = 60_000) {
   cardTimers.set(folder.id, t)
 }
 
+// A folder's index brought up to date a moment after a run of changes (a folder going up request by request — routes/folders.js
+// files/batch): one run at a time per folder; changes during a run make one more run after it, never more.
+const later = new Map() // folder id → {timer, running, again, folder}
+export function reindexSoon(folder, ms = 600) {
+  let s = later.get(folder.id)
+  if (!s) later.set(folder.id, (s = { timer: null, running: false, again: false, folder }))
+  s.folder = folder
+  if (s.running) { s.again = true; return }
+  clearTimeout(s.timer)
+  s.timer = setTimeout(async () => {
+    s.timer = null
+    s.running = true
+    try { await reindex(s.folder) } catch (e) { console.warn('[folders] index', s.folder.slug, e.message) }
+    s.running = false
+    if (s.again) { s.again = false; reindexSoon(s.folder, ms) } else if (!s.timer) later.delete(folder.id)
+  }, ms)
+  s.timer.unref?.()
+}
+
 let kitMissing = 0
 export async function reindex(folder, { cards = true } = {}) {
   const ref = folder.default_branch

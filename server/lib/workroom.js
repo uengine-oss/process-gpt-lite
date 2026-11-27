@@ -18,6 +18,7 @@ import { L, isEn, withLang, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
 import { scopePattern } from './projectTopics.js'
 import { assertNoLink } from './noLinks.js'
+import { gitPart } from './gitPart.js'
 
 // node-pty is a native module: a build without it still serves the workroom's files, and the page
 // says why there is no terminal (terminalStatus)
@@ -156,7 +157,7 @@ export async function publishFile(room, rel, user) {
 // A path from the browser, kept inside the room (no "..", symlinks may not lead out) and out of
 // the repository's own data: a room is a git work tree, and its `.git` (a folder, or a file that
 // points to one) is the server's to keep — read, written, renamed or listed by nobody else.
-export const gitPart = (rel) => String(rel || '').split(/[\\/]+/).some((seg) => /^\.git\.*$/i.test(seg.trim()))
+export { gitPart }
 export function inside(room, rel) {
   if (gitPart(rel)) throw Object.assign(new Error('not a document path'), { status: 400 })
   const p = path.resolve(room.root, String(rel || '').replace(/^\/+/, ''))

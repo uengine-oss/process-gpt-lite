@@ -75,7 +75,7 @@ export function profilePictureRoutes(auth) {
     try { value = checkPicture(req.body?.picture, { userId: req.user.id, supabaseUrl: config.supabaseUrl }) } catch { return res.status(400).json({ error: refused() }) }
     try { res.json(await savePicture(req, value)) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
   })
-  r.post('/me/picture/upload', express.raw({ type: () => true, limit: MAX_UPLOAD }), auth, async (req, res) => {
+  r.post('/me/picture/upload', auth, express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
     const buf = Buffer.isBuffer(req.body) ? req.body : null
     const type = sniffImage(buf)
     if (!type) return res.status(400).json({ error: L('JPG · PNG · WebP 사진만 올릴 수 있어요.', 'Only JPG, PNG or WebP pictures can be uploaded.') })

@@ -2,6 +2,7 @@
 import { api, auth, freshToken, htmlPage } from './api.js'
 import { BASE } from './base.js'
 import { nameOf } from './people.js'
+import { batchBody } from './folderDrop.js'
 
 async function call(path, opts) {
   const r = await api(path, { ...opts, raw: true })
@@ -13,6 +14,7 @@ async function call(path, opts) {
   return j
 }
 const enc = encodeURIComponent
+let rulesOnce = null
 
 export const folders = {
   list: () => call('/folders'),
@@ -96,6 +98,27 @@ export const folders = {
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
     return j
+  },
+  // a folder from the computer (src/folderDrop.js): what is left out before it goes up (the champion folders' rules), and its files a
+  // request at a time — one commit each (server S.uploadMany: {written, refused: [{path, reason, line}]}); signal stops it
+  uploadRules: () => (rulesOnce ||= call('/folders/upload-rules').catch((e) => { rulesOnce = null; throw e })),
+  // (a request of this person still on its way — one stopped a moment ago, the server finishing it — answers 429: this one waits its
+  // turn, a while; a refusal that ends the connection before the answer is read comes as a network error and is said as such)
+  async uploadBatch(slug, batch, meta, signal) {
+    for (let wait = 0; ; wait++) {
+      let r
+      try {
+        r = await fetch(`${BASE}/api/folders/${enc(slug)}/files/batch`, { method: 'POST', body: batchBody(batch, meta), signal,
+          headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${await freshToken()}` } })
+      } catch (e) {
+        if (e.name === 'AbortError') throw e
+        throw new Error('서버가 이 요청을 받지 않고 연결을 끊었어요 — 올리는 중인 것이 끝난 뒤, 한도 안에서 다시 해 주세요.')
+      }
+      const j = await r.json().catch(() => ({}))
+      if (r.status === 429 && wait < 20 && !signal?.aborted) { await new Promise((ok) => setTimeout(ok, 1000)); continue }
+      if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
+      return j
+    }
   },
   async text(slug, path, ref = 'main') {
     const r = await fetch(rawUrl(slug, path, ref))

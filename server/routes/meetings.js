@@ -39,7 +39,7 @@ export function meetingRoutes(auth) {
   r.post('/meetings/:id/signal', auth, h((req) => S.signal(req.user, id(req), req.body || {})))
   r.post('/meetings/:id/media', auth, h((req) => S.media(req.user, id(req), req.body || {})))
   // one spoken piece (WAV) from the speaker's own microphone; a typed line goes the same way
-  r.post('/meetings/:id/audio', express.raw({ type: () => true, limit: '3mb' }), auth, h((req) => S.audio(req.user, id(req), req.body, String(req.headers['content-type'] || 'audio/wav'))))
+  r.post('/meetings/:id/audio', auth, express.raw({ type: () => true, limit: '3mb' }), h((req) => S.audio(req.user, id(req), req.body, String(req.headers['content-type'] || 'audio/wav'))))
   r.post('/meetings/:id/lines', auth, h((req) => S.typed(req.user, id(req), req.body?.text)))
   // interpretation (통역): the meeting's switch, what I hear, "I started talking", my voice channel ticket
   r.put('/meetings/:id/interp', auth, h((req) => S.setInterp(req.user, id(req), !!req.body?.on)))
@@ -51,7 +51,7 @@ export function meetingRoutes(auth) {
   r.post('/meetings/:id/materials/pick', auth, h((req) => S.pickMaterial(req.user, id(req), String(req.body?.key || ''))))
   // 자료 띄우기 › 내 컴퓨터에서 (raw body sent as octet-stream so no body parser takes it; the name in
   // X-File-Name and the file's own type in X-File-Type)
-  r.post('/meetings/:id/materials/upload', express.raw({ type: () => true, limit: '50mb' }), auth, h((req) => S.uploadMaterial(req.user, id(req),
+  r.post('/meetings/:id/materials/upload', auth, express.raw({ type: () => true, limit: '50mb' }), h((req) => S.uploadMaterial(req.user, id(req),
     decodeURIComponent(String(req.headers['x-file-name'] || 'file')), String(req.headers['x-file-type'] || ''), req.body)))
   // materials: open (my card or my copy), present to everyone, take it down
   r.post('/meetings/:id/materials/:mid/open', auth, h((req) => S.openMaterial(req.user, id(req), req.params.mid)))
