@@ -96,6 +96,9 @@ export const config = {
   claudeBin: get('PRO_CLAUDE_BIN', 'claude'),
   // fast page-state / goal-done checks in the browser loop through the router's /decide
   browserGates: get('PRO_BROWSER_GATES', 'on') !== 'off',
+  // addresses on the company's own network this server's browser may open (comma separated: an origin, a host any port, or
+  // *.suffix — lib/privateNet.js); empty: none (a mailbox never)
+  browserPrivateAllow: get('PRO_BROWSER_PRIVATE_ALLOW', ''),
   // ArtCraft apps: the self-hosted web builds served at /craft/<app>/ and each app's MCP CLI
   // (default: <app>-cli on PATH; see artcraft/README.md)
   craftWebRoot: get('PRO_CRAFT_WEB_ROOT', path.join(ARTCRAFT_ROOT, 'web')),

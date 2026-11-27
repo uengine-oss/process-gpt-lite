@@ -7,6 +7,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { turnOf, progressOf, budgetAfter, BLOCK, HARD, itemsOf } from '../lib/browserProgress.js'
 import { waitPick, waitOptions, queueDefault, resumePick, resumeOptions, ANSWER_BAR } from '../lib/browserQueue.js'
+// (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
 
 // ---- snapshots shaped like the recording (NotebookLM's list of 「제목 없는 노트북」, its row menu, its confirm dialog) ----
 const URL = 'https://notebooklm.google.com/'

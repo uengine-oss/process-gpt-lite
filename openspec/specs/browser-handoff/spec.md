@@ -199,10 +199,10 @@
 ### Requirement: 서버 브라우저는 이 앱에 로그인하지 않는다
 시스템은 서버 브라우저로 Lite나 ProcessGPT에 로그인해서는 안 된다(MUST NOT). 이 제한은 에이전트의 이동, 링크, 다른 사이트가 보내는 리디렉션의 중간 단계, 새 탭과 새 창, 다른 사이트의 프레임, 페이지가 스스로 보내는 요청, 사람의 직접 제어에 모두 적용해야 한다. 다음 요청은 전송 전에 차단해야 한다.
 - 로그인 서버의 로그인 단계(`/auth/v1/authorize` · `callback` · `verify` · `token` · `otp` · `signup` · `recover` · `magiclink` · `sso`): 로그인 서버 자체 주소와 해당 경로를 로그인 서버로 전달하는 이 앱의 주소(설치형 웹 서버, 게이트웨이의 회사 주소와 그 아래 `/lite`)에서 발생하는 모든 요청
-- Lite의 로그인 API(`/api/auth/email/start` · `/api/auth/email/verify` · `/api/auth/google/start` · `/api/auth/refresh`): 이 앱의 페이지에서 발생하는 모든 요청
-- 로그인 화면: Lite의 `/login` · `/auth/done`, ProcessGPT의 `/auth/login` · `/auth/register` · `/auth/forgot-password` · `/auth/reset-password` · `/auth/two-step` · `/tenant/register`과 SSO 시작(`/pi-system-backend/auth/sso/…`)을 이 앱의 페이지에서 페이지로 여는 요청
+- Lite의 로그인 API(`/api/auth/email/start` · `/api/auth/email/verify` · `/api/auth/google/start` · `/api/auth/refresh`)와 ProcessGPT의 SSO 교환(`/pi-system-backend/auth/sso/…`): 이 앱의 페이지에서 보내는 모든 요청
+- 로그인 화면: 이 앱의 페이지에서 Lite의 `/login` · `/auth/done`, ProcessGPT의 `/auth/login` · `/auth/register` · `/auth/forgot-password` · `/auth/reset-password` · `/auth/two-step` · `/tenant/register`과 SSO가 돌아오는 `/auth`를 페이지로 여는 요청
 
-시스템은 요청을 차단한 뒤 에이전트의 다음 보기에 `[not opened]`로 알려야 한다. 브라우저 전체에서 해당 주소로의 페이지 이동과 `/auth/v1/` · `/api/auth/` 아래 요청만 검사하고, 다른 요청과 HTTP 캐시는 유지해야 한다. 차단 기능을 활성화하지 못한 브라우저는 사용하지 않아야 한다. 사람이 직접 제어로 이 앱의 주소에서 Google 로그인을 하는 것도 차단해야 한다. 이 앱이 서버 브라우저에서 수행하는 Google 연결(Google 동의 화면, `/api/auth/google/callback`, `/api/auth/google/done`)은 허용해야 한다. 메일로 받은 인증 코드는 이 앱의 페이지에 입력하지 않아야 하며, 이 앱의 로그인 단계로 가는 링크가 포함된 메일의 코드는 어디에도 입력하지 않아야 한다.
+시스템은 요청을 차단한 뒤 에이전트의 다음 보기에 `[not opened]`로 알려야 한다. 로그인 서버와 이 앱의 주소로 보내는 요청은 종류와 관계없이 모두 검사하고, 경로를 %-인코딩하거나 `/`를 겹쳐 써도 같은 경로로 해석해야 한다. 다른 사이트에서는 페이지 로드만 검사하고(아래 「서버 브라우저는 이 서버의 망을 열지 않는다」), 해당 페이지가 불러오는 요청과 HTTP 캐시는 유지해야 한다. 차단 기능을 활성화하지 못한 브라우저는 사용하지 않아야 한다. 사람이 직접 제어하여 이 앱의 주소에서 Google 로그인을 하는 경우도 차단해야 한다. 이 앱이 서버 브라우저에서 수행하는 Google 연결(Google 동의 화면, `/api/auth/google/callback`, `/api/auth/google/done`)은 허용해야 한다. 메일로 받은 인증 코드는 이 앱의 페이지에 입력하지 않아야 하며, 이 앱의 로그인 단계로 가는 링크가 포함된 메일의 코드는 어디에도 입력하지 않아야 한다.
 
 #### Scenario: 다른 사이트가 로그인 단계로 보낸다
 - **WHEN** 서버 브라우저에서 연 다른 사이트가 302로 로그인 서버의 `/auth/v1/authorize`로 이동시킨다
@@ -223,6 +223,21 @@
 #### Scenario: 보통 사이트의 캐시
 - **WHEN** 서버 브라우저가 같은 스크립트와 그림을 사용하는 페이지들을 차례로 연다
 - **THEN** 시스템은 스크립트와 그림을 한 번만 받아야 한다
+
+### Requirement: 서버 브라우저는 이 서버의 망을 열지 않는다
+시스템은 서버 브라우저에서 이 서버가 속한 망의 주소를 열거나 해당 주소로 요청을 보내지 않아야 한다(MUST NOT). 대상에는 루프백(`localhost` · `*.localhost` · 127/8 · `::1`), 사설 · 링크 로컬 · CGNAT 등 공개되지 않은 주소, 클러스터의 Service 주소 범위, 한 단어 이름(컨테이너나 Service의 짧은 이름 — `web` · `kong` · `mailpit` …), 내부에서만 쓰는 이름(`*.svc` · `*.cluster.local` · `*.internal` · `*.local` · `*.lan` 등), 페이지로 열 때 이러한 주소로 해석되는 이름을 포함해야 한다. 에이전트의 이동, 링크, 리디렉션의 중간 단계, 새 탭, 프레임, 페이지가 보내는 요청, 사람의 직접 제어에 모두 같은 규칙을 적용해야 한다. 이 앱의 공개 주소는 예외로 두어야 하며(이 기계의 서버라면 같은 포트의 다른 루프백 이름도 포함), 해당 주소에는 로그인 규칙을 그대로 적용해야 한다. 회사가 내부망 사이트를 사용해야 하는 경우에는 `PRO_BROWSER_PRIVATE_ALLOW`(쉼표로 구분한 출처 · 호스트 · `*.접미사`)에 지정한 주소만 열어야 한다. 기본값은 비워 두어야 한다. 메일함(Mailpit)은 허용 목록에 있어도 열지 않아야 한다. 차단한 뒤에는 에이전트의 다음 보기에 `[not opened]`로 알려야 한다. 보통 사이트에서는 이름을 확인하기 위해 페이지 로드(프레임 포함)만 일시 중지하고, 해당 페이지가 불러오는 다른 요청은 일시 중지하지 않아야 한다.
+
+#### Scenario: 설치형(Docker)의 다른 이름
+- **WHEN** 서버 브라우저가 `http://web/login`, `http://kong:8000/auth/v1/verify`, `http://mailpit:8025`, 이 기계의 다른 포트, 클러스터 이름(`*.svc.cluster.local`)을 연다
+- **THEN** 열리지 않고, 요청은 해당 서버에 도달하지 않는다
+
+#### Scenario: 이 앱의 다른 루프백 이름
+- **WHEN** 공개 주소가 `http://localhost:18080`인 설치에서 `127.0.0.1:18080` · `app.localhost:18080` · `[::1]:18080`의 화면을 연다
+- **THEN** 화면은 열리고, 로그인 화면과 로그인 요청은 차단된다
+
+#### Scenario: 회사가 허용한 내부망
+- **WHEN** `PRO_BROWSER_PRIVATE_ALLOW`에 지정한 내부 주소를 연다
+- **THEN** 열린다. 메일함은 허용 목록에 있어도 열리지 않는다
 
 ### Requirement: 주소의 토큰 값은 보이는 곳과 남는 곳에서 가린다
 시스템은 페이지 주소를 모델, 판정 모델, 실시간 화면, 작업 카드와 결과, 로그로 보낼 때 로그인 토큰, 키, 서명 값을 `…`로 바꿔야 한다(SHALL). 가릴 값은 다음 매개변수 이름으로 결정해야 한다: `access_token` · `refresh_token` · `id_token` · `provider_token` · `provider_refresh_token` · `token` · `token_hash` · `sig` · `signature` · `policy` · `key-pair-id` · `x-amz-signature` · `x-amz-credential` · `x-amz-security-token` · `x-goog-signature` · `x-goog-credential` · `oauth_token` · `oauth_verifier` · `jwt` · `key` · `api_key` · `apikey` · `client_secret`(대소문자 · %-인코딩 여부와 관계없이 쿼리와 fragment 모두에 적용하고, `&`와 `;` 구분을 모두 처리). `code`는 같은 부분에 `state`가 있거나 이 앱 · 로그인 서버의 주소일 때 가려야 한다. 매개변수 값 안의 주소(한 단계), 주소 안의 사용자 이름과 비밀번호, 세션 JSON이 포함된 fragment, 주소를 제목으로 사용한 페이지의 제목도 가려야 한다. 주소는 파싱하여 값만 바꿔야 한다. 브라우저가 실제로 이동할 때는 원래 주소를 사용해야 한다. 이어서 하기 · 다시 시도의 시작 주소, PC에서 서버 브라우저로 넘기는 주소, 에이전트가 본 가려진 주소로 다시 이동할 때의 주소는 모두 서버가 기억한 원래 주소로 열어야 한다(서버를 다시 실행한 뒤에는 가린 값을 제외한 주소로). 내 PC의 브라우저(데스크톱 앱)는 같은 함수로 표시할 주소(실시간 화면, 보기, 답의 주소)를 PC를 떠나기 전에 가리고, 다시 이동할 때 사용할 원래 주소는 별도로 보내야 한다. 서버는 받은 주소를 한 번 더 가려야 한다.

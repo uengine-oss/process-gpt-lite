@@ -18,6 +18,9 @@ import path from 'node:path'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-signin-guard-'))
 process.env.PRO_BROWSER_PROFILES = tmp
+// (the made-up sites run on this machine: the server's browser may open them — but BT-E-12, which shows it does not by default)
+const LOCAL = '127.0.0.1,localhost,*.localhost'
+process.env.PRO_BROWSER_PRIVATE_ALLOW = LOCAL
 const { config } = await import('../config.js')
 const { ServerDriver, LAUNCH_ARGS } = await import('../lib/browserServer.js')
 const { browserPidFor } = await import('../lib/browserSteps.js')
@@ -26,7 +29,7 @@ const GOOGLE_MS = 20
 const hits = new Map() // "<server> <path>" → count
 const hit = (who, p) => hits.set(`${who} ${p}`, (hits.get(`${who} ${p}`) || 0) + 1)
 const count = (who, p) => hits.get(`${who} ${p}`) || 0
-const serve = (who, routes) => {
+const serve = (who, routes, host = '127.0.0.1') => {
   const s = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://x')
     hit(who, u.pathname)
@@ -35,7 +38,7 @@ const serve = (who, routes) => {
     res.writeHead(r.status || 200, { 'Content-Type': r.type || 'text/html; charset=utf-8', 'Cache-Control': r.cache || 'no-store', 'Access-Control-Allow-Origin': '*' })
     res.end(r.body || '')
   })
-  return new Promise((ok) => s.listen(0, '127.0.0.1', () => ok(s)))
+  return new Promise((ok) => s.listen(0, host, () => ok(s)))
 }
 const page = (title, body = '') => ({ body: `<!doctype html><title>${title}</title><body>${body}</body>` })
 const session = { type: 'application/json', body: '{"access_token":"SECRET-ACCESS","refresh_token":"SECRET-REFRESH"}' }
@@ -279,4 +282,92 @@ test('BT-E-11 막음을 켜지 못하면 그 브라우저는 쓰지 않는다(�
     ServerDriver.prototype.guardSignIn = keep
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ---- this server's own network (lib/privateNet.js): a Docker install's app at http://localhost:<port> (public and auth address alike) ----
+// The app answers on :: (IPv4 and IPv6); 'other' is another service on this machine (the API server's own port, a database's)
+async function dockerLike(allow = '') {
+  const app = await serve('app', (u) => {
+    if (u.pathname === '/chat') return page('앱', `<button onclick="fetch('http://127.0.0.1:${other.address().port}/api/auth/email/verify', { method: 'POST' }).then(() => { document.body.dataset.r = 'sent' }, () => { document.body.dataset.r = 'failed' })">옆 포트로</button>
+      <button onclick="fetch('http://web:${other.address().port}/api/auth/email/verify', { method: 'POST' }).then(() => { document.body.dataset.w = 'sent' }, () => { document.body.dataset.w = 'failed' })">web 으로</button>`)
+    return page('앱 화면')
+  }, '::')
+  const other = await serve('other', () => page('다른 서비스'), '::')
+  const keep = { publicUrl: config.publicUrl, supabaseUrl: config.supabaseUrl }
+  const P = app.address().port
+  Object.assign(config, { publicUrl: `http://localhost:${P}`, supabaseUrl: `http://localhost:${P}` })
+  process.env.PRO_BROWSER_PRIVATE_ALLOW = allow
+  let dd
+  try { dd = await ServerDriver.open(`sign-in-guard-docker-${Date.now()}`, {}) } finally { process.env.PRO_BROWSER_PRIVATE_ALLOW = LOCAL }
+  return {
+    d: dd, P, O: other.address().port,
+    close: async () => { await dd.close(); app.close(); other.close(); Object.assign(config, keep) },
+  }
+}
+
+test('BT-E-12 이 서버의 망은 열지 않는다(설치형 Docker 처럼): 다른 포트 · 컨테이너 이름 · 클러스터 이름 · 메일함 — 이 앱 주소는 다른 루프백 이름으로도 열되 로그인은 막는다', async () => {
+  const x = await dockerLike()
+  try {
+    const { d: dd, P, O } = x
+    const refused = async (u, why) => {
+      const r = await dd.navigate(u)
+      assert.equal(r.ok, false, `${u} opened`)
+      assert.match(r.error, why === 'sign-in' ? /does not sign in to this app/ : /does not open addresses on this server's own network/, u)
+    }
+    // this app, by its other loopback names: opened; its sign-in refused
+    for (const base of [`http://localhost:${P}`, `http://127.0.0.1:${P}`, `http://app.localhost:${P}`, `http://[::1]:${P}`]) {
+      const r = await dd.navigate(`${base}/chat`)
+      assert.equal(r.ok, true, `${base}: ${r.error}`)
+      await refused(`${base}/login`, 'sign-in')
+      await refused(`${base}/auth/v1/verify?token=x&type=magiclink`, 'sign-in')
+    }
+    assert.equal(count('app', '/login'), 0)
+    // another port of this machine, the install's containers and the cluster's names, a mailbox
+    for (const u of [`http://127.0.0.1:${O}/`, `http://localhost:${O}/`, `http://[::1]:${O}/`, 'http://web/login', 'http://kong:8000/auth/v1/verify?token=x', 'http://mailpit:8025/',
+      'http://process-gpt-lite-web/', 'http://process-gpt-lite-web.default.svc.cluster.local/', 'http://169.254.169.254/latest/meta-data']) await refused(u, 'private')
+    assert.equal(count('other', '/'), 0, 'the other service was never reached')
+    const said = (await dd.look()).text
+    assert.match(said, /\[not opened\] mailpit:8025\/ — a mailbox on this server's own network/)
+    // a page of this app sending its own requests to another port and to a container's name: they never leave
+    assert.equal((await dd.navigate(`http://127.0.0.1:${P}/chat`)).ok, true)
+    await dd.click((await dd.look()).els.find((e) => e.text === '옆 포트로').i)
+    await dd.click((await dd.look()).els.find((e) => e.text === 'web 으로').i)
+    await sleep(500)
+    assert.deepEqual(await dd.page.evaluate(() => [document.body.dataset.r, document.body.dataset.w]), ['failed', 'failed'])
+    assert.equal(count('other', '/api/auth/email/verify'), 0)
+  } finally { await x.close() }
+})
+
+test('BT-E-13 회사가 허용한 내부망 주소(PRO_BROWSER_PRIVATE_ALLOW)는 열고, 메일함은 허용해도 열지 않는다', async () => {
+  const probe = await serve('probe', () => page('허용됨'), '::')
+  const Q = probe.address().port
+  const x = await dockerLike(`http://127.0.0.1:${Q},mailpit,http://mailpit:8025`)
+  try {
+    const r = await x.d.navigate(`http://127.0.0.1:${Q}/`)
+    assert.equal(r.ok, true, r.error)
+    assert.equal(await x.d.title(), '허용됨')
+    assert.equal((await x.d.navigate(`http://localhost:${Q}/`)).ok, false, 'that origin only')
+    assert.equal((await x.d.navigate('http://mailpit:8025/')).ok, false, 'a mailbox, allowed or not')
+  } finally { await x.close(); probe.close() }
+})
+
+test('BT-E-14 다른 사이트가 경로를 바꿔 써서(%-인코딩 · 겹친 /) 보내는 로그인 요청과 ProcessGPT SSO 교환 요청도 멈춰 보고 막는다', async () => {
+  const sent = (url) => page('보내기', `<button onclick="fetch('${url}', { method: 'POST', body: '{}' }).then((r) => { document.body.dataset.r = 'sent ' + r.status }, () => { document.body.dataset.r = 'failed' })">보내기</button>`)
+  const odd = await serve('odd', (u) => sent(decodeURIComponent(u.searchParams.get('to') || '')))
+  try {
+    const O = `http://127.0.0.1:${odd.address().port}`
+    for (const to of [`${A}/%61uth/v1/token?grant_type=password`, `${A}/auth//v1/token?grant_type=password`, `${Lt}/lite/%61pi/auth/email/verify`, `${Lt}/lite/api//auth/email/verify`,
+      `${Lt}/pi-system-backend/auth/sso/exchange?redirect_to=%2Fauth`]) {
+      assert.equal((await d.navigate(`${O}/?to=${encodeURIComponent(to)}`)).ok, true)
+      const before = [...hits.entries()].filter(([k]) => /^(auth|lite) /.test(k)).reduce((n, [, v]) => n + v, 0)
+      await click('보내기')
+      await sleep(300)
+      assert.equal(await d.page.evaluate(() => document.body.dataset.r), 'failed', to)
+      const after = [...hits.entries()].filter(([k]) => /^(auth|lite) /.test(k)).reduce((n, [, v]) => n + v, 0)
+      assert.equal(after, before, `${to} reached the server`)
+    }
+    // ProcessGPT's /auth (where its single sign-on comes back) is not opened as a page
+    const r = await d.navigate(`${Lt}/auth?redirect=%2F`)
+    assert.equal(r.ok, false)
+  } finally { odd.close() }
 })

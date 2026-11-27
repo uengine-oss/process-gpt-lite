@@ -10,11 +10,14 @@
 // work moving to a new tab) goes to the hooks it was given — on.frame(d, data, url), on.download(d, {name, read}),
 // on.wantsDownload(d), on.capture(d, payload), on.moved(d, host).
 //
-// It never signs in to this app (lib/signInSteps.js: the auth server's sign-in steps, Lite's sign-in API and the sign-in screens):
-// such a request — the agent's own goto, a link, a hop of a redirect, a new tab, a frame of another site, a page's own fetch, the
-// person's takeover — is refused before it is sent, in every tab of this browser (guardSignIn).
+// It never signs in to this app (lib/signInSteps.js: the auth server's sign-in steps, Lite's sign-in API and the sign-in screens),
+// and it does not open this server's own network (lib/privateNet.js: loopback, private addresses, a container's or a Service's
+// name, a mailbox — but this app's own address, and what PRO_BROWSER_PRIVATE_ALLOW allows): such a request — the agent's own goto, a
+// link, a hop of a redirect, a new tab, a frame of another site, a page's own fetch, the person's takeover — is refused before it is
+// sent, in every tab of this browser (guardSignIn).
 import { chromium } from 'playwright'
 import { signInPlaces, isSignInStep, stepPatterns } from './signInSteps.js'
+import { allowedPrivate, privateRefusal, privatePatterns, hostRules } from './privateNet.js'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -39,6 +42,8 @@ try { fs.mkdirSync(PROFILES, { recursive: true }) } catch (e) { console.warn('[b
 export const VIEW = { width: 1280, height: 800 }
 // the data volume is shared with other features: Chromium's cache stays small
 export const LAUNCH_ARGS = ['--disk-cache-size=52428800']
+// what a refused request was, as the agent's next look and the log say it
+const REFUSED = { 'sign-in': "a way into this app's own sign-in", private: "an address on this server's own network", mailbox: 'a mailbox on this server\'s own network' }
 // The live view: at most this many frames a second (PRO_BROWSER_LIVE_FPS, default 3). An animated page made Chromium
 // encode up to 9 frames a second at 1280×800 for every viewer (≈ 0.9 MB/s; 2026-11-24 measurement) — on a phone's
 // connection, and on a pod with 2 CPUs shared with the page itself.
@@ -112,8 +117,9 @@ export class ServerDriver {
     this.pid = 0
     this.frameOf = new Map() // the last look: element number → the frame that holds it
     this.dialogs = [] // a page's alert · confirm · prompt since the last look (answered at once: dismissed, a beforeunload accepted)
-    this.refused = [] // ways into this app's sign-in refused since the last look (guardSignIn)
+    this.refused = [] // what was refused since the last look: { where, why } (guardSignIn)
     this.refusals = 0
+    this.paused = 0 // requests the guard looked at (tests: what an ordinary page's loads cost)
   }
 
   static async open(userId, on) {
@@ -137,7 +143,9 @@ export class ServerDriver {
     fs.mkdirSync(dir, { recursive: true })
     const freed = await releaseProfile(dir, { pid: this.pid })
     if (freed.stopped || freed.cleared.length) console.log('[browser] freed the profile', this.userId, freed.stopped ? `stopped ${freed.stopped}` : '', freed.cleared.join(','))
-    const options = { headless: true, viewport: VIEW, locale: 'ko-KR', args: LAUNCH_ARGS, timeout: STEP.launchMs }
+    // (names of one label resolve to nothing in this browser but the allowed ones: lib/privateNet.js hostRules)
+    this.allow = allowedPrivate()
+    const options = { headless: true, viewport: VIEW, locale: 'ko-KR', args: [...LAUNCH_ARGS, `--host-resolver-rules=${hostRules(this.allow)}`], timeout: STEP.launchMs }
     let ctx
     try { ctx = await chromium.launchPersistentContext(dir, options) } catch (e) {
       console.warn('[browser] launch failed, once more:', String(e.message).split('\n')[0])
@@ -177,34 +185,39 @@ export class ServerDriver {
     return this
   }
 
-  // This browser never signs in to this app (lib/signInSteps.js). One CDP session on the browser itself turns on Fetch for the whole
-  // browser — every tab and every frame, from its first request: a new tab, a popup, a frame of another site in a process of its own —
-  // pausing only page loads (documents: a page, a frame, each hop of a redirect) and requests under /auth/v1/ and /api/auth/ on the
-  // auth server's and this app's hosts; those that are a way into the sign-in are refused (net::ERR_BLOCKED_BY_CLIENT), the rest go on
-  // as they were. Every other request is never paused, and the HTTP cache works as it does without it (a Playwright route would take
-  // every request through this process and turn the cache off). The next look says what was refused. When it cannot be turned on,
-  // the browser is not used (launch).
+  // This browser never signs in to this app (lib/signInSteps.js) and does not open this server's own network (lib/privateNet.js). One
+  // CDP session on the browser itself turns on Fetch for the whole browser — every tab and every frame, from its first request: a new
+  // tab, a popup, a frame of another site in a process of its own — pausing only page loads (documents: a page, a frame, each hop of a
+  // redirect), every request to the auth server's and this app's hosts, and every request that goes by name or number to a private
+  // address; those refused fail (net::ERR_BLOCKED_BY_CLIENT), the rest go on as they were. Every other request — what an ordinary
+  // site's page loads — is never paused, and the HTTP cache works as it does without it (a Playwright route would take every request
+  // through this process and turn the cache off). The next look says what was refused and why. When it cannot be turned on, the
+  // browser is not used (launch).
   async guardSignIn(ctx) {
-    const patterns = stepPatterns(this.places)
-    if (!patterns.length) return
+    const patterns = [...privatePatterns(), ...stepPatterns(this.places)]
     const cdp = await within(ctx.browser()?.newBrowserCDPSession(), 5000, null)
     if (!cdp) throw new Error('the sign-in guard could not be turned on (no session on the browser)')
-    cdp.on('Fetch.requestPaused', (e) => {
+    cdp.on('Fetch.requestPaused', async (e) => {
       const url = e.request?.url || ''
-      if (!isSignInStep(url, this.places, { document: e.resourceType === 'Document' })) return cdp.send('Fetch.continueRequest', { requestId: e.requestId }).catch(() => {})
-      this.refuse(url)
+      this.paused++
+      const document = e.resourceType === 'Document'
+      let why = null
+      try { why = await privateRefusal(url, { document, allow: this.allow }) || (isSignInStep(url, this.places, { document }) ? 'sign-in' : null) } catch { why = 'private' }
+      if (!why) return cdp.send('Fetch.continueRequest', { requestId: e.requestId }).catch(() => {})
+      this.refuse(url, why)
       cdp.send('Fetch.failRequest', { requestId: e.requestId, errorReason: 'BlockedByClient' }).catch(() => {})
     })
     if (!await within(cdp.send('Fetch.enable', { patterns }).then(() => true), 5000, false)) throw new Error('the sign-in guard could not be turned on')
   }
-  // (only where it was — host and path — is said and logged: never the query)
-  refuse(url) {
+  // why: 'sign-in' · 'private' · 'mailbox' (only where it was — host and path — is said and logged: never the query)
+  refuse(url, why = 'sign-in') {
     let where = ''
     try { const u = new URL(url); where = `${u.host}${u.pathname}` } catch { /* not an address */ }
     this.refusals++
-    this.refused.push(where)
+    this.refusedWhy = why
+    this.refused.push({ where, why })
     if (this.refused.length > 5) this.refused.shift()
-    console.warn(`[browser] refused (a way into this app's own sign-in): ${where}`)
+    console.warn(`[browser] refused (${REFUSED[why] || REFUSED['sign-in']}): ${where}`)
   }
 
   // The same driver on a new Chromium: the old one is closed (stopped, when closing hangs) and the profile freed.
@@ -311,7 +324,8 @@ export class ServerDriver {
     const before = this.refusals
     const r = await navigate(this.page, url, { signal })
     if (!r.ok && this.refusals > before) {
-      r.error = 'refused: this browser does not sign in to this app (its sign-in pages and steps are not opened)'
+      r.error = this.refusedWhy === 'sign-in' ? 'refused: this browser does not sign in to this app (its sign-in pages and steps are not opened)'
+        : 'refused: this browser does not open addresses on this server\'s own network (loopback, private addresses, internal names, a mailbox)'
       // (the refusal's own page comes a moment later: the next load must not be cut off by it)
       await this.page.waitForURL((u) => u.protocol === 'chrome-error:', { waitUntil: 'commit', timeout: 1000 }).catch(() => {})
     }
@@ -322,8 +336,8 @@ export class ServerDriver {
     this.frameOf = snap.frameOf || new Map()
     const said = this.dialogs.splice(0)
     if (said.length) snap.text = `${snap.text || ''}\n${said.map((d) => `[dialog] ${d}`).join('\n')}`
-    const refused = [...new Set(this.refused.splice(0))]
-    if (refused.length) snap.text = `${snap.text || ''}\n${refused.map((r) => `[not opened] ${r} — a way into this app's own sign-in, which this browser does not take`).join('\n')}`
+    const refused = [...new Map(this.refused.splice(0).map((r) => [`${r.where} ${r.why}`, r])).values()]
+    if (refused.length) snap.text = `${snap.text || ''}\n${refused.map((r) => `[not opened] ${r.where} — ${REFUSED[r.why] || REFUSED['sign-in']}, which this browser does not ${r.why === 'sign-in' ? 'take' : 'open'}`).join('\n')}`
     return snap
   }
   // the element numbered i in the last look, in whichever frame holds it

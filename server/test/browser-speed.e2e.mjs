@@ -7,6 +7,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { startStudio } from './fixtures/studio.mjs'
+// (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
 
 process.env.PRO_CONTEXT_ROUTER_URL = ''
 const browser = await import('../lib/browser.js')

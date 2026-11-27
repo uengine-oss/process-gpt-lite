@@ -7,6 +7,8 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { maskUrl, maskTitle, withoutMasked } from '../lib/urlTokens.js'
 import { signInPlaces, isSignInStep, stepPatterns, onPlaces } from '../lib/signInSteps.js'
+import { config } from '../config.js'
+import { allowedPrivate, privateRefusal, privatePatterns, hostRules, isMailbox, forgetResolved } from '../lib/privateNet.js'
 import { startSignIn, takeSignIn, doneStep, subjectOf, fromSupabase, SIGN_IN_MS } from '../../src/signInNonce.js'
 
 const require = createRequire(import.meta.url)
@@ -104,6 +106,8 @@ test('BT-U-05 로그인으로 들어가는 길: 로그인 서버의 단계 · Li
     // Lite's own sign-in API, behind the gateway (/lite) or not
     'https://acme.process-gpt.io/lite/api/auth/email/start', 'https://acme.process-gpt.io/lite/api/auth/email/verify', 'https://acme.process-gpt.io/lite/api/auth/google/start?n=ab',
     'https://acme.process-gpt.io/api/auth/refresh',
+    // ProcessGPT's single sign-on, from its /auth page's fetch
+    'https://acme.process-gpt.io/pi-system-backend/auth/sso/exchange?redirect_to=%2Fauth',
   ]
   for (const u of steps) {
     assert.equal(isSignInStep(u, gw), true, u)
@@ -113,7 +117,7 @@ test('BT-U-05 로그인으로 들어가는 길: 로그인 서버의 단계 · Li
   for (const u of ['https://acme.process-gpt.io/lite/login', 'https://acme.process-gpt.io/lite/login?error=x', 'https://acme.process-gpt.io/lite/auth/done?n=a#x',
     'https://acme.process-gpt.io/auth/login', 'https://acme.process-gpt.io/auth/register', 'https://acme.process-gpt.io/auth/forgot-password',
     'https://acme.process-gpt.io/auth/reset-password', 'https://acme.process-gpt.io/auth/two-step?redirect=/', 'https://acme.process-gpt.io/tenant/register',
-    'https://acme.process-gpt.io/pi-system-backend/auth/sso/exchange?redirect_to=%2Fauth', 'https://acme.process-gpt.io/LITE/Login/']) {
+    'https://acme.process-gpt.io/auth?redirect=%2F', 'https://acme.process-gpt.io/LITE/Login/']) {
     assert.equal(isSignInStep(u, gw), true, u)
     assert.equal(isSignInStep(u, gw, { document: false }), false, `${u}: a request of a page that is not a page load`)
   }
@@ -146,18 +150,83 @@ test('BT-U-05 로그인으로 들어가는 길: 로그인 서버의 단계 · Li
   assert.equal(isSignInStep('https://acme.process-gpt.io/auth/v1/authorize', inst), false, 'not behind the gateway: no sibling hosts')
 })
 
-test('BT-U-06 브라우저가 멈춰 보는 것: 그 호스트들의 페이지 로드와 /auth/v1/ · /api/auth/ 아래 요청만', () => {
-  const p = stepPatterns(signInPlaces(GATEWAY))
-  const pages = p.filter((x) => x.resourceType === 'Document').map((x) => x.urlPattern)
-  const apis = p.filter((x) => !x.resourceType).map((x) => x.urlPattern)
+// CDP Fetch's wildcard ('*' any run, '?' one character) — how the browser matches a pattern against a request's address
+const wild = (pattern, url) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`).test(url)
+const paused = (patterns, url, document = false) => patterns.some((p) => (!p.resourceType || (document && p.resourceType === 'Document')) && wild(p.urlPattern, url))
+
+test('BT-U-06 브라우저가 멈춰 보는 것: 로그인 서버 · 이 앱 호스트로 가는 모든 요청, 사설 주소로 가는 요청, 페이지 로드 — 보통 사이트의 요청은 아님', () => {
+  const p = [...privatePatterns(), ...stepPatterns(signInPlaces(GATEWAY))]
   assert.ok(p.every((x) => x.requestStage === 'Request'), 'before they are sent')
-  for (const u of ['*://auth.process-gpt.io/*', '*://auth.process-gpt.io:*', '*://*@auth.process-gpt.io/*', '*://auth.process-gpt.io./*',
-    '*://www.process-gpt.io/*', '*://process-gpt.io/*', '*://*.process-gpt.io/*', '*://*.process-gpt.io:*', '*://*.process-gpt.io./*']) assert.ok(pages.includes(u), u)
-  for (const u of ['*://auth.process-gpt.io*/auth/v1/*', '*://auth.process-gpt.io*/api/auth/*', '*://*.process-gpt.io*/auth/v1/*', '*://*.process-gpt.io*/api/auth/*']) assert.ok(apis.includes(u), u)
-  assert.equal(pages.length, new Set(pages).size)
-  assert.ok(pages.every((u) => /process-gpt\.io\.?(\/\*|:\*)$/.test(u)), 'pages: nothing but those hosts')
-  assert.ok(apis.every((u) => /process-gpt\.io\.?\*\/(auth\/v1|api\/auth)\/\*$/.test(u)), 'other requests: only those paths on those hosts')
-  assert.deepEqual(stepPatterns({ hosts: [], parents: [], prefixes: [], app: null }), [], 'nothing to look at: nothing is paused')
+  // any request to this app's and its auth server's hosts, however its path is written (isSignInStep reads it)
+  for (const u of ['https://auth.process-gpt.io/%61uth/v1/token?grant_type=password', 'https://auth.process-gpt.io/auth//v1/token', 'https://acme.process-gpt.io/lite/%61pi/auth/email/verify',
+    'https://acme.process-gpt.io/lite/api//auth/email/verify', 'https://acme.process-gpt.io/pi-system-backend/auth/sso/exchange?redirect_to=%2Fauth', 'https://acme.process-gpt.io:8443/x.js']) {
+    assert.ok(paused(p, u), u)
+    assert.equal(isSignInStep(u, signInPlaces(GATEWAY), { document: false }), !u.endsWith('x.js'), u)
+  }
+  // any request to a private address, by number or by an inside-only name
+  for (const u of ['http://127.0.0.1:8787/api/auth/email/verify', 'http://10.43.0.5/', 'http://172.20.1.1/', 'http://192.168.0.1/', 'http://169.254.169.254/latest', 'http://100.100.1.1/',
+    'http://34.118.230.1/', 'http://[::1]:18080/', 'http://[fd00::1]/', 'http://localhost:18080/', 'http://app.localhost:18080/', 'http://x.default.svc.cluster.local/',
+    'http://api.internal/', 'http://printer.local/', 'http://web./']) assert.ok(paused(p, u), u)
+  // an ordinary site: its page load (its name is resolved), and nothing it loads
+  assert.ok(paused(p, 'https://www.naver.com/', true), 'a page load')
+  for (const u of ['https://www.naver.com/', 'https://ssl.pstatic.net/static/js/app.js', 'https://fonts.gstatic.com/s/a.woff2', 'https://www.google-analytics.com/g/collect?v=2',
+    'https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids=x', 'https://cdn.example.com/10.1/lib.js', 'https://img.example.com/./a.png']) {
+    assert.equal(paused(p, u), u.includes('/./'), `${u}: not paused unless its address looks like an inside one`)
+  }
+  assert.deepEqual(stepPatterns({ hosts: [], parents: [], prefixes: [], app: null }), [], 'no hosts: no sign-in patterns')
+})
+
+const DOCKER = { publicUrl: 'http://localhost:18080', supabaseUrl: 'http://localhost:18080', supabasePublicUrl: '', tenantHosts: '', tenantFromHeader: false }
+test('BT-U-08 서버 브라우저는 이 서버의 망을 열지 않는다: 루프백 · 사설 · 한 단어 이름 · 클러스터 이름 · 메일함 — 이 앱 주소(루프백 별칭 포함)는 열되 로그인 규칙대로', async () => {
+  const was = { publicUrl: config.publicUrl, tenantFromHeader: config.tenantFromHeader }
+  Object.assign(config, { publicUrl: DOCKER.publicUrl, tenantFromHeader: false })
+  forgetResolved()
+  try {
+    const none = allowedPrivate('')
+    const places = signInPlaces(DOCKER)
+    // this app's own address by its other loopback names: opened, its sign-in refused
+    for (const base of ['http://localhost:18080', 'http://127.0.0.1:18080', 'http://app.localhost:18080', 'http://[::1]:18080']) {
+      assert.equal(await privateRefusal(`${base}/chat`, { allow: none, document: true }), null, base)
+      assert.equal(isSignInStep(`${base}/login`, places), true, `${base}/login`)
+      assert.equal(isSignInStep(`${base}/api/auth/email/verify`, places, { document: false }), true, `${base} code`)
+      assert.equal(isSignInStep(`${base}/auth/v1/verify?token=x`, places, { document: false }), true, `${base} verify`)
+    }
+    // the install's containers by name, another port of this machine, the cluster's names and addresses
+    for (const u of ['http://web/login', 'http://web/api/auth/email/verify', 'http://kong:8000/auth/v1/verify?token=x', 'http://127.0.0.1:8787/api/auth/email/verify',
+      'http://localhost:54321/auth/v1/token', 'http://process-gpt-lite-web/', 'http://process-gpt-lite-web.default.svc.cluster.local/', 'http://kubernetes.default.svc/',
+      'http://10.43.0.5/', 'http://169.254.169.254/latest/meta-data', 'http://[fd00::1]/', 'http://web./']) assert.equal(await privateRefusal(u, { allow: none }), 'private', u)
+    assert.equal(await privateRefusal('http://mailpit:8025/', { allow: none }), 'mailbox')
+    assert.equal(await privateRefusal('http://mailpit:8025/', { allow: allowedPrivate('mailpit,http://mailpit:8025') }), 'mailbox', 'never, allowed or not')
+    assert.equal(await privateRefusal('http://127.0.0.1:8025/view', { allow: allowedPrivate('127.0.0.1') }), 'mailbox', 'its port on a private address')
+    assert.equal(isMailbox('https://mailpit.example.com/'), true)
+    // a name that resolves to an inside address: a page load is refused (a name of two labels the cluster's search domain completes)
+    const inside = async () => [{ address: '10.43.12.7', family: 4 }]
+    const outside = async () => [{ address: '93.184.216.34', family: 4 }]
+    assert.equal(await privateRefusal('http://web.default/', { allow: none, document: true, lookup: inside }), 'private')
+    forgetResolved()
+    assert.equal(await privateRefusal('http://127.0.0.1.nip.example/', { allow: none, document: true, lookup: async () => [{ address: '127.0.0.1', family: 4 }] }), 'private')
+    // an ordinary public site: opened
+    forgetResolved()
+    assert.equal(await privateRefusal('https://www.naver.com/', { allow: none, document: true, lookup: outside }), null)
+    assert.equal(await privateRefusal('https://www.naver.com/x.js', { allow: none }), null)
+    // the company's allowlist: an origin, a host any port, *.suffix
+    const allow = allowedPrivate('http://intranet:8080, wiki, *.corp.example')
+    assert.equal(await privateRefusal('http://intranet:8080/a', { allow }), null)
+    assert.equal(await privateRefusal('http://intranet:9090/a', { allow }), 'private', 'that origin only')
+    assert.equal(await privateRefusal('https://wiki:8443/a', { allow }), null)
+    assert.equal(await privateRefusal('http://hr.corp.example/', { allow, document: true, lookup: inside }), null)
+    // names of one label resolve to nothing in this browser but localhost and the allowed ones — never a mailbox
+    assert.equal(hostRules(allowedPrivate('intranet,http://wiki:8080,*.corp.example,mailpit')), 'MAP * ~NOTFOUND, EXCLUDE *.*, EXCLUDE *:*, EXCLUDE localhost, EXCLUDE intranet, EXCLUDE wiki')
+  } finally { Object.assign(config, was); forgetResolved() }
+})
+
+test('BT-U-09 ProcessGPT 의 SSO 교환은 어떤 요청이든, 그 SSO 가 돌아오는 /auth 는 페이지로', () => {
+  const gw = signInPlaces(GATEWAY)
+  assert.equal(isSignInStep('https://acme.process-gpt.io/pi-system-backend/auth/sso/exchange?redirect_to=%2Fauth', gw, { document: false }), true, 'its fetch')
+  assert.equal(isSignInStep('https://acme.process-gpt.io/pi-system-backend/%61uth/sso/exchange', gw, { document: false }), true)
+  assert.equal(isSignInStep('https://acme.process-gpt.io/auth?redirect=%2F', gw), true, '/auth as a page')
+  assert.equal(isSignInStep('https://acme.process-gpt.io/auth?redirect=%2F', gw, { document: false }), false)
+  assert.equal(isSignInStep('https://acme.process-gpt.io/pi-system-backend/api/other', gw, { document: false }), false)
 })
 
 const store = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m } }
