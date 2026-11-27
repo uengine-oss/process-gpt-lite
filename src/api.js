@@ -2,7 +2,7 @@
 import { forgetAllUnsent } from './sendQueue.js'
 import { BASE } from './base.js'
 import { forgetPlaces } from './shareTarget.js'
-import { sessionStore } from './sessionStore.js'
+import { sessionStore, spendMoved } from './sessionStore.js'
 
 // the sign-in: the page's localStorage in a browser, the desktop app's sealed store in the app (src/sessionStore.js)
 export const auth = {
@@ -54,12 +54,14 @@ export async function refreshToken() {
   if (!r || r.status >= 500) return null
   const j = await r.json()
   if (!j.access_token) return false
-  auth.set({ ...s, session: { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at } })
+  // (a new pair: the one a moved sign-in brought is spent — src/sessionStore.js spendMoved)
+  const { spend: _spent, ...kept } = s
+  auth.set({ ...kept, session: { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: j.expires_at } })
   return true
 }
-// (desktop: a sign-in that was in the page's storage moved to the app's sealed store just now — renewed once, so the pair the storage
-// held is spent; one taken from ProcessGPT is ProcessGPT's to renew)
-if (sessionStore.moved && !auth.get()?.host) setTimeout(() => { refreshToken().catch(() => {}) }, 0)
+// (desktop: a sign-in that was in the page's storage moved to the app's sealed store — renewed until it goes through, so the pair the
+// storage held is spent; one taken from ProcessGPT is ProcessGPT's to renew)
+spendMoved({ auth, refresh: refreshToken, moved: sessionStore.moved })
 
 // A token for a URL that is not retried on 401 (the office editor's socket): refreshed first when
 // it has under two minutes left, since an expired one fails every editor call silently.

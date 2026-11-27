@@ -19,6 +19,7 @@
     "postinstall": "node scripts/pty-helper.js"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "electron": "45.3.2",
     "electron-builder": "26.18.0"
   },

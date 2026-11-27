@@ -98,6 +98,7 @@ const badge = local ? {} : {
 // the web app's sign-in (0.2.6 — src/sessionStore.js): kept by main, sealed with the system's keychain, not in the page's localStorage.
 // Read from main once a page, when the page first asks (main answers only the chosen server's own pages), and held here; set · clear
 // wait for main to have kept it. sealed() false: it cannot be sealed on this computer — the page keeps it itself, as a browser does.
+// keptBefore(): the app has kept this server's sign-in before — a copy in the page's storage is then not taken.
 let held // undefined: not asked yet · null: main does not keep it for this page · {sealed, value}
 const heldNow = () => {
   if (held === undefined) { try { held = ipcRenderer.sendSync('pgl:session:get') || null } catch { held = null } }
@@ -105,6 +106,7 @@ const heldNow = () => {
 }
 const session = local ? undefined : Object.freeze({
   sealed: () => heldNow()?.sealed === true,
+  keptBefore: () => heldNow()?.sealed === true && heldNow().kept === true,
   get: () => (heldNow()?.sealed ? heldNow().value ?? null : null),
   // (kept for this page even when main could not keep it — the keychain said no: signed in until the window loads again)
   set: (v) => {

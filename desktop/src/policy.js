@@ -41,7 +41,18 @@ const openable = (url) => /^(?:https?|mailto|tel):/i.test(String(url || ''))
 // selfHosts: this PC's own addresses and names). about:blank stays open to it. The host's own rules come on top (web addresses only,
 // this PC's network for a task nobody watches). A window shown on this PC tells the person why (main.js browserNotice).
 const DEFAULT_PORT = { 'http:': '80', 'https:': '443' }
-const bare = (h) => String(h || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
+// IPv4 inside IPv6, as the URL parser writes it — mapped (::ffff:7f00:1 for [::ffff:127.0.0.1]), translated (::ffff:0:7f00:1) or the old
+// compatible form (::7f00:1) — is that IPv4 address
+function v4of(h) {
+  const dotted = /^::(?:ffff:(?:0:)?)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(h)
+  if (dotted) return dotted[1]
+  const hex = /^::(?:ffff:(?:0:)?)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h)
+  if (!hex) return null
+  const hi = parseInt(hex[1], 16), lo = parseInt(hex[2], 16)
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`
+}
+// a host as it is compared: lower case, no brackets, no trailing dot, IPv4 inside IPv6 as plain IPv4
+const bare = (h) => { const b = String(h || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '').replace(/%.*$/, ''); return v4of(b) || b }
 const loopName = (h) => h === 'localhost' || h.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(h) || h === '::1' || h === '0.0.0.0' || h === '::' ||
   /^::ffff:(?:127\.|7f[0-9a-f]{2}:)/.test(h)
 // (a WebSocket's address is its server's: ws → http, wss → https)
@@ -72,6 +83,45 @@ function agentMay(url, { server = '', authOrigins = [], selfHosts = [] } = {}) {
   if (server && samePlace(p, placeOf(server), self)) return false
   return !authOrigins.some((o) => samePlace(p, placeOf(o), self))
 }
+// Names are resolved too (browser/host.js, with this browser's own resolver): a name that resolves to this PC is one of this PC's names.
+//   appNames(ctx): the names of the app's server and sign-in (not addresses, not already this PC's) — resolved to learn whether they are here
+//   nameToCheck(url, ctx): a request's host name (not an address, not already this PC's) on the port of the app's server or sign-in when that
+//     is on this PC — the request is refused when it resolves to this PC (any of its addresses)
+//   hereAddress(address, selfHosts): an address a name resolved to is this PC's — loopback (127/8, ::1, 0.0.0.0, ::, IPv4 inside IPv6) or
+//     one of this PC's own
+const ipLiteral = (h) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h) || h.includes(':')
+const hereHost = (h, self) => loopName(h) || self.includes(h)
+function appNames({ server = '', authOrigins = [], selfHosts = [] } = {}) {
+  const self = selfHosts.map(bare)
+  return [...new Set([server, ...authOrigins].filter(Boolean).map(placeOf).filter((p) => p && p.host && !ipLiteral(p.host) && !hereHost(p.host, self)).map((p) => p.host))]
+}
+function nameToCheck(url, { server = '', authOrigins = [], selfHosts = [] } = {}) {
+  const p = placeOf(url)
+  const self = selfHosts.map(bare)
+  if (!p || !p.host || ipLiteral(p.host) || hereHost(p.host, self)) return null
+  const here = [server, ...authOrigins].filter(Boolean).map(placeOf).filter((a) => a && hereHost(a.host, self))
+  return here.some((a) => a.port === p.port || (atDefault(a) && atDefault(p))) ? p.host : null
+}
+const hereAddress = (address, selfHosts = []) => { const h = bare(address); return !!h && (loopName(h) || selfHosts.map(bare).includes(h)) }
+
+// Which window a page of the app's own window opens a new window's address in (main.js setWindowOpenHandler):
+//   'main'     — a page of the web app itself (the server's address under its path, not its /api/ — a link in the chat to a project, a
+//                folder): the app's own window goes there instead of a new one; the web app keeps its sign-in only through that window
+//   'child'    — the server's other addresses (a file it shows, a download, ProcessGPT's own pages behind the gateway): a window of its own
+//   'outside'  — a sign-in page or any other web or mail address: the system browser or mail app
+//   'none'     — nowhere
+function windowFor(url, ctx = {}) {
+  const k = kind(url, ctx)
+  if (k === 'external' || k === 'auth') return 'outside'
+  if (k !== 'app' || url === 'about:blank') return 'none'
+  let u, base
+  try { u = new URL(url); base = new URL(ctx.server) } catch { return 'child' }
+  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.origin !== base.origin) return 'child'
+  const root = base.pathname.replace(/\/+$/, '')
+  const p = u.pathname
+  if (root && p !== root && !p.startsWith(`${root}/`)) return 'child'
+  return p === `${root}/api` || p.startsWith(`${root}/api/`) ? 'child' : 'main'
+}
 
 // The server's basic-auth gate (a tunnel's) is answered with the saved pair only for the app's own window — its default session — on the
 // chosen server's origin: never for the browser the server's agent drives on this PC (its own session partition), even when a page there
@@ -80,4 +130,4 @@ function answersGate({ mainSession = false, isProxy = false, url = '', server = 
   return !!mainSession && !isProxy && !!server && !!originOf(url) && originOf(url) === originOf(server)
 }
 
-module.exports = { kind, openable, originOf, loopback, answersGate, agentMay }
+module.exports = { kind, openable, originOf, loopback, answersGate, agentMay, appNames, nameToCheck, hereAddress, windowFor, bare }

@@ -59,3 +59,30 @@ sessionStore 4/4 · browser-local 15/15 (새: PC 의 브라우저는 그 데스�
 # 묶은 앱 (electron-builder --dir --mac --arm64): EnableCookieEncryption Enabled · codesign --verify --deep --strict 통과
 # 회귀 (같은 날): desktop.spec.js D-01~D-13 13 passed (BFF 8991 · Vite 5392 — D-05 는 새 창의 주소가 들어온 뒤 닫도록 기다림을 더함)
 #   local-browser.spec.js LB-01~03 3 passed (LB-01 의 앱 버전은 desktop/package.json 에서) · local-agents.spec.js L-01~04 4 passed
+
+# 0.2.6 검토 반영 — 2026-11-27: 이 PC 로 풀리는 이름 · IPv6 안의 IPv4 · 요청 표시와 서버 거절 · 새 창 링크는 앱 창 · 로그인 보관 한 번 · 출처 합집합
+# desktop/ 단위 시험 (cd desktop && npm test)
+ℹ tests 124 · pass 120 · fail 0 · skipped 4
+✔ 이 PC 의 주소는 어떻게 적어도 같다 — IPv4 를 품은 IPv6(16진 · 점), 옛 호환 꼴, 0.0.0.0
+✔ 이름은 풀어 본다 — 이 PC 에 있는 서버의 포트로 가는 이름(그 이름이 이 PC 를 가리키면 막음), 앱 서버 자신의 이름
+✔ 푼 주소가 이 PC 의 것인가 — loopback(127/8 · ::1 · 0.0.0.0 · ::) · IPv4 를 품은 IPv6 · 이 PC 의 주소
+✔ 앱 창이 여는 새 창 — 웹 앱의 화면은 이 창에서, 서버의 /api/ · 내려받기 · 같은 출처의 다른 화면은 새 창, 로그인 · 다른 주소는 바깥
+✔ 이 PC 에 있는 Lite 서버는 이 PC 를 가리키는 다른 이름으로도 막는다 — 서버 포트로 가는 이름을 이 세션의 resolver 로 풀어 보고, 서버의 이름도 푼다
+✔ 이 브라우저의 요청에는 모두 표시가 붙는다(Lite 서버는 그 표시가 있는 API · 로그인을 받지 않는다)
+✔ 보인 창의 안내 상자는 10초에 한 번까지(주소가 달라도) — 에이전트의 답과 다음 읽기에는 매번
+✔ 앞선 판에서 이 세션에 남은 Lite 의 저장소 · 쿠키는 한 번 지운다 — 서버 · 로그인 출처(이 PC 의 서버면 그 이름들), 한 번 한 것은 다시 하지 않는다
+✔ 설정 파일에 쓰지 못하면 「보관했다」고 하지 않는다 — 앱이 쥔 것도 바뀌지 않고, 페이지는 제 저장소의 사본을 지우지 않는다(src/sessionStore.js)
+✔ 한 번 보관한 서버는 「보관한 적 있음」이 남는다 — 로그아웃한 뒤에도(페이지 저장소의 사본을 다시 받지 않음)
+✔ 서버의 로그인 출처는 본 것을 모두 둔다 — 다시 물어 빈 목록이 와도 줄지 않고, 서버마다 따로
+# server (cd server && node --test test/sessionStore.test.js test/mail-code.test.js test/agentBrowserGuard.test.js test/browserRoute.test.js)
+sessionStore 6/6 · mail-code 26/26 · agentBrowserGuard 6/6(MCP · ArtCraft 포함, 모든 경로 앞) · browserRoute 4/4 — 42 pass
+# server, 진짜 데스크톱 브라우저(Electron) — browser-local 15/15 · browserDriver 53/53
+# Playwright --project=desktop tests/desktop/desktop-harden.spec.js (묶지 않은 앱, BFF 8991 · Vite 5392)
+  ✓ DH-01 로그인은 앱이 봉인해 둔다 — 사용자 데이터 폴더 1048 파일, 토큰이 든 파일 없음
+  ✓ DH-02 이 PC 로 풀리는 이름(lite-alias.test) · [::ffff:7f00:1] 로도 열지 않음 · BFF 포트로 부른 API 는 서버가 403 agent_browser(표시 없이는 200)
+         · 넘겨받은 창: beacon-queued ws-blocked sw-blocked cors-ok, 막은 요청 ping · webSocket · xhr · http, 다른 사이트에 표시가 감
+  ✓ DH-05 새 창으로 여는 웹 앱 링크는 앱 창에서(로그인한 채, 페이지 저장소에 로그인 없음) · /api/ 는 새 창
+  ✓ DH-03 로그아웃하면 봉인해 둔 로그인도 지운다
+  ✓ DH-04 페이지의 저장소에 있던 로그인은 처음 실행에 옮기고 지운다 — 새로 받은 세션의 토큰이 든 파일 없음
+  5 passed (21.6s)
+# 회귀 (같은 날): desktop.spec.js D-01~D-13 13 passed · local-browser.spec.js LB-01~03 3 passed · local-agents.spec.js L-01~04 4 passed

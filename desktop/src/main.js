@@ -86,9 +86,10 @@ function start() {
   createWindow()
   startTray()
   startRunner()
-  // the server's Supabase sign-in address may change (or was never read): ask again quietly
+  // the server's Supabase sign-in address may change (or was never read): ask again quietly — added to the ones seen before, never
+  // put in their place (a server that has just started may not say it yet)
   const s = settings.get().server
-  if (s) server.check(s, { fetch: net.fetch, ...(settings.gate() || {}) }).then((r) => { if (r.ok && r.server === s) settings.set({ authOrigins: r.authOrigins }) }).catch(() => {})
+  if (s) server.check(s, { fetch: net.fetch, ...(settings.gate() || {}) }).then((r) => { if (r.ok && r.server === s) settings.noteAuthOrigins(s, r.authOrigins) }).catch(() => {})
 }
 
 // ---------- the window ----------
@@ -110,7 +111,8 @@ function mainPrefs() {
     additionalArguments: [`--pgl-insets=${insets().join(',')}`, `--pgl-version=${app.getVersion()}`],
   }
 }
-// windows the page opens on its own address (a file it shows, 원본 받기): an ordinary framed window, no preload
+// windows the page opens on the server's other addresses (a file it shows, 원본 받기 — policy.windowFor 'child'): an ordinary framed
+// window, no preload
 const childPrefs = () => ({ contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, devTools: DEV })
 
 function restoreBounds(saved) {
@@ -234,11 +236,19 @@ function guard(wc) {
   wc.on('will-redirect', onNav)
   wc.on('will-attach-webview', (e) => e.preventDefault())
   wc.setWindowOpenHandler(({ url }) => {
-    const k = policy.kind(url, ctx())
-    if (k === 'app' && url !== 'about:blank') {
+    const w = policy.windowFor(url, ctx())
+    if (w === 'child') {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 1100, height: 800, backgroundColor: '#ffffff', autoHideMenuBar: true, webPreferences: childPrefs() } }
     }
-    if (k === 'external' || k === 'auth') openExternal(url)
+    // a page of the web app (a link in the chat to a project, a folder): this window goes there — a new window would have no bridge to
+    // the sign-in the app keeps
+    if (w === 'main') {
+      if (!win || win.isDestroyed()) createWindow()
+      win.loadURL(url).catch(() => { /* did-fail-load shows the offline page */ })
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+    if (w === 'outside') openExternal(url)
     return { action: 'deny' }
   })
   wc.on('did-create-window', (child) => guard(child.webContents))
@@ -536,12 +546,15 @@ ipcMain.handle('pgl:runner:detect', async (e) => {
 
 // ---------- the web app's sign-in, sealed with the system's keychain (0.2.6) ----------
 // The page's session (src/sessionStore.js — its access and refresh tokens) is kept by main in desktop-settings.json, sealed with
-// safeStorage (settings.webSession) per origin, not in the page's localStorage (a file in the profile folder). Only the chosen server's
-// own pages in the main window; synchronous (the page reads it as it starts and keeps it in its preload). {sealed: false}: it cannot be
-// sealed here (settings.canSealWeb) — the page keeps it itself, as a browser does.
+// safeStorage (settings.webSession) per origin, not in the page's localStorage. Only the chosen server's own pages, in the main window's
+// top frame; synchronous (the page reads it as it starts and keeps it in its preload). {sealed: false}: it cannot be sealed here
+// (settings.canSealWeb) — the page keeps it itself, as a browser does. kept: the app has kept this origin's sign-in before — a copy in the
+// page's storage is then not taken (src/sessionStore.js)
 const sessionOrigin = (e) => policy.originOf(String(e.senderFrame?.url || ''))
-const sessionCall = (e, fn) => { try { e.returnValue = fromServerPage(e) && sessionOrigin(e) ? fn(sessionOrigin(e)) : null } catch { e.returnValue = null } }
-ipcMain.on('pgl:session:get', (e) => sessionCall(e, (o) => (settings.canSealWeb() ? { sealed: true, value: settings.webSession(o) } : { sealed: false })))
+const sessionCall = (e, fn) => {
+  try { e.returnValue = fromServerPage(e) && e.senderFrame === e.sender.mainFrame && sessionOrigin(e) ? fn(sessionOrigin(e)) : null } catch { e.returnValue = null }
+}
+ipcMain.on('pgl:session:get', (e) => sessionCall(e, (o) => (settings.canSealWeb() ? { sealed: true, value: settings.webSession(o), kept: settings.webSessionKept(o) } : { sealed: false })))
 ipcMain.on('pgl:session:set', (e, v) => sessionCall(e, (o) => (typeof v === 'string' && settings.setWebSession(o, v))))
 ipcMain.on('pgl:session:clear', (e) => sessionCall(e, (o) => settings.forgetWebSession(o)))
 

@@ -4,8 +4,12 @@
 // 대본대로 답하는 모델과 판정 서버(모델 · 계정 · 인터넷 없음). 앱의 사용자 데이터는 임시 폴더(PGL_DESKTOP_USER_DATA). 끝나면 만든 것을 지운다.
 //   DH-01 앱에서 로그인하면 그 로그인은 페이지의 저장소에 없고 앱이 봉인해 둔다 — 새로 고쳐도 · 앱을 다시 켜도 로그인한 채, 앱의 사용자 데이터
 //         폴더 어느 파일에도 토큰이 그대로 없다
-//   DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는다 — 에이전트의 「열기」 · 그리로 보내는 사이트 · 페이지의 링크 · 요청(fetch · 그림 · 새 창),
-//         사람이 「이 PC에서 보기」로 넘겨받은 창에서도, 그때는 「이 주소는 에이전트 브라우저에서 열지 않아요」
+//   DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는다 — 에이전트의 「열기」(이 PC 를 가리키는 다른 이름 · IPv4 를 품은 IPv6 로도) · 그리로
+//         보내는 사이트 · 페이지의 링크 · 요청(fetch · 그림 · 새 창 · sendBeacon · 폼 POST · 웹소켓 · 서비스 워커의 fetch), 사람이 「이 PC에서 보기」로
+//         넘겨받은 창에서도, 그때는 「이 주소는 에이전트 브라우저에서 열지 않아요」. 그 브라우저의 요청에는 표시가 붙고 Lite 서버는 다른 주소(BFF 포트)
+//         로 와도 API 를 거절한다(403 agent_browser). 다른 사이트의 CORS 요청은 그대로 된다
+//   DH-05 새 창으로 여는 웹 앱 링크(채팅의 프로젝트 · 폴더 링크)는 앱 창에서 연다 — 새 창 없이 로그인한 채, 페이지의 저장소에 로그인이 생기지 않는다.
+//         서버의 /api/ 주소는 지금처럼 새 창
 //   DH-03 로그아웃하면 봉인해 둔 로그인도 지운다
 //   DH-04 앞선 판처럼 페이지의 저장소에 있던 로그인은 처음 실행에 옮기고 지운다(한 번 새로 받아 저장소에 있던 짝은 다 쓴 것으로) — 키체인을 쓸 수
 //         없는 컴퓨터(시험: PGL_DESKTOP_NO_SEAL=1)에서는 지금처럼 페이지의 저장소
@@ -40,7 +44,9 @@ test.describe.configure({ mode: 'serial' })
 test.skip(!ELECTRON || !fs.existsSync(ELECTRON), 'desktop/ 에 Electron 이 없음 (cd desktop && npm install)')
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-deskharden-'))
-let API_PORT, WEB_PORT, LITE, bff, vite, db, site, SITE, llm, judge
+let API_PORT, WEB_PORT, LITE, bff, vite, db, site, SITE, other, OTHER, llm, judge
+// (names this test maps to this PC for the app — Chromium's host resolver rules: as a name in the hosts file would)
+const ALIAS = 'lite-alias.test'
 const logs = []
 const me = { email: 'pro-rt-deskharden@uengine.org' }
 const api = async (p, { method = 'GET', body, token = me.token } = {}) => {
@@ -126,9 +132,41 @@ function startSite() {
       return res.end(html('가상 사이트', `<h1>가상 사이트</h1>
 <p><a id="to-lite" href="${LITE}/chat">Lite 로 가기</a></p>
 <p><button id="probe" onclick="(async () => { const out = []; for (const go of [() => fetch('${LITE}/api/config', { mode: 'no-cors' }), () => new Promise((ok, no) => { const i = new Image(); i.onload = ok; i.onerror = no; i.src = '${LITE}/favicon.svg?' + Date.now() })]) { try { await go(); out.push('reached') } catch { out.push('blocked') } } out.push(window.open('${LITE}/login') ? 'opened' : 'no-window'); document.getElementById('out').textContent = out.join(' ') })()">Lite 에 요청</button></p>
-<p id="out">아직</p>`))
+<p id="out">아직</p>
+<form id="post" method="post" action="${LITE}/api/auth/email/start"><input name="email" value="${me.email}"></form>
+<p><button id="probe2" onclick="(async () => {
+  const out = []
+  out.push(navigator.sendBeacon('${LITE}/api/config?beacon=1') ? 'beacon-queued' : 'beacon-refused')
+  out.push(await new Promise((ok) => { const w = new WebSocket('ws://127.0.0.1:${WEB_PORT}/', 'vite-hmr'); w.onopen = () => { w.close(); ok('ws-open') }; w.onerror = () => ok('ws-blocked'); setTimeout(() => ok('ws-none'), 5000) }))
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js')
+    const w = reg.installing || reg.waiting || reg.active
+    await new Promise((ok) => { if (w.state === 'activated') ok(); else w.addEventListener('statechange', () => { if (w.state === 'activated') ok() }) })
+    out.push(await new Promise((ok) => { navigator.serviceWorker.addEventListener('message', (e) => ok('sw-' + e.data), { once: true }); reg.active.postMessage('${LITE}/api/config?sw=1') }))
+  } catch (e) { out.push('sw-none') }
+  out.push(await fetch('${OTHER}/cors').then((r) => r.text(), () => 'cors-failed'))
+  document.getElementById('out2').textContent = out.join(' ')
+  document.getElementById('post').submit()
+})()">더 요청</button></p>
+<p id="out2">아직</p>`))
+    }
+    if (u.pathname === '/sw.js') {
+      res.writeHead(200, { 'Content-Type': 'text/javascript' })
+      return res.end(`self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener('message', (e) => { fetch(e.data, { mode: 'no-cors' }).then(() => 'reached', () => 'blocked').then((t) => e.source.postMessage(t)) })`)
     }
     res.writeHead(404); res.end()
+  })
+}
+// ---- another made-up site: a cross-origin request to it works as before (CORS: any origin, no request header allowed beyond the simple
+// ones — the agent browser's mark must not make it fail); it notes the mark it was sent ----
+const marks = []
+function startOther() {
+  return http.createServer((req, res) => {
+    marks.push(req.headers['x-pgl-agent-browser'] || '')
+    if (req.method === 'OPTIONS') { res.writeHead(404); return res.end() }
+    res.writeHead(200, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' })
+    res.end('cors-ok')
   })
 }
 const listen = (s) => new Promise((r) => s.listen(0, '127.0.0.1', () => r(s.address().port)))
@@ -137,7 +175,7 @@ const listen = (s) => new Promise((r) => s.listen(0, '127.0.0.1', () => r(s.addr
 async function launch(dir, extra = {}) {
   const env = { ...process.env, PGL_DESKTOP_USER_DATA: dir, PGL_DESKTOP_EXTERNAL: 'log', PGL_RUNNER_LOG: '1', PGL_RUNNER_DEVICE_NAME: '시험 맥', ...extra }
   delete env.ELECTRON_RUN_AS_NODE
-  const app = await _electron.launch({ executablePath: ELECTRON, args: [DESKTOP], env, timeout: 60_000 })
+  const app = await _electron.launch({ executablePath: ELECTRON, args: [`--host-resolver-rules=MAP ${ALIAS} 127.0.0.1`, DESKTOP], env, timeout: 60_000 })
   const win = await app.firstWindow()
   app.process().stdout?.on('data', (d) => logs.push(`[app] ${d}`))
   return { app, win }
@@ -167,9 +205,10 @@ test.beforeAll(async () => {
   API_PORT = portFree(8991) ? 8991 : freePort(8992)
   WEB_PORT = portFree(5391) ? 5391 : freePort(5392)
   LITE = `http://127.0.0.1:${WEB_PORT}`
-  llm = startModel(); judge = startJudge(); site = startSite()
+  llm = startModel(); judge = startJudge(); site = startSite(); other = startOther()
   const llmPort = await listen(llm), judgePort = await listen(judge)
   SITE = `http://127.0.0.1:${await listen(site)}`
+  OTHER = `http://127.0.0.1:${await listen(other)}`
   const env = { ...process.env, PRO_PORT: String(API_PORT), PRO_BACKGROUND: '0', PRO_ONTOLOGY_WORKER: '0', PRO_SCENARIOS: 'off', PRO_TENANT_ID: TENANT, PRO_TENANT_HOSTS: '',
     PRO_FOLDERS_ROOT: path.join(ROOT, 'folders'), PRO_LOCAL_AGENT_TICK_MS: '500', PRO_LLM_BASE_URL: `http://127.0.0.1:${llmPort}`, PRO_LLM_API_KEY: 'test',
     PRO_JUDGE_URL: `http://127.0.0.1:${judgePort}/judge`, PRO_CONTEXT_ROUTER_URL: '', PRO_BROWSER_GATES: 'off', PRO_BROWSER_PROFILES: path.join(ROOT, 'profiles'),
@@ -191,7 +230,7 @@ let A = null // app A: { app, win, dir }
 test.afterAll(async () => {
   await A?.app?.close().catch(() => {})
   bff?.kill('SIGTERM'); vite?.kill('SIGTERM')
-  llm?.close(); judge?.close(); site?.close()
+  llm?.close(); judge?.close(); site?.close(); other?.close()
   if (db) {
     await q('delete from pro_local_devices where tenant_id=$1', [TENANT]).catch(() => {})
     await q('delete from pro_threads where user_id=$1', [me.id]).catch(() => {})
@@ -238,7 +277,10 @@ test('DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는
   const liteUrls = async () => (await pcBrowserUrls(app)).filter((u) => u.startsWith(LITE) || u.startsWith(`http://localhost:${WEB_PORT}`))
   scripts.push({ key: 'Lite 링크를 확인', i: 0, moves: [
     ['goto', { url: `http://localhost:${WEB_PORT}/login` }],
-    (b) => { seen.tools.push(lastTool(b)); return ['goto', { url: `${SITE}/go-lite` }] },
+    // (by a name that resolves to this PC, and by IPv4 inside IPv6)
+    (b) => { seen.tools.push(lastTool(b)); return ['goto', { url: `http://${ALIAS}:${WEB_PORT}/login` }] },
+    (b) => { seen.alias = lastTool(b); return ['goto', { url: `http://[::ffff:7f00:1]:${WEB_PORT}/login` }] },
+    (b) => { seen.mapped = lastTool(b); return ['goto', { url: `${SITE}/go-lite` }] },
     (b) => { seen.tools.push(lastTool(b)); return ['goto', { url: `${SITE}/start` }] },
     (b) => { seen.tools.push(lastTool(b)); return ['click', { i: lastSnap(b).els.find((x) => x.text === 'Lite 로 가기').i }] },
     (b) => { seen.tools.push(lastTool(b)); seen.snaps.push(lastSnap(b)); return ['need_user', { reason: '이 단계는 사람이 직접 확인해야 해요', need: 'other' }] },
@@ -253,6 +295,19 @@ test('DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는
   await expect(ask.getByTestId('task-pc')).toHaveText('이 PC에서 보기', { timeout: 40000 })
   // what the agent was told: the app's own address (by another name of this PC too) and a site that sends there are not opened
   expect(seen.tools[0]).toMatch(/^error: could not open .*does not open the Process GPT Lite app/)
+  expect(seen.alias).toMatch(/^error: could not open .*does not open the Process GPT Lite app/)
+  expect(seen.mapped).toMatch(/^error: could not open .*does not open the Process GPT Lite app/)
+  // (the alias was refused because it resolves to this PC — the session's own resolver says so)
+  const partition = `persist:pgl-browser-${me.id}`
+  const ends = await app.evaluate(async ({ session }, [p, h]) => (await session.fromPartition(p).resolveHost(h)).endpoints.map((e) => e.address), [partition, ALIAS])
+  expect(ends).toContain('127.0.0.1')
+  // the Lite server's API at an address the PC does not take for the app's (the BFF's own port): a request of that session carries the
+  // mark, and the server itself refuses it
+  const bff = await app.evaluate(async ({ session }, [p, u]) => { const r = await session.fromPartition(p).fetch(u); return { status: r.status, body: await r.text() } }, [partition, `http://127.0.0.1:${API_PORT}/api/config`])
+  console.log(`[DH-02] the BFF port from the agent browser's session: ${bff.status} ${bff.body.slice(0, 120)}`)
+  expect(bff.status).toBe(403)
+  expect(JSON.parse(bff.body)).toMatchObject({ code: 'agent_browser', error: expect.stringContaining('에이전트 브라우저에서 온 요청은 받지 않아요') })
+  expect((await fetch(`http://127.0.0.1:${API_PORT}/api/config`)).status).toBe(200)
   expect(seen.tools[1]).toMatch(/^error: could not open/)
   expect(seen.tools[2]).toBe('ok')
   // a link of the page to it: the page stays, and the agent's next look says why
@@ -274,6 +329,21 @@ test('DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는
   expect(told[0]).toMatchObject({ origin: LITE, message: '이 주소는 에이전트 브라우저에서 열지 않아요' })
   expect(await liteUrls()).toEqual([])
   await pcWin.screenshot({ path: path.join(SHOTS, 'dh02-pc-window-refused.png') })
+  // more ways a page goes for it: a beacon, a live socket, a service worker's fetch, a form's POST — none gets there; a CORS request to
+  // another site still works, and carries the mark
+  const at = logs.length
+  marks.length = 0
+  await pcWin.evaluate(() => document.getElementById('probe2').click())
+  const more = await waitFor(async () => { const t = await pcWin.evaluate(() => document.getElementById('out2')?.textContent).catch(() => null); return t && t !== '아직' ? t : null }, 20000, 'probe2')
+  console.log(`[DH-02] ${more}`)
+  expect(more).toBe('beacon-queued ws-blocked sw-blocked cors-ok')
+  await pcWin.waitForTimeout(800)
+  expect(await pcWin.evaluate(() => location.href)).toBe(`${SITE}/start`)
+  const refusedKinds = logs.slice(at).join('').match(/refused \(the Lite app or its sign-in\): \w+/g) || []
+  console.log(`[DH-02] refused: ${JSON.stringify([...new Set(refusedKinds)])}`)
+  expect(refusedKinds.some((k) => k.endsWith('ping'))).toBe(true)
+  expect(marks).toContain('1')
+  expect(await liteUrls()).toEqual([])
   // given back: the task goes on and ends
   await api('/browser/resume', { method: 'POST', body: { text: 'The user took over and finished the manual part. Re-check the page and continue.' } })
   const done = await waitFor(async () => {
@@ -282,6 +352,30 @@ test('DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는
   }, 60000, 'task done')
   expect(done.content.where.kind).toBe('local')
   expect(await liteUrls()).toEqual([])
+})
+
+test('DH-05 새 창으로 여는 웹 앱 링크는 앱 창에서 — 새 창 없이 로그인한 채, 서버의 /api/ 는 지금처럼 새 창', async () => {
+  const { app, win } = A
+  await win.goto(`${LITE}/chat`)
+  await expect(win.locator('header.top')).toBeVisible()
+  const open = (u) => win.evaluate((x) => { const a = document.createElement('a'); a.href = x; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove() }, u)
+  const pages = () => app.windows().filter((p) => !p.isClosed() && p.url().startsWith(LITE)).length
+  const before = pages()
+  await open(`${LITE}/folders`)
+  await win.waitForURL(/\/folders/, { timeout: 15000 })
+  await win.waitForTimeout(800)
+  expect(pages()).toBe(before)
+  expect(win.url()).not.toMatch(/\/login/)
+  expect((await pageSession(win))?.access_token?.length).toBeGreaterThan(20)
+  expect(await stored(win)).toBeNull()
+  // the server's /api/ (a file it shows): a window of its own, as before
+  const child = app.waitForEvent('window', { timeout: 15000 })
+  await open(`${LITE}/api/config`)
+  const c = await child
+  await c.waitForLoadState().catch(() => {})
+  expect(c.url()).toContain('/api/config')
+  await c.close()
+  expect(win.url()).toMatch(/\/folders/)
 })
 
 test('DH-03 로그아웃하면 봉인해 둔 로그인도 지운다', async () => {

@@ -1,7 +1,7 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { kind, openable, agentMay } = require('../src/policy')
+const { kind, openable, agentMay, appNames, nameToCheck, hereAddress, windowFor } = require('../src/policy')
 
 const company = { server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'] }
 const local = { server: 'http://localhost:18080', authOrigins: [] }
@@ -61,4 +61,50 @@ test('이 PC 의 Lite 서버는 이 PC 의 다른 이름으로도 — 같은 포
   // a company server is only itself: this PC's names are not it
   assert.equal(agentMay('http://localhost:443/', company), true)
   assert.equal(agentMay('https://127.0.0.1/', company), true)
+})
+
+test('이 PC 의 주소는 어떻게 적어도 같다 — IPv4 를 품은 IPv6(16진 · 점), 옛 호환 꼴, 0.0.0.0', () => {
+  const here = { server: 'http://localhost:5180', authOrigins: [], selfHosts: ['192.168.0.7'] }
+  for (const u of ['http://[::ffff:192.168.0.7]:5180/', 'http://[::ffff:c0a8:7]:5180/', 'http://[::ffff:0.0.0.0]:5180/', 'http://[::7f00:1]:5180/', 'http://[::127.0.0.1]:5180/',
+    'http://[0:0:0:0:0:ffff:7f00:1]:5180/', 'http://0.0.0.0:5180/', 'http://[::]:5180/']) assert.equal(agentMay(u, here), false, u)
+  for (const u of ['http://[::ffff:192.168.0.8]:5180/', 'http://[::ffff:c0a8:7]:5181/', 'https://[2001:db8::1]:5180/']) assert.equal(agentMay(u, here), true, u)
+  // a server reached at this PC's LAN address: localhost on its port is it too
+  assert.equal(agentMay('http://localhost:18080/', { server: 'http://192.168.0.7:18080', selfHosts: ['192.168.0.7'] }), false)
+})
+
+test('이름은 풀어 본다 — 이 PC 에 있는 서버의 포트로 가는 이름(그 이름이 이 PC 를 가리키면 막음), 앱 서버 자신의 이름', () => {
+  const here = { server: 'http://localhost:5180', authOrigins: ['http://localhost:54321'], selfHosts: ['192.168.0.7', 'my-mac.local'] }
+  for (const [u, name] of [['http://localtest.me:5180/login', 'localtest.me'], ['http://127.0.0.1.nip.io:5180/', '127.0.0.1.nip.io'], ['http://my-mac.lan:5180/', 'my-mac.lan'],
+    ['ws://lite-alias.test:5180/api/events', 'lite-alias.test'], ['http://supa.test:54321/auth/v1/otp', 'supa.test']]) assert.equal(nameToCheck(u, here), name, u)
+  // an address (decided without resolving), this PC's own names, another port, no server on this PC: nothing to resolve
+  for (const u of ['http://127.0.0.1:5180/', 'http://my-mac.local:5180/', 'http://localtest.me:3000/', 'https://www.naver.com/', 'about:blank'])
+    assert.equal(nameToCheck(u, here), null, u)
+  assert.equal(nameToCheck('http://localtest.me:443/', { server: 'https://acme.process-gpt.io/lite', authOrigins: [] }), null, '회사 서버는 그 주소 그대로')
+  // a server on the default port: a name on 80 or 443
+  assert.equal(nameToCheck('https://alias.test/', { server: 'http://localhost', selfHosts: [] }), 'alias.test')
+  // the app's own names, to learn whether the server is on this PC (an address or this PC's own name needs no resolving)
+  assert.deepEqual(appNames({ server: 'http://mypc.example.com:18080', authOrigins: ['https://auth.process-gpt.io', 'http://127.0.0.1:54321'], selfHosts: ['my-mac.local'] }),
+    ['mypc.example.com', 'auth.process-gpt.io'])
+  assert.deepEqual(appNames({ server: 'http://my-mac.local:18080', selfHosts: ['my-mac.local'] }), [])
+  // once a name is known to be this PC's (host.js adds it to selfHosts), the server by that name is here
+  const named = { server: 'http://mypc.example.com:18080', authOrigins: [], selfHosts: ['192.168.0.7', 'mypc.example.com'] }
+  for (const u of ['http://localhost:18080/', 'http://192.168.0.7:18080/', 'http://[::ffff:c0a8:7]:18080/']) assert.equal(agentMay(u, named), false, u)
+  assert.equal(nameToCheck('http://other-name.test:18080/', named), 'other-name.test')
+})
+
+test('푼 주소가 이 PC 의 것인가 — loopback(127/8 · ::1 · 0.0.0.0 · ::) · IPv4 를 품은 IPv6 · 이 PC 의 주소', () => {
+  const self = ['192.168.0.7', 'fe80::1']
+  for (const a of ['127.0.0.1', '127.8.9.10', '::1', '0.0.0.0', '::', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:c0a8:7', '192.168.0.7', 'FE80::1']) assert.equal(hereAddress(a, self), true, a)
+  for (const a of ['192.168.0.8', '8.8.8.8', '2001:db8::1', '', '::ffff:808:808']) assert.equal(hereAddress(a, self), false, a)
+})
+
+test('앱 창이 여는 새 창 — 웹 앱의 화면은 이 창에서, 서버의 /api/ · 내려받기 · 같은 출처의 다른 화면은 새 창, 로그인 · 다른 주소는 바깥', () => {
+  const company = { server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'] }
+  const local = { server: 'http://localhost:18080', authOrigins: [] }
+  for (const [u, ctx] of [['https://acme.process-gpt.io/lite/projects/p/1', company], ['https://acme.process-gpt.io/lite', company], ['https://acme.process-gpt.io/lite/?x=1', company],
+    ['http://localhost:18080/folders/abc', local], ['http://localhost:18080/', local]]) assert.equal(windowFor(u, ctx), 'main', u)
+  for (const [u, ctx] of [['https://acme.process-gpt.io/lite/api/files/x.pdf', company], ['https://acme.process-gpt.io/lite/api', company], ['https://acme.process-gpt.io/', company],
+    ['https://acme.process-gpt.io/litegame', company], ['http://localhost:18080/api/attachments/1', local], ['blob:http://localhost:18080/5b1c', local]]) assert.equal(windowFor(u, ctx), 'child', u)
+  for (const u of ['https://auth.process-gpt.io/auth/v1/authorize', 'https://www.naver.com/', 'mailto:a@example.com']) assert.equal(windowFor(u, company), 'outside', u)
+  for (const u of ['about:blank', 'file:///etc/passwd', 'javascript:alert(1)']) assert.equal(windowFor(u, company), 'none', u)
 })

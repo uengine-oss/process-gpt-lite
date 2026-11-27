@@ -8,6 +8,8 @@
 //   · 'all': also tasks nobody watches (a process step, a scheduled or agent's run) — they can reach that PC's sign-ins, so only when
 //     the person turned this on; even then not that PC's own network (localhost, 10/8, 192.168/16 …: desktop host.js begin noPrivate)
 //   · 'off', or 「이 컴퓨터에서 단계 실행」 off (prefs.enabled false): never that PC
+//   · a task that starts on a page of this Lite server itself (a share page, a preview Lite showed): this server — the PC's agent
+//     browser does not open the Lite it is linked to (desktop/src/policy.js agentMay; liteOwnPage below)
 // Else this server, as before (phones only, an older desktop). Decided when a task gets the browser; a task never moves by itself after
 // that — a PC that goes off pauses it and the person chooses (lib/browser.js whenOffline).
 //
@@ -21,6 +23,7 @@ import { STEP, pause } from './browserSteps.js'
 import { LIVE, VIEW, SNAP_OPTS, blankOf, hostOf } from './browserServer.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
+import { urlOf } from './tenant.js'
 import { config } from '../config.js'
 
 export const LinkLost = BL.LinkLost
@@ -59,7 +62,41 @@ export function privateAddress(u) {
   return h === 'localhost' || !h.includes('.') || NET_SUFFIX.test(h)
 }
 export const prefOf = (link) => (link?.prefs?.enabled === false ? 'off' : ['off', 'own', 'all'].includes(link?.prefs?.browser) ? link.prefs.browser : 'own')
-export function routeOf({ links = [], own = true } = {}) {
+
+// Whether an address is a page of this Lite server itself: the same host (any case, no trailing dot) on the same port — or both on
+// a default port, either scheme (http 80 ≡ https 443) — as its public address or the tenant's own; behind the ProcessGPT gateway
+// also the public host's siblings under the same parent domain (<tenant>.process-gpt.io — lib/workroom.js companyAddress); and for
+// a server on this machine (a public address on localhost, *.localhost, 127/8, ::1) any of those names on the same port.
+// http(s) and ws(s) only; anything else, or an address that does not parse, is not.
+const WEB = new Set(['http:', 'https:', 'ws:', 'wss:'])
+const DEFAULT_PORT = { 'http:': 80, 'ws:': 80, 'https:': 443, 'wss:': 443 }
+function placeOf(u) {
+  let x
+  try { x = new URL(String(u)) } catch { return null }
+  if (!WEB.has(x.protocol)) return null
+  const host = x.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '')
+  return host ? { host, port: x.port ? Number(x.port) : DEFAULT_PORT[x.protocol] } : null
+}
+const samePort = (a, b) => a.port === b.port || ([80, 443].includes(a.port) && [80, 443].includes(b.port))
+const loopback = (h) => h === 'localhost' || h.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(h) || h === '::1' ||
+  /^::ffff:127\.\d+\.\d+\.\d+$/.test(h) || /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(h)
+export function liteOwnPage(url, { publicUrl = config.publicUrl, tenantUrl = urlOf(config.tenantId), gateway = config.tenantFromHeader } = {}) {
+  const at = placeOf(url)
+  if (!at) return false
+  const pub = publicUrl ? placeOf(publicUrl) : null
+  for (const base of [pub, tenantUrl ? placeOf(tenantUrl) : null]) {
+    if (!base || !samePort(at, base)) continue
+    if (at.host === base.host || (loopback(base.host) && loopback(at.host))) return true
+  }
+  if (gateway && pub && samePort(at, pub)) {
+    const parent = pub.host.split('.').slice(1).join('.')
+    if (parent.includes('.') && at.host.endsWith('.' + parent)) return true
+  }
+  return false
+}
+
+// startUrl: where the task starts — a page of this Lite server keeps it on this server even when a PC would take it ('lite-page')
+export function routeOf({ links = [], own = true, startUrl = '' } = {}) {
   if (!links.length) return { kind: 'server', why: 'no-desktop' }
   const able = links.filter((l) => l.caps?.browser).sort((a, b) => b.since - a.since)
   if (!able.length) return { kind: 'server', why: 'old-desktop' }
@@ -67,10 +104,11 @@ export function routeOf({ links = [], own = true } = {}) {
   if (!on.length) return { kind: 'server', why: 'off' }
   const ok = on.filter((l) => own || prefOf(l) === 'all')
   if (!ok.length) return { kind: 'server', why: 'not-own' }
+  if (startUrl && liteOwnPage(startUrl)) return { kind: 'server', why: 'lite-page' }
   return { kind: 'local', link: ok[0] }
 }
-export async function routeFor(userId, { own = true } = {}) {
-  return routeOf({ links: H.linksOf(config.tenantId, userId), own })
+export async function routeFor(userId, { own = true, startUrl = '' } = {}) {
+  return routeOf({ links: H.linksOf(config.tenantId, userId), own, startUrl })
 }
 // what the settings show, everywhere (web · phone · the app): each linked desktop's own setting, and where the person's own tasks and the
 // ones nobody watches run now. Changed only on that PC (the app's settings), never from here.
