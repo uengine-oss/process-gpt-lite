@@ -988,8 +988,11 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       break
     }
     case 'start_project': {
-      // the confirm card (name · purpose · the template folders that fit): nothing is made before 「만들기」 (lib/chatProject.js)
-      await CP.offer(user, { threadId, said: text, title: String(args.title || '').trim(), via: 'words', before: said?.id || null }).catch(async (e) => {
+      // the confirm card (name · purpose · the template folders that fit): nothing is made before 「만들기」 (lib/chatProject.js) — about the
+      // conversation this turn is in: the one the page narrowed to (a project's sub-topic, a conversation of the main chat), else the one the
+      // chat was in (lib/chatProject.js pickFrom); filed where this acknowledgement is
+      await CP.offer(user, { threadId, said: text, title: String(args.title || '').trim(), via: 'words', before: said?.id || null,
+        conversationId: topicConv || pinned.get(threadId)?.conversationId || null }).catch(async (e) => {
         console.warn('[chat-project] offer', e.message)
         await addMessage(userId, threadId, 'agent', 'text', { text: L('프로젝트 카드를 만들지 못했어요. 답 아래의 「프로젝트로 시작」을 눌러 다시 시도해 주세요.', "I couldn't prepare the project card. Try again with 「Start a project」 under an answer.") })
       })

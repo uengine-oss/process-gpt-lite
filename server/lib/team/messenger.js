@@ -295,7 +295,7 @@ export function view(viewerId, row, byEmail = {}) {
     // a request the AI sent for someone (lib/askTeammate.js): the form only for the one asked, while it is open
     ...(g.kind === 'askteam' && g.ask && !agent ? { ask: askView(viewerId, g.ask) } : {}),
     // an AI answer someone shared from their chat (lib/answerShare.js): its title and words, for everyone in the room
-    ...(g.kind === 'answer' && g.answer && !agent ? { answer: { title: String(g.answer.title || ''), text: String(g.answer.text || ''), kind: g.answer.kind === 'doc' ? 'doc' : 'text' } } : {}),
+    ...(g.kind === 'answer' && g.answer && !agent ? { answer: { title: String(g.answer.title || ''), text: String(g.answer.text || ''), kind: g.answer.kind === 'doc' ? 'doc' : 'text', ...(g.answer.truncated ? { truncated: true } : {}) } } : {}),
   }
 }
 // each viewer's copy of a row: their view, with the state of its file mentions
@@ -379,7 +379,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
     || (kind === 'answer' && answer?.title ? `💬 ${String(answer.title).slice(0, 120)}` : '')
   const pgptPart = kind === 'text' && !artifacts.length && !context && !refs?.length && !ai ? undefined
     : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(auto ? { auto: { by: String(auto.by || ''), label: String(auto.label || '').slice(0, 200) } } : {}), ...(ask && kind === 'askteam' ? { ask } : {}),
-      ...(answer && kind === 'answer' ? { answer: { title: String(answer.title || '').slice(0, 120), text: String(answer.text || '').slice(0, 12000), kind: answer.kind === 'doc' ? 'doc' : 'text', note: !!String(body || '').trim() } } : {}), ...(agent || {}) }
+      ...(answer && kind === 'answer' ? { answer: { title: String(answer.title || '').slice(0, 120), text: String(answer.text || '').slice(0, 12000), kind: answer.kind === 'doc' ? 'doc' : 'text', note: !!String(body || '').trim(), ...(answer.truncated ? { truncated: true } : {}) } } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
   const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
     // (Process GPT's own name: its resolveMentions matches typed mentions against it)

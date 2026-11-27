@@ -8,6 +8,9 @@ const ownBehaviour = (t) => t.closest?.('a, button, input, textarea, summary')
 // words already selected in this bubble: the browser's own menu (copy, search…) stays
 const selectedIn = (el) => { const s = window.getSelection(); return !!s && !s.isCollapsed && !!s.toString().trim() && el.contains(s.anchorNode) }
 
+// The listeners go on once; each event reads the binding as it is now (v-hold="can ? open : null" — a bubble that becomes reactable, or stops
+// being, after it is drawn), and with no handler nothing is held and nothing is prevented: the browser's own long press · menu stay.
+const handler = (el) => (typeof el._holdOpen === 'function' ? el._holdOpen : null)
 export const hold = {
   mounted(el, binding) {
     el._holdOpen = binding.value
@@ -16,11 +19,12 @@ export const hold = {
     const on = {
       touchstart(e) {
         held = false
+        if (!handler(el)) return clear()
         touchedAt = Date.now()
         if (e.touches.length !== 1 || ownBehaviour(e.target)) return clear()
         x0 = e.touches[0].clientX; y0 = e.touches[0].clientY
         clear()
-        timer = setTimeout(() => { timer = null; held = true; touchedAt = Date.now(); navigator.vibrate?.(10); el._holdOpen(el, { touch: true }) }, HOLD_MS)
+        timer = setTimeout(() => { timer = null; const open = handler(el); if (!open) return; held = true; touchedAt = Date.now(); navigator.vibrate?.(10); open(el, { touch: true }) }, HOLD_MS)
       },
       // scrolling is not a long press
       touchmove(e) { if (timer && Math.hypot(e.touches[0].clientX - x0, e.touches[0].clientY - y0) > SLOP) clear() },
@@ -28,11 +32,13 @@ export const hold = {
       touchend(e) { clear(); if (held && e.cancelable) e.preventDefault() },
       touchcancel: clear,
       contextmenu(e) {
+        const open = handler(el)
+        if (!open) return
         // Android sends this for a long press too; the timer above has it (iOS sends none)
         if (e.pointerType === 'touch' || Date.now() - touchedAt < TOUCH_MEMORY_MS) { if (!ownBehaviour(e.target)) e.preventDefault(); return }
         if (ownBehaviour(e.target) || selectedIn(el)) return
         e.preventDefault()
-        el._holdOpen(el, { x: e.clientX, y: e.clientY })
+        open(el, { x: e.clientX, y: e.clientY })
       },
     }
     el._holdOff = () => { clear(); for (const k in on) el.removeEventListener(k, on[k]) }
@@ -42,6 +48,7 @@ export const hold = {
     el.addEventListener('touchcancel', on.touchcancel, { passive: true })
     el.addEventListener('contextmenu', on.contextmenu)
   },
+  // (a handler taken away mid-press: the press is not held)
   updated(el, binding) { el._holdOpen = binding.value },
   unmounted(el) { el._holdOff?.() },
 }

@@ -14,21 +14,39 @@ const props = defineProps({ msg: Object })
 const app = useApp()
 const router = useRouter()
 const c = computed(() => props.msg.content || {})
-const name = ref(c.value.title || '')
+// What the card shows is what goes into the project, and only that (PR #118 review M3): the name, the purpose, what it will make, the
+// background — each the person's to change before 「만들기」; what they leave as it is goes as the card showed it.
+const draft = ref({ title: '', intent: '', background: '', deliverables: [] })
 let touched = false
-watch(() => c.value.title, (t) => { if (c.value.state === 'offered' && !touched) name.value = t || '' })
+const fill = () => {
+  const x = c.value
+  draft.value = { title: x.title || '', intent: x.intent || '', background: x.background || '', deliverables: (Array.isArray(x.deliverables) ? x.deliverables : []).map((t) => ({ text: String(t) })) }
+}
+fill()
+watch(() => [c.value.title, c.value.intent, c.value.background, JSON.stringify(c.value.deliverables || [])], () => { if (c.value.state === 'offered' && !touched) fill() })
+const touch = () => { touched = true }
+const addItem = () => { touch(); if (draft.value.deliverables.length < 5) draft.value.deliverables.push({ text: '' }) }
+const dropItem = (i) => { touch(); draft.value.deliverables.splice(i, 1) }
 const picked = ref(null)       // a template's slug, or null: an empty project
 const busy = ref(false)
 const err = ref('')
 const recs = computed(() => (Array.isArray(c.value.templates) ? c.value.templates : []))
-const state = computed(() => (busy.value ? 'making' : c.value.state || 'offered'))
+// a 「만들기」 that stopped half way (the server went away): the card can be made again, or closed (server lib/chatProject.js MAKING_STALE_MS)
+const STALE_MS = 120_000
+const stale = computed(() => c.value.state === 'making' && !c.value.project?.id && Date.now() - new Date(c.value.making_at || 0).getTime() > STALE_MS)
+const state = computed(() => (busy.value ? 'making' : stale.value ? 'offered' : c.value.state || 'offered'))
 const mailLine = computed(() => (c.value.source?.mail ? `받은 메일 「${c.value.source.mail.subject}」${c.value.source.mail.from ? ` · ${c.value.source.mail.from}` : ''}` : ''))
+// (one sentence with the template's name in it — the English screen's pattern keeps the name)
+const startedFrom = computed(() => (c.value.template ? `템플릿 「${c.value.template.name}」${ro(c.value.template.name)} 시작해요` : ''))
 async function make() {
   if (busy.value) return
-  const title = name.value.trim()
+  const title = draft.value.title.trim()
   if (!title) { err.value = '프로젝트 이름을 적어 주세요.'; return }
   busy.value = true; err.value = ''
-  try { await app.makeProject(props.msg.id, { title, template: picked.value }) } catch (e) { err.value = e.message } finally { busy.value = false }
+  const d = draft.value
+  try {
+    await app.makeProject(props.msg.id, { title, intent: d.intent.trim(), background: d.background.trim(), deliverables: d.deliverables.map((x) => x.text.trim()).filter(Boolean), template: picked.value })
+  } catch (e) { err.value = e.message } finally { busy.value = false }
 }
 async function no() {
   busy.value = true; err.value = ''
@@ -48,12 +66,30 @@ const open = () => c.value.project?.id && router.push(`/projects/${c.value.proje
     </header>
 
     <template v-if="state === 'offered' || state === 'making'">
+      <p v-if="stale" class="stale" data-test="offer-stale">만들다가 멈췄어요 · 다시 만들거나 닫을 수 있어요</p>
       <label class="fl"><span>이름</span>
-        <input v-model="name" maxlength="60" data-test="offer-title" :disabled="busy" data-no-i18n @input="touched = true" />
+        <input v-model="draft.title" maxlength="60" data-test="offer-title" :disabled="busy" data-no-i18n @input="touch" />
       </label>
+      <!-- what goes into the project's plan: as shown here, changed or not -->
+      <div class="fields" data-test="offer-fields">
+        <label class="fd"><span>목적</span>
+          <textarea v-model="draft.intent" rows="2" maxlength="200" placeholder="이 프로젝트에서 할 일" data-test="offer-intent" :disabled="busy" data-no-i18n @input="touch" />
+        </label>
+        <div class="fd" data-test="offer-deliverables"><span>만들 것</span>
+          <div class="items">
+            <div v-for="(x, i) in draft.deliverables" :key="i" class="item">
+              <input v-model="x.text" maxlength="80" data-test="offer-deliverable" :disabled="busy" data-no-i18n @input="touch" />
+              <button class="rm press" aria-label="빼기" data-test="offer-deliverable-remove" :disabled="busy" @click="dropItem(i)"><Icon name="close" :size="13" /></button>
+            </div>
+            <button v-if="draft.deliverables.length < 5" class="add press" data-test="offer-deliverable-add" :disabled="busy" @click="addItem"><Icon name="plus" :size="13" /> 만들 것을 더해요</button>
+          </div>
+        </div>
+        <label class="fd"><span>배경</span>
+          <input v-model="draft.background" maxlength="120" placeholder="어디서 시작한 일인지" data-test="offer-background" :disabled="busy" data-no-i18n @input="touch" />
+        </label>
+        <small class="hint">프로젝트 계획에 이대로 들어가요 · 고쳐도 돼요</small>
+      </div>
       <dl class="facts">
-        <template v-if="c.intent"><dt>목적</dt><dd data-test="offer-intent" data-no-i18n>{{ c.intent }}</dd></template>
-        <template v-if="c.background"><dt>배경</dt><dd data-test="offer-background" data-no-i18n>{{ c.background }}</dd></template>
         <template v-if="mailLine"><dt>출처</dt><dd data-test="offer-source" data-no-i18n>{{ mailLine }}</dd></template>
         <template v-if="c.source?.answer"><dt>첫 문서</dt><dd data-test="offer-doc"><span data-no-i18n>「{{ c.source.answer.title }}」</span> 답을 문서로 남겨요</dd></template>
       </dl>
@@ -80,7 +116,7 @@ const open = () => c.value.project?.id && router.push(`/projects/${c.value.proje
 
     <!-- made: where it is, and the way there -->
     <div v-else-if="state === 'made'" class="done" data-test="offer-made" :data-project="c.project?.id">
-      <p><b data-no-i18n>「{{ c.project?.title || c.title }}」</b><template v-if="c.template"> · 템플릿 <span data-no-i18n>「{{ c.template.name }}」</span>{{ ro(c.template.name) }} 시작해요</template></p>
+      <p><b data-no-i18n>「{{ c.project?.title || c.title }}」</b><template v-if="startedFrom"> · <span data-test="offer-started-from">{{ startedFrom }}</span></template></p>
       <small>원래 대화는 그대로 있어요</small>
       <button class="go press" data-test="offer-open" @click="open">프로젝트 열기 <Icon name="chevron" :size="13" /></button>
     </div>
@@ -97,6 +133,18 @@ header { display: flex; align-items: flex-start; gap: 10px; }
 .fl { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); }
 .fl span { flex: none; }
 .fl input { flex: 1; min-width: 0; height: 36px; box-sizing: border-box; border: 1px solid var(--hairline); border-radius: 11px; background: var(--field-bg); color: var(--text-primary); font: inherit; font-size: 14.5px; padding: 0 11px; }
+.fields { display: flex; flex-direction: column; gap: 6px; }
+.fd { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--text-secondary); }
+.fd > span { flex: none; width: 3.4em; padding-top: 8px; }
+.fd textarea, .fd > input, .item input { flex: 1; min-width: 0; box-sizing: border-box; border: 1px solid var(--hairline); border-radius: 11px; background: var(--field-bg); color: var(--text-primary);
+  font: inherit; font-size: 13.5px; padding: 7px 10px; }
+.fd textarea { resize: vertical; line-height: 1.45; }
+.items { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.item { display: flex; align-items: center; gap: 4px; }
+.rm { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: var(--text-secondary); }
+.add { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border-radius: 14px; background: var(--field-bg); color: var(--text-primary); font-size: 12.5px; }
+.hint { font-size: 11.5px; color: var(--text-tertiary); padding-left: calc(3.4em + 10px); }
+.stale { margin: 0; font-size: 12.5px; color: var(--color-warning, #b26a00); }
 .facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; line-height: 1.45; }
 .facts dt { color: var(--text-secondary); }
 .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }

@@ -11,10 +11,12 @@
 // Who may get it is the messenger's rule (lib/team/messenger.js post · lib/team/access.js): a room the owner is in whose people are all still
 // on the team, or a teammate of the same company — never oneself. The room sees the answer's words only: no file of the chat, no mail body,
 // no address of the workspace. Where it went stays on the answer's own row (content.answerShares {<room>: {at, message}}, content.answerDoc).
-import { q } from './supa.js'
+import { q, pool } from './supa.js'
 import { emit } from './bus.js'
 import { L } from './lang.js'
 import { addMessage } from './store.js'
+// what leaves the chat: no workspace · host path, no signed or storage address (their names only — lib/hidePaths.js)
+import { cleanShared } from './hidePaths.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code && { code }) })
@@ -25,10 +27,9 @@ export const LIMITS = { note: 1000, text: 12000, title: 60 }
 export const KINDS = ['text', 'doc']
 
 // ---------- pure ----------
-// a link into the agent's sandbox ("[견적서.xlsx](</workspace/…/견적서.xlsx>)") opens nothing outside the chat: its label stays (as on screen —
-// src/components/Message.vue)
-const SANDBOX_LINK = /\[([^\]\n]+)\]\(<?(?:sandbox:)?\/workspace\/[^)>\n]*>?\)/g
-export const answerText = (msg) => String(msg?.content?.text || '').replace(SANDBOX_LINK, '$1').trim()
+// the answer as it may leave the chat: a workspace or host path reads as its file name (a link keeps its label), a signed or storage address
+// as its file's name (lib/hidePaths.js) — the room, a notice, the room list's line, a document and a project's first document alike
+export const answerText = (msg) => cleanShared(String(msg?.content?.text || '')).trim()
 // the answer's title: a document answer's first line; a text answer's first heading or line, its marks taken off
 export function titleOf(msg) {
   const t = answerText(msg)
@@ -37,8 +38,15 @@ export function titleOf(msg) {
   const plain = String(head || '').replace(/^#{1,6}\s*/, '').replace(/[*_`>|]/g, '').replace(/^[-+]\s+/, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').trim()
   return clip(plain, LIMITS.title) || L('AI 답', 'AI answer')
 }
-// the answer as the room reads it: the whole text (its title on top for a document answer — as it shows in the chat)
+// the answer as the room reads it: the whole text (its title on top for a document answer — as it shows in the chat), cut at LIMITS.text —
+// a longer one says so (truncated: the sheet before 보내기, the room's card)
 export const sharedText = (msg) => answerText(msg).slice(0, LIMITS.text)
+export const truncated = (msg) => answerText(msg).length > LIMITS.text
+// the first lines as words (the sheet's preview of what goes): Markdown's marks off
+export function previewOf(msg, n = 220) {
+  const lines = answerText(msg).split('\n').map((l) => l.trim()).filter(Boolean).slice(msg?.kind === 'doc' ? 1 : 0, (msg?.kind === 'doc' ? 1 : 0) + 4)
+  return lines.map((l) => l.replace(/^#{1,6}\s*|^>\s*/, '').replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).join(' ').slice(0, n)
+}
 // a file name for the answer's document: its title, without the characters a file name cannot hold
 export function docName(msg) {
   const base = titleOf(msg).replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').replace(/[.…]+$/, '').trim().slice(0, 50) || L('AI 답', 'AI answer')
@@ -47,7 +55,8 @@ export function docName(msg) {
 // the Markdown file: a document answer is its text; a text answer gets its title as the heading when it has none
 export function docBody(msg) {
   const t = answerText(msg)
-  if (msg?.kind === 'doc') return `${/^#\s/.test(t) ? '' : '# '}${t}\n`
+  // (a document answer that starts with a heading of any level keeps it — 「## X」 never becomes 「# ## X」)
+  if (msg?.kind === 'doc') return `${/^#{1,6}\s/.test(t) ? '' : '# '}${t}\n`
   return /^#{1,6}\s/.test(t) ? `${t}\n` : `# ${titleOf(msg)}\n\n${t}\n`
 }
 
@@ -59,6 +68,32 @@ export function rankRooms(rooms, posted = []) {
     .sort((a, b) => b.score - a.score || a.order - b.order)
     .map(({ r, score }) => ({ ...r, why: score ? [{ kind: 'before', text: L('지난번에도 이 대화의 답을 공유한 대화방', 'Where answers of this chat went before') }] : [], suggested: score > 0 }))
 }
+
+// One at a time per key: in this server (a queue per key — a waiting caller holds no database connection) and across servers (a transaction
+// holding a Postgres advisory lock for the key while fn runs; fn's own queries go through the pool — the lock alone orders the callers).
+// 「문서로 남기기」 twice, 「프로젝트로 시작」 twice, 「만들기」 from two screens: the second sees what the first did.
+const queues = new Map()
+export function exclusive(key, fn) {
+  const prev = queues.get(key) || Promise.resolve()
+  const run = prev.catch(() => {}).then(async () => {
+    const c = await pool.connect()
+    try {
+      await c.query('begin')
+      await c.query('select pg_advisory_xact_lock(hashtext($1))', [key])
+      const out = await fn()
+      await c.query('commit')
+      return out
+    } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
+  })
+  const tail = run.catch(() => {})
+  queues.set(key, tail)
+  tail.then(() => { if (queues.get(key) === tail) queues.delete(key) })
+  return run
+}
+// the conversation of the main chat (or the sub-topic of a project) a message belongs to: the one its turn went to (content.conv), else the
+// context router's (content.context — a scheduled run's or a brief's own, filed aside)
+export const convOfRow = (m) => (m?.content?.conv ? String(m.content.conv) : m?.content?.context?.conversationId ? String(m.content.context.conversationId) : null)
+export const asideRow = (m) => m?.content?.context?.action === 'aside'
 
 // ---------- the answer ----------
 // a message of mine (in a thread of mine) that is an agent's text or document answer with words in it
@@ -106,7 +141,8 @@ export async function roomsFor(user, id, deps = {}) {
   const view = rooms.map((r) => ({ id: r.id, kind: r.kind, title: r.title, members: (r.members || []).map((m) => ({ id: m.id, name: m.name, email: m.email || null })), updatedAt: r.updatedAt }))
   const paired = new Set(view.filter((r) => r.kind === 'direct').flatMap((r) => r.members.map((m) => String(m.id))))
   const people = (team || []).filter((p) => String(p.id) !== String(user.id) && !paired.has(String(p.id))).map((p) => ({ id: String(p.id), name: p.name, email: p.email || null }))
-  return { answer: { title: titleOf(msg), chars: sharedText(msg).length }, rooms: rankRooms(view, posted), people, shared: await sharedOf(user, msg, M) }
+  return { answer: { title: titleOf(msg), chars: sharedText(msg).length, preview: previewOf(msg), truncated: truncated(msg), limit: LIMITS.text }, rooms: rankRooms(view, posted), people,
+    shared: await sharedOf(user, msg, M) }
 }
 
 // ---------- sharing ----------
@@ -123,7 +159,7 @@ export async function shareToRoom(user, id, opts = {}, deps = {}) {
   } else room = await M.memberThread(user, String(opts.room || ''))
   if (!room) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."), 'not_in_room')
   const note = clean(opts.note).slice(0, LIMITS.note)
-  const answer = { title: titleOf(msg), text: sharedText(msg), kind: msg.kind }
+  const answer = { title: titleOf(msg), text: sharedText(msg), kind: msg.kind, ...(truncated(msg) ? { truncated: true } : {}) }
   let m
   try {
     // (every person in the room must still be on the team: the messenger refuses the post otherwise — nothing is sent)
@@ -138,18 +174,26 @@ export async function shareToRoom(user, id, opts = {}, deps = {}) {
 // publish: the bytes into storage → {name, url} (lib/office.js publishBuffer; a test passes its own)
 export async function saveDoc(user, id, deps = {}) {
   const msg = await answerOf(user, id)
-  const had = msg.content?.answerDoc?.messageId
-  if (had && UUID.test(String(had))) {
-    const [f] = await q(`select * from pro_messages where id=$1 and thread_id=$2 and kind='file'`, [had, msg.thread_id])
-    if (f) return { message: f, existing: true }
+  const existing = async () => {
+    const [row] = await q(`select content->'answerDoc'->>'messageId' as id from pro_messages where id=$1`, [msg.id])
+    if (!row?.id || !UUID.test(row.id)) return null
+    const [f] = await q(`select * from pro_messages where id=$1 and thread_id=$2 and kind='file'`, [row.id, msg.thread_id])
+    return f || null
   }
-  const publish = deps.publish || (await import('./office.js')).publishBuffer
-  const name = docName(msg)
-  const pub = await publish(user.id, name, Buffer.from(docBody(msg), 'utf8'))
-  // (the card goes where the answer is: its conversation of the main chat too — aside, so it never moves the one the chat is in)
-  const conv = msg.content?.context?.conversationId
-  const card = await addMessage(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
-    ...(conv ? { context: { conversationId: String(conv), action: 'aside' } } : {}) })
-  await setIn(user.id, msg.id, ['answerDoc'], { messageId: card.id, name: card.content.name, at: new Date().toISOString() })
-  return { message: card, existing: false }
+  const had = await existing()
+  if (had) return { message: had, existing: true }
+  // (one document per answer: two presses — two screens — make one card, the second gets the first's)
+  return exclusive(`answer-doc:${msg.id}`, async () => {
+    const again = await existing()
+    if (again) return { message: again, existing: true }
+    const publish = deps.publish || (await import('./office.js')).publishBuffer
+    const name = docName(msg)
+    const pub = await publish(user.id, name, Buffer.from(docBody(msg), 'utf8'))
+    // (the card goes where the answer is: its conversation of the main chat too — aside, so it never moves the one the chat is in)
+    const conv = convOfRow(msg)
+    const card = await addMessage(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
+      ...(conv ? { context: { conversationId: conv, action: 'aside' } } : {}) })
+    await setIn(user.id, msg.id, ['answerDoc'], { messageId: card.id, name: card.content.name, at: new Date().toISOString() })
+    return { message: card, existing: false }
+  })
 }

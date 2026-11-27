@@ -20,6 +20,7 @@ const long = computed(() => String(props.answer?.text || '').length > 280)
   <div class="ans" data-test="msg-answer" :class="{ open }">
     <p class="ah"><span class="spark">✦</span><b data-no-i18n>{{ answer.title }}</b></p>
     <div class="ab md" data-no-i18n data-test="msg-answer-body" v-html="body" />
+    <p v-if="answer.truncated && (open || !long)" class="cut" data-test="msg-answer-truncated">글이 길어서 잘렸어요 · 앞부분만 왔어요</p>
     <button v-if="long" class="more press" data-test="msg-answer-more" @click="open = !open">{{ open ? '접기' : '더 보기' }}</button>
   </div>
 </template>
@@ -35,5 +36,6 @@ const long = computed(() => String(props.answer?.text || '').length > 280)
 .ab :deep(h1), .ab :deep(h2), .ab :deep(h3), .ab :deep(h4) { font-size: 13.5px; margin: 6px 0 4px; }
 .ab :deep(table) { border-collapse: collapse; font-size: 12px; display: block; overflow-x: auto; max-width: 100%; }
 .ab :deep(td), .ab :deep(th) { border: 1px solid var(--hairline); padding: 2px 6px; }
+.cut { margin: 4px 0 0; font-size: 12px; color: var(--text-secondary); }
 .more { margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 </style>

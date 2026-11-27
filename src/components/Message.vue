@@ -171,12 +171,9 @@ const hint = computed(() => {
 })
 // 답을 공유 · 프로젝트로 시작 (spec answer-share · chat-to-project): an AI answer in words gets 「공유」 and 「프로젝트로 시작」 under it, and the
 // same in its message menu — held on a phone, right-clicked on a computer (components/holdMenu.js)
-// (only an answer takes the hold: the others keep the browser's own long press — text selection)
-const vHold = {
-  mounted(el, b) { if (b.value) hold.mounted(el, b) },
-  updated(el, b) { if (el._holdOpen) hold.updated(el, b) },
-  unmounted(el) { hold.unmounted(el) },
-}
+// (only an answer takes the hold — the directive reads the binding at each press: an answer that stops being one, or becomes one, follows;
+// the others keep the browser's own long press — text selection)
+const vHold = hold
 const actions = computed(() => showsActions(props.msg))
 const holdable = computed(() => isAnswer(props.msg))
 // held: the bubble goes along (the menu's 「글 선택」 selects its words for the browser's own handles — a long press no longer does)
@@ -194,6 +191,13 @@ const sharedTo = computed(() => {
   const s = c.value.answerShares || {}
   const [room, x] = Object.entries(s).sort((a, b) => String(b[1]?.at || '').localeCompare(String(a[1]?.at || '')))[0] || []
   return room ? { room, title: x?.title || '', n: Object.keys(s).length } : null
+})
+// (one line, the room's name inside — the English screen's patterns translate it whole and keep the name)
+const sharedLine = computed(() => {
+  const x = sharedTo.value
+  if (!x) return ''
+  if (!x.title) return x.n > 1 ? `대화방 ${x.n}곳에 공유했어요` : '대화방에 공유했어요'
+  return x.n > 1 ? `「${x.title}」 외 ${x.n - 1}곳에 공유했어요` : `「${x.title}」에 공유했어요`
 })
 const openRoom = (id) => team.openMessenger(id)
 onMounted(async () => {
@@ -251,7 +255,7 @@ onMounted(async () => {
     <template v-else-if="msg.kind === 'text'">
       <!-- the answer of a CLI on my PC (its last words at the end of a turn) -->
       <small v-if="c.localAgent?.label" class="via" data-test="msg-local-answer">{{ c.localAgent.label }} · {{ c.localAgent.where || '내 PC' }}</small>
-      <div v-hold="holdable ? onHold : null" class="bubble agent md" v-html="md(replies ? replies.body : c.text)" />
+      <div v-hold="holdable ? onHold : null" class="bubble agent md" :class="{ holdable }" v-html="md(replies ? replies.body : c.text)" />
       <LinkPreviews :text="replies ? replies.body : c.text" />
       <MailChips v-if="mailRefs.length" :refs="mailRefs" :event="c.mailEvent || ''" />
       <!-- 회사 프로세스 지도의 업무 에이전트: 일 정의의 점검 항목마다 지켰는지(근거는 마우스를 올리면) -->
@@ -306,13 +310,13 @@ onMounted(async () => {
       <div v-if="actions" class="aacts" data-test="answer-actions">
         <button class="aact press" data-test="answer-share-btn" @click="openShare('menu')"><Icon name="share" :size="14" /><span>공유</span></button>
         <button class="aact press" :disabled="offerBusy" data-test="answer-project-btn" @click="startProject"><Icon name="folder" :size="14" /><span>{{ offerBusy ? '카드를 준비하는 중…' : '프로젝트로 시작' }}</span></button>
-        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>「<span data-no-i18n>{{ sharedTo.title || '대화방' }}</span>」<template v-if="sharedTo.n > 1"> 외 {{ sharedTo.n - 1 }}곳</template>에 공유했어요</span>
+        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
           <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></span>
       </div>
       <p v-if="offerErr" class="aerr" role="alert">{{ offerErr }}</p>
     </template>
 
-    <div v-else-if="doc" v-hold="holdable ? onHold : null" class="doc" :class="{ open: expanded }">
+    <div v-else-if="doc" v-hold="holdable ? onHold : null" class="doc" :class="{ open: expanded, holdable }">
       <h3 class="serif">{{ doc.title }}</h3>
       <div class="inner md" v-html="doc.body" />
       <button class="more press" :aria-label="expanded ? '접기' : '펼치기'" @click="expanded = !expanded">
@@ -456,7 +460,7 @@ onMounted(async () => {
       <div v-if="actions" class="aacts" data-test="answer-actions">
         <button class="aact press" data-test="answer-share-btn" @click="openShare('menu')"><Icon name="share" :size="14" /><span>공유</span></button>
         <button class="aact press" :disabled="offerBusy" data-test="answer-project-btn" @click="startProject"><Icon name="folder" :size="14" /><span>{{ offerBusy ? '카드를 준비하는 중…' : '프로젝트로 시작' }}</span></button>
-        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>「<span data-no-i18n>{{ sharedTo.title || '대화방' }}</span>」<template v-if="sharedTo.n > 1"> 외 {{ sharedTo.n - 1 }}곳</template>에 공유했어요</span>
+        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
           <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></span>
       </div>
       <p v-if="offerErr" class="aerr" role="alert">{{ offerErr }}</p>
@@ -614,4 +618,6 @@ button.uref { text-align: left; }
 .ashared > :deep(svg) { color: var(--color-success); flex: none; }
 .alink { margin-left: 4px; font-size: 12px; font-weight: 600; color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
 .chip.link .cgo { flex: none; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+/* a phone's long press opens the answer's menu, not the text selection (as the messenger's bubbles — its 「글 선택」 gives the selection back) */
+@media (pointer: coarse) { .holdable:not([data-selecting]) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
 </style>

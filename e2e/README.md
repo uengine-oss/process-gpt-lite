@@ -1878,7 +1878,7 @@ cd e2e && npx playwright test --project=feature tests/feature/mail-send-as-me.sp
 휴대폰 녹화 11-27 22:33: 「텍스트 결과가 나왔을 때 이것을 어딘가에 우리는 공유한다든지 하는 기능이 지금 존재하지 않아」 · 「이 내용을 기반으로 프로젝트를 하나 만들자」(채팅 안의 계획으로만 끝남) · 「여기로 프로젝트로 승격하겠다는 거거든」 · 「교육과정 만드는 템플릿 폴더가 있을 수 있겠지」. 시험 파일이 자기 스택(회사 `answer-project-ui`, BFF 8997 · Vite 5397 — 다른 것이 듣고 있으면 멈춤, `RT_AP_API_PORT` · `RT_AP_WEB_PORT`)과 가짜 모델 · 가짜 deepagents(빈 포트)를 띄운다. 라우터의 `start_project` 는 가짜 모델이 그 말에만 부른다(실제 모델이 고르는지는 아래 ✗). 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 
 ```bash
-cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js   # AP-U-01~08 · 실제 DB · git · 저장소, 가짜 모델
+cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js   # AP-U-01~09 · 실제 DB · git · 저장소, 가짜 모델 · 경로 규칙
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~03 · F-CP-01~03
 ```
 
@@ -1895,6 +1895,11 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 | 템플릿 추천: 실행 이상인 템플릿만 보기로(이름 · 설명 · TEMPLATE.md · 에이전트 자산), 판정 모델이 0.3 이상 3개까지 · 까닭 한 줄 · 템플릿이 없으면 판정 없이 추천 칸 숨김 | 녹화 1:44 | F-CP-01 · AP-U-05 · AP-U-08 | feature · DB | ✅ |
 | 추천 템플릿을 고르면 「템플릿으로 시작」과 같은 전용 작업 공간(`var/t/…`, 변형 목록에 없음) · 권한 없는 템플릿 403(프로젝트 안 생김) · 빈 프로젝트 · 「아니요」 | 녹화 1:44 | F-CP-02 · AP-U-06 · AP-U-07 | feature · DB | ✅ |
 | 휴대폰 390 밝은 · 어두운: 단추 · 시트 · 카드가 화면 안, 옆으로 밀리지 않음 | 브리프 시험 | F-AS-03 · F-CP-03 | feature | ✅ |
+| (검토 M1) 나가는 글에서 작업 공간 · 호스트 경로(백틱 · `<…>` · 괄호 뒤 빈칸 · `file://`)와 저장소 · 서명 · 토큰 주소는 파일 이름만, 보통 웹 주소는 그대로 — 제목 · 방 · 알림 · 미리 보기 · 문서 · 첫 문서 모두, 12,000자 넘으면 잘렸다고 · 서버와 화면의 경로 규칙이 같음 | PR #118 검토 | AP-U-01b · AP-U-03b · F-AS-01 · `hidePaths.test.js` | DB · 단위 · feature | ✅ |
+| (검토 M2) 말로: 다른 대화로 따로 묶인 더 새 답(예약 실행)이 아니라 이 대화의 답 · 좁혀 본 대화의 답과 줄만 · 카드는 안내 한 줄과 같은 자리 | PR #118 검토 | AP-U-09 · F-CP-01 | DB · feature | ✅ |
+| (검토 M3) 카드에서 목적 · 만들 것 · 배경을 고치고, 계획에는 보이던 그대로만 | PR #118 검토 | AP-U-06b · F-CP-02 | DB · feature | ✅ |
+| (검토 L1 · L3) 휴대폰에서 답을 길게 누르면 메뉴만(휴대폰 자체 선택 없음) · 「글 선택」이 돌려줌 · 길게 누르기는 누르는 순간의 상태를 따름(메신저도) | PR #118 검토 | F-AS-03 · F-RX(room-rename-reactions) | feature | ✅ |
+| (검토 L2 · L4 · L5 · L6 · L7) 메신저 「복사」는 답의 글 · 팀에서 빠진 보낸 사람 403(1:1 안 만듦) · 같은 답의 카드 하나 · 문서 하나(동시에도) · 카드 1분 8장 · 동시에 「만들기」는 하나 · 멈춘 「만들기」 이어받기 · 「아니요」 · 작업 공간 실패면 고아 프로젝트 없음 · 판정 JSON 도 스킬의 시간 한도 | PR #118 검토 | AP-U-03b · 04b · 05b · 06b · 07b | DB | ✅ |
 | 실제 사내 모델이 그 말에 `start_project` 를 고르는지 · 실제 판정 모델의 템플릿 추천 정확도 | — | — (가짜 모델) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

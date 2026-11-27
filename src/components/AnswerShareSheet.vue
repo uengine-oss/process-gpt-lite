@@ -7,7 +7,7 @@
 //   sent   「…」에 공유했어요 · 방 열기
 // Nothing goes anywhere before 보내기. A document: the answer as a Markdown file card under it (once) — from there the file's own 공유,
 // 내려받기 and IeumOffice.
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import PersonAvatar from './PersonAvatar.vue'
@@ -28,16 +28,22 @@ const title = computed(() => {
   const lines = text.value.split('\n').map((l) => l.trim()).filter(Boolean)
   const head = msg.value?.kind === 'doc' ? lines[0] : lines.find((l) => /^#{1,6}\s/.test(l)) || lines[0]
   const t = String(head || '').replace(/^#{1,6}\s*/, '').replace(/[*_`>|]/g, '').trim()
-  return t.length > 60 ? `${t.slice(0, 59)}…` : t || 'AI 답'
+  return t.length > 60 ? `${t.slice(0, 59)}…` : t
 })
-// (the first lines as words: Markdown's marks — emphasis, headings, quotes, code — taken off)
-const preview = computed(() => text.value.split('\n').map((l) => l.trim()).filter(Boolean).slice(msg.value?.kind === 'doc' ? 1 : 0).slice(0, 4)
+// (the answer as it goes — its title, its first lines, whether it is cut — is the server's: the paths and private addresses taken out
+// as they will be in the room, lib/answerShare.js; until the rooms come, the screen's own reading)
+const sentTitle = computed(() => data.value?.answer?.title || title.value)
+const preview = computed(() => data.value?.answer?.preview ?? text.value.split('\n').map((l) => l.trim()).filter(Boolean).slice(msg.value?.kind === 'doc' ? 1 : 0).slice(0, 4)
   .map((l) => l.replace(/^#{1,6}\s*|^>\s*/, '').replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).join(' ').slice(0, 220))
 
+// a dialog of its own: the focus goes into it, Esc closes it (only while the focus is in it — not another sheet's Esc)
+const sheet = ref(null)
 const close = () => { app.answerShare = null }
-const onEsc = (e) => { if (e.key === 'Escape') close() }
-onMounted(() => { window.addEventListener('keydown', onEsc); if (step.value === 'room') loadRooms() })
-onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
+onMounted(async () => {
+  if (step.value === 'room') loadRooms()
+  await nextTick()
+  ;(sheet.value?.querySelector('[role="menuitem"], input, textarea, button') || sheet.value)?.focus?.()
+})
 
 // ---------- menu ----------
 const docBusy = ref(false)
@@ -61,7 +67,16 @@ function selectText() {
   const el = held.value
   close()
   if (!el?.isConnected) return
+  // (on a phone the answer takes no selection of its own — Message.vue: it is lifted while this selection lasts)
+  el.dataset.selecting = ''
+  const done = () => {
+    const sel = window.getSelection()
+    if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) return
+    delete el.dataset.selecting
+    document.removeEventListener('selectionchange', done)
+  }
   try { const sel = window.getSelection(); sel.removeAllRanges(); sel.selectAllChildren(el) } catch { /* nothing to select */ }
+  setTimeout(() => document.addEventListener('selectionchange', done), 0)
 }
 function toProject() { const m = msg.value; close(); startProjectFrom(app, m).catch((e) => team.say(e.message || '프로젝트 카드를 만들지 못했어요.')) }
 
@@ -85,6 +100,10 @@ const others = (r) => (r.members || []).filter((m) => m.id !== myId.value).map((
 const rooms = computed(() => (data.value?.rooms || []).filter((r) => hit(r.title) || (r.members || []).some((m) => hit(m.name))))
 const people = computed(() => (data.value?.people || []).filter((p) => hit(p.name) || hit(p.email)))
 const pickTitle = computed(() => pick.value?.room?.title || pick.value?.person?.name || '')
+// what the room will read, said before 보내기 (one sentence with the room's name in it — the English screen's pattern keeps the name)
+const says = computed(() => `「${pickTitle.value}」에 있는 사람들에게 이 답의 글만 보내요. 작업 공간 파일 경로와 서명된 주소 · 저장소 주소는 파일 이름만 남기고 빼요. 일반 웹 주소는 그대로 보내요.`)
+const cutNote = computed(() => (data.value?.answer?.truncated ? `글이 길어서 앞부분 ${Number(data.value.answer.limit || 12000).toLocaleString('ko-KR')}자만 보내요.` : ''))
+const sentLine = computed(() => (sent.value?.title ? `「${sent.value.title}」에 공유했어요` : '대화방에 공유했어요'))
 function choose(p) { pick.value = p; step.value = 'send'; err.value = '' }
 function back() { if (step.value === 'send') { step.value = 'room'; pick.value = null } else step.value = 'menu'; err.value = '' }
 async function send() {
@@ -103,12 +122,13 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
 <template>
   <Teleport to="body">
     <div v-if="msg" class="veil" data-test="answer-share-veil" @click.self="close">
-      <div class="sheet glass blur-in" role="dialog" aria-label="답 공유" data-test="answer-share" :data-step="step">
+      <div ref="sheet" class="sheet glass blur-in" role="dialog" aria-modal="true" aria-label="답 공유" tabindex="-1" data-test="answer-share" :data-step="step"
+        @keydown.esc.stop.prevent="close">
         <header>
           <button v-if="step === 'room' || step === 'send'" class="x press" aria-label="뒤로" data-test="answer-share-back" @click="back"><Icon name="back" :size="17" /></button>
           <div class="hd">
             <h2>{{ step === 'room' ? '대화방 · 사람에게 보내기' : step === 'send' ? '보내기 전에 확인해 주세요' : step === 'sent' ? '공유했어요' : '공유' }}</h2>
-            <p class="sub" data-no-i18n>{{ title }}</p>
+            <p class="sub"><span v-if="sentTitle" data-no-i18n>{{ sentTitle }}</span><template v-else>AI 답</template></p>
           </div>
           <button class="x press" aria-label="닫기" data-test="answer-share-close" @click="close"><Icon name="close" :size="17" /></button>
         </header>
@@ -164,13 +184,14 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
         <!-- what the room will see, a word, 보내기 -->
         <template v-else-if="step === 'send'">
           <div class="to" data-test="answer-send-to"><small>받는 곳</small><b data-no-i18n>{{ pickTitle }}</b></div>
-          <div class="pv" data-test="answer-preview"><b data-no-i18n>{{ title }}</b><p data-no-i18n>{{ preview }}</p></div>
+          <div class="pv" data-test="answer-preview"><b><span v-if="sentTitle" data-no-i18n>{{ sentTitle }}</span><template v-else>AI 답</template></b><p data-no-i18n>{{ preview }}</p></div>
+          <p v-if="cutNote" class="cut" data-test="answer-truncated">{{ cutNote }}</p>
           <textarea v-model="note" class="note" rows="2" maxlength="1000" placeholder="함께 보낼 말 (선택)" data-test="answer-note" />
-          <p class="says" data-test="answer-says">「{{ pickTitle }}」에 있는 사람들에게 이 답의 제목과 글이 그대로 보여요. 채팅의 파일이나 메일 본문은 보내지 않아요.</p>
+          <p class="says" data-test="answer-says">{{ says }}</p>
         </template>
 
         <!-- sent -->
-        <p v-else-if="step === 'sent'" class="sent" data-test="answer-sent" :data-room="sent?.id"><Icon name="check" :size="16" /><span>「<span data-no-i18n>{{ sent?.title || '대화방' }}</span>」에 공유했어요</span></p>
+        <p v-else-if="step === 'sent'" class="sent" data-test="answer-sent" :data-room="sent?.id"><Icon name="check" :size="16" /><span>{{ sentLine }}</span></p>
 
         <p v-if="err" class="err" role="alert" data-test="answer-share-error">{{ err }}</p>
         <footer v-if="step === 'send' || step === 'sent'">
@@ -218,6 +239,8 @@ h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .pv p { margin: 4px 0 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .note { width: 100%; box-sizing: border-box; border: 1px solid var(--hairline); background: var(--field-bg); border-radius: 12px; padding: 9px 12px; font: inherit; font-size: 14px; color: var(--text-primary); outline: 0; resize: none; }
 .says { margin: 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+.cut { margin: 0; font-size: 12.5px; color: var(--color-warning, #b26a00); line-height: 1.45; }
+.sheet:focus { outline: none; }
 .sent { display: flex; align-items: center; gap: 8px; margin: 6px 2px; font-size: 14.5px; }
 .sent svg { color: var(--color-success); flex: none; }
 .err { margin: 0; color: var(--color-error, #c62828); font-size: 12.5px; overflow-wrap: anywhere; }

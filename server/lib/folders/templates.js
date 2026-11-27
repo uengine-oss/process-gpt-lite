@@ -122,9 +122,16 @@ export async function startProject(user, folder, { title } = {}) {
   const name = String(title || '').replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60)
   if (!name) throw err(400, L('프로젝트 이름을 적어 주세요.', 'Please enter a project name.'))
   const [thread] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project',$2) returning *`, [user.id, name])
-  await q(`insert into pro_thread_folders (thread_id, user_id, folder_id, mode) values ($1,$2,$3,'project')
-           on conflict (thread_id) do update set folder_id=$3, mode='project', variation_id=null, updated_at=now()`, [thread.id, user.id, folder.id])
-  await makeWorkspace(user, thread, folder)
+  try {
+    await q(`insert into pro_thread_folders (thread_id, user_id, folder_id, mode) values ($1,$2,$3,'project')
+             on conflict (thread_id) do update set folder_id=$3, mode='project', variation_id=null, updated_at=now()`, [thread.id, user.id, folder.id])
+    await makeWorkspace(user, thread, folder)
+  } catch (e) {
+    // (no workspace, no project: the room just made goes again — never a project of the template that works in nothing)
+    await q('delete from pro_thread_folders where thread_id=$1', [thread.id]).catch(() => {})
+    await q('delete from pro_threads where id=$1 and user_id=$2', [thread.id, user.id]).catch(() => {})
+    throw e
+  }
   return thread
 }
 

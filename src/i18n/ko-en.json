@@ -3442,7 +3442,6 @@
   "초안으로 두었어요": "Kept as a draft",
   "프로젝트로 시작": "Start a project",
   "카드를 준비하는 중…": "Preparing the card…",
-  "에 공유했어요": " — shared",
   "대화방 · 사람에게 보내기": "Send to a room or a person",
   "보내기 전에 확인해 주세요": "Check before you send",
   "대화방이나 팀원을 골라 이 답을 보내요": "Pick a room or a teammate to send this answer to",
@@ -3473,12 +3472,18 @@
   "템플릿 없이 시작해요": "Starts without a template",
   "원래 대화는 그대로 있어요": "The conversation stays as it is",
   "프로젝트 열기": "Open project",
-  "시작해요": "start",
   "프로젝트 이름을 적어 주세요.": "Please enter a project name.",
   "프로젝트 카드를 만들지 못했어요.": "I couldn't prepare the project card.",
   "원래 대화 열기": "Open the conversation",
   "더 보기": "More",
-  "AI 답 공유": "AI answer shared"
+  "AI 답 공유": "AI answer shared",
+  "글이 길어서 잘렸어요 · 앞부분만 왔어요": "Cut short — only the beginning came",
+  "이 프로젝트에서 할 일": "What this project will do",
+  "어디서 시작한 일인지": "Where this work started",
+  "프로젝트 계획에 이대로 들어가요 · 고쳐도 돼요": "Goes into the project plan as it is · you can change it",
+  "만들 것을 더해요": "Add a deliverable",
+  "만들다가 멈췄어요 · 다시 만들거나 닫을 수 있어요": "Making stopped half way · create it again or close the card",
+  "대화방에 공유했어요": "Shared in a room"
  },
  "patterns": [
   [
@@ -7898,10 +7903,6 @@
    "· left out ({0})"
   ],
   [
-   "「{0}」에 있는 사람들에게 이 답의 제목과 글이 그대로 보여요. 채팅의 파일이나 메일 본문은 보내지 않아요.",
-   "People in \"{0}\" will see this answer's title and words as they are. Files of the chat and mail bodies are not sent."
-  ],
-  [
    "프로젝트로 옮겼어요 · {0}",
    "Moved to a project · {0}"
   ],
@@ -7912,6 +7913,30 @@
   [
    "{0}님이 AI 답 「{1}」를 공유했어요",
    "{0} shared an AI answer \"{1}\""
+  ],
+  [
+   "「{0}」에 있는 사람들에게 이 답의 글만 보내요. 작업 공간 파일 경로와 서명된 주소 · 저장소 주소는 파일 이름만 남기고 빼요. 일반 웹 주소는 그대로 보내요.",
+   "Only the words of this answer go to the people in \"{0}\". Workspace file paths and signed or storage addresses go as file names only. Ordinary web addresses go as they are."
+  ],
+  [
+   "글이 길어서 앞부분 {0}자만 보내요.",
+   "It is long: only the first {0} characters go."
+  ],
+  [
+   "대화방 {0}곳에 공유했어요",
+   "Shared in {0} rooms"
+  ],
+  [
+   "「{0}」 외 {1}곳에 공유했어요",
+   "Shared in \"{0}\" and {1} more"
+  ],
+  [
+   "템플릿 「{0}」으로 시작해요",
+   "Started from the template \"{0}\""
+  ],
+  [
+   "템플릿 「{0}」로 시작해요",
+   "Started from the template \"{0}\""
   ]
  ],
  "context": [

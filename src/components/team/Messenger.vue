@@ -466,7 +466,7 @@ const rx = ref(null)           // {m, anchor: {top, bottom, left}, x, top, left,
 const rxOf = (m) => (list.value.find((x) => x.id === m.id) || m).reactions || []
 async function openRx(m, el, at = {}) {
   // (no reactions in this database yet — sql/062: the long press still offers 「복사」, a message with no words has nothing then)
-  if (!canReact(m) || !el || !pane.value || (team.rxOff && !m.body)) return
+  if (!canReact(m) || !el || !pane.value || (team.rxOff && !m.body && !m.answer?.text)) return
   const b = el.getBoundingClientRect()
   rx.value = { m, anchor: { top: b.top, bottom: b.bottom, left: b.left }, x: Number.isFinite(at.x) ? at.x : null, top: 0, left: 0, ready: false }
   await nextTick()
@@ -483,17 +483,16 @@ async function openRx(m, el, at = {}) {
 const rxMine = computed(() => (rx.value ? rxOf(rx.value.m).filter((c) => c.mine).map((c) => c.key) : []))
 const react = (m, key) => { rx.value = null; team.react(m, key).catch((e) => { err.value = e.message || '반응을 남기지 못했어요.' }) }
 async function copyRx() {
-  const text = rx.value?.m?.body ? hidePaths(team.trBody(rx.value.m) || rx.value.m.body) : ''
+  // (an AI answer shared without a word: its words are the answer's — lib/answerShare.js)
+  const m = rx.value?.m
+  const text = m?.body ? hidePaths(team.trBody(m) || m.body) : m?.answer?.text ? hidePaths(m.answer.text) : ''
   rx.value = null
   if (!text) return
   try { await navigator.clipboard.writeText(text); team.say('복사했어요') } catch { err.value = '복사하지 못했어요.' }
 }
-// the long press · right-click (components/holdMenu.js) on the bubbles that take a reaction only — my own keep the browser's own menu
-const vRxHold = {
-  mounted(el, b) { if (b.value) hold.mounted(el, b) },
-  updated(el, b) { if (el._holdOpen) hold.updated(el, b) },
-  unmounted(el) { hold.unmounted(el) },
-}
+// the long press · right-click (components/holdMenu.js) on the bubbles that take a reaction only — my own keep the browser's own menu (the
+// directive reads the binding at each press: a bubble that becomes reactable later — or stops — follows)
+const vRxHold = hold
 const rxButton = (m, e) => openRx(m, e.currentTarget?.closest('.msg')?.querySelector('.bub'))
 
 // Esc puts the floating sheet away; a docked column stays until its ✕ (Esc there is the page's — an open document's, a dialog's)
@@ -695,7 +694,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div v-if="aiWait" class="aiwait" data-test="ai-status" role="status"><span class="spark">✦</span><span class="shimmer-text">{{ aiWait.text }}</span></div>
           </div>
           <!-- the reactions bar over the bubble it was opened on (its place measured once it is drawn) -->
-          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="rx.m.body || ''" :data-for="rx.m.id"
+          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="rx.m.body || rx.m.answer?.text || ''" :data-for="rx.m.id"
             :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
           <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>{{ dropWords }}</p></div></div></Transition>
           <footer class="cmp">

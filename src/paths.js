@@ -10,8 +10,9 @@ const ROOT = String.raw`(?:/workspace|/Users/[^/\s` + B + String.raw`'"<>()]+|/h
 // a path in backticks may hold spaces ("Moonlight Coffee quote.xlsx"); a bare one ends at a space
 const QUOTED = new RegExp(B + '(' + ROOT + '[^' + B + '\\n]*)' + B, 'g')
 // a markdown link to a sandbox file goes nowhere: its label stays
-const LINKED = new RegExp(String.raw`\[([^\]\n]+)\]\(\s*(?:sandbox:|file://)?` + ROOT + String.raw`[^)\n]*\)`, 'g')
-const BARE = new RegExp(String.raw`(?<![\w/.:~-])(?:sandbox:)?` + ROOT + String.raw`(?:/[^\s` + B + String.raw`'"<>()\[\]*,;]*)*`, 'g')
+// (the address may be wrapped in <…>, after a space — the server's lib/hidePaths.js reads the same: server/test/hidePaths.test.js)
+const LINKED = new RegExp(String.raw`\[([^\]\n]+)\]\(\s*<?\s*(?:sandbox:|file://)?` + ROOT + String.raw`[^)\n]*\)`, 'g')
+const BARE = new RegExp(String.raw`(?<![\w/.:~-])(?:sandbox:|file://)?` + ROOT + String.raw`(?:/[^\s` + B + String.raw`'"<>()\[\]*,;]*)*`, 'g')
 
 const folderWord = () => (isEnglish ? 'the output folder' : '산출물 폴더')
 // a file has an extension; a folder (or a run room id) does not
@@ -28,6 +29,6 @@ export function hidePaths(text) {
     .replace(QUOTED, (m, p) => { const f = fileName(p.trim()); return f ? B + f + B : folderWord() })
     .replace(BARE, (m) => {
       const trail = /[.:!?]+$/.exec(m)?.[0] || ''
-      return (fileName(m.slice(0, m.length - trail.length)) || folderWord()) + trail
+      return (fileName(m.slice(0, m.length - trail.length).replace(/^(?:sandbox:|file:\/\/)/, '')) || folderWord()) + trail
     })
 }

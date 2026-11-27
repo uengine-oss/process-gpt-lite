@@ -121,7 +121,10 @@ test.beforeAll(async () => {
   ;[MAIN] = await S.api(HY.token, '/threads')
   const [card] = await S.q(`insert into pro_actions(user_id,verb,text,source,status) values ($1,'Review',$2,$3,'done') returning id`, [HY.id, '1차 교육 요청', { mail_id: 'demo-ap-ui-1', from: '이준호 <junho@gana-precision.example>', subject: '1차 교육 과정 요청드립니다' }])
   await S.q(`insert into pro_messages(thread_id,role,kind,content,created_at) values ($1,'user','text',$2, now() - interval '2 minutes')`, [MAIN.id, { text: '받은 메일 중 1차 교육 요청 내용에 대해 조사해 줘', refs: [{ as: 'mail', actionId: card.id, name: '1차 교육 과정 요청드립니다', from: '이준호' }] }])
-  ;[ANS] = await S.q(`insert into pro_messages(thread_id,role,kind,content,created_at) values ($1,'agent','doc',$2, now() - interval '1 minute') returning id`, [MAIN.id, { text: ANSWER }])
+  ;[ANS] = await S.q(`insert into pro_messages(thread_id,role,kind,content,created_at) values ($1,'agent','doc',$2, now() - interval '1 minute') returning id`, [MAIN.id, { text: ANSWER, conv: 'conv-ap-ui', context: { conversationId: 'conv-ap-ui', action: 'new', title: '교육 요청 조사' } }])
+  // a scheduled run came after it (filed aside, its own conversation): newer and long — not the answer 「이 내용으로 프로젝트」 is about (review M2)
+  await S.q(`insert into pro_messages(thread_id,role,kind,content,created_at) values ($1,'agent','text',$2, now() - interval '30 seconds')`, [MAIN.id,
+    { text: `주간 시장 동향 예약 실행 결과예요. ${'원자재 가격과 환율 흐름을 정리했어요. '.repeat(6)}`, conv: 'sched-ap-ui', context: { conversationId: 'sched-ap-ui', action: 'aside', title: '주간 시장 동향' } }])
 })
 test.afterAll(async () => {
   for (const s of servers) await new Promise((ok) => s.close(ok))
@@ -222,7 +225,10 @@ test('F-AS-01 답 카드의 「공유」 → 대화방 고르기 → 무엇이 �
   await expect(sheet).toHaveAttribute('data-step', 'send')
   await expect(sheet.locator('[data-test="answer-send-to"]')).toContainText('가나정밀 교육 준비')
   await expect(sheet.locator('[data-test="answer-preview"]')).toContainText('데이터 분석 실무 교육안')
-  await expect(sheet.locator('[data-test="answer-says"]')).toContainText('「가나정밀 교육 준비」에 있는 사람들에게 이 답의 제목과 글이 그대로 보여요')
+  await expect(sheet.locator('[data-test="answer-says"]')).toContainText('「가나정밀 교육 준비」에 있는 사람들에게 이 답의 글만 보내요')
+  await expect(sheet.locator('[data-test="answer-says"]')).toContainText('서명된 주소 · 저장소 주소는 파일 이름만 남기고 빼요')
+  await expect(sheet.locator('[data-test="answer-truncated"]')).toHaveCount(0)
+  await expect(sheet).toHaveAttribute('aria-modal', 'true')
   await sheet.locator('[data-test="answer-note"]').fill('교육안 초안이에요. 일정 봐 주세요')
   await shot(p, 'share', 'f-as-01-send')
   await sheet.locator('[data-test="answer-send"]').click()
@@ -286,7 +292,9 @@ for (const theme of ['light', 'dark']) {
     await noSideScroll(p)
     await shot(p, 'share', `f-as-03-phone-${theme}`)
     // a long press on the answer: its message menu
-    await row.locator('.doc h3').scrollIntoViewIfNeeded()
+    const doc = row.locator('.doc')
+    // (in the middle of the screen: a heading scrolled to the top edge lies under the top bar — a touch there is its 「홈」 tab)
+    await row.locator('.doc h3').evaluate((el) => el.scrollIntoView({ block: 'center' }))
     await press(p, row.locator('.doc h3'))
     const sheet = p.locator('[data-test="answer-share"]')
     await expect(sheet).toHaveAttribute('data-step', 'menu')
@@ -295,10 +303,12 @@ for (const theme of ['light', 'dark']) {
     expect(sb.y + sb.height).toBeGreaterThan(844 - 2)   // a sheet from the bottom
     await noSideScroll(p)
     await shot(p, 'share', `f-as-03-menu-${theme}`)
-    // 「글 선택」: the answer's words selected for the browser's own handles
+    // a long press on the answer is its menu, not the phone's own selection (review L1) — 「글 선택」 gives the selection back
+    expect(await doc.evaluate((el) => getComputedStyle(el).webkitUserSelect || getComputedStyle(el).userSelect)).toBe('none')
     await sheet.locator('[data-test="answer-share-select"]').click()
     await expect(sheet).toHaveCount(0)
     expect(await p.evaluate(() => window.getSelection().toString())).toContain('1일차')
+    expect(await doc.evaluate((el) => el.hasAttribute('data-selecting'))).toBe(true)
     // and the rooms step fits too
     await row.locator('[data-test="answer-share-btn"]').click()
     await p.locator('[data-test="answer-share-room"]').click()
@@ -327,7 +337,11 @@ test('F-CP-01 말로 「이 내용을 기반으로 프로젝트를 하나 만들
   expect(llm.routed.some((t) => t.includes(WORDS)), '라우터가 그 말을 읽었다').toBe(true)
   await expect(card).toHaveAttribute('data-state', 'offered')
   await expect(card.locator('[data-test="offer-title"]')).toHaveValue('가나정밀 1차 교육 과정')
-  await expect(card.locator('[data-test="offer-intent"]')).toHaveText('1차 교육 3일 과정의 교안과 실습 목록을 만든다')
+  // (the answer of this conversation — not the scheduled run that came after it)
+  await expect(card.locator('[data-test="offer-intent"]')).toHaveValue('1차 교육 3일 과정의 교안과 실습 목록을 만든다')
+  await expect(card.locator('[data-test="offer-deliverable"]')).toHaveCount(2)
+  await expect(card.locator('[data-test="offer-background"]')).toHaveValue('받은 메일의 교육 요청을 채팅에서 조사한 내용에서 시작했어요')
+  expect(llm.drafts.at(-1)).not.toContain('주간 시장 동향')
   await expect(card.locator('[data-test="offer-source"]')).toContainText('1차 교육 과정 요청드립니다')
   await expect(card.locator('[data-test="offer-doc"]')).toContainText('데이터 분석 실무 교육안')
   // the judge's pick with its line of why; the template that does not fit is not offered
@@ -382,12 +396,17 @@ test('F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿을 고르
   const card = p.locator('[data-test="project-offer"][data-state="offered"]').last()
   await expect(card).toBeVisible({ timeout: 30000 })
   await card.locator('[data-test="offer-title"]').fill('가나정밀 2차 교육 과정')
+  // what goes into the plan is what the card shows — changed here (review M3): the purpose, one deliverable out, one in
+  await card.locator('[data-test="offer-intent"]').fill('2차 교육 2일 과정의 교안을 만든다')
+  await card.locator('[data-test="offer-deliverable-remove"]').nth(1).click()
+  await card.locator('[data-test="offer-deliverable-add"]').click()
+  await card.locator('[data-test="offer-deliverable"]').last().fill('강사 안내문')
   await card.locator(`[data-test="offer-template"][data-slug="${COURSE.slug}"]`).click()
   await expect(card.locator(`[data-test="offer-template"][data-slug="${COURSE.slug}"]`)).toHaveAttribute('aria-checked', 'true')
   await shot(p, 'project', 'f-cp-02-pick-template')
   await card.locator('[data-test="offer-make"]').click()
   const made = p.locator('[data-test="offer-made"]').last()
-  await expect(made).toContainText('템플릿 「교육 과정 만들기 템플릿」으로 시작해요', { timeout: 30000 })
+  await expect(made.locator('[data-test="offer-started-from"]')).toHaveText('템플릿 「교육 과정 만들기 템플릿」으로 시작해요', { timeout: 30000 })
   await made.locator('[data-test="offer-open"]').click()
   await expect(p).toHaveURL(/\/projects\/[0-9a-f-]{36}$/)
   const bar = p.locator('[data-test="project-workspace-bar"]')
@@ -399,6 +418,11 @@ test('F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿을 고르
   const f = (await S.api(HY.token, `/threads/${id}/folder`)).folder
   expect(f.variation.branch).toMatch(/^var\/t\//)
   expect((await S.api(HY.token, `/folders/${COURSE.slug}`)).variations.map((v) => v.id)).not.toContain(f.variation.id)
+  // the plan holds what the card showed when 「만들기」 was pressed
+  const note = (await S.api(HY.token, `/threads/${id}/note`))
+  const n = note.note || note
+  expect(n.intent).toBe('2차 교육 2일 과정의 교안을 만든다')
+  expect(n.deliverables.map((x) => x.text)).toEqual(['일차별 교안', '강사 안내문'])
   expect(p.errors).toEqual([])
   await p.context().close()
 })

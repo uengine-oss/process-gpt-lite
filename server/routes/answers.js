@@ -9,6 +9,7 @@ import express from 'express'
 import { L } from '../lib/lang.js'
 import * as AS from '../lib/answerShare.js'
 import * as CP from '../lib/chatProject.js'
+import { requireMember } from '../lib/team/access.js'
 
 export function answerRoutes(auth) {
   const r = express.Router()
@@ -32,8 +33,11 @@ export function answerRoutes(auth) {
     sent.set(userId, list)
   }
 
-  r.get('/messages/:id/share/rooms', auth, h((req) => AS.roomsFor(me(req), req.params.id)))
-  r.post('/messages/:id/share/room', auth, h((req) => {
+  // (to a room or a person: teammates only — someone taken off the team neither lists the rooms nor opens a conversation of two by sending:
+  // the messenger's own rule, routes/team.js)
+  r.get('/messages/:id/share/rooms', auth, h(async (req) => { await requireMember(req.user); return AS.roomsFor(me(req), req.params.id) }))
+  r.post('/messages/:id/share/room', auth, h(async (req) => {
+    await requireMember(req.user)
     budget(req.user.id)
     const b = req.body || {}
     return AS.shareToRoom(me(req), req.params.id, { room: b.room ? String(b.room) : null, person: b.person ? String(b.person) : null, note: b.note })
@@ -43,7 +47,12 @@ export function answerRoutes(auth) {
     const msg = await AS.answerOf(me(req), req.params.id)
     return { offer: await CP.offer(me(req), { threadId: msg.thread_id, messageId: msg.id, via: 'button' }) }
   }))
-  r.post('/project-offers/:id/make', auth, h((req) => CP.make(me(req), req.params.id, { title: req.body?.title, template: req.body?.template ? String(req.body.template) : null })))
+  // (what the card showed and the person confirmed — the name, the purpose, what it will make, the background: lib/chatProject.js confirmed)
+  r.post('/project-offers/:id/make', auth, h((req) => {
+    const b = req.body || {}
+    return CP.make(me(req), req.params.id, { template: b.template ? String(b.template) : null,
+      ...Object.fromEntries(['title', 'intent', 'background', 'deliverables'].filter((k) => k in b).map((k) => [k, b[k]])) })
+  }))
   r.post('/project-offers/:id/decline', auth, h((req) => CP.decline(me(req), req.params.id)))
   return r
 }

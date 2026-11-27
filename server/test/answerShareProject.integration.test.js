@@ -10,6 +10,10 @@
 //   AP-U-06 「만들기」(템플릿): 템플릿 작업 공간 · 계획(목적 · 만들 것 · 배경 · 출처) · 첫 문서 · 채팅의 「프로젝트로 옮겼어요」 · 원래 대화 그대로 · 두 번째 409
 //   AP-U-07 빈 프로젝트 · 「아니요」 · 실행 권한 없는 템플릿 403(프로젝트 안 생김) · 남의 카드 404
 //   AP-U-08 템플릿이 하나도 없으면 판정 모델을 부르지 않고 추천도 없음
+//   (PR #118 검토) AP-U-01b 나가는 글에서 작업 공간 · 호스트 경로 · 서명된 · 저장소 주소는 이름만(보통 웹 주소는 그대로), 「## 」 머리 그대로, 12,000자 넘으면 잘렸다고 ·
+//   AP-U-03b 팀에서 빠진 보낸 사람은 방 목록 · 보내기 403(1:1 을 만들지 않음) · AP-U-04b 「문서로 남기기」 둘이 동시에 → 카드 하나 · AP-U-05b 같은 답의
+//   카드는 하나 · AP-U-06b 카드에서 고친 목적 · 만들 것 · 배경이 계획에, 「만들기」 둘이 동시에 → 하나만 · AP-U-07b 멈춘 「만들기」를 이어받기 · 「아니요」,
+//   템플릿 작업 공간을 못 만들면 프로젝트도 남지 않음 · AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 이 대화의 답 · 좁혀 본 대화의 답 · 카드는 대답 옆
 // Run: node --test --test-concurrency=1 test/answerShareProject.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,7 +23,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 const ROOT = await fs.mkdtemp(path.join(os.tmpdir(), 'pgl-answer-project-'))
-const TENANT = 'answer-project-test'
+// (a company of this run's own: the lists — teammates, rooms — hold only what this run made, whatever an earlier run left behind)
+const TENANT = `answer-project-test-${crypto.randomBytes(3).toString('hex')}`
 delete process.env.PRO_TENANT_FROM_HEADER
 process.env.PRO_BACKGROUND = '0'
 process.env.PRO_TENANT_ID = TENANT
@@ -35,6 +40,7 @@ process.env.PRO_LLM_API_KEY = 'test'
 process.env.PRO_LLM_KEYS = 'off'
 process.env.PRO_LLM_MODEL = 'fake'
 process.env.PRO_LLM_FAST_MODEL = 'fake'
+process.env.PRO_PROJECT_OFFERS_PER_MIN = '60'
 
 const { config } = await import('../config.js')
 const { q, pool, admin } = await import('../lib/supa.js')
@@ -225,6 +231,36 @@ test('AP-U-01 순수: 제목 · 문서 이름 · 문서 글 · 방 순서 · 카
   assert.deepEqual(plan.deliverables, [{ text: '교안' }])
 })
 
+test('AP-U-01b 나가는 글: 작업 공간 · 호스트 경로와 서명된 · 저장소 주소는 이름만, 보통 웹 주소는 그대로 · 「## 」 머리 · 12,000자', () => {
+  const host = new URL(config.supabaseUrl).host
+  const raw = ['# 결과', '',
+    '초안: `/workspace/.bpmn/conv-1/초안.docx`, 원본은 /Users/someone/Downloads/견적.xlsx 에 있어요.',
+    '링크: [첨부 보기]( </workspace/.bpmn/conv-1/첨부 1.pdf> ) · [로컬](file:///Users/someone/a.md)',
+    `메일 첨부(30분): https://${host}/storage/v1/object/sign/private/pgpt-pro/u/att/abc/견적서.pdf?token=eyJhbGci.x.y`,
+    '공유: https://lite.example/api/team/shares/123/raw?sig=abcd&u=x&exp=1',
+    '[서명된 파일](https://bucket.s3.amazonaws.com/a/report.pdf?X-Amz-Signature=deadbeef&X-Amz-Credential=c)',
+    '<https://cdn.example/storage/v1/object/public/files/pgpt-pro/u/0f8fad5b-d9cb-469f-a165-70867728950e.md>',
+    '참고: https://www.example.com/guide?page=2 와 [안내](https://docs.example.org/a)'].join('\n')
+  const out = AS.answerText({ kind: 'doc', content: { text: raw } })
+  for (const bad of ['/workspace', '/Users/', 'file://', 'token=', 'sig=', 'X-Amz', host, '/storage/v1/', 'eyJhbGci']) assert.ok(!out.includes(bad), `남은 것: ${bad}\n${out}`)
+  assert.ok(out.includes('`초안.docx`') && out.includes('견적.xlsx') && out.includes('첨부 보기') && out.includes('로컬'), out)
+  assert.ok(out.includes('메일 첨부(30분): 견적서.pdf') && out.includes('서명된 파일') && out.includes('공유: 비공개 주소') && out.includes('비공개 주소'), out)
+  assert.ok(out.includes('https://www.example.com/guide?page=2') && out.includes('[안내](https://docs.example.org/a)'), '보통 웹 주소는 그대로')
+  // the title, the sheet's preview, the document, the room's text — the same words
+  assert.equal(AS.titleOf({ kind: 'text', content: { text: '/workspace/.bpmn/c/보고서.md 를 정리했어요' } }), '보고서.md 를 정리했어요')
+  assert.ok(!AS.docBody({ kind: 'doc', content: { text: raw } }).includes('token='))
+  assert.ok(!AS.previewOf({ kind: 'doc', content: { text: raw } }).includes('/workspace'))
+  assert.ok(!AS.sharedText({ kind: 'doc', content: { text: raw } }).includes('sig='))
+  // a document answer that starts with a heading of another level keeps it
+  assert.ok(AS.docBody({ kind: 'doc', content: { text: '## 회의록\n\n내용' } }).startsWith('## 회의록\n'))
+  assert.ok(AS.docBody({ kind: 'doc', content: { text: '회의록\n\n내용' } }).startsWith('# 회의록\n'))
+  // over the limit: cut, and said so
+  const long = { kind: 'text', content: { text: '가'.repeat(AS.LIMITS.text + 10) } }
+  assert.equal(AS.sharedText(long).length, AS.LIMITS.text)
+  assert.equal(AS.truncated(long), true)
+  assert.equal(AS.truncated({ kind: 'text', content: { text: '짧은 답' } }), false)
+})
+
 // ---------- AP-U-02 the picker ----------
 test('AP-U-02 방 고르기: 내 대화방 · 대화가 없는 팀원 · 남의 답 404 · 답이 아닌 메시지 400', { skip: !db && 'no database' }, async () => {
   const { me, k, p, grp, dm, theirs, answer, question, kAnswer } = await setup()
@@ -307,6 +343,48 @@ test('AP-U-04 문서로 남기기: Markdown 파일 카드(한 번만) · 남의 
   assert.equal((await call(k, 'POST', `/messages/${answer.id}/share/doc`)).status, 404)
 })
 
+test('AP-U-03b 비공개 주소가 든 답 · 잘린 답을 방에 보낸다 — 방 · 알림 · 고르는 화면에 주소 없음, 잘렸다고 · 팀에서 빠진 보낸 사람은 403(1:1 을 만들지 않음)', { skip: !db && 'no database' }, async () => {
+  const { me, k, grp, chat } = await setup()
+  const host = new URL(config.supabaseUrl).host
+  const text = `# /workspace/.bpmn/c/견적비교.md 정리\n\n첨부는 https://${host}/storage/v1/object/sign/private/a/견적서.pdf?token=SECRET 에 있어요.\n${'가'.repeat(AS.LIMITS.text)}`
+  const [a] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2) returning *`, [chat.id, { text }])
+  const pick = await call(me, 'GET', `/messages/${a.id}/share/rooms`)
+  assert.equal(pick.status, 200, pick.text)
+  assert.equal(pick.body.answer.title, '견적비교.md 정리')
+  assert.ok(pick.body.answer.preview.includes('견적서.pdf') && !pick.body.answer.preview.includes('SECRET'))
+  assert.equal(pick.body.answer.truncated, true)
+  const r = await call(me, 'POST', `/messages/${a.id}/share/room`, { room: grp })
+  assert.equal(r.status, 200, r.text)
+  const seen = (await roomMsgs(k, grp)).find((m) => m.id === r.body.message)
+  assert.ok(!JSON.stringify(seen).includes('SECRET') && !JSON.stringify(seen).includes('/workspace/'), '방에 주소 없음')
+  assert.equal(seen.answer.truncated, true)
+  const [row] = await q(`select messages from chats where uuid=$1`, [r.body.message])
+  assert.ok(!JSON.stringify(row.messages).includes('SECRET'), '저장된 행에도 없음')
+  const notes = await q(`select title, description from notifications where tenant_id=$1 and type='team' and url like $2`, [TENANT, `%${r.body.message}`])
+  assert.ok(notes.length && notes.every((n) => !`${n.title} ${n.description}`.includes('/workspace/') && !`${n.title} ${n.description}`.includes('SECRET')))
+  // the sender taken off the team: no list, no send — and no conversation of two made for it
+  const x = await person('한지우')
+  const pairs = async () => (await q(`select count(*)::int n from chat_rooms where tenant_id=$1 and participants @> $2::jsonb and participants @> $3::jsonb`, [TENANT, JSON.stringify([{ id: me.id }]), JSON.stringify([{ id: x.id }])]))[0].n
+  await q('delete from pro_team_members where tenant_id=$1 and user_id=$2', [TENANT, me.id])
+  try {
+    assert.equal((await call(me, 'GET', `/messages/${a.id}/share/rooms`)).status, 403)
+    assert.equal((await call(me, 'POST', `/messages/${a.id}/share/room`, { person: x.id })).status, 403)
+    assert.equal(await pairs(), 0, '1:1 을 만들지 않음')
+  } finally { await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$2) on conflict do nothing`, [TENANT, me.id]) }
+})
+
+test('AP-U-04b 「문서로 남기기」 둘이 동시에 → 카드 하나', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const [t] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project','동시에 남기기') returning *`, [me.id])
+  const [a] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','doc',$2) returning *`, [t.id, { text: '## 회의록\n\n두 화면에서 동시에 누른 답이에요.' }])
+  const [x, y] = await Promise.all([call(me, 'POST', `/messages/${a.id}/share/doc`), call(me, 'POST', `/messages/${a.id}/share/doc`)])
+  assert.equal(x.status, 200, x.text); assert.equal(y.status, 200, y.text)
+  assert.equal(x.body.message.id, y.body.message.id)
+  assert.deepEqual([x.body.existing, y.body.existing].sort(), [false, true])
+  assert.equal((await msgs(t.id)).filter((m) => m.kind === 'file').length, 1)
+  assert.ok((await (await real(x.body.message.content.url)).text()).startsWith('## 회의록'), '「## 」 머리 그대로')
+})
+
 // ---------- AP-U-05 the card ----------
 let offerId = null
 test('AP-U-05 「프로젝트로 시작」 카드: 판정이 고른 템플릿만(까닭) · 실행 권한 없는 템플릿은 후보에도 없음 · 출처 메일 · 아직 아무것도 만들지 않음', { skip: !db && 'no database' }, async () => {
@@ -343,6 +421,13 @@ test('AP-U-05 「프로젝트로 시작」 카드: 판정이 고른 템플릿만
   assert.ok(drafted.includes('받은 메일의 1차 교육 요청 내용 조사해 줘') && drafted.includes('2일차') && drafted.includes('1차 교육 과정 요청드립니다'))
   assert.equal((await q(`select count(*)::int n from pro_threads where user_id=$1 and kind='project'`, [me.id]))[0].n, projectsBefore, '아직 만들지 않음')
   assert.equal((await msgs(chat.id)).filter((m) => m.kind === 'project_offer').length, 1)
+  // AP-U-05b the same answer again (the button twice, the words after the button): the same card — no second card, no second question
+  const n = { judges: llm.judges, drafts: llm.drafts.length }
+  const again = await call(me, 'POST', `/messages/${answer.id}/project-offer`)
+  assert.equal(again.status, 200, again.text)
+  assert.equal(again.body.offer.id, offerId)
+  assert.deepEqual({ judges: llm.judges, drafts: llm.drafts.length }, n)
+  assert.equal((await msgs(chat.id)).filter((m) => m.kind === 'project_offer').length, 1)
 })
 
 // ---------- AP-U-06 make, from the template ----------
@@ -350,8 +435,12 @@ test('AP-U-06 「만들기」(템플릿): 작업 공간 · 계획 · 첫 문서 
   const { me, chat } = await setup()
   const T = await templates()
   const before = await msgs(chat.id)
-  const r = await call(me, 'POST', `/project-offers/${offerId}/make`, { title: '가나정밀 1차 교육', template: T.course.slug })
-  assert.equal(r.status, 200, r.text)
+  // what the person saw and changed on the card (AP-U-06b): the purpose, one deliverable taken out, the background — two screens press 「만들기」 at once
+  const body = { title: '가나정밀 1차 교육', template: T.course.slug, intent: '1차 교육 3일 과정의 교안을 만든다', deliverables: ['일차별 교안', ''], background: '채팅의 조사에서 이어 온 일' }
+  const both = await Promise.all([call(me, 'POST', `/project-offers/${offerId}/make`, body), call(me, 'POST', `/project-offers/${offerId}/make`, body)])
+  assert.deepEqual(both.map((x) => x.status).sort(), [200, 409], both.map((x) => x.text).join(' | '))
+  const r = both.find((x) => x.status === 200)
+  assert.equal((await q(`select count(*)::int n from pro_threads where user_id=$1 and kind='project' and title=$2`, [me.id, '가나정밀 1차 교육']))[0].n, 1, '프로젝트는 하나')
   const pid = r.body.project.id
   assert.equal(r.body.project.title, '가나정밀 1차 교육')
   assert.deepEqual(r.body.project.template, { slug: T.course.slug, name: '교육 과정 만들기 템플릿' })
@@ -366,9 +455,9 @@ test('AP-U-06 「만들기」(템플릿): 작업 공간 · 계획 · 첫 문서 
   // the plan
   const PN = await import('../lib/projectNote.js')
   const note = await PN.noteRow(me.id, pid)
-  assert.equal(note.note.intent, '1차 교육 3일 과정의 교안과 실습 목록을 만든다')
-  assert.deepEqual(note.note.deliverables.map((x) => x.text), ['일차별 교안', '실습 목록'])
-  assert.deepEqual(note.note.decisions, [{ text: '받은 메일의 교육 요청을 채팅에서 조사한 내용에서 시작했어요' }, { text: '출처: 받은 메일 「1차 교육 과정 요청드립니다」 · 이준호', pinned: true }])
+  assert.equal(note.note.intent, '1차 교육 3일 과정의 교안을 만든다', '카드에서 고친 목적')
+  assert.deepEqual(note.note.deliverables.map((x) => x.text), ['일차별 교안'], '뺀 것은 들어가지 않음')
+  assert.deepEqual(note.note.decisions, [{ text: '채팅의 조사에서 이어 온 일' }, { text: '출처: 받은 메일 「1차 교육 과정 요청드립니다」 · 이준호', pinned: true }])
   assert.equal(note.change.kind, 'backfill')
   // the project's room: the plan's chip, 「채팅에서 이어 온 프로젝트예요」, the first document
   const inProject = await msgs(pid)
@@ -383,6 +472,7 @@ test('AP-U-06 「만들기」(템플릿): 작업 공간 · 계획 · 첫 문서 
   const offer = after.find((m) => m.id === offerId)
   assert.equal(offer.content.state, 'made')
   assert.deepEqual(offer.content.project, { id: pid, title: '가나정밀 1차 교육' })
+  assert.deepEqual([offer.content.intent, offer.content.deliverables, offer.content.background], ['1차 교육 3일 과정의 교안을 만든다', ['일차별 교안'], '채팅의 조사에서 이어 온 일'], '카드는 확인한 그대로')
   const moved = after.find((m) => m.kind === 'chip' && m.content.project)
   assert.equal(moved.content.text, '프로젝트로 옮겼어요 · 가나정밀 1차 교육')
   assert.equal(moved.content.project.id, pid)
@@ -427,4 +517,83 @@ test('AP-U-08 템플릿이 하나도 없으면 판정 모델을 부르지 않고
   assert.deepEqual(o.content.templates, [])
   assert.equal(o.content.hasTemplates, false)
   assert.equal(o.content.read.by, 'none')
+})
+
+// ---------- AP-U-07b a 「만들기」 that stopped half way ----------
+test('AP-U-07b 멈춘 「만들기」: 오래된 잡음은 이어받고(만든 프로젝트가 있으면 그것), 「아니요」도 되고, 템플릿 작업 공간을 못 만들면 프로젝트도 남지 않음', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const [t] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat','멈춘 만들기') returning *`, [me.id])
+  const card = async (extra = {}) => (await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','project_offer',$2) returning *`,
+    [t.id, { text: '이 대화로 프로젝트를 시작할까요?', title: '멈춘 카드', intent: '멈춘 일을 이어 간다', deliverables: [], background: '', source: { threadId: t.id }, templates: [], state: 'offered', ...extra }]))[0]
+  const old = new Date(Date.now() - CP.MAKING_STALE_MS - 5000).toISOString()
+  const count = async (title) => (await q(`select count(*)::int n from pro_threads where user_id=$1 and kind='project' and title=$2`, [me.id, title]))[0].n
+  // a fresh claim is someone's: refused
+  const busy = await card({ state: 'making', making_at: new Date().toISOString() })
+  assert.equal((await call(me, 'POST', `/project-offers/${busy.id}/make`, { title: '지금 만드는 중' })).status, 409)
+  assert.equal((await call(me, 'POST', `/project-offers/${busy.id}/decline`)).status, 409)
+  // a stale claim with nothing made: taken over
+  const stale = await card({ state: 'making', making_at: old })
+  const r = await call(me, 'POST', `/project-offers/${stale.id}/make`, { title: '이어받은 프로젝트' })
+  assert.equal(r.status, 200, r.text)
+  assert.equal(await count('이어받은 프로젝트'), 1)
+  // a stale claim that had made its project: that project, not a second one
+  const [p0] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'project','먼저 만든 프로젝트') returning *`, [me.id])
+  const half = await card({ state: 'making', making_at: old, project: { id: p0.id, title: '먼저 만든 프로젝트' } })
+  const r2 = await call(me, 'POST', `/project-offers/${half.id}/make`, { title: '두 번째가 되면 안 됨' })
+  assert.equal(r2.status, 200, r2.text)
+  assert.equal(r2.body.project.id, p0.id)
+  assert.equal(await count('두 번째가 되면 안 됨'), 0)
+  // a stale claim can be closed
+  const gone = await card({ state: 'making', making_at: old })
+  const no = await call(me, 'POST', `/project-offers/${gone.id}/decline`)
+  assert.equal(no.status, 200, no.text)
+  assert.equal(no.body.offer.content.state, 'declined')
+  // a template whose workspace cannot be made: no project is left behind, the card waits again
+  const S = await import('../lib/folders/service.js')
+  const TPL = await import('../lib/folders/templates.js')
+  const broken = await S.createFolder(me, { name: '깨진 템플릿' })
+  await S.upload(broken, me, 'TEMPLATE.md', Buffer.from('---\ndescription: 깨진 템플릿\n---\n'))
+  await TPL.setTemplate(await S.folderById(broken.id), me, true)
+  await q('update pro_folders set repo_path=$2 where id=$1', [broken.id, path.join(ROOT, 'no-such-repo')])
+  const c3 = await card()
+  const bad = await call(me, 'POST', `/project-offers/${c3.id}/make`, { title: '남으면 안 되는 프로젝트', template: broken.slug })
+  assert.ok(bad.status >= 400, bad.text)
+  assert.equal(await count('남으면 안 되는 프로젝트'), 0, '고아 프로젝트 없음')
+  assert.equal((await q(`select content->>'state' s from pro_messages where id=$1`, [c3.id]))[0].s, 'offered')
+})
+
+// ---------- AP-U-09 by words: this conversation's answer ----------
+test('AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 이 대화의 답 · 좁혀 본 대화의 답과 줄만 · 카드는 대답처럼 따로 묶지 않음', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const chatOf = async (title) => (await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat',$2) returning *`, [me.id, title]))[0]
+  const put = async (t, role, kind, content, at) => (await q(`insert into pro_messages(thread_id,role,kind,content,created_at) values ($1,$2,$3,$4, now() - make_interval(secs => $5)) returning *`, [t.id, role, kind, content, at]))[0]
+  const long = (s) => `${s} ${'자세한 내용이에요. '.repeat(12)}`
+  // a scheduled run (filed aside, its own conversation) came after the answer the person was talking about
+  const w1 = await chatOf('말로 1')
+  await put(w1, 'user', 'text', { text: '가나정밀 교육 요청 정리해 줘' }, 50)
+  const a1 = await put(w1, 'agent', 'doc', { text: `# 교육 요청 정리\n\n${long('정리한 교육 요청이에요.')}`, conv: 'conv-w1', context: { conversationId: 'conv-w1', action: 'new', title: '교육 요청' } }, 40)
+  await put(w1, 'agent', 'text', { text: long('주간 시장 동향 예약 실행 결과예요.'), conv: 'sched-w1', context: { conversationId: 'sched-w1', action: 'aside' } }, 30)
+  const said1 = await put(w1, 'user', 'text', { text: '이 내용으로 프로젝트 하나 만들자' }, 20)
+  await put(w1, 'agent', 'text', { text: '아래 카드를 준비했어요.' }, 10)
+  const o1 = await CP.offer(me, { threadId: w1.id, said: '이 내용으로 프로젝트 하나 만들자', before: said1.id, via: 'words' }, { templates: async () => [] })
+  assert.equal(o1.content.source.answer.messageId, a1.id, '이 대화의 답')
+  assert.equal(o1.content.context, undefined, '카드는 대답처럼 따로 묶지 않음')
+  assert.ok(!llm.drafts.at(-1).includes('시장 동향'), '예약 실행의 글은 자료가 아님')
+  // two conversations: the page narrowed to the older one — its answer and its lines only; not narrowed — the newer one (the chat is in it)
+  const w2 = await chatOf('말로 2')
+  await put(w2, 'user', 'text', { text: 'A 고객 교육안 써 줘' }, 60)
+  const aA = await put(w2, 'agent', 'doc', { text: `# A 교육안\n\n${long('A 고객 교육안이에요.')}`, conv: 'conv-a', context: { conversationId: 'conv-a', action: 'new' } }, 50)
+  await put(w2, 'user', 'text', { text: 'B 고객 견적 비교해 줘' }, 40)
+  const aB = await put(w2, 'agent', 'text', { text: long('B 고객 견적 비교예요.'), conv: 'conv-b', context: { conversationId: 'conv-b', action: 'new' } }, 30)
+  const said2 = await put(w2, 'user', 'text', { text: '이걸로 프로젝트 시작하자' }, 20)
+  const narrowed = await CP.offer(me, { threadId: w2.id, before: said2.id, via: 'words', conversationId: 'conv-a' }, { templates: async () => [] })
+  assert.equal(narrowed.content.source.answer.messageId, aA.id)
+  const lines = llm.drafts.at(-1)
+  assert.ok(lines.includes('A 고객 교육안 써 줘') && !lines.includes('B 고객 견적'), '좁혀 본 대화의 줄만')
+  await q(`update pro_messages set content = content || '{"state":"declined"}'::jsonb where id=$1`, [narrowed.id])
+  const plain = await CP.offer(me, { threadId: w2.id, before: said2.id, via: 'words' }, { templates: async () => [] })
+  assert.equal(plain.content.source.answer.messageId, aB.id, '좁히지 않았으면 채팅이 있던 대화(가장 최근 답의 대화)')
+  // the pure rule, as the page files the lines
+  const { conv, cur } = CP.conversationsOf([{ id: 'u1', role: 'user', content: {} }, { id: 'a1', role: 'agent', content: { conv: 'x' } }, { id: 's', role: 'agent', content: { context: { conversationId: 'run', action: 'aside' } } }, { id: 'u2', role: 'user', content: {} }])
+  assert.deepEqual([conv.get('u1'), conv.get('a1'), conv.get('s'), conv.get('u2'), cur], ['x', 'x', 'run', 'x', 'x'])
 })
