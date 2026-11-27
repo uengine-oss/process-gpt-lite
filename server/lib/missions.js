@@ -6,6 +6,7 @@
 // successful run that found nothing new. A failed run — a skill, a process or a plain prompt — is
 // recorded in the task's run history and announced in chat and on Home.
 import { config } from '../config.js'
+import { asAgentRun } from './mailOut.js'
 import { q, sessionFor } from './supa.js'
 import { emit } from './bus.js'
 import { notifyUser } from './notify.js'
@@ -167,7 +168,7 @@ async function streamAgent({ user, session, message, agent, gitSkills }) {
       metadata: cli
         ? { client: 'pgpt-pro-mission', agent_cli: agent.cli || 'claude-code', agent_model: agent.model || '', agent_permission: agent.permission || 'command_exec', ...(isEn() ? { language: 'en' } : {}),
             ...(gitSkills ? { skills: Object.keys(gitSkills), git_skills: gitSkills } : {}) }
-        : { client: 'pgpt-pro-mission', ...(isEn() ? { language: 'en', style: 'English, concise.' } : {}) },
+        : { client: 'pgpt-pro-mission', ...(isEn() ? { language: 'en', style: 'English, concise.' } : {}), ...(config.hiddenTools.length ? { hidden_tools: config.hiddenTools } : {}) },
     }),
   })
   if (!res.ok) throw new Error(`${cli ? 'cli-agent' : 'deepagents'} ${res.status}`)
@@ -373,7 +374,11 @@ async function runMissionAs(s, trigger, opts = {}) {
       : cli
       ? L(`프로젝트에 설치된 \`${s.skill}\` 스킬을 읽고 사용하세요. ${ask}`, `Read and use the \`${s.skill}\` skill installed in the project. ${ask}`)
       : `/${s.skill} ${ask}`) + connectorHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + marketHint(`${s.skill} ${JSON.stringify(s.params || {})}`) + langInstruction()
-    const out = await streamAgent({ user, session, message, agent: s.agent, gitSkills })
+    // (a mail the run writes for the person — 「내 계정으로 보내기」, lib/mailOut.js — becomes a 「보낼 메일」 card where this task reports: the
+    // run is an agent turn of that chat while it lasts, never sent by itself)
+    const at = await reportTo(s, opts.threadId).catch(() => null)
+    const go = () => streamAgent({ user, session, message, agent: s.agent, gitSkills })
+    const out = at?.threadId ? await asAgentRun({ userId: s.user_id, threadId: at.threadId, conv: at.own?.conversationId || null }, go) : await go()
     const result = parseResult(out.text)
     // no result line: the run still finished (or not) — read the answer itself
     const plain = result ? null : outcomeOf(out.text)

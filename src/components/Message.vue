@@ -17,6 +17,7 @@ import TodoCard from './TodoCard.vue'
 import ProcessDraftCard from './ProcessDraftCard.vue'
 import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
+import MailOutCard from './MailOutCard.vue'
 import ShareButton from './team/ShareButton.vue'
 import FolderSuggest from './folders/FolderSuggest.vue'
 import ImproveCard from './improve/ImproveCard.vue'
@@ -298,6 +299,8 @@ onMounted(async () => {
     <!-- 「텔레그램으로 알려줘」 before a bot is connected: connect it right here (server lib/agent.js telegramTurn) -->
     <div v-else-if="msg.kind === 'telegram_connect'" class="tgc"><TelegramConnect :schedule-name="c.scheduleName || ''" /></div>
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
+    <!-- a mail the agent wrote for the person: it leaves from their own mailbox only when they press 보내기 (server lib/mailOut.js) -->
+    <MailOutCard v-else-if="msg.kind === 'mail_out'" :msg="msg" @connect="emit('connect')" />
     <!-- a step run by a CLI agent on its assignee's computer (server lib/localAgents): the card follows the run -->
     <!-- (a chat message's run — its 「대화 / 터미널」 in full; a step's card in its instance conversation is the compact one) -->
     <LocalRunCard v-else-if="msg.kind === 'local_run'" :run="c" :compact="!c.chat" />
