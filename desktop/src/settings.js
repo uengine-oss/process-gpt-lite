@@ -15,6 +15,9 @@
 //   folders      — { [server]: [{folderId, userId, path, label, include, exclude, sourceId, branch, state, why, paths, head, taken, files, bytes,
 //                  lastPushedAt, boundAt}] }: the folders of this computer kept as Lite folders (챔피언 폴더 — runner/sync.js), per server and
 //                  person. The picked folder's path is kept here only (the server and the page know its label — the folder's name)
+//   webSession   — { [origin]: {v, enc: true} }: the web app's sign-in on that server's origin (0.2.6 — the page's src/sessionStore.js, its
+//                  session tokens), sealed with the OS keychain; kept here only when it can be sealed (canSealWeb) — otherwise the page keeps
+//                  it in its own storage, as a browser does
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -98,6 +101,39 @@ const browserPrefOf = (v) => (BROWSER_PREFS.includes(v) ? v : 'own')
 const runnerPrefs = () => ({ enabled: data.runnerPrefs?.enabled !== false, ask: data.runnerPrefs?.ask === true, finishMinutes: finishMinutesOf(data.runnerPrefs?.finishMinutes),
   browser: browserPrefOf(data.runnerPrefs?.browser) })
 
+// ---------- the web app's sign-in (0.2.6 — main.js pgl:session:*) ----------
+// Only sealed: when the keychain cannot be used (some Linux — no keyring, or the 'basic_text' store, whose key is the same everywhere)
+// nothing is kept here and the page keeps its sign-in as it did before. noSeal: tests only (main.js — an app that is not packaged).
+let noSeal = false
+const setNoSeal = (v) => { noSeal = !!v }
+function canSealWeb() {
+  if (noSeal || !canEncrypt()) return false
+  try { if (process.platform === 'linux' && safe.getSelectedStorageBackend?.() === 'basic_text') return false } catch { /* older Electron */ }
+  return true
+}
+const MAX_WEB_SESSION = 64 * 1024
+function webSession(origin) {
+  const x = (data.webSession || {})[origin]
+  if (!x?.enc || !canSealWeb()) return null
+  try { return safe.decryptString(Buffer.from(x.v || '', 'base64')) || null } catch { return null }
+}
+// → false when it was not kept (the keychain refused, or too long): the page then holds it for this load only
+function setWebSession(origin, value) {
+  const v = String(value ?? '')
+  if (!origin || !canSealWeb() || !v || v.length > MAX_WEB_SESSION) return false
+  let sealed
+  try { sealed = safe.encryptString(v).toString('base64') } catch { return false }
+  set({ webSession: { ...(data.webSession || {}), [origin]: { v: sealed, enc: true } } })
+  return true
+}
+function forgetWebSession(origin) {
+  if (!(data.webSession || {})[origin]) return true
+  const all = { ...data.webSession }
+  delete all[origin]
+  set({ webSession: all })
+  return true
+}
+
 // ---------- the folders of this computer kept as Lite folders (runner/sync.js) — one person's on one server ----------
 // put(entry) adds or replaces that person's entry for entry.folderId; another person's entries on the same server are never seen or changed
 function folderStore(server, userId) {
@@ -119,4 +155,5 @@ function folderStore(server, userId) {
   }
 }
 
-module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS, folderStore }
+module.exports = { init, get, set, useServer, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS, folderStore,
+  canSealWeb, setNoSeal, webSession, setWebSession, forgetWebSession, MAX_WEB_SESSION }

@@ -38,3 +38,24 @@
   ✓  10 [desktop] › tests/desktop/desktop.spec.js:336:1 › D-10 메뉴 「서버 바꾸기…」: 같은 하늘의 고르기 화면, 취소하면 그대로 (밝음) (4.5s)
   ✓  11 [desktop] › tests/desktop/desktop.spec.js:361:1 › D-11 브라우저에서는 아무것도 바뀌지 않는다 (desktop.css 는 html.pgl-desktop 아래에서만) (748ms)
   11 passed (30.1s)
+
+# 0.2.6 — 2026-11-27: 로그인 보관 · 에이전트 브라우저가 열지 않는 곳
+# desktop/ 단위 시험 (cd desktop && npm test)
+ℹ tests 113 · pass 109 · fail 0 · skipped 4
+✔ 에이전트 브라우저는 앱이 연결한 Lite 서버의 출처와 그 로그인 출처를 열지 않는다 — about:blank 와 다른 사이트는 연다
+✔ 이 PC 의 Lite 서버는 이 PC 의 다른 이름으로도 — 같은 포트의 localhost · 127.0.0.1 · [::1] · 이 PC 의 주소
+✔ 이 세션의 요청: Lite 앱과 그 로그인 출처는 언제나 막고, 이 PC 의 망은 사람이 없는 작업에서만 — 웹 주소가 아닌 것은 페이지 규칙에
+✔ 「열기」 동작: Lite 앱 · 로그인 주소는 열지 않고 까닭을 답한다 — 다음 읽기에 붙고, 이 PC 에 보인 창이면 사람에게 한 번 알린다
+✔ 로그인은 키체인으로 봉인해 출처마다 둔다 — 설정 파일에는 토큰이 그대로 없고, 앱을 다시 켜도 읽힌다 · 지우면 그 출처만
+✔ 봉인할 수 없으면 아무것도 두지 않는다 — 키체인이 없거나(일부 Linux · basic_text) 거절하면 페이지가 지금처럼 스스로 둔다
+# server (cd server && node --test test/sessionStore.test.js test/browser-local.test.js test/browserDriver.test.js)
+sessionStore 4/4 · browser-local 15/15 (새: PC 의 브라우저는 그 데스크톱이 연결한 Lite 서버의 주소를 열지 않는다) · browserDriver 53/53
+# Playwright --project=desktop tests/desktop/desktop-harden.spec.js (묶지 않은 앱, BFF 8991 · Vite 5392)
+  ✓ DH-01 로그인은 앱이 봉인해 둔다 — 사용자 데이터 폴더 1048 파일, 토큰이 든 파일 없음
+  ✓ DH-02 에이전트 브라우저는 이 앱의 Lite 주소를 열지 않는다 — 열기 · 그리로 보내기 · 링크 · 요청 · 넘겨받은 창에서도
+  ✓ DH-03 로그아웃하면 봉인해 둔 로그인도 지운다
+  ✓ DH-04 페이지의 저장소에 있던 로그인은 처음 실행에 옮기고 지운다 — 새로 받은 세션의 토큰이 든 파일 없음
+  4 passed (20.1s)
+# 묶은 앱 (electron-builder --dir --mac --arm64): EnableCookieEncryption Enabled · codesign --verify --deep --strict 통과
+# 회귀 (같은 날): desktop.spec.js D-01~D-13 13 passed (BFF 8991 · Vite 5392 — D-05 는 새 창의 주소가 들어온 뒤 닫도록 기다림을 더함)
+#   local-browser.spec.js LB-01~03 3 passed (LB-01 의 앱 버전은 desktop/package.json 에서) · local-agents.spec.js L-01~04 4 passed

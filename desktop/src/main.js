@@ -76,6 +76,8 @@ if (HOOK_AT > 0) {
 
 function start() {
   settings.init(app.getPath('userData'), safeStorage)
+  // (tests only — an app that is not packaged: as on a computer whose keychain cannot be used — the page keeps its sign-in itself)
+  if (!app.isPackaged && process.env.PGL_DESKTOP_NO_SEAL === '1') settings.setNoSeal(true)
   if (!settings.get().lang) settings.set({ lang: /^ko\b/i.test(app.getLocale()) ? 'ko' : 'en' })
   app.setAboutPanelOptions({ applicationName: 'Process GPT Lite', applicationVersion: app.getVersion(), copyright: '© uEngine' })
   if (MAC && !app.isPackaged) { try { app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png')) } catch { /* no icon yet */ } }
@@ -416,8 +418,18 @@ let cliCache = null
 let browserHost = null
 const localBrowser = () => {
   if (process.env.PGL_DESKTOP_BROWSER === '0') return null
-  browserHost ||= createBrowserHost({ electron: require('electron'), log: (...a) => runnerLog(a.join(' ')) })
+  // (never the Lite app this window shows, nor its sign-in: the server chosen now and its Supabase sign-in — policy.js agentMay)
+  browserHost ||= createBrowserHost({ electron: require('electron'), log: (...a) => runnerLog(a.join(' ')), appServer: ctx, notice: browserNotice })
   return browserHost
+}
+// a window of that browser shown on this PC did not open the Lite app or its sign-in: the person is told why, in a box on that window
+// (tests — an app that is not packaged, PGL_DESKTOP_EXTERNAL=log: global.__pglBrowserNotices instead of the box)
+function browserNotice({ origin, win: w }) {
+  const ko = settings.get().lang !== 'en'
+  const message = ko ? '이 주소는 에이전트 브라우저에서 열지 않아요' : 'This address does not open in the agent\'s browser'
+  const detail = ko ? `${origin}\nProcess GPT Lite 는 앱 창에서 쓰세요.` : `${origin}\nUse Process GPT Lite in the app's own window.`
+  if (!app.isPackaged && process.env.PGL_DESKTOP_EXTERNAL === 'log') { (global.__pglBrowserNotices ||= []).push({ origin, message }); return }
+  dialog.showMessageBox(w && !w.isDestroyed() ? w : undefined, { type: 'info', message, detail, buttons: [ko ? '확인' : 'OK'], noLink: true }).catch(() => {})
 }
 const runnerLog = (s) => { if (DEV || process.env.PGL_RUNNER_LOG === '1') console.log(s) }
 // (PGL_RUNNER_DEVICE_NAME: a name of one's own — the tests' screenshots carry no machine name)
@@ -521,6 +533,17 @@ ipcMain.handle('pgl:runner:detect', async (e) => {
   sendRunnerState()
   return runnerStatus()
 })
+
+// ---------- the web app's sign-in, sealed with the system's keychain (0.2.6) ----------
+// The page's session (src/sessionStore.js — its access and refresh tokens) is kept by main in desktop-settings.json, sealed with
+// safeStorage (settings.webSession) per origin, not in the page's localStorage (a file in the profile folder). Only the chosen server's
+// own pages in the main window; synchronous (the page reads it as it starts and keeps it in its preload). {sealed: false}: it cannot be
+// sealed here (settings.canSealWeb) — the page keeps it itself, as a browser does.
+const sessionOrigin = (e) => policy.originOf(String(e.senderFrame?.url || ''))
+const sessionCall = (e, fn) => { try { e.returnValue = fromServerPage(e) && sessionOrigin(e) ? fn(sessionOrigin(e)) : null } catch { e.returnValue = null } }
+ipcMain.on('pgl:session:get', (e) => sessionCall(e, (o) => (settings.canSealWeb() ? { sealed: true, value: settings.webSession(o) } : { sealed: false })))
+ipcMain.on('pgl:session:set', (e, v) => sessionCall(e, (o) => (typeof v === 'string' && settings.setWebSession(o, v))))
+ipcMain.on('pgl:session:clear', (e) => sessionCall(e, (o) => settings.forgetWebSession(o)))
 
 // ---------- 챔피언 폴더: a folder of this computer kept as a Lite folder (runner/sync.js — desktop 0.2.5) ----------
 // The page asks (pglDesktop.folders); main picks the folder in the system's own dialog, and asks the person once more in a system dialog

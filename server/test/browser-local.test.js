@@ -525,3 +525,19 @@ test('사람이 시키지 않은 작업(own: false — 회사 루틴의 자동 �
     assert.ok(!opsSent().some((m) => m.op === 'navigate' && /127\.0\.0\.1/.test(m.args.url)))
   } finally { await setPc({ browser: 'own' }) }
 })
+
+test('PC 의 브라우저는 그 데스크톱이 연결한 Lite 서버의 주소를 열지 않는다 — 이 PC 의 다른 이름으로도, 에이전트는 까닭을 받는다 (데스크톱 0.2.6)', { skip }, async () => {
+  const goal = 'PC 에서 Lite 열기'
+  const r = await run(goal, [
+    ['goto', { url: `${hubUrl}/login` }],
+    ['goto', { url: `${hubUrl.replace('127.0.0.1', 'localhost')}/chat` }],
+    (b) => ['note', { text: `${lastSnap(b).url} | ${b.messages.filter((m) => m.role === 'tool').map((m) => String(m.content)).join(' | ')}` }],
+    ['finish', { summary: '열지 않았어요.' }],
+  ])
+  assert.equal(r.state, 'done', JSON.stringify(r).slice(0, 300))
+  assert.equal(r.where.kind, 'local')
+  const [where, ...told] = r.notes.at(-1).split(' | ')
+  assert.equal(where, `${site.url}/shop`, '페이지는 시작한 사이트 그대로')
+  assert.equal(told.length, 2)
+  for (const t of told) assert.match(t, /^error: could not open .*this browser does not open the Process GPT Lite app/)
+})

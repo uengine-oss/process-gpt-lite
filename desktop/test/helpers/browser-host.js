@@ -5,7 +5,7 @@
 //   PGL_TEST_SERVER   the server's address (http://127.0.0.1:<port>) · PGL_TEST_TOKEN  a device token it issued
 //   PGL_DESKTOP_USER_DATA  a folder of its own (the browser's profile lives there) · PGL_TEST_DEVICE  the device's name
 //   PGL_TEST_BROWSER_PREF  this PC's browser setting ('own' · 'all' · 'off') · PGL_BROWSER_MAX_DOWNLOAD  a smaller download cap (bytes)
-//   PGL_TEST_DOWNLOADS  the folder standing in for this PC's Downloads
+//   PGL_TEST_DOWNLOADS  the folder standing in for this PC's Downloads · PGL_TEST_AUTH_ORIGINS  the server's sign-in origin(s), comma-separated
 // It prints 「ready <user id>」 once the server welcomed it, and quits when its parent goes (stdin closes).
 const { app } = require('electron')
 const path = require('node:path')
@@ -22,7 +22,10 @@ const log = process.env.PGL_TEST_LOG === '1' ? (...a) => console.log(...a) : () 
 
 app.whenReady().then(async () => {
   try { app.dock?.hide() } catch { /* not a Mac */ }
-  const host = createBrowserHost({ electron: require('electron'), log })
+  // (as the app's: never the server it is linked to, nor PGL_TEST_AUTH_ORIGINS — its sign-in; a refused window shown here is noted)
+  const authOrigins = String(process.env.PGL_TEST_AUTH_ORIGINS || '').split(',').filter(Boolean)
+  const host = createBrowserHost({ electron: require('electron'), log, appServer: () => ({ server: process.env.PGL_TEST_SERVER, authOrigins }),
+    notice: (n) => { (global.__pglBrowserNotices ||= []).push({ origin: n.origin }) } })
   const r = createLocalRunner({
     server: process.env.PGL_TEST_SERVER, token: process.env.PGL_TEST_TOKEN, dataDir: path.join(app.getPath('userData'), 'local-agents'),
     device: { name: process.env.PGL_TEST_DEVICE || 'Test PC', platform: process.platform, appVersion: '0.2.3' },

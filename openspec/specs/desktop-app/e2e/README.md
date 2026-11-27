@@ -47,6 +47,11 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 | Windows · Linux의 배지 그림 | `desktop/test/badge.test.js`(가짜 Electron), 그림 `d12-tray-badges.png` |
 | macOS 메뉴 막대의 빨간 점 | `desktop/test/badge.test.js`(가짜 Electron · 픽셀 — 밝음 · 어두움, 바뀌면 다시 그림, 0이면 템플릿) |
 | 새 알림이 오면 Dock 아이콘이 한 번 튄다 | `desktop/test/badge.test.js`(가짜 Electron) |
+| 로그인한 뒤의 사용자 데이터 폴더 | DH-01 (`e2e/tests/desktop/desktop-harden.spec.js`) |
+| 로그아웃 | DH-03 |
+| 앞선 판의 로그인 | DH-04 |
+| 키체인을 쓸 수 없는 컴퓨터 | DH-04(`PGL_DESKTOP_NO_SEAL=1`), `desktop/test/session.test.js`, `server/test/sessionStore.test.js` |
+| (browser-handoff) 에이전트가 Lite 를 열려 한다 · 넘겨받은 창에서 | DH-02, `desktop/test/policy.test.js` · `browser.test.js`, `server/test/browser-local.test.js` |
 
 시험하지 않은 것: 실제 Windows · Linux 의 트레이 · 작업 표시줄 오버레이 · 런처 숫자(가짜 Electron 의 단위 시험만), 메뉴 막대에 보이는 모습(화면 기록 권한이 없어 찍지 못함 — `state()` 의 `tray.getTitle()` 로 확인), 전체 화면에서 신호등 자리 비우기(macOS 전체 화면은 새 Space로 옮겨 가서 이 PC의 화면에 영향을 준다), 마우스 오른쪽 단추 메뉴, 접근 암호(basic auth)가 걸린 서버, 401 응답일 때 자동으로 재시도하지 않는 동작, 화면 공유, Windows · Linux.
 
@@ -66,6 +71,10 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 | `d06-offline-dark.png` · `d10-offline-light.png` | 연결 실패 화면 |
 | `d12-home-from-tray.png` | 트레이 메뉴 「알림 2개 — 열기」로 폴더에서 채팅의 Home 으로 |
 | `d13-home-cards.png` | Home 카드 세 장 — 숫자 3 |
+| `dh01-signed-in-after-restart.png` | 0.2.6 — 앱을 다시 켜도 로그인한 채 채팅(로그인은 앱이 봉인해 둠) |
+| `dh02-pc-window-refused.png` | 0.2.6 — 「이 PC에서 보기」 창: Lite 로 가는 링크 · 요청이 닿지 않음(`blocked blocked no-window`) |
 | `d12-tray-badges.png` | 앱이 그리는 그림(`src/badge.js` → Electron `nativeImage`, 크게 확대): Windows · Linux 트레이 0 · 3 · 12(9+), 16 · 32px, 밝은 막대 · 어두운 막대, Windows 작업 표시줄 오버레이, macOS 템플릿 그림과 숫자 |
+
+DH-01~04 는 스스로 BFF(8991 — 쓰고 있으면 다음 빈 포트) · Vite(5391 — 마찬가지) · 대본 모델 · 지어낸 사이트를 띄운다: `cd e2e && npx playwright test --project=desktop tests/desktop/desktop-harden.spec.js`. 사용자 데이터 폴더는 앱을 닫은 뒤 모든 파일을 토큰의 UTF-8 · UTF-16 꼴로 찾는다. 묶은 앱의 쿠키 봉인(fuse)은 `npm run smoke` 의 `fuses` 가 본다 — 묶지 않은 앱(이 시험)에는 없다.
 
 시험 결과는 `e2e.txt`에 있다.

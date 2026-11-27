@@ -9,7 +9,7 @@ const os = require('node:os')
 const path = require('node:path')
 const fs = require('node:fs')
 const { BrowserService, Parts, sendBig, PART, WHOLE, MAX_PARTS, OPEN, OPS } = require('../src/browser/protocol')
-const { webAddress, privateHost, createBrowserHost, MAX_WORDS, POPUPS } = require('../src/browser/host')
+const { webAddress, privateHost, createBrowserHost, requestVerdict, APP_REFUSED, MAX_WORDS, POPUPS } = require('../src/browser/host')
 const { answersGate } = require('../src/policy')
 const settings = require('../src/settings')
 const P = require('../src/browser/pageScripts')
@@ -258,4 +258,47 @@ test('새 탭은 동작 안에서(시간 끝 안에) — 탭이 없을 때 동�
   driver.ensureTab = async () => { throw new Error('no window') }
   await svc.handle({ type: 'browser', id: 'l2', op: 'look', args: {} })
   assert.deepEqual([replyOf(out, 'l2').ok, replyOf(out, 'l2').error], [false, 'no window'])
+})
+
+// ---- desktop 0.2.6: never the Lite app this browser is part of, nor its sign-in ----
+test('이 세션의 요청: Lite 앱과 그 로그인 출처는 언제나 막고, 이 PC 의 망은 사람이 없는 작업에서만 — 웹 주소가 아닌 것은 페이지 규칙에', () => {
+  const app = { server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'] }
+  assert.equal(requestVerdict('https://acme.process-gpt.io/lite/api/me', { app }), 'app')
+  assert.equal(requestVerdict('wss://acme.process-gpt.io/lite/api/events', { app }), 'app')
+  assert.equal(requestVerdict('https://auth.process-gpt.io/auth/v1/token?grant_type=password', { app, noPrivate: true }), 'app')
+  assert.equal(requestVerdict('https://shop.example/', { app }), null)
+  assert.equal(requestVerdict('http://127.0.0.1:8080/', { app }), null, '사람이 시킨 작업은 이 PC 의 망도 그대로')
+  assert.equal(requestVerdict('http://127.0.0.1:8080/', { app, noPrivate: true }), 'private')
+  assert.equal(requestVerdict('https://shop.example/', { app, noPrivate: true }), 'name')
+  assert.equal(requestVerdict('data:text/plain,x', { app }), null)
+  // a server on this PC: by its other names too
+  const local = { server: 'http://localhost:5391', authOrigins: [] }
+  for (const u of ['http://127.0.0.1:5391/api/auth/email/start', 'http://[::1]:5391/login']) assert.equal(requestVerdict(u, { app: local }), 'app', u)
+  assert.equal(requestVerdict('http://127.0.0.1:5392/', { app: local }), null)
+})
+
+test('「열기」 동작: Lite 앱 · 로그인 주소는 열지 않고 까닭을 답한다 — 다음 읽기에 붙고, 이 PC 에 보인 창이면 사람에게 한 번 알린다', async () => {
+  const told = []
+  const host = createBrowserHost({ electron: { BrowserWindow: class {}, session: { fromPartition: () => ({}) } }, tmp: os.tmpdir(),
+    appServer: () => ({ server: 'http://127.0.0.1:5391', authOrigins: ['https://auth.example'] }), notice: (n) => told.push(n.origin) })
+  const sent = []
+  const win = { isDestroyed: () => false, isVisible: () => true }
+  const tab = { id: 1, win, wc: { getURL: () => 'about:blank', getTitle: () => '' }, cdp: { send: async (m, p) => { sent.push([m, p?.url]); return { loaderId: 'l1' } }, waitStage: async () => {} } }
+  Object.assign(host.state, { partition: 'persist:pgl-browser-u-1', user: 'u-1', active: tab, tabs: [tab], step: { ...host.state.step, navMs: 2000, settleMs: 10 } })
+  for (const url of ['http://localhost:5391/chat', 'http://127.0.0.1:5391/login']) {
+    const r = await host.navigate({ url })
+    assert.deepEqual([r.ok, r.error], [false, APP_REFUSED], url)
+  }
+  assert.deepEqual(sent, [], '페이지에 보내지도 않았다')
+  assert.deepEqual(told, [], '숨은 창: 사람에게 알리지 않는다(에이전트가 답을 받는다)')
+  host.state.shown = true
+  await host.navigate({ url: 'https://auth.example/auth/v1/authorize?provider=google' })
+  await host.navigate({ url: 'https://auth.example/auth/v1/authorize?provider=google' })
+  assert.deepEqual(told, ['https://auth.example'], '보인 창: 한 번(같은 주소는 잠시 다시 알리지 않음)')
+  const ok = await host.navigate({ url: 'https://shop.example/' })
+  assert.equal(ok.ok, true)
+  assert.deepEqual(sent, [['Page.navigate', 'https://shop.example/']])
+  assert.equal(host.state.refused.length, 4)
+  assert.ok(host.state.refused.every((r) => r.endsWith(APP_REFUSED)))
+  assert.match(APP_REFUSED, /Process GPT Lite/)
 })

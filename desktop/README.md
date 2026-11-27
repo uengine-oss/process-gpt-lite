@@ -71,12 +71,12 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 | 파일 | 하는 일 |
 |---|---|
 | `src/main.js` | 창(제목 표시줄 · 신호등 자리 · 창 위치 기억), 이동 제한, 권한(알림 · 마이크 · 클립보드), 내려받기, 화면 공유, 메뉴 연결, 로컬 화면 IPC |
-| `src/policy.js` | 주소별로 창 안(서버 출처 · 로그인 출처)이나 바깥(시스템 브라우저 · 메일)에서 열지, 차단할지 결정 |
+| `src/policy.js` | 주소별로 창 안(서버 출처 · 로그인 출처)이나 바깥(시스템 브라우저 · 메일)에서 열지, 차단할지 결정 · 이 PC 의 브라우저가 열지 않는 곳(`agentMay` — 0.2.6) |
 | `src/server.js` | 주소 정규화와 `/api/config` 확인 |
-| `src/settings.js` | `<userData>/desktop-settings.json` (서버 · 최근 기록 · 로그인 출처 · 접근 암호 · 창 · 언어 · 테마) |
+| `src/settings.js` | `<userData>/desktop-settings.json` (서버 · 최근 기록 · 로그인 출처 · 접근 암호 · 창 · 언어 · 테마 · 키체인으로 봉인한 창의 로그인 `webSession` — 0.2.6) |
 | `src/menu.js` | 한국어 · 영어 앱 메뉴 |
 | `src/tray.js` · `src/badge.js` | 트레이 아이콘과 Home 카드 수(Dock · 작업 표시줄 · 트레이), 배지 그림 — `resources/tray/` |
-| `src/preload.js` | 페이지 표시(`html.pgl-desktop`, `--pgl-tb-left/right`), 테마 알림, `window.pglDesktop`(읽기 전용 · 알림 수 `setBadge` · `onOpenHome`), 로컬 화면에만 `window.pglLocal` |
+| `src/preload.js` | 페이지 표시(`html.pgl-desktop`, `--pgl-tb-left/right`), 테마 알림, `window.pglDesktop`(읽기 전용 · 알림 수 `setBadge` · `onOpenHome` · 로그인 보관 `session` — 0.2.6), 로컬 화면에만 `window.pglLocal` |
 | `src/pages/` | 서버 고르기 · 연결 실패 화면 (웹 앱과 같은 하늘 배경) |
 | `src/browser/` | 이 PC 의 브라우저(0.2.3): 서버의 브라우저 에이전트가 링크로 움직인다 — `host.js`(숨은 창 · 탭 · 스크린캐스트 · 동작), `cdp.js`(`webContents.debugger` 위의 프레임 · 페이지 문맥 · 다른 사이트 iframe), `protocol.js`(이름 붙은 동작 · 그 사람만 · 조각), `pageScripts.js`(페이지 안에서 도는 서버와 같은 읽기 스크립트 · 가리기) |
 | `src/runner/` | 로컬 에이전트: 이 컴퓨터의 Claude Code · Codex 로 그 사람의 프로세스 단계를 돌린다 — `link.js`(서버로 나가는 WebSocket), `session.js`(그 사람의 대화형 CLI 를 PTY 에서 — 훅 · 기록 · 지켜보는 파일), `pty.js`(node-pty), `clis.js`(CLI 찾기 · 헤드리스 고정 명령 · 출력 읽기), `git.js`(작업 폴더 맞추기 · 커밋 · 올리기), `runner.js`(일 하나 · 입력 · 보고함 · 중계되는 세션 · 다시 켜졌을 때 이어서), `sync.js`(0.2.5 챔피언 폴더 — 고른 폴더의 그림자 저장소 · 훑기 · 비밀 검사 · 올리기, 규칙은 `secret-shapes.json` · `kit-places.json`), `index.js` |
@@ -85,6 +85,7 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 
 - `src/styles/desktop.css`: 창을 끌 수 있는 영역, 위 메뉴가 창 단추와 겹치지 않도록 하는 여백, 로그인 화면과 설정 ✕ 위치.
 - `src/main.js`: 위 CSS를 가져옵니다. 카드를 닫을 때 · 로그아웃할 때도 알림 수를 보내고, 트레이의 「알림 N개 — 열기」(`pglDesktop.onOpenHome`)에 Home 을 엽니다.
+- `src/sessionStore.js`(0.2.6): 로그인을 데스크톱 앱에서는 `pglDesktop.session`(앱이 봉인해 둠)에, 브라우저에서는 `localStorage` 에 둡니다 — `src/api.js` `auth` · `src/i18n/lang.js` 가 씁니다.
 - `src/browserNotify.js`: 데스크톱 앱에서는 푸시를 구독하지 않습니다. 알림도 서비스 워커가 아니라 `new Notification`으로 띄웁니다(Electron은 서비스 워커 알림을 보여 주지 않습니다). Home 카드 수는 `src/appBadge.js` 가 다리(`pglDesktop.setBadge`)로 보냅니다.
 
 ## 로컬 에이전트 (내 컴퓨터의 Claude Code · Codex)
@@ -114,6 +115,7 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 - **그림**: 실시간 화면과 모델의 그림은 모두 스크린캐스트에서 얻는다 — 숨은 창을 `capturePage` · `captureScreenshot` 으로 찍으면 그 뒤 창이 그리지 않는다(스크롤이 1.2초씩 기다림, 실측). 서버가 움직이는 동안 앱을 재우지 않는다(macOS App Nap — `powerSaveBlocker`).
 - **비밀**: 보관함 값은 그 칸에 넣을 때 한 번 오고, 칸을 먼저 가린 뒤 넣는다. 저장 · 로그 없음(`PGL_BROWSER_TRACE=1` 도 동작 이름과 시간만). 읽기 · 낱말 · 실시간 화면 · 모델의 그림의 가리기는 이 PC 에서 한다. 이 PC 에서 친 로그인은 보관함으로 보내지 않는다.
 - **작업 사이**: 작업이 쥔 동안(`begin` ~ `idle`)만 실시간 화면 · 받은 파일을 서버로 보낸다. 작업이 끝나면 페이지를 `about:blank` 로 비운다 — 창을 보고 있거나 작업이 사람이 필요한 채로 끝나면(`idle keep`, 카드의 「이 PC에서 보기」) 그대로. 그 사이 보이는 창에서 사람이 받는 파일은 이 PC 의 다운로드 폴더로, 보이지 않을 때 받는 파일은 지운다. 링크가 끊기면 쥔 상태를 놓는다(페이지는 둔다). 보였다가 숨은 창은 같은 주소의 새 숨은 탭으로 바뀐다(Electron 에서 숨은 뒤 새 페이지를 그리지 않았다). 숨은 창은 소리를 내지 않고, 사람 동작 없이는 자동 재생하지 않는다.
+- **Lite 는 열지 않는다(0.2.6)**: 이 브라우저는 앱이 연결한 Lite 서버(그 출처, 이 PC 에 있는 서버면 같은 포트의 `localhost` · `127.0.0.1` · `[::1]` · 이 PC 의 주소)와 그 서버의 로그인(Supabase) 주소를 열거나 그리로 요청하지 않는다 — 에이전트의 열기, 그리로 보내는 사이트, 링크 · 새 창 · 프레임, fetch · 그림 · 소켓 모두(`session.webRequest` 로 이 세션의 모든 요청을 먼저 본다, 규칙은 `src/policy.js` `agentMay`). 에이전트는 까닭을 답으로 받고 다음 읽기에 `[not opened] <출처>: …` 가 붙는다. 「이 PC에서 보기」로 넘겨받은 창에서 막히면 「이 주소는 에이전트 브라우저에서 열지 않아요」 창이 뜬다.
 - **제한**: 웹 주소(http · https · about:blank)만 연다 — 이 PC 의 파일(`file:`)은 열지 않는다. 사이트에 카메라 · 마이크 · 화면 · 위치 · 알림 · 클립보드 읽기를 주지 않는다. 받은 파일은 임시 폴더에 받아 서버로 보내고 지운다(50MB 까지 — 크기를 말하지 않으면 받는 동안 센다). 페이지의 alert · confirm · prompt 는 상자 없이 넘기거나 취소하고 그 말을 다음 읽기에 붙인다. 이 PC 의 클립보드는 붙여 넣지 않는다(⌘V · Ctrl+V 거절). 보이는 창의 제목은 페이지의 출처부터, 전체 화면은 막는다. 한 작업에 새 창 10개 · 한 번에 탭 8개. 앱의 기본 인증 답(`app.on('login')`)은 이 브라우저의 세션에 답하지 않는다.
 - 개발용 환경변수: `PGL_DESKTOP_BROWSER=0`(브라우저 없이 — 0.2.2 처럼), `PGL_BROWSER_TRACE=1`(동작마다 걸린 시간), `PGL_BROWSER_MAX_DOWNLOAD`(받는 파일의 끝, 바이트 — 시험용), `PGL_TEST_BROWSER_PREF`(시험 호스트가 알리는 이 PC 의 설정).
 - 시험: `npm test`(`test/browser.test.js` — 동작 · 사람 · 조각(바이트 · 끝) · 로그 · begin/idle · 내부 주소 · 기본 인증 · 이 PC 의 설정 · 닫으면 세션을 놓음), 서버 쪽 `server/test/browserDriver.test.js` · `browser-local.test.js`(이 앱의 코드를 Electron 으로 띄워 붙인다 — `test/helpers/browser-host.js`), `cd e2e && npx playwright test --project=desktop tests/desktop/local-browser.spec.js`(진짜 앱).
@@ -152,6 +154,8 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 - `contextIsolation`, `sandbox`를 켜고 `nodeIntegration`은 끕니다. `<webview>`를 쓰지 않고 remote 모듈도 없습니다. preload는 읽기 전용 정보와 로컬 화면 버튼만 제공합니다. 로컬 화면의 IPC는 요청을 보낸 곳이 `src/pages/`인지 확인합니다.
 - 창 안에서 열리는 곳은 고른 서버의 출처(ProcessGPT와 같은 출처 포함)와 로그인 출처뿐입니다. 로그인 출처는 서버 `/api/config`의 Supabase 주소와 Google 계정 화면입니다. 그 밖의 웹 주소와 메일 링크(`mailto:`)는 시스템 브라우저나 메일 앱으로 넘기고, 다른 스킴(`file:` 등)은 막습니다. 같은 서버의 새 창(원본 받기, 문서 링크)은 preload가 없는 일반 창으로 엽니다.
 - 권한(알림 · 마이크 · 카메라 · 클립보드 · 전체 화면)은 서버 출처에만 줍니다.
+- **로그인 보관(0.2.6)**: 창에서 한 Lite 로그인(서버가 준 세션)은 페이지의 `localStorage` 가 아니라 앱이 운영체제의 키체인(`safeStorage` — macOS 키체인 · Windows DPAPI · Linux 키링)으로 봉인해 `desktop-settings.json` 의 `webSession[<서버 출처>]` 에 둡니다. 페이지는 preload 의 `pglDesktop.session`(`sealed` · `get` · `set` · `clear`, 서버 화면에만 답함)으로 읽고 쓰며(`src/sessionStore.js`), 웹(브라우저 · 휴대폰)은 그대로 `localStorage` 입니다. 앞선 판이 페이지에 둔 로그인은 처음 실행에 앱으로 옮기고 페이지에서 지운 뒤 한 번 새로 받습니다. 로그아웃하면 봉인해 둔 것도 지웁니다. 키체인을 쓸 수 없으면(키링이 없는 일부 Linux, `basic_text`) 지금처럼 페이지에 둡니다.
+- **쿠키(0.2.6)**: 묶은 앱은 디스크의 쿠키도 같은 키로 봉인합니다(Electron fuse `EnableCookieEncryption`, `scripts/adhoc-sign.js` — 서명 전에 켬, `npm run smoke` 가 확인). 묶지 않은 개발 실행(`electron .`)에는 없습니다.
 - 사용자 에이전트에서 `Electron/…`을 뺐습니다. Google이 내장 브라우저 이름을 보고 로그인을 막기 때문입니다.
 
 ## 시험
@@ -163,6 +167,11 @@ cd e2e && PGPT_URL=http://localhost:5180 API_URL=http://127.0.0.1:8787 npx playw
 # 묶은 앱으로:
 PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacOS/Process GPT Lite" npx playwright test --project=desktop
 ```
+
+## 변경
+
+- **0.2.6**: 에이전트 브라우저(이 PC 의 브라우저)는 앱이 연결한 Lite 와 그 로그인 주소를 열지 않습니다 — 넘겨받은 창에서는 「이 주소는 에이전트 브라우저에서 열지 않아요」. 앱 창의 로그인은 운영체제 키체인으로 봉인해 두고(앞선 판의 것은 처음 실행에 옮김), 묶은 앱은 디스크의 쿠키도 봉인합니다. 시험: `npm test`(`test/policy.test.js` · `test/browser.test.js` · `test/session.test.js`), 서버 `server/test/sessionStore.test.js`, `cd e2e && npx playwright test --project=desktop tests/desktop/desktop-harden.spec.js`(DH-01~04). 개발용 `PGL_DESKTOP_NO_SEAL=1`(묶지 않은 앱만 — 키체인을 쓸 수 없는 컴퓨터처럼).
+- 0.2.5: 내 PC 폴더 올리기(챔피언 폴더). 0.2.4: 트레이 아이콘과 알림 수. 0.2.3: 이 PC 의 브라우저.
 
 ## 남은 일
 

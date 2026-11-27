@@ -137,8 +137,31 @@
 - **THEN** Dock 아이콘이 한 번 튄다(`app.dock.bounce('informational')`)
 - **AND** 같은 수를 다시 받거나, 알림 수가 줄어들거나, 창이 전면에 있을 때는 튀지 않는다
 
+### Requirement: 로그인은 운영체제 키체인으로 봉인해 둔다
+시스템은 앱 창에서 한 Lite 로그인(서버가 준 세션)을 그 페이지의 저장소(`localStorage`)에 두지 않고(MUST NOT), 앱이 운영체제의 키체인(Electron `safeStorage`)으로 봉인해 사용자 데이터 폴더의 `desktop-settings.json` 에 서버 출처마다 두어야 한다(SHALL, 0.2.6). 새로 고쳐도, 앱을 다시 켜도 로그인한 채이고, 로그아웃하면 봉인해 둔 것도 지운다. 웹(브라우저 · 휴대폰)은 바뀌지 않는다.
+
+- 앞선 판이 페이지 저장소에 둔 로그인은 처음 실행에 앱으로 옮기고 페이지 저장소에서 지우며, 그 세션을 한 번 새로 받는다(ProcessGPT 에서 받은 세션은 ProcessGPT 가 새로 받으므로 그대로).
+- 키체인을 쓸 수 없는 컴퓨터(키링이 없는 일부 Linux, `basic_text` 저장소)에서는 지금처럼 페이지 저장소에 둔다. 키체인이 봉인을 거절하면 그 창은 로그인을 그 페이지가 열려 있는 동안만 쥔다.
+- 묶은 앱은 디스크의 쿠키도 같은 키로 봉인한다(Electron fuse `EnableCookieEncryption` — 묶을 때 서명 전에 켜고, 묶은 앱의 확인 `npm run smoke` 가 본다).
+
+#### Scenario: 로그인한 뒤의 사용자 데이터 폴더
+- **WHEN** 앱 창에서 로그인하고, 새로 고치고, 앱을 다시 켠다
+- **THEN** 로그인한 채 채팅이 열리고, 페이지 저장소에 로그인이 없으며, 앱을 닫은 뒤 사용자 데이터 폴더의 어느 파일에도 그 세션의 토큰이 그대로(UTF-8 · UTF-16) 들어 있지 않다(DH-01)
+
+#### Scenario: 로그아웃
+- **WHEN** 설정 › 로그아웃을 누른다
+- **THEN** 로그인 화면이 되고 `desktop-settings.json` 에 그 서버의 로그인이 없으며, 새로 고쳐도 로그인 화면이다(DH-03)
+
+#### Scenario: 앞선 판의 로그인
+- **WHEN** 페이지 저장소에 로그인이 있는 사용자 데이터 폴더로 0.2.6 을 켠다
+- **THEN** 로그인한 채 채팅이 열리고, 페이지 저장소에서는 지워지며, 앱이 봉인해 둔 세션은 새로 받은 것이다 — 그 새 세션의 토큰은 사용자 데이터 폴더 어디에도 그대로 없다(DH-04)
+
+#### Scenario: 키체인을 쓸 수 없는 컴퓨터
+- **WHEN** 키체인을 쓸 수 없다(시험: 묶지 않은 앱의 `PGL_DESKTOP_NO_SEAL=1` · 단위 시험의 키체인 없음 · 거절 · `basic_text`)
+- **THEN** 앱은 아무것도 봉인해 두지 않고 페이지가 저장소에 로그인을 둔다 — 로그인은 지금처럼 된다(DH-04 · `desktop/test/session.test.js`)
+
 ### Requirement: 보안
-시스템은 창마다 `contextIsolation`과 `sandbox`를 켜고 `nodeIntegration`을 꺼야 한다(SHALL). `<webview>`를 쓰지 않고 remote 모듈도 없다. preload는 서버 화면에 읽기 전용 정보(`window.pglDesktop`: 앱 · 버전 · 플랫폼)만 제공한다. 로컬 화면(서버 고르기, 연결 실패)에만 해당 화면의 단추를 제공하고(`window.pglLocal`), 메인 프로세스는 요청을 보낸 곳이 앱의 `src/pages/`인지 확인한다.
+시스템은 창마다 `contextIsolation`과 `sandbox`를 켜고 `nodeIntegration`을 꺼야 한다(SHALL). `<webview>`를 쓰지 않고 remote 모듈도 없다. preload는 서버 화면에 읽기 전용 정보(`window.pglDesktop`: 앱 · 버전 · 플랫폼)와 그 화면의 로그인 보관(`session` — 아래 「로그인은 운영체제 키체인으로 봉인해 둔다」, 고른 서버의 화면에만 답함)을 제공한다. 로컬 화면(서버 고르기, 연결 실패)에만 해당 화면의 단추를 제공하고(`window.pglLocal`), 메인 프로세스는 요청을 보낸 곳이 앱의 `src/pages/`인지 확인한다.
 
 #### Scenario: 서버 화면이 로컬 단추를 부른다
 - **WHEN** 서버 화면에서 `pgl:connect`를 보내려 한다

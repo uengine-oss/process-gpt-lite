@@ -11,6 +11,9 @@
 //   · Downloads land in a temporary folder here and go to the server (browser-event download), which posts them as the server's own.
 //   · Pages go only to web addresses (http · https · about:blank): never this PC's files or the app's own pages. A task nobody watches
 //     (a process step, a scheduled run — begin({ noPrivate })) does not reach this PC's own network either (localhost, 10/8, 192.168/16 …).
+//   · Never the Lite app this browser is part of, nor its sign-in (desktop 0.2.6 — policy.js agentMay: the server the app is connected to
+//     and its Supabase sign-in, appServer()): no page, redirect, popup, frame or request of this session goes there, for the agent or for
+//     the person working a window shown here (who is told why — notice).
 //   · Between tasks (idle) it sends nothing: no frames, no downloads; the page is cleared (a vault value typed into it goes too).
 //   · A page's own alert · confirm · prompt never opens a box here (answered as nobody watching would, kept for the next look); no
 //     fullscreen, no sound while hidden, no paste from this PC's clipboard, at most POPUPS new windows a task.
@@ -19,6 +22,7 @@ const os = require('node:os')
 const fs = require('node:fs')
 const { Cdp, withTimeout } = require('./cdp')
 const P = require('./pageScripts')
+const { agentMay } = require('../policy')
 
 const VIEW = { width: 1280, height: 800 }
 const MAX_DOWNLOAD = Number(process.env.PGL_BROWSER_MAX_DOWNLOAD) > 0 ? Number(process.env.PGL_BROWSER_MAX_DOWNLOAD) : 50 * 1024 * 1024 // (tests make it small)
@@ -64,16 +68,58 @@ function privateHost(u) {
 }
 // (the scheme too: http and https of the same name are not the same site)
 const originOf = (u) => { try { const x = new URL(u); return x.origin === 'null' ? x.protocol : x.origin } catch { return '' } }
+// what this browser's session does with a request (webRequest.onBeforeRequest — every page, its pictures and scripts, a fetch, a form, a
+// socket, a popup's first page): 'app' — the Lite app or its sign-in (refused, always); 'private' — this PC's network while a task nobody
+// watches holds the browser (refused); 'name' — a name to resolve first (that task too); null — it goes
+function requestVerdict(url, { app = {}, noPrivate = false } = {}) {
+  const u = String(url || '')
+  if (!/^(https?|wss?):/i.test(u)) return null
+  if (!agentMay(u, app)) return 'app'
+  if (!noPrivate) return null
+  return privateHost(u) ? 'private' : 'name'
+}
+// what the agent is told when the app's own address is refused (its next look says it too)
+const APP_REFUSED = 'this browser does not open the Process GPT Lite app or its sign-in page — the person uses it in the app\'s own window'
 const pause = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// This PC's own addresses and names (policy.js agentMay: a Lite server on this PC answers by any of them) — read again after a minute
+let selfAt = 0, selfList = []
+function selfHosts() {
+  if (Date.now() - selfAt < 60_000) return selfList
+  selfAt = Date.now()
+  const out = new Set()
+  try { for (const list of Object.values(os.networkInterfaces())) for (const a of list || []) if (a?.address) out.add(String(a.address).toLowerCase().replace(/%.*$/, '')) } catch { /* none */ }
+  try { const h = os.hostname().toLowerCase().replace(/\.$/, ''); if (h) { out.add(h); out.add(`${h.replace(/\.local$/, '')}.local`) } } catch { /* none */ }
+  selfList = [...out]
+  return selfList
+}
+
 // electron: the electron module (main.js passes its own) · emit(msg): out to the server (protocol.js sets it) · log
-function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir(), 'pgl-browser') } = {}) {
+// appServer(): {server, authOrigins} — the Lite server the app is connected to and its sign-in origin(s) (main.js; the test host: its
+// server) · notice({origin, win}): a window shown on this PC did not open one of them — main tells the person why
+function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir(), 'pgl-browser'), appServer = () => null, notice = () => {} } = {}) {
   const { BrowserWindow, session: electronSession } = electron
   const state = { user: null, partition: null, tabs: [], active: null, live: { minMs: 333, width: 1024, height: 640 }, snap: { maxEls: 120, maxText: 3000, budgetMs: 1500 },
     step: { navMs: 20000, settleMs: 1500, snapMs: 6000, shotMs: 6000 }, frameOf: new Map(), shown: false, seq: 0, quitting: false, files: new Set(),
-    busy: false, noPrivate: false, popups: 0, coming: 0, dialogs: [], ensuring: null, replacing: null, names: new Map() }
-  // where a page may go now: a web address; for a task nobody watches, not this PC's own network
-  const allowed = (u) => webAddress(u) && !(state.noPrivate && privateHost(u))
+    busy: false, noPrivate: false, popups: 0, coming: 0, dialogs: [], refused: [], told: new Map(), ensuring: null, replacing: null, names: new Map() }
+  const appCtx = () => { let a = null; try { a = appServer() } catch { /* none */ } return { server: String(a?.server || ''), authOrigins: Array.isArray(a?.authOrigins) ? a.authOrigins : [], selfHosts: selfHosts() } }
+  // the Lite app or its sign-in: never in this browser
+  const mayGo = (u) => agentMay(u, appCtx())
+  // where a page may go now: a web address, not the Lite app; for a task nobody watches, not this PC's own network
+  const allowed = (u) => webAddress(u) && mayGo(u) && !(state.noPrivate && privateHost(u))
+  // the app's address refused: the agent's next look says so, and a window shown on this PC tells the person (once in a while per address)
+  function refusedApp(u, win = null) {
+    const origin = originOf(u)
+    log(`[browser] refused (the Lite app or its sign-in): ${origin}`)
+    state.refused.push(`${origin}: ${APP_REFUSED}`)
+    if (state.refused.length > 5) state.refused.shift()
+    const w = win && !win.isDestroyed?.() ? win : null
+    if (!state.shown || !w?.isVisible?.()) return
+    const last = state.told.get(origin) || 0
+    if (Date.now() - last < 4000) return
+    state.told.set(origin, Date.now())
+    try { notice({ origin, win: w }) } catch { /* the app's own */ }
+  }
   // ... nor a public name that resolves to it here (127.0.0.1.nip.io, localtest.me): what this session's resolver says, a minute at a
   // time. A name that does not resolve is refused too (nothing to reach anyway). A name that resolves to a public address now and to a
   // private one when the page connects (DNS rebinding) is not caught — the address is not seen at connect time.
@@ -94,17 +140,23 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     if (state.names.size > 500) state.names.delete(state.names.keys().next().value)
     return priv
   }
-  // While a task nobody watches holds the browser, every request of this person's session — the page, its pictures and scripts, a
-  // fetch, a form, a popup's first page — is checked first (the navigation checks below see only navigations, and a popup's first
-  // request can come before them). Off again when the task lets go.
-  function netGuard(on) {
-    const ses = state.partition ? electronSession.fromPartition(state.partition) : null
+  // Every request of this person's session — the page, its pictures and scripts, a fetch, a form, a socket, a popup's first page — is
+  // checked first (the navigation checks below see only navigations, and a popup's first request can come before them): never the Lite
+  // app or its sign-in; while a task nobody watches holds the browser, not this PC's network either (state.noPrivate).
+  function guardRequests(ses) {
     if (!ses?.webRequest) return
-    if (!on) { ses.webRequest.onBeforeRequest(null); return }
     ses.webRequest.onBeforeRequest((d, cb) => {
       const u = String(d.url || '')
-      if (!/^(https?|wss?):/i.test(u)) return cb({})
-      if (privateHost(u)) { log(`[browser] refused (a task nobody watches, this PC's network): ${d.resourceType}`); return cb({ cancel: true }) }
+      const v = requestVerdict(u, { app: appCtx(), noPrivate: state.noPrivate })
+      if (!v) return cb({})
+      if (v === 'app') {
+        let w = null
+        try { w = d.webContents && d.resourceType === 'mainFrame' ? BrowserWindow.fromWebContents(d.webContents) : null } catch { /* gone */ }
+        if (d.resourceType === 'mainFrame') refusedApp(u, w)
+        else log(`[browser] refused (the Lite app or its sign-in): ${d.resourceType}`)
+        return cb({ cancel: true })
+      }
+      if (v === 'private') { log(`[browser] refused (a task nobody watches, this PC's network): ${d.resourceType}`); return cb({ cancel: true }) }
       privateByName(ses, u).then((p) => cb(p ? { cancel: true } : {}), () => cb({ cancel: true }))
     })
   }
@@ -144,8 +196,12 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     // a page that asks 「leave this page?」 (beforeunload — a form with something typed in it): it is left. Electron's own answer is to
     // stay, which kept the agent's next address and the blank page after a task (with a vault value typed into it) from loading
     wc.on('will-prevent-unload', (e) => e.preventDefault())
-    // pages go only to web addresses (for a task nobody watches, not this PC's own network)
-    const refuse = (e, url) => { if (!allowed(url)) e.preventDefault() }
+    // pages go only to web addresses, never the Lite app (for a task nobody watches, not this PC's own network)
+    const refuse = (e, url) => {
+      if (allowed(url)) return
+      e.preventDefault()
+      if (webAddress(url) && !mayGo(url) && e.isMainFrame !== false) refusedApp(url, win)
+    }
     wc.on('will-navigate', (e) => refuse(e, e.url))
     wc.on('will-redirect', (e) => refuse(e, e.url))
     wc.on('will-frame-navigate', (e) => refuse(e, e.url))
@@ -154,6 +210,7 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     // (at most POPUPS a task and MAX_TABS at once: a page opening window after window is refused)
     wc.setWindowOpenHandler(({ url }) => {
       // (windows on their way count too: twelve window.open() in one click come before the first tab is made)
+      if (url && webAddress(url) && !mayGo(url)) { refusedApp(url, win); return { action: 'deny' } }
       if ((url && !allowed(url)) || state.popups >= POPUPS || state.tabs.length + state.coming >= MAX_TABS) return { action: 'deny' }
       state.popups++
       state.coming++
@@ -448,6 +505,7 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
   function prepare(ses) {
     if (ses.__pglDownloads) return
     ses.__pglDownloads = true
+    guardRequests(ses)
     const ALLOW = new Set(['clipboard-sanitized-write'])
     ses.setPermissionRequestHandler((_wc, permission, cb) => cb(ALLOW.has(permission)))
     ses.setPermissionCheckHandler((_wc, permission) => ALLOW.has(permission))
@@ -522,9 +580,9 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     async begin({ noPrivate = false } = {}) {
       state.busy = true
       state.noPrivate = !!noPrivate
-      netGuard(state.noPrivate)
       state.popups = 0
       state.dialogs = []
+      state.refused = []
       await ensureTab()
       if (state.active && !state.active.cast) await startLive(state.active).catch(() => {})
       return true
@@ -535,7 +593,6 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     async idle({ keep = false } = {}) {
       state.busy = false
       state.noPrivate = false
-      netGuard(false)
       const t = liveTab()
       if (!t) return true
       stopLive(t)
@@ -573,6 +630,7 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
       const t = tab()
       const t0 = Date.now()
       if (!webAddress(url)) return { ok: false, partial: false, ms: 0, error: 'only web addresses (http · https) open in this browser' }
+      if (!mayGo(url)) { refusedApp(url, t.win); return { ok: false, partial: false, ms: 0, error: APP_REFUSED } }
       const own = 'a task nobody watches does not open addresses on this PC\'s own network'
       if (!allowed(url)) return { ok: false, partial: false, ms: 0, error: own }
       if (state.noPrivate && await privateByName(electronSession.fromPartition(state.partition), url)) return { ok: false, partial: false, ms: Date.now() - t0, error: own }
@@ -623,6 +681,9 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
       const said = [...state.dialogs.splice(0)]
       for (const fid of [...t.cdp.contexts.keys()]) said.push(...((await t.cdp.call(fid, P.DIALOGS_JS, [], { ms: 1000 }).catch(() => null)) || []))
       if (said.length) main.text += `\n${said.slice(-5).map((d) => `[dialog] ${d}`).join('\n')}`
+      // an address of the Lite app a page went for since the last look (not opened)
+      const refused = [...new Set(state.refused.splice(0))]
+      if (refused.length) main.text += `\n${refused.map((r) => `[not opened] ${r}`).join('\n')}`
       state.frameOf = frameOf
       return main
     },
@@ -741,12 +802,10 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     linkDown() {
       state.busy = false
       state.noPrivate = false
-      netGuard(false)
       if (state.active && !state.active.win.isDestroyed()) stopLive(state.active)
       return true
     },
     async close() {
-      netGuard(false)
       state.quitting = true
       for (const t of [...state.tabs]) { t.dropping = true; try { t.win.destroy() } catch { /* gone */ } }
       state.tabs = []
@@ -768,4 +827,4 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
   return host
 }
 
-module.exports = { createBrowserHost, webAddress, privateHost, privateIp, VIEW, POPUPS, MAX_WORDS }
+module.exports = { createBrowserHost, webAddress, privateHost, privateIp, requestVerdict, APP_REFUSED, VIEW, POPUPS, MAX_WORDS }

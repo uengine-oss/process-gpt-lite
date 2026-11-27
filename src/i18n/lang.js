@@ -5,6 +5,8 @@
 // a choice made on another device comes back through /api/me (syncLang).
 // Every /api request carries `X-PGL-Lang: en|ko`, so the server answers in the screen's language.
 // Imported first in main.js — before anything calls fetch.
+import { sessionStore } from '../sessionStore.js'
+
 const KEY = 'pgl-lang'
 const SYNCED = 'pgl-lang-synced' // the value the server last confirmed
 const valid = (v) => (v === 'en' || v === 'ko' ? v : null)
@@ -31,7 +33,7 @@ window.fetch = function (input, init) {
 }
 
 function token() {
-  try { return JSON.parse(localStorage.getItem('pgpt-pro-session') || 'null')?.session?.access_token || '' } catch { return '' }
+  try { return JSON.parse(sessionStore.read() || 'null')?.session?.access_token || '' } catch { return '' }
 }
 async function tellServer(v) {
   if (!token()) return false
