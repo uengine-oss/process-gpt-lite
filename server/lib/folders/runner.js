@@ -21,7 +21,7 @@ export async function runAgent({ jwt, user, conversationId, message, onText, sig
       message: message + langInstruction(), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
       user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: jwt,
       conversation_id: conversationId, stream: true,
-      metadata: { client: 'pgpt-pro', origin: 'pgpt-pro-folders', style: isEn() ? 'English, concise.' : 'Korean 해요체, concise.' },
+      metadata: { client: 'pgpt-pro', origin: 'pgpt-pro-folders', style: isEn() ? 'English, concise.' : 'Korean 해요체, concise.', ...(config.hiddenTools.length ? { hidden_tools: config.hiddenTools } : {}) },
     }),
   })
   if (!res.ok) throw new Error(`deepagents ${res.status}${await refusal(res)}`)

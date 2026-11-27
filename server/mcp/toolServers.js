@@ -15,6 +15,8 @@ export const LITE_TOOL_SERVERS = [
   { key: 'improve', paths: ['improve'] },
   ...CRAFT_APP_NAMES.map((app) => ({ key: `craft.${app}`, paths: [app] })),
   { key: 'office', paths: [OFFICE_SERVER_PATH, 'office'] },
+  // 「내 계정으로 보내기」 (mcp/mail.js): a mail the agent writes goes out only from the person's own mailbox, after they press 보내기
+  { key: 'mail', paths: ['mail'] },
 ].map((s) => ({ ...s, server: `pgpt-${s.paths[0]}` }))
 
 export const LITE_TOOL_SERVER_NAMES = LITE_TOOL_SERVERS.map((s) => s.server)

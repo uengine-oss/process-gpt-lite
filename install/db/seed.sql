@@ -26,6 +26,9 @@ update public.tenants
            'pgpt-panelapps', jsonb_build_object('url', 'http://server:8787/mcp/panelapps', 'type', 'streamable-http', 'enabled', true,
                'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}')),
            'pgpt-improve', jsonb_build_object('url', 'http://server:8787/mcp/improve', 'type', 'streamable-http', 'enabled', true,
+               'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}')),
+           -- 「내 계정으로 보내기」: a mail the agent writes goes out from the person's own mailbox after they press 보내기 on its card
+           'pgpt-mail', jsonb_build_object('url', 'http://server:8787/mcp/mail', 'type', 'streamable-http', 'enabled', true,
                'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}'))
          ), true)
  where id = :'tenant';

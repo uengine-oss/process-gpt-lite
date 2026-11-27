@@ -50,6 +50,11 @@ export const config = {
   bridgeUrl: get('PRO_BRIDGE_URL', ''),
   // context-router in front of the agents: picks the conversation a chat message belongs to
   contextRouterUrl: get('PRO_CONTEXT_ROUTER_URL', ''),
+  // tools of the company's agent that Lite's turns must not get (deepagents metadata.hidden_tools — by tool name). send_email is the
+  // company mail MCP's: it mails from the company's shared sending account, and a person's mail goes out from their own mailbox after
+  // they press 보내기 on its card instead (mcp/mail.js send_mail_as_me — 2026-11-27 production: a customer reply went out from the shared
+  // address, as a new mail). Comma separated; '' hides nothing.
+  hiddenTools: String(get('PRO_AGENT_HIDDEN_TOOLS', 'send_email')).split(',').map((s) => s.trim()).filter(Boolean),
   // template office-mcp generate_hwpx fills when someone asks for a 한글 document
   hwpxTemplateUrl: get('PRO_HWPX_TEMPLATE_URL', ''),
   // the template office-mcp fills for a proposal (제안서) a customer mail asks for (lib/mail.js drafts)

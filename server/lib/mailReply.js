@@ -45,7 +45,7 @@ export function recipients(original, mine = []) {
 }
 
 // ---------- the mail as it arrived ----------
-async function parsed(raw) {
+export async function parsed(raw) {
   const p = await simpleParser(raw)
   const refs = p.references ? (Array.isArray(p.references) ? p.references : String(p.references).split(/\s+/)) : []
   return {
@@ -60,7 +60,7 @@ async function parsed(raw) {
 // a mailbox that does not answer in time is said as such (504), never waited on for ever
 const tooSlow = () => fail(504, L('메일함이 제때 답하지 않았어요. 잠시 후 다시 시도해 주세요.', "The mailbox didn't answer in time. Please try again in a moment."), 'mail_timeout')
 const timedOut = (e) => e?.name === 'TimeoutError' || e?.name === 'AbortError'
-async function gmail(userId, path, init = {}) {
+export async function gmail(userId, path, init = {}) {
   const at = await googleAccessToken(userId)
   let res, text
   try {
@@ -78,7 +78,7 @@ async function gmail(userId, path, init = {}) {
   return text ? JSON.parse(text) : {}
 }
 
-async function imapClient(userId) {
+export async function imapClient(userId) {
   const sec = await getSecret(userId, 'login', 'imap')
   if (!sec) throw fail(409, L('메일함 로그인 정보가 없어요. 설정에서 메일을 다시 연결해 주세요.', 'The mailbox sign-in is missing. Connect your mail again in Settings.'))
   const client = new ImapFlow({ host: sec.host, port: 993, secure: true, auth: { user: sec.username, pass: sec.password }, logger: false,
@@ -269,7 +269,7 @@ export const storageKey = (url) => {
 }
 // a file the person added in the sheet: POST /attachments named it pgpt-pro/<their id>/att/<uuid>.<ext>
 export const ownUpload = (userId, k) => safeKey(k) && new RegExp(`^pgpt-pro/${userId}/att/[0-9a-f-]{36}\\.[a-z0-9]+$`).test(String(k))
-async function download(key, name) {
+export async function download(key, name) {
   const { data, error } = await admin.storage.from('files').download(key)
   if (error) throw fail(502, L(`${name || '파일'}을 가져오지 못했어요.`, `Couldn't fetch ${name || 'the file'}.`))
   return { buf: Buffer.from(await data.arrayBuffer()), type: data.type || undefined }
@@ -306,7 +306,7 @@ export async function buildReply({ from, to, cc, subject, body, original, attach
   }).compile().build()
 }
 
-async function gmailSend(userId, raw, threadId) {
+export async function gmailSend(userId, raw, threadId) {
   const b = `pgpt${Date.now().toString(36)}`
   const body = Buffer.concat([
     Buffer.from(`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(threadId ? { threadId } : {})}\r\n--${b}\r\nContent-Type: message/rfc822\r\n\r\n`),
@@ -315,7 +315,7 @@ async function gmailSend(userId, raw, threadId) {
   return gmail(userId, 'messages/send?uploadType=multipart', { method: 'POST', upload: true, type: `multipart/related; boundary=${b}`, body })
 }
 
-async function imapDraft(userId, raw) {
+export async function imapDraft(userId, raw) {
   const client = await imapClient(userId)
   try {
     const box = (await client.list()).find((b) => b.specialUse === '\\Drafts')

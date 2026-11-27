@@ -65,6 +65,7 @@ import { startPlanSync } from './lib/plans/apply.js'
 import { startMeter } from './lib/plans/meter.js'
 import { telegramRoutes } from './routes/telegram.js'
 import { mailReplyRoutes } from './routes/mailReply.js'
+import { mailOutRoutes } from './routes/mailOut.js'
 import { mailAttachmentRoutes } from './routes/mailAttachments.js'
 import { savePrivateCard, saveKindOf } from './lib/mailAttachments.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
@@ -75,6 +76,7 @@ import { signedIn, forget as forgetPerson } from './lib/people.js'
 import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
+import { mountMail } from './mcp/mail.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
 import { openFileCard } from './lib/fileCards.js'
@@ -618,6 +620,8 @@ if (config.scenarios) {
 app.use('/api', telegramRoutes(auth))
 // a mail's Home card: the mail as it arrived, a reply draft, the send on 보내기 (routes/mailReply.js)
 app.use('/api', mailReplyRoutes(auth))
+// a mail the agent wrote for the person: its 「보낼 메일」 card, sent from their own mailbox on 보내기 (routes/mailOut.js)
+app.use('/api', mailOutRoutes(auth))
 // a mail's attachments: opened where they belong (IeumOffice · the viewer · a download) from a private copy, never a public address
 // (routes/mailAttachments.js)
 app.use('/api', mailAttachmentRoutes(auth))
@@ -633,6 +637,7 @@ mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
 mountFolders(app)
 mountImprove(app)
+mountMail(app)
 mountPanelApps(app)
 mountConnectors(app)
 app.get('/api/connectors', auth, async (req, res) => {

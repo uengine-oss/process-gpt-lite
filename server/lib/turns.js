@@ -84,6 +84,9 @@ export function toStop(list) {
   return started.length ? started : list
 }
 export const waiting = ({ userId, threadId }) => [...live.values()].filter((x) => x.userId === userId && x.threadId === threadId && !x.started && !x.front && !x.finished)
+// This person's agent turns under way (delegate marks them: t.agent), oldest first — a tool the agent calls back with only the person's
+// token (lib/mailOut.js: the 「보낼 메일」 card) finds the chat it belongs in here
+export const agentTurnsOf = (userId) => [...live.values()].filter((x) => x.userId === userId && x.agent && x.started && !x.finished).sort((a, b) => a.seq - b.seq)
 
 // A browser task started by a correction ("do it on that site instead") replaces the agent turn of the
 // request it corrects: left running, that turn came back first with "완료했습니다" and files of its own
