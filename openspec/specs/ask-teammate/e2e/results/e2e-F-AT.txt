@@ -1,0 +1,6 @@
+Running 4 tests using 1 worker
+  ✓  1 [feature] › tests/feature/ask-teammate.spec.js:195:1 › F-AT-01 빈칸 → 「박도윤님께 메신저로 물어볼까요?」 → 물어보기 → 박도윤이 양식으로 답함 → 「답했어요」 · 초안의 새 판 · 메일 답장 초안 (PC · 밝은) (13.5s)
+  ✓  2 [feature] › tests/feature/ask-teammate.spec.js:258:1 › F-AT-02 휴대폰 390: 카드가 화면 안 · 고쳐서 물어보기 → 박도윤이 휴대폰에서 말로 답함 → 판정이 답으로 읽어 채움 (11.5s)
+  ✓  3 [feature] › tests/feature/ask-teammate.spec.js:305:1 › F-AT-03 어두운 테마: 카드가 어두운 색 · 「아니요(직접 채울게요)」 → 아무것도 보내지 않음 (4.7s)
+  ✓  4 [feature] › tests/feature/ask-teammate.spec.js:331:1 › F-AT-04 거절: 다른 회사 · 자기 자신 · 토큰 없는 호출, 위조한 제안은 카드 없음, 대신 답하기 404 · 403 (2.1s)
+  4 passed (38.0s)

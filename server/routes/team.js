@@ -25,6 +25,8 @@ import * as MM from '../lib/mailMention.js'
 import * as MA from '../lib/mailAttachments.js'
 import * as AI from '../lib/team/aiHelp.js'
 import { named } from '../lib/people.js'
+// a request the AI sent for someone (팀원에게 물어 채우기): the asked teammate's reply in words is read as its answer (lib/askTeammate.js)
+import * as AT from '../lib/askTeammate.js'
 
 // does the deepagents this server talks to unfold a room's branch and commit its turns? (/health worktree)
 // (asked again after a minute: deepagents restarts and upgrades without this server)
@@ -49,6 +51,8 @@ export function teamRoutes(auth) {
     M.startRoomFeed()
     // team assist watches every new person-written message in a room (lib/team/assist.js)
     watchRooms()
+    // …and the answer to a request the AI sent for someone, written in Process GPT's own UI
+    AT.watchAnswers()
   }
   const h = (fn) => async (req, res) => {
     try {
@@ -245,6 +249,8 @@ export function teamRoutes(auth) {
     const m = await M.post(req.user, req.params.id, { kind, body, refs, ai, mentions,
       attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
     if (ai) AI.answer(req.user, req.params.id, m).catch((e) => console.warn('[ai-help]', e.message))
+    // a reply to a request the AI sent me for someone (lib/askTeammate.js): the judge reads whether it is the answer — after the send
+    else if (kind === 'text') AT.onRoomMessage(req.user, req.params.id, m).catch((e) => console.warn('[ask-teammate] reply', e.message))
     return m
   }))
   // a file mention: open it (a card of mine for the office panel, or where it is in its folder) — the newest version with latest

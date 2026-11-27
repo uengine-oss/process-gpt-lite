@@ -27,7 +27,7 @@ const entry = (url, more = {}) => ({ url, type: 'streamable-http', headers: { Au
 const ALL = LITE_TOOL_SERVERS.map((t) => t.key)
 
 test('이름은 한 목록: 허브가 묶는 이름 = 공통 목록 이름 = pgpt-<이 서버의 경로>, ArtCraft 앱 · 이음오피스 이름과 같다', async () => {
-  assert.deepEqual(LITE_TOOL_SERVER_NAMES, ['pgpt-folders', 'pgpt-panelapps', 'pgpt-improve', 'pgpt-cadcraft', 'pgpt-vectorcraft', 'pgpt-photocraft', 'pgpt-soundcraft', 'pgpt-filmcraft', 'pgpt-ieumoffice-live-editor'])
+  assert.deepEqual(LITE_TOOL_SERVER_NAMES, ['pgpt-folders', 'pgpt-panelapps', 'pgpt-improve', 'pgpt-team', 'pgpt-cadcraft', 'pgpt-vectorcraft', 'pgpt-photocraft', 'pgpt-soundcraft', 'pgpt-filmcraft', 'pgpt-ieumoffice-live-editor'])
   // (entered the way the server's imports reach them: test/craftInstall.test.js)
   await import('../lib/craftWork.js')
   const { CRAFT_APPS } = await import('../mcp/craft.js')
@@ -182,9 +182,9 @@ test('localhost 주소: 에이전트가 이 기계에서 돌면(로컬 개발) �
   }
 })
 
-test('shape: /api/config 모양 — office · folders · panelapps · improve 와 craft.<앱>', () => {
+test('shape: /api/config 모양 — office · folders · panelapps · improve · team 과 craft.<앱>', () => {
   const s = shape(decide({ tenant: null, common: new Set(['pgpt-photocraft']) }), (v) => v.length > 0)
-  assert.deepEqual(s, { folders: false, panelapps: false, improve: false, office: false,
+  assert.deepEqual(s, { folders: false, panelapps: false, improve: false, team: false, office: false,
     craft: { cadcraft: false, vectorcraft: false, photocraft: true, soundcraft: false, filmcraft: false } })
 })
 
@@ -267,6 +267,6 @@ test('회사 목록이 시간 안에 오지 않으면 false (닫힌 쪽으로), 
   const c2 = agentToolsChecker({ hubServers: async () => null, commonServers: async () => null, readTenant: async () => ({ p: entry('http://lite/mcp/photocraft') }), log: (m) => logs.push(m) })
   await c2.forTenant('acme')
   const line = logs.find((m) => m.includes('not wired'))
-  assert.match(line, /acme: not wired to the agent: folders, panelapps, improve, cadcraft, vectorcraft, soundcraft, filmcraft, office/)
+  assert.match(line, /acme: not wired to the agent: folders, panelapps, improve, team, cadcraft, vectorcraft, soundcraft, filmcraft, office/)
   assert.doesNotMatch(logs.join('\n'), /http|Bearer|user_jwt/)
 })

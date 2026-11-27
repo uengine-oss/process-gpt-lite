@@ -1773,6 +1773,29 @@ cd e2e && npx playwright test --project=desktop tests/desktop/folder-drop.spec.j
 | 작업실: 터미널을 열지 않는 서버(여러 회사 · 열쇠 없음)에서 까닭 · 파일은 고칠 수 있음, 앞 화면 없이 열어도 「뒤로」는 폴더로, 없는 폴더는 폴더의 말로, 데스크톱 앱에서 머리줄이 신호등을 피함 | 녹화 메시지 | F-DR-09 · F-DR-11 | feature · desktop | ✅ |
 | 실제 Finder 에서 끌어다 놓기(OS 의 끌기는 자동화하지 않음 — drop 이벤트로 대신) · 큰 실제 폴더(`~/uengine-platform`)의 훑기 시간 | — | — | — | ✗ |
 
+### 73. 팀원에게 물어 채우기 — AI 가 모자란 정보를 동료에게 메신저로 묻고, 답이 오면 초안 · 메일 답장 초안을 채운다 (스펙 `ask-teammate`)
+
+2026-11-27 12:15 휴대폰 녹화(운영): 에이전트가 쓴 답장 초안 TXT 의 동료 연락처 · 생년월일 칸이 「[확인 필요]」로 비었고, 사용자가 그 양식을 손으로 복사해 메신저로 물은 뒤 받은 답을 다시 손으로 붙여 넣었다. 에이전트의 도구 `ask_teammate`(서버 `pgpt-team`, `server/mcp/team.js` — 보내지 않고 서명한 제안만), 카드 · 요청 · 답 · 채움 `server/lib/askTeammate.js`, 라우트 `server/routes/askTeammate.js`, 화면 `AskTeamCard.vue` · `team/AskTeamForm.vue`, 도구 설명 · 판정 질문 · 프롬프트 · 요청 글의 틀은 스킬 `skills/ask-teammate`. 새 테이블 · SQL 없음. `ask-teammate.spec.js` 는 자기 스택(`lib/localStack.js` — 회사 `askteam-ui`, BFF 8985 · Vite 5385)과 이 파일이 빈 포트에 띄우는 가짜 셋(모델 · deepagents · 허브)으로 돈다 — 가짜 deepagents 는 그 사람의 토큰으로 이 BFF 의 `/mcp/team` 을 부른다. 녹화의 인물 · 값은 쓰지 않는다(정하윤 · 김서연 · 박도윤, 010-0000-0000 꼴). 화면 사진은 `openspec/specs/ask-teammate/e2e/results/f-at-*.png`.
+
+```bash
+cd server && node --test test/askTeammate.test.js && node --test --test-concurrency=1 test/askTeammate.integration.test.js
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/ask-teammate.spec.js
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 팀원만 아는 값이 빠지면 에이전트가 `ask_teammate` 를 부르고, 턴 끝에 「○○님께 메신저로 물어볼까요?」(왜 · 항목 · 채울 파일 · 보낼 글) · 휴대폰 알림 — 아직 아무에게도 안 보냄 | 녹화 · 사용자 「물어볼까요 라고 나한테 물어보고」 | F-AT-01 · AT-I-01 | feature · 통합 | ✅ |
+| 「물어보기」→ 1:1 방에 내 이름으로 「AI 가 대신 묻는 중」 요청(이유와 항목만, 메일 원문 없음) + 항목별 양식(A2UI) · 동료에게 팀 알림 · 두 번 눌러도 한 번 | 브리프 | F-AT-01 · AT-I-01 | feature · 통합 | ✅ |
+| 동료가 양식으로 답함 → 원래 채팅에 「○○님이 답했어요」, 초안 TXT 의 새 판(앞 판 `versions`), 메일 답장 초안도 채움, 메일은 보내지 않음 | 사용자 「알아서 … 메일 문구에 넣으면」 | F-AT-01 · AT-I-01 | feature · 통합 | ✅ |
+| 휴대폰 390: 카드가 화면 안 · 「고쳐서 물어보기」(글 · 항목) · 동료가 휴대폰에서 말로 답하면 판정(답 · 모름 · 다른 말, 0.7)과 값 뽑기로 채움, 인사는 답이 아님 | 브리프 · 정규식 금지 | F-AT-02 · AT-I-03 · AT-U-06 | feature · 통합 · 단위 | ✅ |
+| 어두운 테마 · 「아니요(직접 채울게요)」는 아무것도 보내지 않음 | 브리프 | F-AT-03 · AT-I-04 | feature · 통합 | ✅ |
+| 같은 회사 팀원에게만(다른 회사 · 자기 자신 · 같은 이름 여럿 · 팀에서 빠진 사람 거절), 위조한 제안은 카드 없음, 물어본 사람 · 방에 없는 팀원은 대신 답할 수 없음(403 · 404), 두 번째 답 409 | 브리프 | F-AT-04 · AT-I-02 · 07 · AT-U-02 | feature · 통합 · 단위 | ✅ |
+| 하루 동안 답이 없으면 「아직 답하지 않았어요」(한 번) · 다시 묻기(앞 요청 거둠) · 직접 채우기(방의 요청 거둠, 늦은 답 409) · 「잘 모르겠어요」는 그 말 그대로 | 브리프 | AT-I-05 · 06 | 통합 | ✅ |
+| 문서(docx) 초안은 서버가 만든 턴(composed)으로 에이전트가 채움 — 사람의 말로 치지 않음(PR #105 규칙) | 브리프 | AT-I-08 | 통합 | ✅ |
+| 빈칸 채우기는 에이전트가 준 줄을 모델 없이, 나머지는 모델의 「찾을 글 → 바꿀 글」 중 온전한 줄 · 한 번 · 값이 든 것만(한 줄의 빈칸 둘도) | 설계 | AT-U-05 | 단위 | ✅ |
+| 실제 사내 모델로 스킬 프롬프트(말로 한 답 4문장 · 채우기 두 초안) | — | `openspec/specs/ask-teammate/e2e/results/ask-teammate-live.txt` | 실측 | ✅ |
+| 실제 deepagents 가 초안을 쓰다 이 도구를 고르는지 · 운영 공통 MCP 목록의 `pgpt-team` | — | — | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

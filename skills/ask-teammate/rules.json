@@ -1,0 +1,19 @@
+{
+  "maxFields": 8,
+  "labelChars": 40,
+  "reasonChars": 300,
+  "messageChars": 2000,
+  "valueChars": 500,
+  "remindAfterHours": 24,
+  "textExts": ["txt", "md", "markdown", "csv", "html", "htm"],
+  "readAnswer": { "minConfidence": 0.7, "timeoutMs": 8000, "textChars": 2000 },
+  "fill": { "timeoutMs": 30000, "textChars": 20000 },
+  "request": {
+    "ko": "{owner}님 대신 AI가 여쭤봐요.\n{reason}\n아래 항목을 채워 주세요. 이 메시지의 칸에 적어 보내거나 여기에 답장으로 적어 주셔도 돼요.\n{fields}",
+    "en": "Asking for {owner} (AI).\n{reason}\nPlease fill in the items below — in this message's form, or just reply here.\n{fields}"
+  },
+  "form": {
+    "ko": { "note": "덧붙일 말 (선택)", "notePlaceholder": "모르면 누가 아는지 적어 주셔도 돼요", "send": "보내기", "unknown": "잘 모르겠어요", "needOne": "하나 이상 채워 주세요." },
+    "en": { "note": "Anything to add (optional)", "notePlaceholder": "If you don't know, who might", "send": "Send", "unknown": "I don't know", "needOne": "Fill in at least one item." }
+  }
+}

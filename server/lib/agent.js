@@ -55,6 +55,8 @@ import { sendMail, demoFiles } from './scenarios/mail.js'
 import * as TP from './turnPlan.js'
 import * as PN from './projectNote.js'
 import * as ASK from './askPerson.js'
+// a value only a teammate knows: the agent's ask_teammate → the card 「○○님께 메신저로 물어볼까요?」 (lib/askTeammate.js)
+import * as AT from './askTeammate.js'
 import { oddsOf, TURN_ODDS_MS } from './decide.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
@@ -245,7 +247,8 @@ export function runTurn(args) {
   if (!args.auto) ASK.settle(args.user.id, { via: 'chat', threadId: args.threadId }).catch(() => {})
   const turn = turns.enqueue({ userId: args.user.id, threadId: args.threadId })
   turn.front = true
-  return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto, onRetract: args.onRetract || null }, async () => {
+  // source: what the turn was started from (a mail's Home card — {actionId}): a teammate's answer asked for in it fills that card's reply too
+  return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto, onRetract: args.onRetract || null, source: args.source || null }, async () => {
     // (the view ends however the turn does — a failure to write the 「멈췄어요」 message must not leave a card running for good)
     let state = 'failed'
     try {
@@ -1770,6 +1773,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     onOpen: (t) => { if (mode !== 'skill' && Date.now() - openAt > 400) { openAt = Date.now(); TP.note(turn, t, { open: true }) } },
   })
   const files = []
+  // what the agent's ask_teammate offered (lib/askTeammate.js offerFromOutput)
+  const offers = []
   const started = Date.now()
   const runDirs = new Set()
   let processResult = null
@@ -1853,6 +1858,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         for (const p of workspacePaths(raw)) seen.add(p)
         const doc = documentFrom(raw)
         const tool = j.tool || j.tool_name || ''
+        // ask_teammate (mcp/team.js): its signed offer, for this person — the card comes after the answer and the files
+        if (AT.isAskTool(tool)) { const o = AT.offerFromOutput(raw, user.id); if (o && !offers.some((x) => x.exp === o.exp && x.m.id === o.m.id)) offers.push(o) }
         if (doc && !toolDocs.some((d) => d.doc.url === doc.url)) toolDocs.push({ doc, tool, input: inputs.get(tool) ?? null, raw: parseToolOutput(raw)?.file_name || parseToolOutput(raw)?.fileName || doc.name })
         // the next model call may write for a long while with nothing to stream: the live line counts from here
         if (j.type === 'tool_end') TP.stage(turn, 'working', { text: TP.nextStepText(), detail: 'after_tool' })
@@ -1998,12 +2005,21 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // the script that built a document is scaffolding; the document is what the user asked for (and
   // a turn that was stopped leaves no half-run scripts behind as results)
   if (ended || files.some((f) => editable(f.name))) files.splice(0, files.length, ...files.filter((f) => !/\.(py|js|mjs|ts|sh)$/.test(f.name)))
+  const posted = []
   for (const f of files) {
     // a document the agent wrote in its sandbox is published so the editor can load it
     if (!f.url && f.path && editable(f.name)) Object.assign(f, await publish(user.id, f.path, f.src).catch((e) => { console.warn('[office publish]', e.message); return {} }))
     delete f.src
     // fileTag: what the card belongs to, e.g. the mail whose draft it is (lib/mining/recorder.js)
-    await addMessage(user.id, threadId, 'agent', 'file', { ...f, ...(fileTag || {}), ...convTag() })
+    posted.push(await addMessage(user.id, threadId, 'agent', 'file', { ...f, ...(fileTag || {}), ...convTag() }))
+  }
+  // 「○○님께 메신저로 물어볼까요?」 for each teammate the agent would ask (lib/askTeammate.js — nothing is sent until the person presses
+  // 물어보기); not for a stopped answer or a scheduled run's (its result goes to the task's own conversation)
+  if (offers.length && !ended && !background) {
+    for (const o of offers.slice(0, 3)) {
+      await AT.postOffer({ user, threadId, offer: o, files: posted, tag: convTag(), source: turnCtx.getStore()?.source || null })
+        .catch((e) => console.warn('[ask-teammate] offer', e.message))
+    }
   }
   // The draft card is the definition this turn wrote, read back from its folder the way saving reads
   // it (lib/generated.js) — not the first definition-shaped JSON in the stream: deepagents used to send

@@ -1,0 +1,64 @@
+[turn-plan] model=fake ms=5 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 137 ms (hints 135 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=9f34d402 items=3 file mail-card
+[team] deepagents worktree: no — continue hands the branch files over as attachments
+[ask-teammate] asked card=9f34d402 room=c214680e items=3
+[ask-teammate] answer card=9f34d402 via=form items=3
+✔ AT-I-01 빈칸 → 동의 카드 → 물어보기 → 메신저 요청 → 양식으로 답 → 「답했어요」 · 초안의 새 판 · 메일 답장 초안 (보내지 않음) (1995.5485ms)
+[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 26 ms (hints 23 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=6c8761e0 items=3 file
+[ask-teammate] asked card=6c8761e0 room=c214680e items=3
+✔ AT-I-02 대신 답하려는 사람은 거절 — 방에 없는 팀원 404 · 물어본 사람 403 · 물어본 사람이 방에 쓴 말도 답이 아님 (928.446834ms)
+[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 15 ms (hints 14 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=2a406c44 items=3 file
+[ask-teammate] asked card=2a406c44 room=c214680e items=3
+[ask-teammate] reply in room=c214680e → other 1.00 via logprob
+[ask-teammate] reply in room=c214680e → answer 1.00 via logprob
+[ask-teammate] answer card=2a406c44 via=chat items=2
+✔ AT-I-03 말로 한 답: 판정이 답으로 읽고 값을 뽑아 채운다, 인사는 답이 아님 (873.985ms)
+[turn-plan] model=fake ms=2 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 17 ms (hints 15 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=d70fd8d9 items=3 file
+✔ AT-I-04 「아니요(직접 채울게요)」: 아무것도 보내지 않고, 그 뒤 물어보기는 409 (153.106333ms)
+[turn-plan] model=fake ms=3 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 8 ms (hints 7 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=72fa9d74 items=3 file
+[ask-teammate] asked card=72fa9d74 room=c214680e items=2 (edited)
+✔ AT-I-05 답 없음: 하루 뒤 「아직 답하지 않았어요」 → 다시 묻기 → 직접 채우기(방의 요청도 거둠) (330.873542ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 9 ms (hints 8 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=ef4b478a items=3 file
+[ask-teammate] asked card=ef4b478a room=c214680e items=3
+[ask-teammate] unknown card=ef4b478a via=form items=0
+✔ AT-I-06 「잘 모르겠어요」: 그 말 그대로 알린다 (179.655ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 6 ms (hints 5 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=edf952d3 items=3 file
+✔ AT-I-07 같은 회사 팀원에게만: 다른 회사 · 자기 자신 · 팀에서 빠진 사람은 거절, 남의 카드 404 (154.754416ms)
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 7 ms (hints 5 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+[ask-teammate] offered thread=43fb5e8f card=3f1c84e9 items=1 file
+[ask-teammate] asked card=3f1c84e9 room=c214680e items=1
+[ask-teammate] answer card=3f1c84e9 via=form items=1
+[turn-plan] model=fake ms=1 tier=light certainty=sure steps=1 thread=43fb5e8f
+[router] model=fake 8 ms (hints 7 ms) → DELEGATE
+[turn-plan] handler=agent plan=front tier=light understood=9ch steps=1 thread=43fb5e8f
+✔ AT-I-08 문서(docx)의 빈칸은 서버가 만든 턴(composed)으로 에이전트가 채운다 (554.708792ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6391.849709

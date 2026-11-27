@@ -3334,7 +3334,43 @@
   "새 프로젝트 이름": "New project name",
   "전용 작업 공간 · 바뀐 것 없음": "Own workspace · nothing changed",
   "PC에 남아 있던 변경": "Changes left on a PC",
-  "작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 볼 수 있어요.": "Changes that came up from a PC after the working copy moved somewhere else. Like this workspace, only you can see them."
+  "작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 볼 수 있어요.": "Changes that came up from a PC after the working copy moved somewhere else. Like this workspace, only you can see them.",
+  "팀원에게 묻기": "Ask a teammate",
+  "덧붙인 말:": "Added:",
+  "메일은 보내지 않았어요.": "No mail was sent.",
+  "초안 열기": "Open draft",
+  "메일 열기": "Open mail",
+  "직접 채우기": "Fill it in myself",
+  "하루가 지났어요. 다시 물어보거나 직접 채울 수 있어요.": "A day has passed. Ask again, or fill it in yourself.",
+  "묻는 중…": "Asking…",
+  "채울 파일": "File to fill",
+  "이대로 물어보기": "Ask like this",
+  "물어보기": "Ask",
+  "고쳐서 물어보기": "Edit and ask",
+  "아니요(직접 채울게요)": "No (I'll fill it in)",
+  "메신저에서 보기": "View in messenger",
+  "직접 채우기로 했어요.": "You'll fill it in yourself.",
+  "다시 물어봤어요.": "Asked again.",
+  "아직 답이 없어요.": "No answer yet.",
+  "아직 답이 없어요": "No answer yet",
+  "이 방에 답을 적어 주세요.": "Reply in this conversation.",
+  "보냈어요 · 고마워요": "Sent · thank you",
+  "모른다고 보냈어요": "Sent that you don't know",
+  "다시 물어본 요청으로 바뀌었어요": "Replaced by a new request",
+  "AI 가 대신 묻는 중": "AI asking for them",
+  "팀원 답": "Teammate",
+  "메일 답장 초안에서는 채울 빈칸을 찾지 못했어요.": "No blanks to fill were found in the mail reply draft.",
+  "답을 메일 카드에 남겼어요. 「답장도 쓰기」로 초안을 쓰면 이 값이 들어가요.": "The answer is kept on the mail card. Write a draft with \"Write a reply too\" and these values go in.",
+  "이 메일에는 이미 답장을 보냈어요.": "A reply to this mail was already sent.",
+  "덧붙일 말 (선택)": "Anything to add (optional)",
+  "잘 모르겠어요": "I don't know",
+  "하나 이상 채워 주세요.": "Fill in at least one item.",
+  "묻는 이유": "Why ask",
+  "물어볼 항목": "Items to ask",
+  "칸에 적어 보내거나 이 방에 답장으로 적어도 돼요.": "Fill in the form, or just reply in this conversation.",
+  "답을 기다리고 있어요": "Waiting for an answer",
+  "요청이 취소됐어요": "The request was cancelled",
+  "모르면 누가 아는지 적어 주셔도 돼요": "If you don't know, who might"
  },
  "patterns": [
   [
@@ -7596,6 +7632,74 @@
   [
    "템플릿 {0} 열기",
    "Open the template {0}"
+  ],
+  [
+   "{0}님께 보낼 메시지",
+   "Message to {0}"
+  ],
+  [
+   "물어보기를 누르기 전에는 아무에게도 보내지 않아요. {0}님과의 1:1 대화방에 내 이름으로 보내요.",
+   "Nothing is sent until you press Ask. It goes to your one-to-one conversation with {0}, in your name."
+  ],
+  [
+   "항목 {0}",
+   "Item {0}"
+  ],
+  [
+   "「{0}」의 빈칸 {1}곳을 채워 새 판으로 저장했어요.",
+   "Filled {1} blanks in \"{0}\" and saved it as a new version."
+  ],
+  [
+   "「{0}」의 빈칸 {1}곳을 채워 새 판으로 저장했어요. 채우지 못한 항목: {2}",
+   "Filled {1} blanks in \"{0}\" and saved it as a new version. Not filled: {2}"
+  ],
+  [
+   "「{0}」은 에이전트가 채워 새 판으로 저장하고 있어요.",
+   "The agent is filling \"{0}\" and saving it as a new version."
+  ],
+  [
+   "「{0}」에서 채울 빈칸을 찾지 못했어요. 값을 직접 넣어 주세요.",
+   "No blanks to fill were found in \"{0}\". Put the values in yourself."
+  ],
+  [
+   "「{0}」은 직접 채워 주세요.",
+   "Please fill in \"{0}\" yourself."
+  ],
+  [
+   "메일 답장 초안의 빈칸 {0}곳도 채웠어요. 직접 보내 주세요.",
+   "Also filled {0} blanks in the mail reply draft. Send it yourself."
+  ],
+  [
+   "{0}님께 메신저로 물어볼까요?",
+   "Ask {0} on the messenger?"
+  ],
+  [
+   "{0}님께 메신저로 물어봤어요. 답을 기다리고 있어요.",
+   "Asked {0} on the messenger. Waiting for the answer."
+  ],
+  [
+   "{0}님이 답했어요.",
+   "{0} answered."
+  ],
+  [
+   "{0}님이 답했어요",
+   "{0} answered"
+  ],
+  [
+   "{0}님이 모른다고 했어요.",
+   "{0} doesn't know."
+  ],
+  [
+   "{0}님이 모른다고 했어요",
+   "{0} doesn't know"
+  ],
+  [
+   "{0}님이 아직 답하지 않았어요",
+   "{0} hasn't answered yet"
+  ],
+  [
+   "{0}님이 물어봤어요 · AI 가 대신 묻는 중",
+   "{0} asked you something (AI asking for them)"
   ]
  ],
  "context": [
