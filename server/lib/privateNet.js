@@ -67,6 +67,7 @@ async function resolvesPrivate(host, lookup = lookupAll, now = Date.now()) {
   const hit = resolved.get(host)
   if (hit && now - hit.at < RESOLVE_MS) return hit.blocked
   let blocked
+  const t0 = Date.now()
   try {
     const addrs = await Promise.race([lookup(host), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 5000).unref?.())])
     blocked = (addrs || []).some((a) => isBlockedAddress(a.address))
@@ -74,7 +75,8 @@ async function resolvesPrivate(host, lookup = lookupAll, now = Date.now()) {
     // (a name that does not resolve opens nowhere anyway; one the resolver does not answer in time is not opened — and asked again
     // a few seconds later, not remembered for the minute)
     blocked = e?.message === 'slow'
-    if (blocked) { resolved.set(host, { at: now - RESOLVE_MS + SLOW_MS, blocked }); return blocked }
+    // (counted from when the lookup gave up, not from when it began: it took the whole wait)
+    if (blocked) { resolved.set(host, { at: now + (Date.now() - t0) - RESOLVE_MS + SLOW_MS, blocked }); return blocked }
   }
   resolved.set(host, { at: now, blocked })
   while (resolved.size > 1000) resolved.delete(resolved.keys().next().value)
