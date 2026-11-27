@@ -5,6 +5,7 @@
 // `mcpServers` · `lspServers`, an agent's `permissionMode`). When the server says the person may not edit the folder they work in
 // (job.projectSettings === false — a template's runner, working in their own workspace), they are left off for the run:
 //   · each settings file that is there is replaced in the work folder by an empty one
+//   · names are matched in any case (macOS and Windows ignore it: `.Claude/Agents/x.md` is what the CLI finds as .claude/agents/x.md)
 //   · each SKILL.md (anywhere), and each .md under a .claude/agents or .claude/commands folder (at any depth), loses those front-matter keys
 //     (any spelling the CLI might take for one: case, '-' · '_', camelCase). The front matter is found exactly as the CLI finds it (cliBlock
 //     — its own pattern, read from its binary), read as YAML (js-yaml) and written back without them — the rest of it (name, description,
@@ -55,16 +56,23 @@ class Incomplete extends Error {
   }
 }
 
-// a file the CLI reads front matter from: any SKILL.md, a .md under a .claude/agents or .claude/commands folder (nested folders too)
+// a path's names as a file system that ignores case (macOS, Windows) takes them — `.Claude/Agents/x.md` is where the CLI finds
+// .claude/agents: case folded, and the dots and spaces Windows drops from a name's end dropped
+const fold = (rel) => String(rel).split('/').map((n) => n.toLowerCase().replace(/[. ]+$/, ''))
+// a file the CLI reads front matter from: any SKILL.md, a .md under a .claude/agents or .claude/commands folder (nested folders too) —
+// names in any case
 function isFrontFile(rel) {
-  const segs = String(rel).split('/')
+  const segs = fold(rel)
   const base = segs[segs.length - 1] || ''
-  if (/^skill\.md$/i.test(base)) return true
-  if (!/\.md$/i.test(base)) return false
+  if (base === 'skill.md') return true
+  if (!base.endsWith('.md')) return false
   for (let i = 0; i < segs.length - 2; i++) if (segs[i] === '.claude' && (segs[i + 1] === 'agents' || segs[i + 1] === 'commands')) return true
   return false
 }
-const underClaude = (rel) => String(rel).split('/').includes('.claude')
+const underClaude = (rel) => fold(rel).includes('.claude')
+// a settings file of FILES (in any case: .Claude/Settings.json) → its empty text, or undefined
+const SETTINGS = new Map(FILES)
+const settingsFile = (rel) => SETTINGS.get(fold(rel).join('/'))
 
 // the path is inside the work folder all the way: every folder on the way is a real folder in it (no link that leads elsewhere)
 function inside(realRoot, abs) {
@@ -226,21 +234,20 @@ async function leaveOff(dir) {
   let realRoot
   try { realRoot = fs.realpathSync(dir) } catch (e) { throw new Incomplete('list', e.message) }
   const files = []
-  for (const [rel, empty] of FILES) {
-    const f = path.join(dir, ...rel.split('/'))
-    try { fs.lstatSync(f) } catch { continue }
-    // (a folder on the way that leads out of the work folder — .codex → ~/.codex — is never written through)
-    if (!inside(realRoot, f)) continue
-    // (whatever it is — a file, a link — it goes, and an empty file takes its place: a link is never followed)
-    fs.rmSync(f, { recursive: true, force: true })
-    fs.writeFileSync(f, empty)
-    files.push(rel)
-  }
   const front = []
   for (const rel of await list(dir)) {
     const f = path.join(dir, ...rel.split('/'))
     let st
     try { st = fs.lstatSync(f) } catch { continue }
+    const empty = settingsFile(rel)
+    if (empty !== undefined) {
+      // (a folder on the way that leads out of the work folder — .codex → ~/.codex, which git's list does not go into — is never written
+      // through; whatever the file is — a file, a link — it goes, and an empty file takes its place, under the name it has)
+      if (!inside(realRoot, f)) continue
+      try { fs.rmSync(f, { force: true }); fs.writeFileSync(f, empty) } catch (e) { throw new Incomplete('write', `${rel}: ${e.message}`) }
+      files.push(rel)
+      continue
+    }
     if (st.isSymbolicLink()) {
       // (a link under a .claude folder to a folder: the CLI reads what is in there, which this list does not reach)
       let to = null

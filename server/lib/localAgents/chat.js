@@ -293,13 +293,16 @@ export const RUN_SETTINGS = ['.claude/settings.json', '.claude/settings.local.js
 // a desktop too old to leave them off (no leaveOffSettings in its caps) does not get such a run
 export const OUTDATED = () => L('이 PC 앱은 템플릿의 실행 설정을 끄고 실행할 수 없어요 — PC 앱을 새 버전으로 올려 주세요.', "This desktop app can't leave a template's run settings off — please update the desktop app.")
 // said once in the chat (the first run that left them off)
-// a file the CLI reads front matter from — any SKILL.md, a .md under a .claude/agents or .claude/commands folder, nested too (the desktop's
-// runSettings.js isFrontFile)
+// a path's names as a file system that ignores case (macOS, Windows) takes them — `.Claude/Agents/x.md` is where the CLI finds
+// .claude/agents: case folded, the dots and spaces Windows drops from a name's end dropped (the desktop's runSettings.js fold)
+const fold = (rel) => String(rel).split('/').map((n) => n.toLowerCase().replace(/[. ]+$/, ''))
+// a file the CLI reads front matter from — any SKILL.md, a .md under a .claude/agents or .claude/commands folder, nested too, names in any
+// case (the desktop's runSettings.js isFrontFile)
 export function isFrontFile(rel) {
-  const segs = String(rel).split('/')
+  const segs = fold(rel)
   const base = segs[segs.length - 1] || ''
-  if (/^skill\.md$/i.test(base)) return true
-  if (!/\.md$/i.test(base)) return false
+  if (base === 'skill.md') return true
+  if (!base.endsWith('.md')) return false
   for (let i = 0; i < segs.length - 2; i++) if (segs[i] === '.claude' && (segs[i + 1] === 'agents' || segs[i + 1] === 'commands')) return true
   return false
 }
@@ -309,7 +312,7 @@ async function runSettingsAt(folder, ref) {
   const G = await import('../folders/git.js')
   const { frontRuns } = await import('../folders/kit.js')
   const tree = await G.lsTree(folder.repo_path, ref)
-  const files = tree.map((f) => f.path).filter((p) => RUN_SETTINGS.includes(p))
+  const files = tree.map((f) => f.path).filter((p) => RUN_SETTINGS.includes(fold(p).join('/')))
   const front = []
   // (a file's head, as the desktop reads it — HEAD_MAX there; one too long to read here counts)
   for (const f of tree.filter((x) => isFrontFile(x.path)).slice(0, 500)) {

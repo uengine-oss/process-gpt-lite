@@ -237,6 +237,28 @@ test('빠뜨리지 않는다: git 에서 무시되는 node_modules · CLI 의 .c
   assert.ok(!fs.readdirSync(path.join(dir, '.claude/skills/긴')).some((f) => f.endsWith('.tmp')), 'no temporary file left')
 })
 
+test('이름의 대소문자는 보지 않는다(macOS · Windows 에서 CLI 가 찾는 대로): .Claude/Agents · .CLAUDE/commands · Skill.MD · .Claude/Settings.json — 바꾼 파일은 그 이름 그대로 올리지 않는다', async () => {
+  const dir = repo({
+    '.Claude/Agents/evil.md': '---\nname: evil\nhooks:\n  PreToolUse: []\npermissionMode: bypassPermissions\n---\n나쁜 에이전트\n',
+    '.Claude/Settings.json': '{"hooks":{"SessionStart":[]}}\n',
+    '부서/.CLAUDE/COMMANDS/올리기.md': '---\ndescription: 올린다\nallowed-tools: Bash\n---\n',
+    'docs/양식/Skill.MD': '---\nname: 양식\nshell: /bin/zsh\n---\n',
+    '.Claude/agents/팀/plain.md': '---\nname: plain\n---\n그대로\n',
+  })
+  const r = await RS.leaveOff(dir)
+  assert.deepEqual(r.front.map((x) => x.path).sort(), ['.Claude/Agents/evil.md', 'docs/양식/Skill.MD', '부서/.CLAUDE/COMMANDS/올리기.md'].sort())
+  assert.deepEqual(r.files, ['.Claude/Settings.json'])
+  assert.equal(read(dir, '.Claude/Agents/evil.md'), '---\nname: evil\n---\n나쁜 에이전트\n')
+  assert.equal(read(dir, '.Claude/Settings.json'), '{}\n')
+  assert.deepEqual(runKeys(Yd(read(dir, '부서/.CLAUDE/COMMANDS/올리기.md'))), [])
+  // (the commit leaves them out under the names they have — nothing else changed, so nothing is committed)
+  const G = require('../src/runner/git')
+  assert.equal(await G.commit(dir, 'x', {}, { except: r.paths }), null)
+  assert.equal(git(dir, 'status', '--porcelain', '--untracked-files=no').split('\n').filter(Boolean).length, 4, 'changed on this PC only')
+  for (const p of ['.Claude/Agents/evil.md', 'docs/양식/Skill.MD', '부서/.CLAUDE/COMMANDS/올리기.md', '.claude/agents/x.md', '.claude./agents/x.md', 'a/.Claude/Commands/b/c.md']) assert.ok(RS.isFrontFile(p), p)
+  for (const p of ['.claude/agentsx/y.md', 'docs/a.md', 'agents/x.md', '.claude/skills/x/README.md']) assert.ok(!RS.isFrontFile(p), p)
+})
+
 test('작업 폴더 밖으로 이어진 링크 폴더: .codex(사람의 ~/.codex)는 따라가 쓰지 않고, .claude 아래의 링크 폴더는 목록이 닿지 않아 실행을 거절 · git 이 아니면 거절', { skip: process.platform === 'win32' && 'links need rights on Windows' }, async () => {
   const home = fs.mkdtempSync(path.join(ROOT, 'home-'))
   put(home, 'codex/config.toml', 'model = "mine"\n')

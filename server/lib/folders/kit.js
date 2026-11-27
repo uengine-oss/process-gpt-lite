@@ -22,7 +22,9 @@ const FRONT_READ_MAX = 50_000
 
 // ---------- the path patterns (kit-places.json) ----------
 // '/'-separated; '**' = zero or more whole folders; in any other part '*' = any run of characters but '/' (a pattern starts at the
-// folder's root unless it starts with '**/'). Matched part by part.
+// folder's root unless it starts with '**/'). Matched part by part, a path's names in any case and without the dots and spaces Windows
+// drops from a name's end — on macOS and Windows `.Claude/Skills/x/skill.md` is what the CLIs find as .claude/skills/x/SKILL.md (the
+// desktop's sync.js globMatch and runSettings.js fold the same).
 const segRe = new Map()
 function segment(pat, s) {
   if (!pat.includes('*')) return pat === s
@@ -34,8 +36,8 @@ function segment(pat, s) {
   return re.test(s)
 }
 export function matchGlob(pattern, rel) {
-  const p = String(pattern).split('/').filter(Boolean)
-  const s = String(rel).split('/').filter(Boolean)
+  const p = String(pattern).toLowerCase().split('/').filter(Boolean)
+  const s = String(rel).split('/').filter(Boolean).map((n) => n.toLowerCase().replace(/[. ]+$/, ''))
   const go = (i, j) => {
     if (i === p.length) return j === s.length
     if (p[i] === '**') {
@@ -57,7 +59,7 @@ function nameOf(place, rel) {
   const segs = rel.split('/')
   if (place.name === 'dir') return segs[segs.length - 2] || segs[segs.length - 1]
   if (place.name === 'command') {
-    const under = place.base && rel.startsWith(`${place.base}/`) ? rel.slice(place.base.length + 1) : segs[segs.length - 1]
+    const under = place.base && rel.toLowerCase().startsWith(`${place.base.toLowerCase()}/`) ? rel.slice(place.base.length + 1) : segs[segs.length - 1]
     return under.replace(/\.[^./]+$/, '').split('/').join(':')
   }
   return segs[segs.length - 1]

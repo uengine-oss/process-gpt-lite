@@ -211,7 +211,8 @@ function shapeHits(rules, text) {
 const looksBinary = (buf) => buf.subarray(0, 8000).includes(0)
 
 // ---------- agent assets (kit-places.json) ----------
-// glob: '/'-separated, '*' inside one name, '**' any number of folders
+// glob: '/'-separated, '*' inside one name, '**' any number of folders; a path's names in any case, without the dots and spaces Windows
+// drops from a name's end (macOS and Windows: `.Claude/Skills` is .claude/skills — runSettings.js fold, the server's kit.js matchGlob)
 function segMatch(pat, s) {
   if (!pat.includes('*')) return pat === s
   const parts = pat.split('*')
@@ -222,8 +223,8 @@ function segMatch(pat, s) {
   return s.length - last.length >= at && s.endsWith(last)
 }
 function globMatch(glob, rel) {
-  const g = String(glob).split('/')
-  const p = String(rel).split('/')
+  const g = String(glob).toLowerCase().split('/')
+  const p = String(rel).split('/').map((n) => n.toLowerCase().replace(/[. ]+$/, ''))
   const m = (gi, pi) => {
     if (gi === g.length) return pi === p.length
     if (g[gi] === '**') { for (let k = pi; k <= p.length; k++) if (m(gi + 1, k)) return true; return false }
@@ -256,7 +257,7 @@ function kitName(place, rel) {
   const segs = rel.split('/')
   if (place.name === 'dir') return segs[segs.length - 2] || segs[segs.length - 1]
   if (place.name === 'command') {
-    const under = place.base && rel.startsWith(`${place.base}/`) ? rel.slice(place.base.length + 1) : segs[segs.length - 1]
+    const under = place.base && rel.toLowerCase().startsWith(`${place.base.toLowerCase()}/`) ? rel.slice(place.base.length + 1) : segs[segs.length - 1]
     return under.replace(/\.[^./]+$/, '').split('/').join(':')
   }
   return segs[segs.length - 1]

@@ -255,6 +255,14 @@ test('자산의 「실행」 표시: 머리말에 훅 · 허용 도구 · 권한
     const kit = Object.fromEntries((await S.kitOf(root, Object.keys(files))).map((k) => [k.path, k.runs]))
     assert.deepEqual(kit, { '.claude/skills/실행/SKILL.md': true, '.claude/skills/조용/SKILL.md': false, '.claude/agents/검토자.md': true, '.claude/commands/배포.md': true })
   } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  // names in any case: on macOS and Windows .Claude/Agents is where the CLI finds .claude/agents
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-kitruns-'))
+  const mixed = { '.Claude/Agents/evil.md': '---\nname: evil\nhooks: {}\n---\n', '.Claude/Skills/x/skill.md': '---\nname: x\nallowed_tools: Bash\n---\n' }
+  try {
+    for (const [k, v] of Object.entries(mixed)) { fs.mkdirSync(path.dirname(path.join(other, k)), { recursive: true }); fs.writeFileSync(path.join(other, k), v) }
+    const kit = Object.fromEntries((await S.kitOf(other, Object.keys(mixed))).map((k) => [k.path, `${k.type}:${k.runs}`]))
+    assert.deepEqual(kit, { '.Claude/Agents/evil.md': 'agent:true', '.Claude/Skills/x/skill.md': 'skill:true' })
+  } finally { fs.rmSync(other, { recursive: true, force: true }) }
 })
 
 test('F-CH-01 미리 보기: 올릴 것 · 뺀 것(갈래와 까닭) · 확인이 필요한 파일 · 찾은 에이전트 자산', async () => {

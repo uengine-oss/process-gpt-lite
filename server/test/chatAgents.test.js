@@ -72,6 +72,12 @@ after(async () => {
   await fsp.rm(FROOT, { recursive: true, force: true })
 })
 
+test('실행 설정을 끌 파일: 이름의 대소문자 · 끝의 점과 공백은 보지 않는다(macOS · Windows 에서 CLI 가 찾는 대로)', () => {
+  for (const p of ['.Claude/Agents/evil.md', '.claude/COMMANDS/배포/올리기.md', '부서/.CLAUDE/agents/x.MD', 'docs/Skill.Md', '.claude./agents/x.md', '.claude/agents /x.md '])
+    assert.ok(CH.isFrontFile(p), p)
+  for (const p of ['.claude/agentsx/y.md', 'docs/a.md', '.claude/skills/x/README.md', 'agents/x.md']) assert.ok(!CH.isFrontFile(p), p)
+})
+
 test('채팅 열쇠: 대화, 그 안의 맥락 갈래 — 이상한 갈래 id 는 버린다', () => {
   assert.equal(CH.keyOf('t1'), 't1')
   assert.equal(CH.keyOf('t1', 'c-9'), 't1:c-9')
@@ -294,6 +300,8 @@ test('LA-CHAT-TPL 템플릿에서 시작한 프로젝트: 실행 권한이면 �
   await S.upload(tpl, owner, '.claude/skills/msaschool/SKILL.md', Buffer.from('---\nname: msaschool\ndescription: 제안서 양식\nallowed-tools: Bash\n---\n# 양식\n'))
   await S.upload(tpl, owner, '.claude/settings.json', Buffer.from('{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}\n'))
   await S.upload(tpl, owner, '.mcp.json', Buffer.from('{"mcpServers":{}}\n'))
+  // (an agent under a folder named in another case: on macOS and Windows the CLI finds it as .claude/agents)
+  await S.upload(tpl, owner, '.claude/Agents/검토.md', Buffer.from('---\nname: 검토\nhooks: {}\n---\n검토한다\n'))
   await TPL.setTemplate(await S.folderById(tpl.id), owner, true)
   await S.setMember(tpl, owner, { id: runner.id, role: 'runner' })
   await S.setMember(tpl, owner, { id: other.id, role: 'runner' })
@@ -321,8 +329,8 @@ test('LA-CHAT-TPL 템플릿에서 시작한 프로젝트: 실행 권한이면 �
   assert.equal(prep.projectSettings, false)
   const notes = (await messagesOf(p)).filter((m) => m.content?.settingsOff)
   assert.equal(notes.length, 1, '한 번만')
-  assert.match(notes[0].content.text, /\.claude\/settings\.json, \.mcp\.json · 스킬 · 명령 · 에이전트 1개의 머리말/)
-  assert.deepEqual(notes[0].content.settingsOffFiles, ['.claude/settings.json', '.mcp.json', '.claude/skills/msaschool/SKILL.md'])
+  assert.match(notes[0].content.text, /\.claude\/settings\.json, \.mcp\.json · 스킬 · 명령 · 에이전트 2개의 머리말/)
+  assert.deepEqual(notes[0].content.settingsOffFiles, ['.claude/settings.json', '.mcp.json', '.claude/Agents/검토.md', '.claude/skills/msaschool/SKILL.md'])
   assert.equal(job.chat.leaveOff, true, '이 일은 실행 설정을 끌 수 있는 PC 앱에만')
   // a desktop that cannot leave them off does not get the run
   await assert.rejects(CH.prepare(await J.byId(job.id), { id: mine.device.id, caps: {} }), /새 버전/)
