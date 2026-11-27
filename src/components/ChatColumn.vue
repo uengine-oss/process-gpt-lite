@@ -13,7 +13,9 @@ import TurnProgress from './TurnProgress.vue'
 import { useApp } from '../stores/app.js'
 import { dur, elapsed } from '../turnView.js'
 
-const props = defineProps({ placeholder: String, emptyText: String, keepTop: Boolean })
+// asideRoom: (foot) → how high over the bottom what the #aside slot shows floats over the list (the files' pile above the composer —
+// MainView, src/artifactScope.js pileRoom), or nothing
+const props = defineProps({ placeholder: String, emptyText: String, keepTop: Boolean, asideRoom: { type: Function, default: null } })
 const emit = defineEmits(['send', 'connect'])
 const app = useApp()
 const scroller = ref(null)
@@ -142,6 +144,10 @@ onMounted(() => {
   measureFoot()
 })
 onBeforeUnmount(() => footObs?.disconnect())
+// the list ends above the files' pile too when it floats over the chat (2026-11-28: a phone's last card had its 「만들기」 under the pile) —
+// a list kept at the bottom stays there when the pile comes, goes or moves
+const asideRoom = computed(() => (props.asideRoom ? props.asideRoom(foot.value) || 0 : 0))
+watch(asideRoom, () => nextTick(() => { const el = scroller.value; if (el && stick && Date.now() - smoothAt >= 600) el.scrollTop = el.scrollHeight }))
 // a conversation's messages arriving (none before) go straight to the bottom; a new message after that scrolls there
 watch(() => [list.value.length, draft.value], ([n], old) => toBottom(!props.keepTop && !old?.[0] && n > 0))
 // a task card that starts waiting or ends grows by its reason and the button that answers it: on a phone that part fell
@@ -163,7 +169,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 </script>
 
 <template>
-  <section ref="colEl" class="col" :style="{ '--foot-top': `${foot.top}px`, '--notice-room': `${foot.notice ? foot.notice + 12 : 0}px` }">
+  <section ref="colEl" class="col" :style="{ '--foot-top': `${foot.top}px`, '--notice-room': `${foot.notice ? foot.notice + 12 : 0}px`, '--aside-room': `${asideRoom}px` }">
     <EdgeBlur side="top" />
     <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
       <div ref="inner" class="inner">
@@ -209,8 +215,9 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 
 <style scoped>
 .col { position: absolute; inset: 0; }
-/* (the bottom: clear of the composer and the row over its box — a plan card's last line hid under the old pill row on a phone) */
-.msgs { position: absolute; inset: 0; padding: 96px 0 max(130px, calc(var(--foot-top, 84px) + 18px)); transition: filter .5s, opacity .5s; }
+/* (the bottom: clear of the composer and the row over its box — a plan card's last line hid under the old pill row on a phone — and of the
+   files' pile when it floats over the chat, 12px under it: --aside-room) */
+.msgs { position: absolute; inset: 0; padding: 96px 0 max(130px, calc(var(--foot-top, 84px) + 18px), calc(var(--aside-room, 0px) + 12px)); transition: filter .5s, opacity .5s; }
 .msgs.dim { filter: blur(14px); opacity: .55; pointer-events: none; }
 .inner { width: 512px; max-width: calc(100% - 32px); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 .empty { text-align: center; color: var(--text-secondary); font-size: 22px; margin-top: 30vh; line-height: 1.4; }

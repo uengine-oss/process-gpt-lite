@@ -1948,8 +1948,8 @@ miner 가 없으면 F-MN-02.
 휴대폰 녹화 11-27 22:33: 「텍스트 결과가 나왔을 때 이것을 어딘가에 우리는 공유한다든지 하는 기능이 지금 존재하지 않아」 · 「이 내용을 기반으로 프로젝트를 하나 만들자」(채팅 안의 계획으로만 끝남) · 「여기로 프로젝트로 승격하겠다는 거거든」 · 「교육과정 만드는 템플릿 폴더가 있을 수 있겠지」. 시험 파일이 자기 스택(회사 `answer-project-ui`, BFF 8997 · Vite 5397 — 다른 것이 듣고 있으면 멈춤, `RT_AP_API_PORT` · `RT_AP_WEB_PORT`)과 가짜 모델 · 가짜 deepagents(빈 포트)를 띄운다. 라우터의 `start_project` 는 가짜 모델이 그 말에만 부른다(실제 모델이 고르는지는 아래 ✗). 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 
 ```bash
-cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js test/conversations.test.js   # AP-U-01~10 · 01c · 04c~07d · 실제 DB · git · 저장소, 가짜 모델 · 경로 · 대화 규칙
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~03 · F-CP-01~03
+cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js test/conversations.test.js test/chatArtifacts.test.js   # AP-U-01~10 · 01c · 04c~07d · AS-U-05b · 실제 DB · git · 저장소, 가짜 모델 · 경로 · 대화 · 더미 규칙
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~03 · F-CP-01~04
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1977,6 +1977,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 | (#118 후속 1 · 2) 온전한 주소가 아닌 서명 · 토큰 조각(`?token=…` · `&sig=…` · `#access_token=…`) 제거, 검색 · 지도 · 문서의 평범한 `?key=…` 유지 — 알려진 서명 이름은 `urlTokens.js` 기준으로 판별, `key` · `auth` · `secret`은 비밀 모양일 때만 가림, 임시 폴더 경로(`/var/folders/…` · `/var/tmp/…`)도 이름만 표시(서버 · 화면의 답 동일) | PR #118 검토(낮음) | AP-U-01c · `hidePaths.test.js` | 단위 | ✅ |
 | (#118 후속 3) 덧붙이기 직전에 단일 문장으로 재확인: 문서 카드 · 확인 카드 · 「프로젝트로 옮겼어요」는 대화가 여전히 그 사람의 것이고 이 요청이 아직 처리 중일 때만 추가 — 아니면 404 반환, 다른 요청이 이어받았으면 해당 요청의 카드 반환 | PR #118 검토(낮음) | AP-U-04c · AP-U-05c · AP-U-06c | DB | ✅ |
 | (#118 후속 4) 경쟁에서 져서 버리는 프로젝트의 템플릿 작업 공간도 함께 버림(「버리기」와 같은 방법) | PR #118 검토(낮음) | AP-U-07d | DB | ✅ |
+| (#118 후속 · 휴대폰) 산출물 더미가 채팅 위(입력창 위)에 떠 있을 때 마지막 메시지 아래에 더미 높이만큼 공간 확보 — 맨 아래 카드의 「만들기」 · 「아니요」 가림 방지(가운데와 좌우 여러 지점의 `elementFromPoint`), 입력창 옆 더미(1280) 유지 | F-CP-03 화면 사진(11-28) | F-CP-04 · AS-U-05b | feature · 단위 | ✅ |
 | 실제 사내 모델이 그 말에 `start_project` 를 고르는지 · 실제 판정 모델의 템플릿 추천 정확도 | — | — (가짜 모델) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

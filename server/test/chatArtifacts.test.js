@@ -4,7 +4,7 @@
 //   cd server && node --test test/chatArtifacts.test.js
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { artifactScope, artifactItems, filterArtifacts, artifactLayout, sideWidth, pilePlace, readFolded, saveFolded, FOLD_KEY, LIST_W, RAIL_W, CHAT_MIN, CAPTION } from '../../src/artifactScope.js'
+import { artifactScope, artifactItems, filterArtifacts, artifactLayout, sideWidth, pilePlace, pileRoom, readFolded, saveFolded, FOLD_KEY, LIST_W, RAIL_W, CHAT_MIN, CAPTION } from '../../src/artifactScope.js'
 
 const t0 = Date.parse('2026-11-24T10:00:00Z')
 const msg = (id, kind, name, sec) => ({ id, kind, content: kind === 'file' ? { name, url: `/f/${id}` } : { text: name }, created_at: new Date(t0 + sec * 1000).toISOString() })
@@ -89,6 +89,19 @@ test('AS-U-05 더미의 자리: 입력창 오른쪽에 넉넉하면 옆, 아니�
   assert.equal(pilePlace({ gutter: 84, footTop: 200, boxTop: 84 }).bottom, 210)
   // a notice of two lines (62px, 12px over the composer): clear of it
   assert.equal(pilePlace({ gutter: 84, footTop: 84, boxTop: 84, noticeH: 62 }).bottom, 168)
+})
+
+// (2026-11-28 · PR #118 후속 회귀 F-CP-03: 390 휴대폰에서 확인 카드의 「만들기」가 더미 밑에 깔림) 더미가 채팅 위에 떠 있으면 목록 끝은 그 위까지 비운다
+test('AS-U-05b 더미가 채팅 위에 있으면(입력창 위) 목록이 비워 둘 높이 — 더미 · 이름 · 개수 배지 · 흔들림까지, 입력창 옆이면 0', () => {
+  // a phone: the small pile 144px over the bottom — 48 tall, its name under it (6 + 16), the count's badge (6) and the bob (4) over it
+  assert.equal(pileRoom(pilePlace({ gutter: 16, footTop: 84, small: true })), 144 + 48 + 32)
+  // a narrow window: the big pile above the composer
+  assert.equal(pileRoom(pilePlace({ gutter: 84, footTop: 84 })), 144 + 64 + 32)
+  // a composer grown by typing raises the pile, and the room with it
+  assert.equal(pileRoom(pilePlace({ gutter: 16, footTop: 230, small: true })), 290 + 48 + 32)
+  // beside the composer (a desktop with a gutter): clear of the list — nothing changes there
+  assert.equal(pileRoom(pilePlace({ gutter: 174, footTop: 84 })), 0)
+  assert.equal(pileRoom(null), 0)
 })
 
 test('AS-U-06 접은 채인지: 이 브라우저에 「rail」 · 「list」, 저장소가 막혀도 오류 없이 펼침', () => {
