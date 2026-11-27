@@ -349,7 +349,7 @@ async function leave() {
   let r = { clean: true }
   if (autoSave.value && !pic.value && f?.flush && (f.saving || f.dirty?.())) {
     flash('info', '닫기 전에 저장하는 중…', 25000)
-    r = await f.flush(20000)
+    r = await f.flush(SAVE_WAIT_MS)
   }
   await savedChain
   if (lastFail) { const job = lastFail; savedChain = savedChain.then(() => postSave(job)); await savedChain }

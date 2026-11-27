@@ -12,7 +12,7 @@ import crypto from 'node:crypto'
 import { config } from '../config.js'
 import { q, admin, pool } from './supa.js'
 import { objectOfUrl } from './privateStore.js'
-import { extOf, editable } from './office.js'
+import { extOf, editable, EDITOR_BY_EXT } from './office.js'
 import { aside, ownsConversation } from './ownConversations.js'
 import { L } from './lang.js'
 
@@ -130,35 +130,62 @@ export async function saveCardAs(user, id, { url, name, conversationId } = {}) {
 // copies/edited-<uuid>_<time>.<ext>) are left behind when their card moves on — a save after keepVersion, a card or thread deleted. Once
 // a month past their last write (greatest of created_at and updated_at: a copy written over again is not old) and named by nothing that
 // may still need it, they go.
-// What the job relies on (spec folder-edit-save):
-//   - a file card keeps every address it stood on: `url` and `versions` (appended to, never trimmed); a card or thread deleted releases
-//     its copies
-//   - what can still name a copy is scanned: pro_messages (every message's content — cards, their versions, anything that quotes an
-//     address), pro_shares.object_key (a share's object), pro_refers (message · used), pro_schedules.prompt, pro_local_jobs (the whole
-//     row: prompt, transcript, results) and, where Process GPT's table is in the same database, todolist.output. A scan that fails stops
-//     the run (nothing is removed on a partial picture). Not scanned — they hold ids, never storage addresses: pro_meeting_materials
-//     (ref: ids only), pro_context_shares.
+// What the job relies on (spec folder-edit-save) — only what names a copy now, never how a card came to stand where it does:
+//   - a card's address moves: its save keeps the address before in `versions` (POST /api/messages/:id/file, the ask-a-teammate draft);
+//     keepVersion moves a card off the editor's copy of this opening onto a copy of its own and keeps no record of that copy (the editor
+//     writes over it; the frame may still hand it back as its last save — a moment later, never a month); a folder's card follows the
+//     folder's newest version (lib/fileRefs.js — a folder's address, never a copy here); a card, or a thread with its cards, can be
+//     deleted (lib/folders/filing.js drops a card just made twice). Whatever stops naming a copy lets it go once it is a month unwritten.
+//   - so everything that can name a copy is looked at, every run: pro_messages (every message's content — cards, their versions, any text
+//     that quotes an address), pro_shares.object_key (a share's object) and SCANS below — a 참조's message · used · requestable, a
+//     schedule's prompt · params · state, a 내 PC job (the whole row), a 후행 습관's files, a direct message's body · artifacts, a draft
+//     job's args, Process GPT's todolist output · output_url · draft where it is in the same database. A scan that fails stops the run
+//     (nothing is removed on a partial picture). Not looked at — they hold ids, never storage addresses: pro_meeting_materials (ref: ids
+//     only), pro_context_shares.
 // PRO_COPIES_GC: off · dry (this release's default: logs each key and size it would remove) · on (removes, and logs each key removed).
-// Its own nightly run (PRO_COPIES_GC_CRON, default 03:30 KST), one server at a time (an advisory lock), at most MAX_PER_RUN a night, paged
-// by (age, name) so copies still named never hold the rest back.
-export const COPY_NAME_RE = '^pgpt-pro/[0-9a-f-]{36}/copies/(edited-)?[0-9a-f-]{36}(_[0-9]{14})?\\.[A-Za-z0-9]{1,8}$'
-const COPY_KEY = /pgpt-pro\/[0-9a-f-]{36}\/copies\/(?:edited-)?[0-9a-f-]{36}(?:_[0-9]{14})?\.[A-Za-z0-9]{1,8}/g
+// Its own nightly run (PRO_COPIES_GC_CRON, default 03:30 KST), one server at a time (a session advisory lock, on one connection of the
+// pool — behind a transaction-mode pooler that would not hold: production runs one server, review #111), at most MAX_PER_RUN a night,
+// paged by (age, name) so copies still named never hold the rest back.
+// Exactly the two names made here: copyToOwn's copies/<uuid>.<ext> and the office host's edited copy of one, editedObjectPath:
+// edited-<stem>_<yyyymmddhhmmss>.<ext> with the stem of the copy (an edited copy of an edited copy keeps the first stem) — <ext> the card's
+// format, lower case (extOf here, the host's extname().toLowerCase()), one of the formats an editor opens. Anything else under copies/ is not
+// this job's.
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+const EXTS = Object.keys(EDITOR_BY_EXT).filter((e) => /^[a-z0-9]{1,8}$/.test(e)).sort((a, b) => b.length - a.length).join('|')
+export const COPY_NAME_RE = `^pgpt-pro/${UUID}/copies/(edited-${UUID}_[0-9]{14}|${UUID})\\.(${EXTS})$`
+// the same in a text that names it — as a key or an address, also percent-encoded (%2F), and not the start of a longer name
+const SEP = '(?:/|%2[Ff])'
+const COPY_KEY = new RegExp(`pgpt-pro${SEP}(${UUID})${SEP}copies${SEP}((?:edited-${UUID}_[0-9]{14}|${UUID})\\.(?:${EXTS}))(?![A-Za-z0-9])`, 'g')
 const MAX_PER_RUN = 1000
 const LOCK = 'pgpt-lite/copies-gc'
+// where an address of a copy may be kept, besides the file cards — [table, column] (column null: the whole row), each looked at only where
+// it is (a database without that feature has no such table or column). pro_messages and pro_shares are always there.
+const SCANS = [
+  ['pro_refers', 'message'], ['pro_refers', 'used'], ['pro_refers', 'requestable'],
+  ['pro_schedules', 'prompt'], ['pro_schedules', 'params'], ['pro_schedules', 'state'],
+  ['pro_local_jobs', null],
+  ['pro_followups', 'files'],
+  ['pro_dm_messages', 'body'], ['pro_dm_messages', 'artifacts'],
+  ['pro_draft_jobs', 'args'],
+  ['todolist', 'output'], ['todolist', 'output_url'], ['todolist', 'draft'],
+]
+// (a text that may hold one: /copies/ as it is or percent-encoded)
+const MAY_NAME = '(/|%2[Ff])copies(/|%2[Ff])'
 
 // the copies anything still names → Set of keys
 async function namedCopies() {
   const used = new Set()
-  const note = (text) => { for (const k of String(text || '').matchAll(COPY_KEY)) used.add(k[0]) }
-  const has = async (table, column = null) => (column
-    ? (await q('select 1 from information_schema.columns where table_schema=$1 and table_name=$2 and column_name=$3', ['public', table, column])).length > 0
-    : !!(await q('select to_regclass($1) as r', [`public.${table}`]))[0]?.r)
-  for (const r of await q(`select content::text as t from pro_messages where content::text like '%/copies/%'`)) note(r.t)
-  for (const r of await q(`select object_key as t from pro_shares where object_key like '%/copies/%'`)) note(r.t)
-  if (await has('pro_refers')) for (const r of await q(`select message || ' ' || used::text as t from pro_refers where message like '%/copies/%' or used::text like '%/copies/%'`)) note(r.t)
-  if (await has('pro_schedules')) for (const r of await q(`select prompt as t from pro_schedules where prompt like '%/copies/%'`)) note(r.t)
-  if (await has('pro_local_jobs')) for (const r of await q(`select x::text as t from pro_local_jobs x where x::text like '%/copies/%'`)) note(r.t)
-  if (await has('todolist', 'output')) for (const r of await q(`select output::text as t from todolist where output::text like '%/copies/%'`)) note(r.t)
+  const note = (text) => { for (const k of String(text || '').matchAll(COPY_KEY)) used.add(`pgpt-pro/${k[1]}/copies/${k[2]}`) }
+  const tables = new Set((await q(`select table_name as t from information_schema.tables where table_schema='public'`)).map((r) => r.t))
+  const columns = new Set((await q(`select table_name || '.' || column_name as c from information_schema.columns where table_schema='public'`)).map((r) => r.c))
+  for (const r of await q(`select content::text as t from pro_messages where content::text ~ $1`, [MAY_NAME])) note(r.t)
+  for (const r of await q(`select object_key as t from pro_shares where object_key ~ $1`, [MAY_NAME])) note(r.t)
+  for (const [table, column] of SCANS) {
+    if (!tables.has(table) || (column && !columns.has(`${table}.${column}`))) continue
+    // (names from the list above only — never from input)
+    const what = column ? `"${column}"::text` : 'x::text'
+    for (const r of await q(`select ${what} as t from "${table}" x where ${what} ~ $1`, [MAY_NAME])) note(r.t)
+  }
   return used
 }
 
@@ -174,7 +201,7 @@ export async function unusedCopies({ days = 30, prefix = 'pgpt-pro/', max = MAX_
                          where bucket_id=$1 and name like $2 and name ~ $3
                            and greatest(created_at, coalesce(updated_at, created_at)) < now() - make_interval(days => $4::int)
                            and ($5::timestamptz is null or (greatest(created_at, coalesce(updated_at, created_at)), name) > ($5::timestamptz, $6::text))
-                         order by 2, 1 limit $7`, [BUCKET, `${prefix}%`, COPY_NAME_RE, days, after?.age ?? null, after?.name ?? '', page])
+                         order by greatest(created_at, coalesce(updated_at, created_at)), name limit $7`, [BUCKET, `${prefix}%`, COPY_NAME_RE, days, after?.age ?? null, after?.name ?? '', page])
     for (const r of rows) {
       if (used.has(r.name)) continue
       out.push({ key: r.name, size: Number(r.size) || 0 })

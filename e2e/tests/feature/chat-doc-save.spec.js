@@ -26,7 +26,9 @@
 //   F-CS-19 💾 뒤 「다른 이름으로 저장」이 편집기 무응답으로 실패 → 다시 시도: 판 지키기를 또 하지 않고(400 없이) 새 카드, 원래 카드는 💾 판 ·
 //           그 사본 카드에서 고쳐 💾(copies/edited-…) → 더 고쳐 「다른 이름으로 저장」 → 사본 카드는 💾 판 그대로
 //   F-CS-20 (고친 호스트) 고쳤다가 되돌리고 💾 · 저장하고 닫기: 처음 연 그대로여도 곧바로 「저장했어요」(30초 기다림 없음)
-//   F-CS-21 마인드맵을 마우스로만 고친 뒤(주제 누르고 도구 막대의 「하위 주제」) 닫으면 묻는다 · 저장하고 닫기는 그 판을 저장
+//   F-CS-21 마인드맵을 마우스로만 고친 뒤(주제 누르고 도구 막대의 「하위 주제」, 저장 뒤 리본의 실행 취소) 닫으면 묻는다 · 저장하고 닫기는 그 판을 저장
+//   F-CS-22 (고친 호스트) 저장소가 올리기를 거절한 뒤(편집기의 저장은 꺼짐): 닫으면 묻고 저장하고 닫기는 바로 다시 올림 · 다른 이름으로
+//           저장의 다시 시도는 고친 내용으로 새 카드 · 워드도(RT_FIXED_SHEETS=1 이면 엑셀도)
 //   (F-CS-09 안에서) 패널 반영 실패는 그 열기의 것만 — 다시 연 시트를 닫아도 옛 사본을 다시 보내지 않고, 고쳤으면 묻는다
 // 자기 스택(lib/localStack.js — 회사 chat-save, BFF 8983 · Vite 5383 부터 빈 포트), 실제 이음오피스 편집기: RT_OFFICE_HOST_URL(운영 이미지 컨테이너,
 // 스펙 e2e/README) 또는 빌드된 호스트(lib/officeHost.js, 5403 부터). 모델 · deepagents 는 부르지 않는다. 사람은 지어낸 이름(정하윤 · 김서연).
@@ -669,7 +671,8 @@ test('F-CS-11 (고친 호스트) 실제로 올리기에 실패한 저장: 편집
     await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 30_000 })
     expect(proxy.state.failed).toBe(1)
     await expect(badge(p)).toHaveAttribute('title', /편집기가 문서를 올리지 못했어요/)
-    // the editor itself took the save as done: its 저장 is off — 다시 시도 still writes it again (its ⌘S) and it goes up this time
+    // the editor itself took the save as done: its 저장 is off — 다시 시도 does not press it (never answered): the host sends the editor's
+    // last write up again (republish), and it goes up this time
     await expect(ed(p).locator('.qa-btn[aria-label^="저장"]').first()).toBeDisabled()
     await shot(p, 'f-cs-11-real-upload-failed')
     await badge(p).click()
@@ -827,6 +830,10 @@ test('F-CS-16 (실제 엑셀 편집기, RT_REAL_SHEETS=1) 칸을 치고 ↓ 로 
   await p.waitForTimeout(1500)
   await p.keyboard.press('ArrowDown')
   await p.waitForTimeout(800)
+  // (the cell left: its editor keeps the keyboard but is parked off the page — what src/officeAutosave.js typingIn takes as 「not typing」,
+  // so a 저장 that is off then is the sheet's word that its cell is written, and the host is asked to send it up — review #111)
+  const parked = await sheetFrame(p).evaluate(() => { const el = document.activeElement; const r = el?.getBoundingClientRect?.(); return !!el?.isContentEditable && !!r && (r.right <= 0 || r.bottom <= 0) })
+  expect(parked).toBe(true)
   await shot(p, 'f-cs-16-real-sheet-committed')
   await oef(p).locator('.tb.ic[title="닫기"]').click()
   await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요', { timeout: 10_000 })
@@ -978,7 +985,7 @@ test('F-CS-19 💾 뒤 「다른 이름으로 저장」이 편집기 무응답�
   await p.context().close()
 })
 
-test('F-CS-21 마인드맵을 마우스로만 고친 뒤(주제를 누르고 도구 막대의 「하위 주제」) 닫으면 묻는다 — 저장하고 닫기는 그 판을 저장', async ({ browser }) => {
+test('F-CS-21 마인드맵을 마우스로만 고친 뒤(주제를 누르고 도구 막대의 「하위 주제」 · 저장 뒤의 실행 취소) 닫으면 묻는다 — 저장하고 닫기는 그 판을 저장', async ({ browser }) => {
   test.setTimeout(180_000)
   const name = '일정_마우스.xmind'
   const a = await rawPost(ME.token, '/attachments', XMIND(), { 'Content-Type': 'application/vnd.xmind.workbook', 'X-File-Name': encodeURIComponent(name) })
@@ -995,9 +1002,21 @@ test('F-CS-21 마인드맵을 마우스로만 고친 뒤(주제를 누르고 도
   await expect.poll(() => ed(p).locator('me-tpc').count()).toBe(3)
   await oef(p).locator('.tb.ic[title="닫기"]').click()
   await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요')
+  await ask(p).locator('[data-testid="oef-ask-cancel"]').click()
+  // saved, then the ribbon's 실행 취소 (beside 저장, on its top row) pressed with the mouse: that is an edit too (review #111)
+  await ed(p).locator('.qa-btn[data-action="save"]').click()
+  await expect(badge(p)).toHaveAttribute('data-state', 'saved', { timeout: 30_000 })
+  await ed(p).locator('.qa-btn[data-action="undo"]').click()
+  await expect.poll(() => ed(p).locator('me-tpc').count()).toBe(2)
+  await ed(p).locator('.qa-btn[data-action="redo"]').click()
+  await expect.poll(() => ed(p).locator('me-tpc').count()).toBe(3)
+  await ed(p).locator('.qa-btn[data-action="undo"]').click()
+  await expect.poll(() => ed(p).locator('me-tpc').count()).toBe(2)
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요')
   await ask(p).locator('[data-testid="oef-ask-save"]').click()
   await expect(oef(p)).toHaveCount(0, { timeout: 40_000 })
-  // the card is the saved map now: three topics
+  // the card is the saved map now: the undone child is gone — two topics
   await expect.poll(async () => (await cardOf(m.id)).url || '', { timeout: 20_000 }).not.toBe(a.url)
   const url = (await cardOf(m.id)).url
   const bytes = Buffer.from(await (await fetch(url)).arrayBuffer())
@@ -1005,7 +1024,7 @@ test('F-CS-21 마인드맵을 마우스로만 고친 뒤(주제를 누르고 도
   fs.writeFileSync(out, bytes)
   const topics = execFileSync('python3', ['-c', 'import sys, zipfile, json\nc=json.loads(zipfile.ZipFile(sys.argv[1]).read("content.json"))\nn=lambda t: 1+sum(n(x) for x in (t.get("children") or {}).get("attached", []))\nprint(n(c[0]["rootTopic"]))', out]).toString().trim()
   fs.rmSync(out, { force: true })
-  expect(Number(topics)).toBe(3)
+  expect(Number(topics)).toBe(2)
   expect(p.errors).toEqual([])
   await p.context().close()
 })
@@ -1043,4 +1062,138 @@ test('F-CS-20 (고친 호스트) 고쳤다가 되돌리고 💾 · 저장하고 
     R.target = hostUrl
     await fixed.stop()
   }
+})
+
+// review #111 P1: an upload that storage refused leaves the editor's 저장 off (it took its save as done) — closing did not ask, and
+// 「다른 이름으로 저장」's 다시 시도 made the new card from the older file. Here the upload itself fails (the fixed host's storage goes
+// through a proxy that refuses one upload), then: closing asks and 저장하고 닫기 sends the editor's last write up again (the host's
+// republish — never a press of the off 저장); the save-as's 다시 시도 makes the new card with the edits; Word (and, with
+// RT_REAL_SHEETS=1, Excel) the same.
+async function withFailingStorage(fn) {
+  const proxy = await storageProxy()
+  const was = process.env.RT_OFFICE_HOST_DIR
+  process.env.RT_OFFICE_HOST_DIR = process.env.RT_FIXED_HOST_DIR
+  const fixed = await startOfficeHost({ from: 5406, env: { SUPABASE_URL: proxy.url, IEUM_ALLOWED_SOURCES: 'http://127.0.0.1:54321' } })
+  if (was == null) delete process.env.RT_OFFICE_HOST_DIR; else process.env.RT_OFFICE_HOST_DIR = was
+  R.target = fixed.url
+  try { await fn(proxy) } catch (e) { console.log('[F-CS-22 host log]\n' + fixed.logs.join('').split('\n').slice(-60).join('\n')); throw e } finally {
+    R.target = hostUrl
+    await fixed.stop()
+    await proxy.close()
+  }
+}
+const zipText = (bytes, entry) => {
+  const out = path.join(os.tmpdir(), `rt-cs-${process.pid}-${Date.now()}.zip`)
+  fs.writeFileSync(out, bytes)
+  try { return execFileSync('python3', ['-c', 'import sys, zipfile\nprint(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]).decode("utf-8"))', out, entry]).toString() } finally { fs.rmSync(out, { force: true }) }
+}
+test('F-CS-22 (고친 호스트) 저장소가 올리기를 거절한 뒤: 닫으면 묻고 저장하고 닫기는 다시 올림 · 다른 이름으로 저장의 다시 시도는 고친 내용으로 · 워드도', async ({ browser }) => {
+  test.skip(!process.env.RT_FIXED_HOST_DIR, '편집기의 마지막 저장을 다시 올리는 이음오피스 호스트 빌드가 필요(RT_FIXED_HOST_DIR)')
+  test.setTimeout(420_000)
+  // (the cards first: the chat shows what is there when it opens)
+  const c = await draftCard('답장초안_올리기거절_김서연.txt')
+  const c2 = await draftCard('답장초안_사본거절_김서연.txt')
+  const docx = fs.readFileSync(path.join(REPO, 'e2e/fixtures/meeting-minutes-template.docx'))
+  const a = await rawPost(ME.token, '/attachments', docx, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'X-File-Name': encodeURIComponent('회의록_거절.docx') })
+  const [w] = await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2) returning id`, [mainId, { name: '회의록_거절.docx', url: a.url, type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }])
+  // (Excel needs a fixed host whose spreadsheet editor runs on this machine — RT_FIXED_SHEETS=1; the locally built one drops the sheet's
+  // connection here, as F-CS-16 notes, so by default only the production image's spreadsheet is tested, F-CS-16)
+  let x = null
+  if (process.env.RT_FIXED_SHEETS === '1') {
+    const xlsx = await XLSX_OF([['이름', '사용일수'], ['김서연', 3]])
+    const xa = await rawPost(ME.token, '/attachments', xlsx, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'X-File-Name': encodeURIComponent('휴가_거절.xlsx') })
+    ;[x] = await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2) returning id`, [mainId, { name: '휴가_거절.xlsx', url: xa.url }])
+  }
+  await withFailingStorage(async (proxy) => {
+    const p = await page(browser)
+    await openChat(p)
+    // (a) a TXT: 💾 refused by storage → the bar says so, the editor's 저장 is off — × still asks, and 저장하고 닫기 sends it up
+    await card(p, c.name).click()
+    await textReady(p)
+    await typeAtEnd(p, ' 올리기거절뒤')
+    proxy.state.failNext = true
+    await pressSave(p)
+    await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 30_000 })
+    expect(proxy.state.failed).toBe(1)
+    await expect(ed(p).locator('.qa-btn[aria-label^="저장"]').first()).toBeDisabled()
+    await oef(p).locator('.tb.ic[title="닫기"]').click()
+    await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요', { timeout: 10_000 })
+    await shot(p, 'f-cs-22-upload-refused-ask')
+    const t0 = Date.now()
+    await ask(p).locator('[data-testid="oef-ask-save"]').click()
+    await expect(oef(p)).toHaveCount(0, { timeout: 20_000 })
+    expect(Date.now() - t0).toBeLessThan(15_000)
+    await expect.poll(async () => textAt((await cardOf(c.id)).url), { timeout: 20_000 }).toContain('올리기거절뒤')
+    // (b) 「다른 이름으로 저장」 whose copy storage refused → 다시 시도 → the new card holds the edits; the card I saved from does not
+    await card(p, c2.name).click()
+    await textReady(p)
+    await typeAtEnd(p, ' 사본거절뒤')
+    proxy.state.failNext = true
+    await ed(p).locator('.qa-save-as').click()
+    await ask(p).locator('[data-testid="oef-ask-name"]').fill('거절된 사본')
+    await ask(p).locator('[data-testid="oef-ask-save"]').click()
+    await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 40_000 })
+    expect(proxy.state.failed).toBe(2)
+    await badge(p).click()
+    await expect(oef(p).locator('.bar .name')).toHaveText('거절된 사본.txt', { timeout: 40_000 })
+    const [made] = await S.q(`select content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '거절된 사본.txt'])
+    expect(await textAt(made.content.url)).toContain('사본거절뒤')
+    expect(await textAt((await cardOf(c2.id)).url)).not.toContain('사본거절뒤')
+    await oef(p).locator('.tb.ic[title="닫기"]').click()
+    await expect(oef(p)).toHaveCount(0, { timeout: 20_000 })
+    // (c) Word: the same refusal, then 저장하고 닫기 — sent up again at once (not a press of its off 저장 waited on for 30 s)
+    await card(p, '회의록_거절.docx').click()
+    await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 120_000 })
+    await expect(ed(p).locator('.ProseMirror').first()).toBeVisible({ timeout: 90_000 })
+    await p.waitForTimeout(4000)
+    await ed(p).locator('.ProseMirror p').first().click()
+    await p.keyboard.press('End')
+    await p.keyboard.type(' 워드거절뒤', { delay: 30 })
+    await p.waitForTimeout(800)
+    proxy.state.failNext = true
+    await pressSave(p)
+    await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 40_000 })
+    expect(proxy.state.failed).toBe(3)
+    await oef(p).locator('.tb.ic[title="닫기"]').click()
+    await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요', { timeout: 10_000 })
+    const t1 = Date.now()
+    await ask(p).locator('[data-testid="oef-ask-save"]').click()
+    await expect(oef(p)).toHaveCount(0, { timeout: 25_000 })
+    expect(Date.now() - t1).toBeLessThan(20_000)
+    await expect.poll(async () => (await cardOf(w.id)).url || '', { timeout: 20_000 }).toMatch(/\/edited-[^/]+\.docx$/)
+    const saved = Buffer.from(await (await fetch((await cardOf(w.id)).url)).arrayBuffer())
+    expect(zipText(saved, 'word/document.xml')).toContain('워드거절뒤')
+    // (d) Excel (RT_FIXED_SHEETS=1, the spreadsheet's native engine — XLSX_SIDECAR_PATH): a cell typed and left, refused, 저장하고 닫기
+    if (x) {
+      await card(p, '휴가_거절.xlsx').click()
+      await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 120_000 })
+      const shown = async () => (await Promise.all(p.frames().filter((f) => f.url().includes('/office/')).map((f) => f.evaluate(() => document.body?.innerText || '').catch(() => '')))).join(' ')
+      await expect.poll(shown, { timeout: 120_000 }).toMatch(/통합 문서를 모두 로드했습니다|행 사용 가능/)
+      await p.waitForTimeout(2500)
+      const grid = ed(p).locator('canvas').first()
+      const box = await grid.boundingBox()
+      await p.mouse.click(box.x + 150, box.y + 45)
+      await p.keyboard.type('6', { delay: 60 })
+      await p.waitForTimeout(1500)
+      await p.keyboard.press('ArrowDown')
+      await p.waitForTimeout(800)
+      proxy.state.failNext = true
+      await pressSave(p)
+      await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 40_000 })
+      await oef(p).locator('.tb.ic[title="닫기"]').click()
+      await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요', { timeout: 10_000 })
+      const t2 = Date.now()
+      await ask(p).locator('[data-testid="oef-ask-save"]').click()
+      await expect(oef(p)).toHaveCount(0, { timeout: 25_000 })
+      expect(Date.now() - t2).toBeLessThan(20_000)
+      await expect.poll(async () => (await cardOf(x.id)).url || '', { timeout: 20_000 }).toMatch(/\/edited-[^/]+\.xlsx$/)
+      const wb = new ExcelJS.Workbook()
+      await wb.xlsx.load(Buffer.from(await (await fetch((await cardOf(x.id)).url)).arrayBuffer()))
+      const values = []
+      wb.worksheets[0].eachRow((row) => row.eachCell((cell) => values.push(String(cell.value))))
+      expect(values).toContain('6')
+    }
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  })
 })
