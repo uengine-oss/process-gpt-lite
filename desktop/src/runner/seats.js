@@ -207,7 +207,9 @@ const samePath = (a, b) => (WIN ? path.resolve(a).toLowerCase() === path.resolve
 class TurnWatch {
   constructor(dir, { claudeHome, onEnd = () => {}, onStart = () => {} } = {}) {
     this.dir = realOf(dir)
-    this.claudeDir = claudeHome ? path.join(claudeHome, 'projects', claudeKey(this.dir)) : null
+    // (Claude Code names a folder's sessions by the path it was started in: on Windows that may be the folder's short (8.3) name — a terminal
+    // opened at the working copy — or its long one; both are looked at. Elsewhere the two are one and the same folder of sessions)
+    this.claudeDirs = claudeHome ? [...new Set([this.dir, path.resolve(dir)].map((d) => path.join(claudeHome, 'projects', claudeKey(d))))] : []
     this.onEnd = onEnd
     this.onStart = onStart
     this.files = new Map() // file → {off, partial}
@@ -217,18 +219,19 @@ class TurnWatch {
   }
   // (the sessions already there: only what they write from now on)
   snapshot() {
-    if (!this.claudeDir) return
-    let names = []
-    try { names = fs.readdirSync(this.claudeDir) } catch { return }
-    for (const n of names) if (n.endsWith('.jsonl')) { const file = path.join(this.claudeDir, n); this.files.set(file, { off: Math.max(0, sizeOf(file)), partial: '' }) }
+    for (const cd of this.claudeDirs) {
+      let names = []
+      try { names = fs.readdirSync(cd) } catch { continue }
+      for (const n of names) if (n.endsWith('.jsonl')) { const file = path.join(cd, n); this.files.set(file, { off: Math.max(0, sizeOf(file)), partial: '' }) }
+    }
   }
-  pollClaude() {
-    if (!this.claudeDir) return
+  pollClaude() { for (const cd of this.claudeDirs) this.pollClaudeIn(cd) }
+  pollClaudeIn(cd) {
     let names = []
-    try { names = fs.readdirSync(this.claudeDir) } catch { return }
+    try { names = fs.readdirSync(cd) } catch { return }
     for (const n of names) {
       if (!n.endsWith('.jsonl')) continue
-      const file = path.join(this.claudeDir, n)
+      const file = path.join(cd, n)
       const size = sizeOf(file)
       if (size < 0) continue
       let f = this.files.get(file)
