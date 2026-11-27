@@ -60,6 +60,15 @@ function authOriginsOf(cfg) {
   try { if (cfg?.sso?.google) out.push(new URL(cfg.sso.google).origin) } catch { /* not an address */ }
   return out
 }
+// the server's own addresses by its own account (/api/config appOrigins — its public address, a tunnel's when that is it, the tenant's):
+// the agent browser keeps off them too, whatever address the app is connected at (0.2.6)
+function appOriginsOf(cfg) {
+  const out = []
+  for (const u of Array.isArray(cfg?.appOrigins) ? cfg.appOrigins.slice(0, 10) : []) {
+    try { const o = new URL(String(u)).origin; if (/^https?:/.test(o) && !out.includes(o)) out.push(o) } catch { /* not an address */ }
+  }
+  return out
+}
 const isLiteConfig = (j) => !!j && typeof j === 'object' && !Array.isArray(j) && ('demoLogin' in j || 'vault' in j || 'googleLogin' in j)
 
 /**
@@ -84,9 +93,9 @@ async function check(raw, { fetch, user = '', pass = '', timeout = 8000 } = {}) 
     let j = null
     try { j = r.ok ? await r.json() : null } catch { j = null }
     if (!isLiteConfig(j)) { if (last.reason !== 'auth') last = { ok: false, reason: 'notLite', detail: `HTTP ${r.status}` }; continue }
-    return { ok: true, server: base, authOrigins: authOriginsOf(j) }
+    return { ok: true, server: base, authOrigins: authOriginsOf(j), appOrigins: appOriginsOf(j) }
   }
   return last
 }
 
-module.exports = { normalize, candidates, check, authOriginsOf }
+module.exports = { normalize, candidates, check, authOriginsOf, appOriginsOf }
