@@ -160,4 +160,11 @@ async function stillOn(dir, name, from) {
   return (await git(dir, ['merge-base', from, 'HEAD'], { check: false })).trim() === from
 }
 
-module.exports = { git, gitPath, authEnv, checkUrl, checkRef, sync, branch, ahead, commit, changed, push, follow, head, stillOn, originOf, GitError, NEUTRAL }
+// the run's branch under the name the server gives it now (the same run, named anew): the folder as it is, nothing reset
+async function rename(dir, name) {
+  checkRef(name)
+  await git(dir, ['branch', '-M', name])
+  return head(dir)
+}
+
+module.exports = { git, gitPath, authEnv, checkUrl, checkRef, sync, branch, ahead, commit, changed, push, follow, head, stillOn, rename, originOf, GitError, NEUTRAL }

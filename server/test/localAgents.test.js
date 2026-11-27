@@ -277,6 +277,34 @@ test('데스크톱이 거절하면 서버로, 바쁘면 다시 대기, 받지 �
   await H.gone(a.link)
 })
 
+// (2026-11-28 PR #121 re-review: an app restarted with a run's answer and report in its outbox — the server re-offers the run it no
+// longer holds while the app says hello, then reads the outbox: the answer came while 'offered' and was dropped, the report taken)
+test('다시 켠 데스크톱이 남겨 둔 턴의 답과 보고를 보낼 때: 서버가 그 실행을 다시 내준(offered) 뒤에도 답을 받아 올린다 — 보고보다 먼저', { skip: !db }, async () => {
+  H.reset()
+  const seen = []
+  J.setKindHooks('restart-test', { prepare: record('prepare'), complete: async (job) => { seen.push(['complete', job.id]); return {} }, note: async () => {}, fail: record('fail'),
+    delegate: record('delegate'), cancelled: async () => false, reply: async (job, msg) => { seen.push(['reply', job.id, msg.turn, msg.text]) } })
+  let a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  await q(`update pro_local_jobs set kind='restart-test' where id=$1`, [j.id])
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  assert.equal((await J.byId(j.id)).state, 'running')
+  // the app quits; it comes back without the run (it was over — its answer and report wait in its outbox)
+  await H.gone(a.link)
+  a = await desktop(userA, { active: [], again: a })
+  assert.equal((await J.byId(j.id)).state, 'offered', 'the server offered it again while the app said hello')
+  // the outbox, in order: the answer the server never confirmed, then the report
+  await H.receive(a.link, { type: 'reply', jobId: j.id, turn: 1, text: '꺼지기 전에 만든 답', branch: 'pgpt-agent/x', commit: 'abc', pushed: true, files: ['답.md'] })
+  await H.receive(a.link, { type: 'done', jobId: j.id, branch: 'pgpt-agent/x', commit: 'abc', pushed: true, files: ['답.md'], summary: '끝' })
+  assert.deepEqual(seen, [['reply', j.id, 1, '꺼지기 전에 만든 답'], ['complete', j.id]], 'the answer is posted, before the run completes')
+  assert.deepEqual(a.got.filter((m) => m.type === 'replied').map((m) => [m.turn, m.state ?? null]), [[1, null]], 'taken — not answered with the run\'s state')
+  assert.equal((await J.byId(j.id)).state, 'done')
+  // (a run that is over takes no answer)
+  await H.receive(a.link, { type: 'reply', jobId: j.id, turn: 2, text: '늦은 답' })
+  assert.equal(seen.filter(([n]) => n === 'reply').length, 1)
+  await H.gone(a.link)
+})
+
 test('조종: 실행 중이면 바로 데스크톱으로, 연결이 끊겨 있으면 다시 붙을 때 보낸다', { skip: !db }, async () => {
   H.reset()
   let a = await desktop(userA)

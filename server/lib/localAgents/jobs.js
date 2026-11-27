@@ -219,8 +219,10 @@ export async function onMessage(link, msg) {
       return hk(job).note(await setSteer(job, msg.steerId, { failed: true, reason: String(msg.reason || 'refused').slice(0, 40) }), 'steer')
     // the CLI's answer at a turn's end (a chat — chat.js): its words, and what the turn changed in the folder (pushed on the run's branch).
     // Acknowledged by its turn number, so a desktop that says it again after a dropped link does not post it twice.
+    // (offered too, as 'done' is: a desktop app that restarted says the answers it kept before the run's report, and the server put the run
+    // it no longer holds back in the queue and offered it to it again while it said hello — hub.js online — so they come while 'offered')
     case 'reply': {
-      if (job.state !== 'running') { link.send({ type: 'replied', jobId: job.id, turn: msg.turn, state: job.state }); return }
+      if (!['running', 'offered'].includes(job.state)) { link.send({ type: 'replied', jobId: job.id, turn: msg.turn, state: job.state }); return }
       await hk(job).reply(job, msg, link)
       link.send({ type: 'replied', jobId: job.id, turn: msg.turn })
       return
