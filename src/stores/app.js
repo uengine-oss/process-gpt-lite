@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { runner as localRunner, startDesktopRunner, disconnectThis } from '../localRunner.js'
 import { api, stream, events, auth, uploadAttachment } from '../api.js'
+import { newId, retryable, backoff, why, retryWindow, loadUnsent, saveUnsent, forgetAllUnsent, ATTEMPT_MS } from '../sendQueue.js'
 import { BASE } from '../base.js'
 import { forgetPlaces } from '../shareTarget.js'
 import { syncLang, isEnglish } from '../i18n/lang.js'
@@ -16,6 +17,17 @@ import { convOf as convsOf, convRows, asideOf } from '../convOf.js'
 
 // the room 새 프로젝트 is making (newProject): resolves to its id, or null
 let draftJob = Promise.resolve(null)
+// messages not taken yet (src/sendQueue.js): the attempt under way (id → its AbortController), the rooms whose queue is being worked,
+// and the composer's attachment chips each one took (id → chips — given back as they were)
+const inFlight = new Map()
+const working = new Set()
+const tookChips = new Map()
+// words taken back from a line (그만두기 · 입력창에 넣기): sent again unchanged — in the same conversation, within ten minutes — they keep their
+// name: the server may have the first one already (it was on its way when it was taken back) and takes a name once. Later, the same
+// words ("네", "계속") are a new message. (conversation key + words → {id, at})
+const takenBack = new Map()
+const TAKEN_BACK_MS = 10 * 60_000
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms))
 
 // turns this page saw end (turnId → when): a snapshot or a late event does not bring their cards back (src/turnState.js)
 const endedTurns = new Map()
@@ -49,6 +61,10 @@ export const useApp = defineStore('app', {
     activeId: null,            // thread shown in the center column
     messages: {},              // threadId -> []
     drafts: {},                // threadId -> streaming text
+    // messages the server has not taken yet (src/sendQueue.js): [{id, threadId, key, conv, text, context, files, refs, openDoc, agent, fresh,
+    // at, state: 'waiting' | 'retrying' | 'failed', tries, error}] — asked again while the server is away, kept for the person otherwise,
+    // in this browser too; the composer shows the ones of its room (Composer.vue)
+    unsent: [],
     askedAt: {},               // threadId -> when this screen last sent a message there (a file the agent opens on request opens here)
     status: {},                // threadId -> live status text
     // threadId -> {turnId -> the turn as it runs}: plan, stage, to-dos, steps, notes (server lib/turnPlan.js; TurnPlanCard · TurnProgress)
@@ -175,6 +191,9 @@ export const useApp = defineStore('app', {
     async boot() {
       this.me = await api('/me')
       syncLang(this.me)
+      // messages a reload or a sign-in left before the server took them: kept, and asked again where they were being
+      this.unsent = loadUnsent(this.me?.user?.id).map((u) => (u.state === 'sending' ? { ...u, state: 'retrying', tries: Math.max(1, u.tries || 0) } : u))
+      for (const t of new Set(this.unsent.filter((u) => u.state !== 'failed').map((u) => u.threadId))) this.runUnsent(t)
       // in the desktop app: this computer's CLI agents run this person's local steps (src/localRunner.js)
       startDesktopRunner(this.me).catch(() => {})
       ;[this.mainThread] = await api('/threads')
@@ -461,27 +480,144 @@ export const useApp = defineStore('app', {
       const conversation = chosen || docConv || undefined
       const key = chatKeyOf(threadId, conversation?.id)
       const agent = opts.agent || (picked && picked.key === key ? picked.agent : 'default')
+      // Each message is named (src/sendQueue.js newId — the server takes a name once, lib/sendOnce.js) and kept until the server takes it:
+      // a server away for a moment (a deploy's restart — 2026-11-27 recording) is asked again, anything else is kept for the person.
+      const back = takenBack.get(`${key}\n${text}`)
+      takenBack.delete(`${key}\n${text}`)
+      const again = back && Date.now() - back.at < TAKEN_BACK_MS ? back.id : null
+      const entry = { id: again || newId(), threadId, key, conv: conversation || null, text, context, files, refs, openDoc, agent, fresh: !!opts.fresh, at: Date.now(), tries: 0 }
+      tookChips.set(entry.id, pending)
+      // behind a message of this room not taken yet: it waits its turn (the server answers them in the order they reach it)
+      if (this.unsent.some((u) => u.threadId === threadId && u.state !== 'failed')) { this.keepUnsent({ ...entry, state: 'waiting' }); this.runUnsent(threadId); return }
+      // kept from the first try on (state 'sending' — no line for it): a reload while the first try hangs (a gateway may take 15 – 100 s to
+      // give up) does not lose it; at the next start it is sent again under its name
+      this.keepUnsent({ ...entry, state: 'sending' })
+      const r = await this.trySend(entry, (ev, data) => {
+        // a document whose card is in no conversation: the one its first message went to is the document's from now on
+        const went = ev === 'done' && data?.content?.context?.conversationId
+        if (went && openDoc && !docConv && !chosen && this.officeDoc === d && threadId === this.mainThread?.id) this.officeDoc = { ...d, conv: went }
+      })
+      if (r.accepted) { tookChips.delete(entry.id); return r.finished }
+      // (taken back meanwhile: nothing more)
+      if (!this.unsent.some((x) => x.id === entry.id)) return
+      if (retryable(r.error)) { this.patchUnsent(entry.id, { state: 'retrying', tries: 1, error: why(r.error) }); this.runUnsent(threadId); return }
+      this.failUnsent(entry, r.error)
+    },
+    // One attempt: resolves the moment the server took the message ({accepted: true, finished — the whole answer}) or did not ({error});
+    // the answer streams into the room's draft as it always did. A message taken leaves the unsent list at once — its line goes before
+    // the answer is written, so 「그만두기」 is never offered for a message already in the room.
+    async trySend(entry, extra) {
+      const { threadId } = entry
+      const ctl = typeof AbortController === 'function' ? new AbortController() : null
+      inFlight.set(entry.id, ctl)
+      // (no answer at all for a while — a gateway that has not given up: given up here and asked again under the same name)
+      let timedOut = false
+      const timer = setTimeout(() => { timedOut = true; ctl?.abort() }, ATTEMPT_MS)
       this.drafts[threadId] = ''
       const asked = this.askedAt[threadId] = Date.now()
-      let ended = false
+      let ended = false, accepted = false, took
+      const tookIt = new Promise((ok) => { took = ok })
+      const run = stream(`/threads/${threadId}/messages`, { text: entry.text, context: entry.context, files: entry.files, conversation: entry.conv || undefined, openDoc: entry.openDoc,
+        ...(entry.refs?.length ? { refs: entry.refs } : {}), ...(entry.fresh ? { fresh: true } : {}), ...(entry.agent && entry.agent !== 'default' ? { agent: entry.agent } : {}), clientId: entry.id }, (ev, data) => {
+        if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
+        // the draft was an interim text after all (a tool call followed it — server lib/turnPlan.js): back to 「생각하는 중」
+        if (ev === 'retract' && this.drafts[threadId] != null) this.drafts[threadId] = ''
+        if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
+        extra?.(ev, data)
+      }, { signal: ctl?.signal, onAccepted: () => { accepted = true; clearTimeout(timer); inFlight.delete(entry.id); this.dropUnsent(entry.id); took() } })
+      const outcome = run.then(() => null, (e) => (timedOut && !accepted ? Object.assign(e, { timedOut: true }) : e))
+      const finished = outcome.then((e) => {
+        if (!accepted) return
+        if (e) console.warn('[send]', e.message)
+        // the connection dropped before the answer (a proxy cutting a long request, a server restart):
+        // stop showing "생각하는 중"; the answer, if it comes, arrives as a live event
+        if (!ended) { this.drafts[threadId] = null; this.load(threadId).catch(() => {}) }
+        // the answer's cards come as live events, a moment after it ends; a dropped connection waits longer
+        setTimeout(() => { if (this.askedAt[threadId] === asked) delete this.askedAt[threadId] }, ended ? 15_000 : 10 * 60_000)
+        if (threadId === this.mainThread?.id) this.loadConversations()
+        else if (this.projects.some((p) => p.id === threadId)) this.loadTopics(threadId)
+      })
+      const first = await Promise.race([tookIt.then(() => null), outcome])
+      clearTimeout(timer)
+      if (accepted) return { accepted: true, finished }
+      inFlight.delete(entry.id)
+      this.drafts[threadId] = null
+      return { accepted: false, error: first || Object.assign(new Error('no answer'), { accepted: false }) }
+    },
+    // The room's messages not taken yet, asked again one at a time in the order they were sent, each for retryWindow() from its first
+    // try (2 s, 4 s … 15 s apart). One worker per room.
+    async runUnsent(threadId) {
+      if (working.has(threadId)) return
+      working.add(threadId)
       try {
-        await stream(`/threads/${threadId}/messages`, { text, context, files, conversation, openDoc, ...(refs.length ? { refs } : {}), ...(opts.fresh ? { fresh: true } : {}), ...(agent !== 'default' ? { agent } : {}) }, (ev, data) => {
-          if (ev === 'delta' && this.drafts[threadId] != null) this.drafts[threadId] += data.d
-          // the draft was an interim text after all (a tool call followed it — server lib/turnPlan.js): back to 「생각하는 중」
-          if (ev === 'retract' && this.drafts[threadId] != null) this.drafts[threadId] = ''
-          if (ev === 'done' || ev === 'error') { ended = true; this.drafts[threadId] = null }
-          // a document whose card is in no conversation: the one its first message went to is the document's from now on
-          const went = ev === 'done' && data?.content?.context?.conversationId
-          if (went && openDoc && !docConv && !chosen && this.officeDoc === d && threadId === this.mainThread?.id) this.officeDoc = { ...d, conv: went }
-        })
-      } catch (e) { console.warn('[send]', e.message) }
-      // the connection dropped before the answer (a proxy cutting a long request, a server restart):
-      // stop showing "생각하는 중"; the answer, if it comes, arrives as a live event
-      if (!ended) { this.drafts[threadId] = null; this.load(threadId).catch(() => {}) }
-      // the answer's cards come as live events, a moment after it ends; a dropped connection waits longer
-      setTimeout(() => { if (this.askedAt[threadId] === asked) delete this.askedAt[threadId] }, ended ? 15_000 : 10 * 60_000)
-      if (threadId === this.mainThread?.id) this.loadConversations()
-      else if (this.projects.some((p) => p.id === threadId)) this.loadTopics(threadId)
+        for (;;) {
+          const u = this.unsent.find((x) => x.threadId === threadId && x.state !== 'failed')
+          if (!u) break
+          // (the room's first message still on its first try — send() has it: the ones behind it wait)
+          if (u.state === 'sending' && inFlight.has(u.id)) { await sleep(300); continue }
+          if (Date.now() - (u.at || 0) > retryWindow()) { this.failUnsent(u, null, u.error); continue }
+          if (u.tries) { u.state = 'retrying'; this.saveUnsent(); await sleep(backoff(u.tries)) }
+          // (taken back or put aside meanwhile)
+          const now = this.unsent.find((x) => x.id === u.id && x.state !== 'failed')
+          if (!now) continue
+          now.state = 'retrying'
+          const r = await this.trySend(now)
+          if (r.accepted) { tookChips.delete(now.id); continue }
+          if (!this.unsent.some((x) => x.id === now.id)) continue
+          if (retryable(r.error)) { now.tries = (now.tries || 0) + 1; now.error = why(r.error); this.saveUnsent(); continue }
+          this.failUnsent(now, r.error)
+        }
+      } finally { working.delete(threadId) }
+    },
+    keepUnsent(u) { this.unsent = [...this.unsent.filter((x) => x.id !== u.id), u]; this.saveUnsent() },
+    // a kept message changed in its place (the room's order stays)
+    patchUnsent(id, patch) { this.unsent = this.unsent.map((x) => (x.id === id ? { ...x, ...patch } : x)); this.saveUnsent() },
+    dropUnsent(id) { if (this.unsent.some((x) => x.id === id)) { this.unsent = this.unsent.filter((x) => x.id !== id); this.saveUnsent() } },
+    saveUnsent() { saveUnsent(this.me?.user?.id, this.unsent) },
+    // not taken, and not asked again (a refusal, the server away past the window, a sign-in gone): kept for the person — its line offers
+    // 다시 보내기 · 입력창에 넣기 · 지우기, and an empty composer of its own conversation takes it back at once (Composer.vue)
+    failUnsent(u, error, said) {
+      const row = { ...u, state: 'failed', error: said || why(error) }
+      this.unsent = this.unsent.some((x) => x.id === u.id) ? this.unsent.map((x) => (x.id === u.id ? row : x)) : [...this.unsent, row]
+      this.dropLocalCopy(row)
+      this.saveUnsent()
+    },
+    // a new project's message shown before its room existed (newProject): it is not in the room after all
+    dropLocalCopy(u) {
+      const list = this.messages[u.threadId]
+      if (list?.some((m) => m.content?.local && m.content?.text === u.text)) this.messages[u.threadId] = list.filter((m) => !(m.content?.local && m.content?.text === u.text))
+    },
+    // 그만두기 · 입력창에 넣기: the message is not sent (an attempt under way stops); its words come back (the composer puts them in its
+    // box), its files back among the composer's attachments, its dragged files back as chips → {text, threadId, key} or null
+    takeBackUnsent(id) {
+      const u = this.unsent.find((x) => x.id === id)
+      if (!u) return null
+      inFlight.get(id)?.abort()
+      inFlight.delete(id)
+      this.unsent = this.unsent.filter((x) => x.id !== id)
+      this.saveUnsent()
+      this.dropLocalCopy(u)
+      takenBack.set(`${u.key}\n${u.text}`, { id: u.id, at: Date.now() })
+      const chips = tookChips.get(id) || (u.files || []).map((f) => ({ id: newId(), name: f.name || '파일', size: f.size || 0, state: 'ready', result: f, error: '', job: Promise.resolve(f) }))
+      tookChips.delete(id)
+      if (chips.length) this.attachments = [...this.attachments, ...chips.filter((a) => !this.attachments.some((b) => b.id === a.id))]
+      if (u.refs?.length) this.addFileRefs(u.refs)
+      return { text: u.text, threadId: u.threadId, key: u.key }
+    },
+    // 다시 보내기 on a message kept for the person: asked again (a new window), in its place in the room's order
+    retryUnsent(id) {
+      const u = this.unsent.find((x) => x.id === id)
+      if (!u) return
+      this.patchUnsent(id, { state: 'retrying', tries: 0, at: Date.now(), error: '' })
+      this.runUnsent(u.threadId)
+    },
+    // 지우기: the message is let go (its words are not kept anywhere any more)
+    forgetUnsent(id) { tookChips.delete(id); this.dropUnsent(id) },
+    // the key of the conversation the composer writes into now (as send() works it out): a message kept for it is given back here only
+    composerKey(threadId = this.activeId) {
+      const conv = this.convFilter && threadId === this.mainThread?.id ? this.convFilter
+        : this.topicFilter && this.mode === 'project' && threadId === this.activeId ? this.topicFilter : null
+      return chatKeyOf(threadId, conv || undefined)
     },
     // 멈추기: the answer being written in this thread (in a conversation view, only that conversation's)
     async stopTurn(threadId = this.activeId) {
@@ -646,6 +782,12 @@ export const useApp = defineStore('app', {
       if (localRunner.desktop) await disconnectThis({ optOut: false }).catch(() => {})
       // (this device forgets the places kept for sharing, a share still waiting and the messenger's unsent words — src/shareTarget.js)
       try { forgetPlaces(window.localStorage, window.sessionStorage) } catch { /* nothing kept */ }
+      // (and the messages kept before the server took them — src/sendQueue.js: their words, context, files): the tries stop first, so
+      // none writes the list back while the page leaves
+      for (const c of inFlight.values()) c?.abort()
+      inFlight.clear()
+      this.unsent = []
+      forgetAllUnsent(window.localStorage)
       auth.clear(); location.href = BASE + '/login'
     },
   },

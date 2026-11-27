@@ -417,11 +417,11 @@ export async function runningJobOf(instId) {
   const [j] = await q(`select * from pro_local_jobs where tenant_id=$1 and proc_inst_id=$2 and state in ('running','offered') order by created_at desc limit 1`, [T(), String(instId)])
   return j || null
 }
-export async function steerFromThread(user, thread, text) {
+export async function steerFromThread(user, thread, text, { clientId = null } = {}) {
   if (!thread || thread.kind !== 'process' || !thread.ref || !String(text || '').trim()) return null
   const job = await runningJobOf(thread.ref)
   if (!job || !(await maySteer(user, job))) return null
-  await addMessage(user.id, thread.id, 'user', 'text', { text: String(text).slice(0, 4000) })
+  await addMessage(user.id, thread.id, 'user', 'text', { text: String(text).slice(0, 4000), ...(clientId ? { clientId: String(clientId) } : {}) })
   const r = await J.steer(job, user, text)
   const a = LABEL(job.agent)
   await addMessage(user.id, thread.id, 'agent', 'chip', { icon: 'send', localSteer: r.steer.id,

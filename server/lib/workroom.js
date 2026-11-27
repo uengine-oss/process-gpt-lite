@@ -13,6 +13,7 @@ import { config } from '../config.js'
 import { q, admin } from './supa.js'
 import { workspaceHostPath } from './missions.js'
 import { folderRoom, folderRoomAccess } from './folders/rooms.js'
+import * as G from './folders/git.js'
 import { L, isEn, withLang, ENGLISH_NOTE } from './lang.js'
 import { withTenant } from './tenant.js'
 import { scopePattern } from './projectTopics.js'
@@ -32,7 +33,8 @@ const SKIP = new Set(['.git', 'node_modules', '.venv', '__pycache__', '.next', '
 // kind 'todo': a process step (cli-agent run = todo id; deepagents run = its instance folder)
 // kind 'run':  a cli-agent chat run (conversation id)
 // kind 'chat': a deepagents conversation (/workspace/.bpmn/<room>)
-export async function resolveRoom(kind, id) {
+// user: who opens it — a shared folder's variation is its working copy only for the person whose server workroom it is (folders/rooms.js)
+export async function resolveRoom(kind, id, user = null) {
   if (kind === 'todo') {
     const [t] = await q(`select t.id, t.activity_name, t.status, t.agent_orch, t.output, t.proc_inst_id, i.proc_inst_name
                          from todolist t left join bpm_proc_inst i on i.proc_inst_id=t.proc_inst_id where t.id::text=$1`, [id])
@@ -56,7 +58,7 @@ export async function resolveRoom(kind, id) {
   }
   // shared folders (lib/folders): 'folder' = a folder's main (id = slug), 'variation' = a person's
   // checkout of a variation (id = variation id, checked out by POST …/variations/:vid/checkout)
-  if (kind === 'folder' || kind === 'variation') return folderRoom(kind, id)
+  if (kind === 'folder' || kind === 'variation') return folderRoom(kind, id, user)
   return null
 }
 
@@ -103,8 +105,15 @@ export function issueTicket(user, room, mode) {
   // lang: the language of the person opening it (English mode: Claude Code is told to answer in English);
   // tenant: theirs — the websocket upgrade comes outside any request's tenant (lib/tenant.js), and the
   // room (an en-demo folder, a conversation folder) is looked up in it
-  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: mode === 'claude' ? 'claude' : 'shell', lang: isEn() ? 'en' : 'ko', tenant: config.tenantId, until: Date.now() + 60_000 })
+  // epoch: a variation's seat when the ticket was given — a seat that moved meanwhile refuses it (folders/seats.js)
+  tickets.set(t, { userId: user.id, kind: room.kind, id: room.id, mode: mode === 'claude' ? 'claude' : 'shell', lang: isEn() ? 'en' : 'ko', tenant: config.tenantId, until: Date.now() + 60_000,
+    epoch: room.kind === 'variation' ? room.epoch ?? null : null })
   return t
+}
+// whether a ticket still opens its room: a variation's only while the room is that person's server workroom at the ticket's epoch
+export function ticketHolds(room, ticket) {
+  if (room?.kind !== 'variation' || room.legacy) return true
+  return !!room.writable && String(room.userId) === String(ticket.userId) && Number(room.epoch) === Number(ticket.epoch)
 }
 function spendTicket(t) {
   const v = tickets.get(t)
@@ -118,8 +127,8 @@ function spendTicket(t) {
 const MIME = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', pdf: 'application/pdf', hwpx: 'application/hwp+zip', hwp: 'application/x-hwp' }
 export async function publishFile(room, rel, user) {
-  const p = inside(room, rel)
-  const buf = await fs.readFile(p)
+  const p = room.git ? gitRel(rel) : inside(room, rel)
+  const buf = room.git ? await gitBlob(room, p) : await fs.readFile(p)
   if (buf.length > 50 * 1024 * 1024) throw Object.assign(new Error('too large'), { status: 413 })
   const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
   const key = `pgpt-pro/${user.id}/wr/${crypto.createHash('sha256').update(buf).digest('hex').slice(0, 32)}.${ext}`
@@ -152,7 +161,55 @@ export function inside(room, rel) {
   return p
 }
 
+// A read-only room (a variation whose working copy is elsewhere — folders/rooms.js): its files are the branch as saved, read from git
+// by a path that names no part of the repository's own data and does not climb out
+export function gitRel(rel) {
+  if (gitPart(rel)) throw Object.assign(new Error('not a document path'), { status: 400 })
+  const p = path.posix.normalize(String(rel || '').replace(/\\/g, '/').replace(/^\/+/, ''))
+  if (!p || p === '.' || p.startsWith('..') || p.split('/').some((x) => x === '..')) throw Object.assign(new Error('outside'), { status: 400 })
+  return p
+}
+async function gitBlob(room, p) {
+  return G.show(room.git.repo, room.git.ref, p).catch(() => { throw Object.assign(new Error('not found'), { status: 404 }) })
+}
+// the file of a room as the browser loads it: a path on disk (sendFile), or the bytes of a read-only room's file
+export async function rawFile(room, rel) {
+  if (!room.git) return { path: inside(room, rel) }
+  const p = gitRel(rel)
+  return { buffer: await gitBlob(room, p), name: path.posix.basename(p) }
+}
+// Writing and the terminal are for the person whose working copy it is (a variation: its seat in their server workroom, at the epoch the
+// room was read in): anyone else, or a room read only, is refused with where the working copy is
+export function assertWritable(room, user) {
+  if (room?.kind !== 'variation' || room.legacy) return
+  if (room.readonly || !room.writable || String(room.userId || '') !== String(user?.id || '')) {
+    throw Object.assign(new Error(L('이 변형의 작업본은 다른 곳에 있어서 여기서는 읽기만 할 수 있어요.', "This variation's working copy is elsewhere, so it is read only here.")), { status: 409, readonly: true })
+  }
+}
+
+// A branch's files ({path, size}) as the room's listing: folders first then files, by name, each with its depth — one pass to group them by
+// folder, one sort per folder (a read-only room lists the branch as saved)
+export function listing(files, { max = Infinity } = {}) {
+  const kids = new Map() // folder → {dirs: Set, files: []}
+  const at = (d) => { let k = kids.get(d); if (!k) kids.set(d, (k = { dirs: new Set(), files: [] })); return k }
+  for (const f of files) {
+    const parts = f.path.split('/')
+    for (let i = 1; i < parts.length; i++) at(parts.slice(0, i - 1).join('/')).dirs.add(parts.slice(0, i).join('/'))
+    at(parts.slice(0, -1).join('/')).files.push(f)
+  }
+  const out = []
+  const walk = (dir, depth) => {
+    const k = kids.get(dir)
+    if (!k) return
+    for (const d of [...k.dirs].sort((a, b) => a.localeCompare(b))) { if (out.length >= max) return; out.push({ path: d, dir: true, depth }); if (depth < 8) walk(d, depth + 1) }
+    for (const f of k.files.sort((a, b) => a.path.localeCompare(b.path))) { if (out.length >= max) return; out.push({ path: f.path, dir: false, depth, size: f.size, mtime: null }) }
+  }
+  walk('', 0)
+  return out
+}
+
 export async function tree(room) {
+  if (room.git) return listing((await G.lsTree(room.git.repo, room.git.ref)).filter((f) => !f.path.split('/').some((s) => SKIP.has(s) || s.startsWith('.processgpt'))), { max: 3000 })
   const out = []
   const walk = async (dir, depth) => {
     for (const e of (await fs.readdir(dir, { withFileTypes: true }).catch(() => [])).sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name))) {
@@ -170,6 +227,13 @@ export async function tree(room) {
 
 const TEXTISH = /\.(md|markdown|txt|json|ya?ml|toml|ini|env\.example|csv|tsv|py|js|mjs|cjs|ts|tsx|jsx|vue|html?|css|scss|sh|bash|zsh|sql|xml|bpmn|dmn|form|java|kt|go|rs|rb|php|c|h|cpp|hpp|cs|swift|gitignore|log|conf|cfg)$/i
 export async function readFile(room, rel) {
+  if (room.git) {
+    const p = gitRel(rel)
+    const buf = await gitBlob(room, p)
+    const text = TEXTISH.test(p) || (!buf.subarray(0, 4096).includes(0) && buf.length <= TEXT_MAX)
+    if (!text || buf.length > TEXT_MAX) return { binary: true, size: buf.length, mtime: null, readonly: true }
+    return { content: buf.toString('utf8'), size: buf.length, mtime: null, readonly: true }
+  }
   const p = inside(room, rel)
   const st = await fs.stat(p)
   if (st.isDirectory()) throw Object.assign(new Error('directory'), { status: 400 })
@@ -178,10 +242,11 @@ export async function readFile(room, rel) {
   if (!text || st.size > TEXT_MAX) return { binary: true, size: st.size, mtime: st.mtimeMs }
   return { content: buf.toString('utf8'), size: st.size, mtime: st.mtimeMs }
 }
-export function rawPath(room, rel) { return inside(room, rel) }
+export function rawPath(room, rel) { if (room.git) throw Object.assign(new Error('read only room'), { status: 400 }); return inside(room, rel) }
 
 // Code injected by a person: written in place, refused if the agent changed the file meanwhile.
 export async function writeFile(room, rel, content, expectedMtime) {
+  if (room.readonly || room.writable === false) throw Object.assign(new Error(L('이 변형의 작업본은 다른 곳에 있어서 여기서는 읽기만 할 수 있어요.', "This variation's working copy is elsewhere, so it is read only here.")), { status: 409, readonly: true })
   const p = inside(room, rel)
   await assertNoLink(room.root, path.relative(room.root, p))
   // (a reference slot of a shared folder is read only there — folders/refs.js)
@@ -196,6 +261,15 @@ export async function writeFile(room, rel, content, expectedMtime) {
   // a shared folder's main or a variation checkout: the edit becomes a commit
   if (room.afterWrite) await room.afterWrite(path.relative(room.root, p)).catch((e) => console.warn('[workroom] commit', e.message))
   return { mtime: (await fs.stat(p)).mtimeMs }
+}
+
+// The workroom's PUT: refused unless the room is this person's to write; a variation's write waits for any move of that variation and is
+// refused when the room moved since it was read (folders/seats.js guardedWrite) — it never lands in a folder that left
+export async function writeAs(room, user, rel, content, expectedMtime) {
+  assertWritable(room, user)
+  if (room.kind !== 'variation' || room.legacy) return writeFile(room, rel, content, expectedMtime)
+  const SE = await import('./folders/seats.js')
+  return SE.guardedWrite(room, user, () => writeFile(room, rel, content, expectedMtime))
 }
 
 // Live steering of a deepagents turn (process-gpt SDK POST /chat/steer: applied before the next
@@ -231,6 +305,11 @@ const onPath = (bin) => (String(bin).includes('/') ? existsSync(bin) : String(pr
 // that holds every tenant's folders and the vault keyring.
 export function terminalStatus(room, mode = 'shell') {
   const no = (reason, status = 503) => ({ ok: false, status, reason })
+  // a variation whose working copy is elsewhere: no shell here (folders/seats.js)
+  if (room.readonly) {
+    return no(room.seatRow ? L('이 변형의 작업본은 다른 곳에 있어서 여기서는 터미널을 열지 않아요', "This variation's working copy is elsewhere, so no terminal opens here")
+      : L('이 변형은 보관 중이라 터미널을 열지 않아요 — 내 작업실에서 열면 셸을 쓸 수 있어요', 'This variation is put away, so no terminal opens — open it in your workroom to use a shell'), 409)
+  }
   if ((config.tenantFromHeader || config.tenantHosts) && !config.terminalKey) return no(L('여러 회사가 함께 쓰는 이 서버에서는 터미널을 열지 않아요', 'This server is shared by several companies, so it does not open terminals'))
   if (!pty) return no(L('이 서버에 터미널 모듈(node-pty)이 설치돼 있지 않아요', 'The terminal module (node-pty) is not installed on this server'))
   if (!shellPath()) return no(L('이 서버에 셸이 없어요', 'This server has no shell'))
@@ -260,6 +339,22 @@ function spawn(room, mode, lang = 'ko') {
     if (lang === 'en') args.push('--append-system-prompt', ENGLISH_NOTE)
   }
   return pty.spawn(file, args, { name: 'xterm-256color', cols: 120, rows: 32, cwd: room.cwd, env })
+}
+
+// A variation's working copy moved (folders/seats.js): its terminals end now, with the reason to whoever watches
+export function closeRoom(kind, id, reason, tenant = config.tenantId) {
+  let n = 0
+  for (const [key, s] of sessions) {
+    if (!key.startsWith(`${tenant}:${kind}:${id}:`)) continue
+    for (const ws of s.viewers) if (ws.readyState === 1) { ws.send(JSON.stringify({ type: 'closed', reason })); ws.close(4409, 'moved') }
+    s.viewers.clear()
+    s.exited = true
+    clearTimeout(s.timer)
+    try { s.pty.kill() } catch { /* gone */ }
+    sessions.delete(key)
+    n++
+  }
+  return n
 }
 
 function sessionFor(room, mode, lang = 'ko', tenant = config.tenantId) {
@@ -333,8 +428,12 @@ export function attachTerminal(server) {
     const ticket = spendTicket(String(url.searchParams.get('ticket') || ''))
     if (!ticket) return deny(4401, L('터미널 연결 표가 없거나 만료됐어요', 'The terminal ticket is missing or expired'))
     // in the tenant the ticket was issued in (the upgrade is not an express request: no tenant of its own)
-    const room = await withTenant(ticket.tenant, () => resolveRoom(ticket.kind, ticket.id)).catch(() => null)
+    const room = await withTenant(ticket.tenant, () => resolveRoom(ticket.kind, ticket.id, { id: ticket.userId })).catch(() => null)
     if (!room) return deny(4404, L('작업실을 찾지 못했어요', 'The workroom was not found'))
+    // a variation's working copy that moved since the ticket was given (another place, another epoch): no shell in the old one
+    if (!ticketHolds(room, ticket)) {
+      return deny(4409, withLang(ticket.lang, () => L('이 변형의 작업본이 다른 곳으로 옮겨졌어요', "This variation's working copy moved elsewhere")))
+    }
     const st = withLang(ticket.lang, () => terminalStatus(room, ticket.mode))
     if (!st.ok) return deny(st.status === 404 ? 4404 : 4503, st.reason)
     const mode = ticket.mode
@@ -343,7 +442,7 @@ export function attachTerminal(server) {
       try { s = sessionFor(room, mode, ticket.lang, ticket.tenant) } catch (e) { ws.send(JSON.stringify({ type: 'error', message: e.message })); return ws.close(4500, 'spawn') }
       clearTimeout(s.timer)
       s.viewers.add(ws)
-      ws.send(JSON.stringify({ type: 'session', mode, cwd: room.cwd, session: room.session || null }))
+      ws.send(JSON.stringify({ type: 'session', mode, session: room.session || null }))
       if (s.buf) ws.send(JSON.stringify({ type: 'output', data: s.buf, replay: true }))
       ws.on('message', (raw) => {
         let m

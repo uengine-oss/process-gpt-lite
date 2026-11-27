@@ -82,6 +82,30 @@ export async function syncAccess(claims, { push = false } = {}) {
   return null
 }
 
+// The same for a desktop's working-copy token (variation seats — folders/seats.js, spec variation-seats; the desktop's own working copy and
+// the git scope 'seat' come with its next version, design P1): one variation on one device at one epoch, checked on every request — the
+// device is linked (not revoked), the variation's seat is that device's and still at the token's epoch (a push from an older epoch is
+// refused before git sees it), the folder is a managed one of the token's company, and the device's person holds at least runner in it.
+// → null when it may, else why not.
+export async function seatAccess(claims, { push = false } = {}) {
+  if (claims?.scope !== 'seat' || !/^[0-9a-f-]{36}$/i.test(String(claims?.device || '')) || !/^[0-9a-f-]{36}$/i.test(String(claims?.seat || ''))) return 'not a desktop working-copy token'
+  const [d] = await q('select user_id, revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
+  if (!d || d.revoked_at) return 'this desktop is not linked any more'
+  const [s] = await q('select place, state, device_id, user_id, epoch, folder_id from pro_variation_seats where variation_id=$1 and tenant_id=$2', [claims.seat, claims.tenant])
+    .catch((e) => { if (e.code === '42P01') return []; throw e })
+  if (!s || s.place !== 'device' || String(s.device_id) !== String(claims.device)) return 'this working copy is not on this desktop any more'
+  if (Number(s.epoch) !== Number(claims.epoch)) return 'this working copy moved since this token was given (an older epoch)'
+  if (String(s.folder_id) !== String(claims.folder)) return 'this token is for another folder'
+  if (String(s.user_id) !== String(d.user_id)) return 'this working copy is someone else\'s on this desktop'
+  if (push && s.state === 'moving') return 'this working copy is still being prepared'
+  const [f] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [claims.folder, claims.tenant])
+  if (!f || f.kind !== 'managed') return 'this folder is not served over git'
+  const { roleOf, RANK } = await import('../folders/service.js')
+  const role = await roleOf(f, { id: String(d.user_id) })
+  if (!role || RANK[role] < RANK.runner) return 'working on this folder needs the runner role'
+  return null
+}
+
 // what the desktop reported (hello / caps): kept for the settings screen and for dispatching; only the known keys, short strings
 export function capsOf(raw = {}) {
   const clis = {}

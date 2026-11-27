@@ -99,7 +99,7 @@ cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js
 
 ## 폴더를 끌어다 놓아 올리기 · 「파일 올리기」 · 「폴더 올리기」 · 작업실의 까닭 (사용자 녹화 11-27)
 
-`e2e/README.md` 68절. 화면은 자기 스택(여러 회사 · 터미널 열쇠 없음 — 운영과 같은 설정)으로 본다.
+`e2e/README.md` 71절. 화면은 자기 스택(여러 회사 · 터미널 열쇠 없음 — 운영과 같은 설정)으로 본다.
 
 ```bash
 cd server && node --test test/folderDrop.test.js

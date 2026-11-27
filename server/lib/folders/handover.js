@@ -17,6 +17,7 @@ import { runAgent, RULES, rules } from './runner.js'
 import { L, lang, langOf } from '../lang.js'
 import { pushRoomDir, pullRoomChanges } from '../roomStore.js'
 import { localPart, person } from '../people.js'
+import * as SE from './seats.js'
 
 const T = () => config.tenantId
 const err = (status, message) => Object.assign(new Error(message), { status })
@@ -46,7 +47,7 @@ export async function receiverOf(id) {
 }
 
 // asked: {id, …} — who the page picked (lib/folders routes); only its id is used
-export async function handover(folder, v, from, { to: asked, mode = 'continue', done = '', next, grant = false, jwt }) {
+export async function handover(folder, v, from, { to: asked, mode = 'continue', done = '', next, grant = false, jwt, role = null }) {
   if (!asked?.id) throw err(400, L('받을 사람을 골라 주세요.', 'Please choose who receives it.'))
   const to = await receiverOf(asked.id)
   if (!to) throw err(404, L('받을 사람을 찾지 못했어요.', "I couldn't find who receives it."))
@@ -55,6 +56,10 @@ export async function handover(folder, v, from, { to: asked, mode = 'continue', 
   if (!String(next || '').trim()) throw err(400, L('다음에 할 일을 적어 주세요.', 'Please write what to do next.'))
   if (['merged', 'discarded'].includes(v.status)) throw err(409, L('이미 반영했거나 버린 변형이에요.', 'This variation was already merged or discarded.'))
   if (v.status === 'open' && v.worktree_path && v.kind !== 'person') throw err(409, L('아직 실행 중인 변형이에요. 끝난 뒤 넘겨 주세요.', 'This variation is still running. Hand it over when it is done.'))
+  // where its working copy is (folders/seats.js): handing it on (이어받기) is refused while someone else, a computer or a running agent
+  // has it (checked before anything changes); my own server workroom is put away below — saved as it is, so the receiver gets
+  // everything. A fork starts from what is saved: my own workroom is saved first and stays mine.
+  const mine = mode !== 'fork' ? await SE.checkMove(folder, v, from, { role }) : null
   const principalType = to.isAgent ? 'agent' : 'user'
   const [member] = await q('select role from pro_folder_members where folder_id=$1 and principal_type=$2 and principal_id=$3', [folder.id, principalType, String(to.id)])
   if (!member) {
@@ -62,6 +67,11 @@ export async function handover(folder, v, from, { to: asked, mode = 'continue', 
     await S.setMember(folder, from, { type: principalType, id: to.id, role: 'runner' })
   }
 
+  if (mine) { await SE.closeMine(folder, v, from); v = await S.variationById(v.id) }
+  if (mode === 'fork') {
+    const seat = await SE.seatOf(v.id, { v })
+    if (seat && seat.place === 'server' && seat.run === 'workroom' && String(seat.user_id) === String(from.id)) await SE.commitAsIs(folder, v, { author: { name: from.name, email: from.email }, message: L('넘기기 전에 저장', 'Saved before handing over') })
+  }
   const holder = { type: principalType, id: to.id, name: to.name }
   // what the receiver reads (briefing, to-do, notification) is in the receiver's saved language; an
   // agent receiver works in the sender's (lib/lang.js)
@@ -71,7 +81,11 @@ export async function handover(folder, v, from, { to: asked, mode = 'continue', 
   if (mode === 'fork') {
     target = await S.createVariation(folder, { title: `${v.title} — ${shown}`, kind: 'handover', base: v.id, holder, source: { label: L(`${from.name} 님이 넘긴 갈래`, `Fork handed over by ${from.name}`), from_variation: v.id, room_id: null }, createdBy: from.id })
     await S.setStatus(target, 'ready')
-  } else if (v.worktree_path) await S.release(folder, v)
+  } else if (v.worktree_path) {
+    // (a checkout from before seats: what it holds goes with the variation)
+    await S.keepWhatIsThere(folder, v.worktree_path, v.branch)
+    await S.release(folder, v)
+  }
 
   const thread = await resolveOrigin(v.source?.room_id)
   const toRoomId = crypto.randomUUID()
@@ -131,7 +145,8 @@ export async function handover(folder, v, from, { to: asked, mode = 'continue', 
 
 async function runReceiver({ folder, v, from, to, next, done, toRoomId, toTaskId, jwt }) {
   const dir = S.runCheckoutDir(toRoomId, folder)
-  await S.checkout(folder, v, dir)
+  // the receiving agent's run has the working copy until it commits and releases it (folders/seats.js)
+  const run = await SE.openServer(folder, v, { user: { id: String(to.id), name: to.name }, run: 'agent', work: 'handover', ref: String(toTaskId), dir })
   await q(`update pro_folder_variations set status='open', source = source || $2, updated_at=now() where id=$1`, [v.id, { room_id: toRoomId, todo_id: toTaskId }])
   await q(`update todolist set status='IN_PROGRESS' where id=$1`, [toTaskId])
   const msg = L(`${to.description ? `너는 '${to.name}' 이야 — ${to.description}\n` : ''}${from.name} 님이 공유 폴더 '${folder.name}' 의 변형 '${v.title}' 을(를) 넘겼어요.
@@ -149,10 +164,12 @@ When you are done, say briefly what you changed.`)
   const seeded = await pushRoomDir(dir, container).catch((e) => { console.warn('[folders] handover seed', e.message); return null })
   let note = '', ran = false
   try { note = await runAgent({ jwt, user: from, conversationId: toRoomId, message: msg }); ran = true } catch (e) { note = L(`실행 실패: ${e.message}`, `Run failed: ${e.message}`) }
-  if (seeded) await pullRoomChanges(container, seeded, dir, { wait: ran }).catch((e) => console.warn('[folders] handover pull', e.message))
-  const cur = await S.variationById(v.id)
-  await S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`)
-  await S.release(folder, cur)
+  // (only while this run still holds the variation's seat; when it moved meanwhile, what it made becomes a variation of its own)
+  await SE.finishRun(folder, await S.variationById(v.id), run, {
+    fill: seeded ? (d) => pullRoomChanges(container, seeded, d, { wait: ran }).catch((e) => console.warn('[folders] handover pull', e.message)) : null,
+    commit: (cur) => S.commitVariation(folder, cur, { name: to.name, email: `${String(to.id).slice(0, 8)}@agents.pgpt-pro.local` }, `${to.name}: ${next}`, { strict: true }),
+    user: String(to.id), where: L('인계받은 에이전트', 'the receiving agent'),
+  })
   const after = await S.variationById(v.id)
   await changeCard(folder, after).catch(() => {})
   await q(`update todolist set status='DONE', end_date=${ENGINE_NOW}, output=$2 where id=$1`, [toTaskId,
