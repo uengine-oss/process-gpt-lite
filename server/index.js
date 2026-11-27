@@ -71,7 +71,7 @@ import { mailReplyRoutes } from './routes/mailReply.js'
 import { mailOutRoutes } from './routes/mailOut.js'
 import { mailAttachmentRoutes } from './routes/mailAttachments.js'
 import { savePrivateCard, saveKindOf } from './lib/mailAttachments.js'
-import { keepVersion, saveCardAs, savedCopyOk } from './lib/cardCopies.js'
+import { keepVersion, saveCardAs, savedCopyOk, startCopiesGc } from './lib/cardCopies.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
@@ -1410,6 +1410,7 @@ const server = app.listen(config.port, async () => {
   startFolderSteps()
   // the folders' repositories packed at night, one at a time (lib/folders/gc.js)
   startFolderGc()
+  startCopiesGc()
   // shared folders' documents the old image could not read get their cards now (lib/folders/indexer.js)
   setTimeout(() => retryUnreadCards().then((n) => n && console.log(`[folders] cards again in ${n} folder(s)`)).catch((e) => console.warn('[folders] cards again', e.message)), 30_000)
   startConstraintSweep()
