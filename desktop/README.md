@@ -165,6 +165,17 @@ npm run smoke -- "release/mac-arm64/Process GPT Lite.app" arm64   # 묶은 앱 �
 - 시험: `npm test` 의 `test/seats.test.js`(가짜 링크 + 진짜 git 서버: 앱 데이터 밖은 그대로, 변형 id 마다 한 자리, 있는 그대로 커밋과 빠지는 것, 부르지 않는 git, 지난 회차, 남은 변경, 저장 지점의 때, 돌려놓기와 휴지통, 공통 엔진 `upload.js`). 시험에서는 묶지 않은 앱에서만 `PGL_DESKTOP_EXTERNAL=log`(열기 · 터미널을 부르지 않고 `global.__pglRevealed` · `__pglTerminals` 에 적음)와 `global.__pglTestSeats = {confirm}`(남은 변경 버리기 창)을 읽는다.
 - 챔피언 폴더와 같은 엔진(`src/runner/upload.js` — 링크로 묻고 답 받기 · 한 번에 하나 · 토큰을 기록에서 지움 · 폴더 지켜보기와 조용해지기 · 오프라인에 쌓기)을 쓰고, 바깥은 다르다: 원본 폴더(`sync.js`)는 그림자 저장소로 읽기만, 작업본(`seats.js`)은 앱 데이터 안의 진짜 작업 트리.
 
+## 채팅으로 내 PC 의 스킬 · 폴더 등록 (0.2.8)
+
+채팅에서 「Claude Code · 내 PC」에게 「내 PC 의 ○○ 스킬을 등록해 줘」 · 「이 폴더 올려 줘」라고 하면, 그 CLI 가 이 앱이 준 Process GPT 도구로 제안하고 채팅에 확인 카드가 뜬다(설계 `docs/local-agents/design.md` §13, 스펙 `local-agents` · `champion-folders`). 등록 · 업로드는 그 사람이 카드의 「등록」 · 「올리기」를 눌러야만 일어난다.
+
+- **MCP 서버**(`src/mcp/server.js` · `src/mcp/tools.js`): 채팅 실행의 CLI 에 `process_gpt_lite` 를 더한다(Claude Code `--mcp-config` + 그 도구들 허용, Codex `-c mcp_servers.…`). CLI 는 이 앱의 실행 파일을 `ELECTRON_RUN_AS_NODE=1` 로 띄운다 — 창 없이 node 로. 도구는 `lite_list_pc_skills` · `lite_list_my_skills` · `lite_list_my_folders` · `lite_propose_skill` · `lite_propose_folder`.
+- **도구는 세션과 함께**: 채팅 실행의 Claude Code 는 `ENABLE_TOOL_SEARCH=false` 로 띄운다 — 앱의 도구(와 그 사람의 다른 MCP 도구)를 ToolSearch 로 미루지 않고 세션을 시작할 때 함께 받는다. 사람들의 CLI 가 거치는 회사 모델 게이트웨이가 Claude Code 의 지연 도구 참조를 받지 못하기 때문이다(server_error). 그 사람의 환경에 `ENABLE_TOOL_SEARCH` 가 있으면 그 값이, 앱을 `PGL_TOOL_SEARCH=auto`(또는 `true`)로 띄우면 그 값이 쓰인다. 단계 실행 · Codex 에는 넣지 않는다.
+- **통로**(`src/runner/tools.js`): MCP 서버는 앱의 로컬 소켓(개인 임시 폴더, Windows 는 이름 있는 파이프)으로 실행의 열쇠와 함께 묻기만 한다. 서버의 도구 토큰(그 사람 · 이 기기 · 그 실행, 90분)은 앱 안에만 있다.
+- **검사**: 스킬은 챔피언 폴더의 `scan()` 으로 읽고(비밀 · 개인 설정 · 링크 · 큰 파일 · 확인할 파일 빠짐) 맨 위 `SKILL.md`, 300개 · 8 MB. 폴더는 `FolderSync.pick` 그대로. 링크 · 디스크 맨 위 · 홈과 그 위 · 시스템 폴더 · CLI 의 설정 폴더 · `.ssh` 같은 폴더 · 앱 데이터는 거절한다.
+- **올리기**: 카드의 「올리기」 뒤 서버가 링크로 `tools:upload` 를 보내면, 이 앱이 그 제안을 위해 만든 pick 일 때만 `FolderSync.bind` 를 돌린다(시스템 창 대신 카드가 「예」). 알림 「채팅에서 고른 폴더 「…」를 올리고 있어요」.
+- 시험: `npm test` 의 `test/tools.test.js`, 서버 `server/test/pcProposals.e2e.mjs`.
+
 ## 보안
 
 - `contextIsolation`, `sandbox`를 켜고 `nodeIntegration`은 끕니다. `<webview>`를 쓰지 않고 remote 모듈도 없습니다. preload는 읽기 전용 정보와 로컬 화면 버튼만 제공합니다. 로컬 화면의 IPC는 요청을 보낸 곳이 `src/pages/`인지 확인합니다.
@@ -186,6 +197,7 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 
 ## 변경
 
+- **0.2.8**: 채팅으로 내 PC 의 스킬 · 폴더를 등록 — 채팅 실행의 Claude Code · Codex 가 이 앱의 Process GPT 도구(MCP)로 이 PC 의 스킬 · 폴더를 서버에 제안하고, 채팅의 「스킬을 등록할까요?」 · 「폴더를 올릴까요?」 카드에서 「등록」 · 「올리기」를 눌러야 등록 · 업로드됩니다. 폴더는 「내 PC 폴더 올리기」와 같은 엔진으로 올라갑니다. 0.2.7 이하에서 부탁하면 CLI 가 업데이트하라고 안내합니다.
 - **0.2.7**: 변형의 작업본을 이 PC 에서 — 폴더의 「작업실」에서 「이 PC 에서 작업」을 고르면 변형의 작업본을 이 PC 에 받고, 고친 것은 자동으로 서버에 올립니다(병합 · 체리픽 · 리베이스 도중에는 올리지 않음). 실행 · 도구 설정 파일이 있으면 받기 전에 믿을지 묻습니다. 다 쓰면 「돌려주기」, 다른 곳에서 가져가면 남은 변경을 올리고 비웁니다. 올리지 못한 커밋은 이 PC 에 30일 보관하고 알립니다.
 - **0.2.6**: 에이전트 브라우저(이 PC 의 브라우저)는 앱이 연결한 Lite 와 그 로그인 주소를 열지 않습니다(이 PC 로 풀리는 다른 이름 · 주소로도) — 넘겨받은 창에서는 「이 주소는 에이전트 브라우저에서 열지 않아요」. Lite 서버의 다른 주소일 수 있는 곳으로 가는 그 브라우저의 요청에는 표시가 붙고 Lite 서버는 그런 요청에 로그인 · 세션이 필요한 API 를 내주지 않으며(브라우저 작업은 0.2.6 이상 데스크톱으로만), 앞선 판이 그 브라우저에 남긴 Lite 의 저장소 · 쿠키는 한 번 지웁니다. 앱 창의 로그인은 운영체제 키체인으로 봉인해 두고(앞선 판의 것은 처음 실행에 옮김), 새 창으로 여는 웹 앱 화면은 앱 창에서 다시 불러오지 않고 엽니다. 묶은 앱은 디스크의 쿠키도 봉인합니다:
   - 업데이트한 뒤 처음 켤 때 macOS 가 키체인 접근을 한 번 묻습니다. 「거부」하면 로그인은 그 창이 열려 있는 동안만 남고, 다시 켜면 다시 로그인해야 합니다.

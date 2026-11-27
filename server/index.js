@@ -38,6 +38,7 @@ import { mountFolders } from './mcp/folders.js'
 import { folderRoutes } from './routes/folders.js'
 import { filingRoutes } from './routes/filing.js'
 import { localAgentRoutes } from './routes/localAgents.js'
+import { pcToolRoutes, pcProposalRoutes } from './routes/pcProposals.js'
 import { startLocalAgents, steerFromThread } from './lib/localAgents/steps.js'
 import { send as chatToLocal } from './lib/localAgents/chat.js'
 import { gitAccess } from './lib/localAgents/devices.js'
@@ -156,6 +157,9 @@ app.use('/api/git', gitRoutes())
 // or of one variation's working copy on a linked desktop at one epoch and its one-push leftover (variation seats — lib/folders/seatLink.js)
 app.use('/api/local-git', gitRoutes({ device: true, check: (claims, o) => withTenant(claims.tenant, () => gitAccess(claims, o)),
   after: (claims, folder, commands) => withTenant(claims.tenant, () => (claims.scope === 'sync' ? afterSyncPush : afterSeatPush)(claims, folder, commands)) }))
+// the Process GPT tools of a chat run on a person's PC (routes/pcProposals.js — desktop 0.2.8): the run's tool token is the whole of the
+// auth and names the company; a skill's files come in one body (up to 16 MB), ahead of the 2 MB parser below
+app.use('/api/local-agents/tools', pcToolRoutes())
 app.use(express.json({ limit: '2mb' }))
 // English mode (lib/lang.js): a request is in the language its X-PGL-Lang header names (the page sends
 // it on every /api call); auth() below adds the signed-in person's saved language when it is absent.
@@ -637,6 +641,8 @@ import('./lib/ontology/run.js').then((m) => m.startOntologyWorker()).catch((e) =
 // the assignees' own CLI agents on their desktops (lib/localAgents, docs/local-agents/design.md): devices, a step's local runs, steering;
 // the desktops' links (WebSocket /api/local-agents/link) and the step worker (orchestration pgpt-pro-local) start with the server below
 app.use('/api', localAgentRoutes(auth))
+// 「스킬을 등록할까요?」 · 「폴더를 올릴까요?」 — the cards of those proposals (only their person presses them)
+app.use('/api', pcProposalRoutes(auth))
 // the demo scenarios (demo outbox mail, purchase with its sweep, release): PRO_SCENARIOS=off leaves them out (config.scenarios)
 if (config.scenarios) {
   app.use('/api', scenarioMailRoutes(auth))

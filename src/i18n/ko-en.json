@@ -3565,7 +3565,46 @@
   "프로젝트 계획에 이대로 들어가요 · 고쳐도 돼요": "Goes into the project plan as it is · you can change it",
   "만들 것을 더해요": "Add a deliverable",
   "만들다가 멈췄어요 · 다시 만들거나 닫을 수 있어요": "Making stopped half way · create it again or close the card",
-  "대화방에 공유했어요": "Shared in a room"
+  "대화방에 공유했어요": "Shared in a room",
+  "스킬을 등록할까요?": "Register this skill?",
+  "폴더를 올릴까요?": "Upload this folder?",
+  "「등록」을 눌러야 등록돼요": "Only registered when you press Register",
+  "「올리기」를 눌러야 올라가요": "Only uploaded when you press Upload",
+  "등록하고 있어요…": "Registering…",
+  "PC 앱이 올리고 있어요…": "The desktop app is uploading…",
+  "Claude Code 의 내 스킬": "my Claude Code skills",
+  "Codex 의 스킬": "Codex skills",
+  "에이전트 스킬 폴더": "agent skills folder",
+  "이 대화의 작업 폴더": "this chat's work folder",
+  "이 PC 의 폴더": "a folder on this PC",
+  "내 PC": "My PC",
+  "파일 보기": "Show files",
+  "실행 설정이 있어요(": "It has run settings (",
+  ") — 이 스킬을 쓰는 사람의 PC 에서 자동 명령이 실행되거나 확인 없이 도구가 사용돼요": ") — on the PC of whoever uses this skill, commands run by themselves or tools are used without asking",
+  "어디에": "Where",
+  "나와 내 에이전트만 써요": "Only you and your agents use it",
+  "회사 스킬": "Company skill",
+  "회사 사람들의 에이전트도 써요": "Your company's agents use it too",
+  "실행 설정이 회사 사람들의 PC 에서 적용되는 것을 이해하고 등록해요": "I understand its run settings will apply on my colleagues' PCs",
+  "처음에는 나만 볼 수 있어요. 올린 뒤 폴더의 「공유」에서 동료를 초대해 주세요. 내 PC 의 폴더는 그대로예요. 변경한 내용은 폴더 화면의 「지금 올리기」를 눌러 올려 주세요.": "Only you see it at first. Once it is up, invite colleagues from the folder's Share. The folder on your PC stays as it is; upload later changes with Upload now on the folder screen.",
+  "이 폴더가 있는 PC 의 앱이 꺼져 있어요 — 켜야 올라가요": "The app on the PC with this folder is off — it uploads once that app is on",
+  "이 폴더가 있는 PC 의 앱이 꺼져 있어요 — 켜고 다시 눌러 주세요": "The app on the PC with this folder is off — turn it on and press again",
+  "PC 앱이 다시 켜져서 제안이 만료됐어요 — 채팅에서 다시 부탁해 주세요": "The desktop app restarted, so this proposal ended — ask again in the chat",
+  "스킬 이름": "Skill name",
+  "폴더 이름": "Folder name",
+  "같은 이름의 스킬이 이미 있어요 — 다른 이름을 적어 주세요": "A skill with this name already exists — write another name",
+  "같은 이름의 폴더가 이미 있어요 — 다른 이름을 적어 주세요": "A folder with this name already exists — write another name",
+  "등록": "Register",
+  "스킬을 등록했어요": "Skill registered",
+  "폴더를 올렸어요": "Folder uploaded",
+  "내 스킬 — 나와 내 에이전트만 써요": "My skill — only you and your agents use it",
+  "회사 스킬 — 회사 사람들의 에이전트도 써요": "Company skill — your company's agents use it too",
+  "회사 스킬로 등록하지 못해 내 스킬로 두었어요 — 스킬 폴더에서 다시 공유해 주세요": "It couldn't be installed as a company skill, so it stays yours — share it again from its skill folder",
+  "등록하지 않기로 했어요": "You chose not to register it",
+  "올리지 않기로 했어요": "You chose not to upload it",
+  "한 시간이 지나 제안이 만료됐어요 — 채팅에서 다시 부탁해 주세요": "An hour passed and this proposal ended — ask again in the chat",
+  "스킬을 등록하지 못했어요": "Couldn't register the skill",
+  "폴더를 올리지 못했어요": "Couldn't upload the folder"
  },
  "patterns": [
   [
@@ -8099,6 +8138,22 @@
   [
    "템플릿 「{0}」로 시작해요",
    "Started from the template \"{0}\""
+  ],
+  [
+   "확인이 필요한 파일 {0}개는 빼고 올려요",
+   "{0} files to check are left out"
+  ],
+  [
+   "스킬을 등록할까요? · {0}",
+   "Register this skill? · {0}"
+  ],
+  [
+   "폴더를 올릴까요? · {0}",
+   "Upload this folder? · {0}"
+  ],
+  [
+   "{0}분 뒤에 사라져요",
+   "Goes away in {0} min"
   ]
  ],
  "context": [

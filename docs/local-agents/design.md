@@ -393,3 +393,51 @@ Robo-DLC(`origin/feat/mcp-apps` 의 `server/lib/aidlc/*` — 서버 tmux 의 대
 | runner: 대화의 폴더 · `chat` 세션 · 턴마다 커밋 · push · reply, 같은 PTY 로 이어서, 결과.md 없음, 대화의 세션 기록으로 `--resume`, 기록이 없으면 새 세션(요약), reply 다시 보내기, 대화 없는 일 거절 | `desktop/test/chat.test.js` | 3/3 (데스크톱 전체 46 통과 · 4 건너뜀) |
 | 실제 BFF + runner(가짜 대화형 CLI): 고르기 · 보내기 → 답 + 파일 카드(내 폴더 main) · 이어서 · 끝내기 뒤 `--resume` · 다른 사람 403/404 · 꺼짐 → 기다림 · 다시 보내기 · 프로젝트 변형(원본 그대로) · 구성원 보기만 · 실행자 403 | `server/test/chatAgents.e2e.mjs` | 8/8 |
 | 화면: 칩 · 꺼진 항목과 까닭 · 내려받기 · PC 가 이어지면 켜짐 · 키보드로 고르기 · 태그 · 카드 · 답 · 파일 카드 · 이어서 · 대화마다 남음 · 다시 기본 · 꺼짐과 다시 보내기 · 390px 밝게/어둡게 · 어두운 테마 | `e2e/tests/feature/chat-agent-picker.spec.js` F-CA-01–08 | 7/7 |
+
+## 13. 채팅에서 내 PC 의 스킬 · 폴더를 등록 제안 (2026-11-27, 가지 `feat/local-skill-register`, 데스크톱 0.2.8)
+
+사용자 요청: 「그냥 채팅의 대화로 로컬 에이전트를 선택하여 내 pc 에 있는 스킬중 어떤 스킬을 등록해줘라고 하면 서버에 스킬을 등록한다.. 그러려면 로컬 에이전트쪽에 process gpt 의 mcp나 api 가 등록되긴해야할것」 · 「폴더 등록 또한 채팅으로 시킬 수 있겠지」. 스펙 `local-agents` 「채팅에서 내 PC의 스킬 · 폴더 등록 제안」 · `champion-folders` 「채팅으로 폴더 업로드 제안」.
+
+### 13.1 흐름
+1. 채팅에서 「Claude Code · 내 PC」(또는 Codex)를 고르고 「내 PC 의 견적-규칙 스킬을 등록해 줘」 · 「~/영업 키트 올려 줘」라고 보낸다 — 12절의 채팅 실행이다.
+2. 그 실행의 CLI 에는 앱이 더한 MCP 서버 `process_gpt_lite` 가 있다. CLI 가 도구 설명을 보고 스스로 부른다(앱 · 서버는 사람의 말을 읽지 않는다).
+3. 도구가 앱에 닿으면 앱이 그 PC 의 폴더를 챔피언 폴더의 검사로 읽고, 실행의 도구 토큰으로 서버에 **제안**한다.
+4. 서버가 그 실행의 대화에 카드(`pro_messages.kind = 'pc_proposal'`)를 낸다 — 「스킬을 등록할까요?」 · 「폴더를 올릴까요?」. 도구는 CLI 에게 「카드에서 「등록」 · 「올리기」를 눌러야 해요 — 여기서 멈추세요」라고 답한다.
+5. 그 사람이 카드를 누르면(휴대폰에서도) 스킬은 서버가 등록하고, 폴더는 서버가 챔피언 폴더를 만든 뒤 그 PC 의 앱이 올린다. 카드는 「등록했어요 · 열기」 · 「올렸어요 · 열기」가 된다.
+
+### 13.2 데스크톱 (`desktop/src/mcp/` · `desktop/src/runner/tools.js`)
+- **stdio MCP 서버**(`src/mcp/server.js`, 도구 정의 `src/mcp/tools.js`): 의존성 없는 JSON-RPC(initialize · tools/list · tools/call · ping). CLI 가 앱 자신의 실행 파일로 띄운다 — `ELECTRON_RUN_AS_NODE=1`(창도 앱도 없음; 묶은 앱의 RunAsNode 퓨즈는 Electron 기본 그대로, `scripts/adhoc-sign.js` FUSES 는 쿠키 봉인만). 개발용 Electron 45.3.2 로 asar 안의 스크립트를 띄워 확인했다. 시험 · 순수 Node runner 에서는 그 Node 로.
+- **앞문일 뿐**: MCP 서버는 서버 토큰도 파일도 만지지 않는다. 호출을 앱의 로컬 통로로 넘긴다 — 개인 임시 폴더(0700)의 유닉스 소켓, Windows 는 이름 있는 파이프. 실행마다 열쇠(32바이트)가 있고, MCP 서버의 설정 파일(`<sessions>/<job>/lite-tools.json`, 0600)에는 통로 · 열쇠 · 언어만 있다. 실행이 끝나면 열쇠는 닫힌다.
+- **CLI 에 넘기기**(`session.js`): Claude Code `--mcp-config <세션 폴더>/mcp.json`(그 사람의 MCP 서버는 그대로 — `--strict-mcp-config` 없음) + 세션 설정의 `permissions.allow` 에 다섯 도구(`mcp__process_gpt_lite__…` — 제안만 하므로 묻지 않음, 사람의 「예」는 카드). Codex `-c mcp_servers.process_gpt_lite.command · args · env · tool_timeout_sec=600`(그 사람의 `config.toml` 은 쓰지 않음).
+- **도구** — `lite_list_pc_skills`(Claude Code `$CLAUDE_CONFIG_DIR/skills` 또는 `~/.claude/skills` · Codex `$CODEX_HOME/skills` · `~/.agents/skills` · 작업 폴더의 `.claude/skills` · 또는 `under`; SKILL.md 머리말의 이름 · 설명, 링크는 링크로 — 가리키는 곳만 알려 줌) · `lite_list_my_skills` · `lite_list_my_folders`(서버, 읽기만) · `lite_propose_skill({path, name?, scope?})` · `lite_propose_folder({path, name?})`.
+- **어느 폴더**(`resolvePath` · `checkFolder`): 절대 · `~/` · 작업 폴더 기준 상대(탈출 거절). 그 폴더 자체가 링크면 거절(따라가지 않음 — 가리키는 폴더를 말하게), 디스크 맨 위 · 홈과 그 위 · 시스템 폴더(`~/Library` · `/System` · `/usr` · `/etc` … · Windows `SystemRoot` · `ProgramFiles` · `ProgramData` · `AppData`) · `/Users` · `/Volumes` · `/tmp` 그 자체 · CLI 의 집(`~/.claude` · `~/.codex` · `~/.config` · `~/.agents`) · 비밀 묶음의 폴더(`.ssh` …) · 앱 데이터.
+- **스킬 읽기**(`packSkill`): 챔피언 폴더의 `scan()` 그대로(같은 `secret-shapes.json` — 비밀 · 개인 설정 · 다시 만들 것 · 50MB 넘는 파일 · 링크 · 하위 저장소 · git 제어 파일 · 확인할 파일과 확실한 열쇠 모양은 빠짐; `.mcp.json` 도 확인할 파일이라 빠짐). 맨 위 `SKILL.md` 필수, 300개 · 8 MB. 머리말의 실행 키(`runSettings.frontRuns`)를 알려 준다. 파일은 base64 로 `POST /api/local-agents/tools/skills/propose` — 이 PC 의 경로는 보내지 않는다(어디서 왔는지는 `claude` · `codex` · `agents` · `work` · `other` 와 폴더 이름만).
+- **폴더**(`proposeFolder`): 챔피언 폴더의 `FolderSync.pick(path)` 를 그대로 — 같은 `unsafe` 검사와 첫 훑기 미리 보기. 미리 보기(경로 없이)를 `POST …/folders/propose` 로 보내고, 앱은 그 pick 이 어느 제안의 것인지 기억한다(`proposed`).
+- **올리기**(`tools:upload` → `FolderSync.bind`): 서버가 링크로 `{proposalId, pickId, folderId, folderName}` 를 보내면, 그 제안을 위해 자기가 만든 pick 일 때만(페이지의 시스템 창 pick 이나 다른 제안의 것은 `no_pick`) 챔피언 폴더의 첫 올리기를 돌린다 — 시스템 창 대신 카드의 「올리기」가 그 사람의 「예」. 앱은 「채팅에서 고른 폴더 「…」를 올리고 있어요」 알림을 띄우고, 결과를 `tools:uploaded {ok, why, pushed}` 로 답한다. 그 뒤는 「내 PC 폴더 올리기」로 올린 폴더와 같다.
+- **도구는 세션과 함께**(`runner.js toolSearchEnv`): 채팅 실행의 Claude Code 는 `ENABLE_TOOL_SEARCH=false` 로 띄운다 — Claude Code 2.1.332 는 MCP 도구를 ToolSearch 뒤로 미루는데, 사람들의 CLI 가 거치는 회사 모델 게이트웨이가 그 지연 도구 참조에 server_error 를 낸다(실측). 그 사람의 환경에 `ENABLE_TOOL_SEARCH` 가 있거나 runner 설정(`toolSearch` · 앱의 `PGL_TOOL_SEARCH`)이 있으면 그것을 따른다. 단계 실행 · Codex 에는 넣지 않는다.
+- 기능 표시: `caps.liteTools`(도구가 있음) · `caps.liteFolders`(폴더도 올릴 수 있음 — 챔피언 엔진이 켜짐).
+
+### 13.3 서버 (`server/lib/localAgents/pcTools.js` · `server/routes/pcProposals.js` · `sql/068_pc_proposals.sql`)
+- **도구 토큰** `plt1.<payload>.<서명>`(서비스 키에서 뽑은 별도 열쇠 `pc-tools:v1`): `{tenant, user, device, job, scope: 'pc-tools', exp}`, 90분. 채팅 일의 `prepare` 가 `caps.liteTools` 인 데스크톱에만 싣는다(`job.tools.token`). 요청마다 `access` 가 다시 본다 — 기기가 연결돼 있고(끊지 않음) 그 사람의 것이며, 일이 그 기기 · 그 사람의 채팅 실행이고 지금 `offered` · `running` 이다. 그래서 실행이 끝나면 시간이 남아도 403(`job_over`). 토큰 경로는 세션 · 본문 파서 · 회사 미들웨어 앞(`/api/local-agents/tools`, 본문 16 MB)이고, 회사는 토큰이 말하며, 언어는 앱의 `X-PGL-Lang` 또는 그 사람의 저장된 언어다.
+- **스킬 제안**: 서버가 다시 본다 — 경로(`..` · `.` · 빈 이름 · `.git` · 역슬래시 · 절대 경로), `secrets.refusalOf`(비밀 이름 · git 제어 파일 · 큰 파일 · 확실한 열쇠 모양 → 422), 맨 위 `SKILL.md`, 300개 · 8 MB, 이름(글자 · 숫자 · `-` · `_`, 64자 — 이미 있으면 409 `name_taken`: CLI 가 사람에게 다른 이름을 묻게). 실행 설정은 서버가 `SKILL.md` 머리말(`kit.frontRuns`)과 설정 파일 이름(`RUN_SETTINGS`)으로 읽는다. 파일은 `<폴더 뿌리>/<회사>/.pc-proposals/<id>/` 에 두고, 등록 · 만료 · 그만두기 때 지운다.
+- **폴더 제안**: 미리 보기만 받는다(알려진 필드 · 그룹 · 경고만, 길이 제한). 빈 폴더 · 한도 넘김은 거절. `pick_id` 를 행에 둔다.
+- **카드**(`GET /api/pc-proposals/:id` · `register` · `upload` · `drop`): 그 사람의 것만(남은 404). 보인 그대로의 확인 값(메모리의 HMAC — 내용 · 상태 · 고를 수 있는 것에 묶임, 15분; 바뀌었으면 409 `stale`). 한 번 누름은 상태를 먼저 `working` 으로 잡는다(두 번째 409). 「어디에」는 CLI 가 `scope: 'company'` 로 청했고 그 사람이 고를 수 있을 때만 「회사 스킬」이 먼저 골라져 있다(누르는 것은 여전히 그 사람). 만료(1시간)는 읽을 때 · 새 제안 때 정리한다. 기다리는 제안은 사람당 10개(429).
+- **등록**: 「내 스킬」 = `folders/skills.js saveDraftPrivate`(skill-creator 의 길 — 비공개 스킬 · 그 폴더 · 그 사람의 실행 사본). 「회사 스킬」 = 스킬 폴더의 「전사에 공유」와 같은 규칙(작성자는 공유할 수 있고, 카드로 등록하는 사람이 작성자 — 처음에는 관리자만으로 했다가 기존 규칙에 맞춤), 실행 설정이 있으면 `runsOk` 한 번 더(409 `runs_confirm`), 그다음 `skills.js share`(deepagents 설치). 설치가 실패하면 내 스킬로 남기고 카드가 알린다.
+- **올리기**: 그 PC 의 링크가 켜져 있고 폴더를 올릴 수 있을 때만(아니면 409 `pc_offline`). `service.createFolder(champion)` → 링크로 `tools:upload` → 답(`tools:uploaded`, 그 기기 · 그 사람의 것만)으로 끝낸다. 아무것도 안 올라갔으면 빈 챔피언 폴더를 지우고(`discardEmptyChampion`) 카드를 다시 누를 수 있게(앱이 pick 을 잃었으면 끝), 답 없이 PC 가 1분 넘게 사라졌으면 읽을 때 같은 처리를 한다(파일이 들어갔으면 끝난 것으로).
+- **옛 데스크톱**: `liteTools` 가 없는 데스크톱의 채팅 실행은 토큰 대신 프롬프트에 스킬 `process-discovery/prompts/local-tools-missing.md` 의 안내를 받는다(그 사람이 그런 일을 부탁하면 CLI 가 0.2.8 로 업데이트하라고 말함). 에이전트 고르기도 그 데스크톱의 항목에 「PC 앱을 0.2.8 이상으로 업데이트하면 …」과 `update` 를 단다.
+
+### 13.4 왜 이렇게
+- **stdio MCP + 앱의 통로(HTTP 를 CLI 에게 주지 않음)**: CLI 가 직접 서버를 부르면 토큰이 CLI 의 환경이나 파일에 있어야 하고, 폴더 올리기는 어차피 앱(챔피언 엔진 · 링크)이 해야 한다. 앱이 토큰을 메모리에만 두고, MCP 서버는 열쇠로 앱에 묻기만 한다 — runner 의 원칙(토큰은 디스크 · 로그에 쓰지 않음)을 지킨다. 같은 사용자로 도는 CLI 가 설정 파일을 읽을 수는 있지만, 그것으로 할 수 있는 것도 제안뿐이고 결정은 카드다.
+- **포트를 열지 않음**: 통로는 유닉스 소켓 · 이름 있는 파이프(링크의 원칙: 이 컴퓨터에 포트를 열지 않는다).
+- **서버가 경로를 말하지 않음**: 폴더 올리기의 `tools:upload` 는 앱이 자기 실행의 제안을 위해 만든 pick id 만 가리킨다. 서버(또는 그 흉내)가 PC 의 아무 폴더나 올리게 할 수 없다.
+- **「회사 스킬」은 기존 규칙대로**: 스킬 폴더의 「전사에 공유」는 작성자 누구나 할 수 있고, 카드로 등록하는 사람이 그 스킬의 작성자다. 관리자만으로 막으면 「내 스킬」로 등록한 뒤 「전사에 공유」로 바로 돌아갈 수 있어 막는 뜻이 없다. 회사 사람들의 PC 에서 실행 설정이 도는 위험은 「한 번 더 확인」으로 남긴다.
+- **스킬 파일은 서버 디스크에 잠시**: DB 에 수 MB 를 넣지 않고, 폴더 뿌리(운영의 PVC) 아래 숨은 자리에 둔다.
+
+### 13.5 시험
+| 무엇 | 시험 | 결과 |
+|---|---|---|
+| 토큰 · 범위 · 만료, 도구 있는 데스크톱에만 · 옛 앱 안내, 켜진 실행에만, 서버의 다시 보기, 카드 · 확인 · 두 번 누름, 회사 스킬, 만료 · 그만두기, 폴더 제안 · 올리기 · 실패 · pick 잃음 · PC 꺼짐, 목록 · 10개 | `server/test/pcProposals.test.js` PT-01 ~ PT-09 | 9/9 |
+| 어느 폴더 · PC 의 스킬 목록 · 스킬 읽기 · stdio MCP · 스킬 제안 · 폴더 제안과 `tools:upload` · CLI 명령 줄 · caps · 퓨즈 · 채팅 실행의 `ENABLE_TOOL_SEARCH=false` | `desktop/test/tools.test.js` DT-01 ~ DT-09 | 9/9 |
+| 실제 BFF + 데스크톱 runner + 가짜 대화형 CLI(실제 stdio MCP 를 부름): 스킬 제안 → 등록, 폴더 제안 → 올리기, 끝난 실행 403, Codex | `server/test/pcProposals.e2e.mjs` (:8999) | 7/7 |
+| 화면: 스킬 카드 → 등록 → 목록, 실행 설정 · 회사 스킬(어둡게), 폴더 카드 → 올리기 → 열기, 390px 밝게 · 어둡게 · 그만두기 | `e2e/tests/feature/pc-proposals.spec.js` F-PP-01 ~ 04 (:8999 · :5399) | 4/4 |
+| 실제 Claude Code 2.1.332(회사 게이트웨이, 임시 설정 · 홈): 「내 PC 의 견적-규칙 스킬을 Process GPT 에 등록해 줘」 → `lite_list_pc_skills` → `lite_propose_skill` → 「카드를 눌러 확인해 주세요」 (게이트웨이가 ToolSearch 의 지연 도구 참조를 못 받아 `ENABLE_TOOL_SEARCH=false`) | `desktop/test/realClaudeTools.test.js`(사람이 켤 때만) | 1/1 (7초) |

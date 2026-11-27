@@ -512,7 +512,9 @@ function startRunner() {
     const c = who.trim().slice(-1).charCodeAt(0)
     const ga = c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? '이' : '가'
     // (attention: the CLI in the step's terminal waits for its person — a permission prompt, idle — its own Notification hook)
-    const title = n.kind === 'steer' ? (ko ? `${who}${ga} 「${n.activity}」의 방향을 바꿨어요` : `${who} steered "${n.activity}"`)
+    // (pc-upload: the card 「폴더를 올릴까요?」 in the chat was pressed — maybe on a phone — and this PC uploads that folder now: runner/tools.js)
+    const title = n.kind === 'pc-upload' ? (ko ? `채팅에서 고른 폴더 「${n.folderName}」를 올리고 있어요` : `Uploading the folder "${n.folderName}" chosen in the chat`)
+      : n.kind === 'steer' ? (ko ? `${who}${ga} 「${n.activity}」의 방향을 바꿨어요` : `${who} steered "${n.activity}"`)
       : n.kind === 'attention' ? (ko ? `「${n.activity}」 — 터미널에서 답을 기다려요` : `"${n.activity}" waits for you in its terminal`)
         : (ko ? `${who}의 제안 · 「${n.activity}」 — 입력란에서 골라 입력하세요` : `${who} suggested a prompt for "${n.activity}" — pick it at the input`)
     ;(global.__pglNotices ||= []).push({ ...n, title })

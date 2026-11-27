@@ -1976,6 +1976,37 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 | (검토 2) 경로: Windows(`C:\…` · `\\서버\…`) · 콜론 뒤 · `file://localhost`, 주소: 대문자 scheme · `//호스트` · 줄이 끊긴 주소 · `<…>` 안의 빈칸 · 괄호 · `key` · `AIza…` (서버 · 화면 같은 답) | PR #118 검토 2 | `hidePaths.test.js` | 단위 | ✅ |
 | 실제 사내 모델이 그 말에 `start_project` 를 고르는지 · 실제 판정 모델의 템플릿 추천 정확도 | — | — (가짜 모델) | — | ✗ |
 
+### 78. 내 PC 의 스킬 · 폴더를 채팅으로 — CLI 가 앱의 도구로 제안하고, 「등록」 · 「올리기」는 카드에서, 데스크톱 앱 0.2.8 (스펙 `local-agents` 「채팅에서 내 PC의 스킬 · 폴더 등록 제안」 · `champion-folders` 「채팅으로 폴더 업로드 제안」)
+
+사용자 요청(2026-11-27): 「그냥 채팅의 대화로 로컬 에이전트를 선택하여 내 pc 에 있는 스킬중 어떤 스킬을 등록해줘라고 하면 서버에 스킬을 등록한다」 · 「폴더 등록 또한 채팅으로 시킬 수 있겠지」. 데스크톱 앱이 채팅 실행의 CLI 에 stdio MCP 서버 `process_gpt_lite`(도구 다섯)를 더하고, CLI 는 도구 설명을 보고 스스로 부른다. 앱이 PC 의 파일을 챔피언 폴더와 같은 검사로 읽어 실행마다의 좁은 토큰으로 서버에 「제안」하면, 채팅에 「스킬을 등록할까요?」 · 「폴더를 올릴까요?」 카드가 뜬다. 등록 · 업로드는 그 사람이 카드를 눌러야만 일어난다. 화면 시험은 자기 스택(BFF 8999 · Vite 5399, 회사 `pctools-ui`)과 대역 deepagents(회사 스킬 설치)를 띄운다. 모델은 부르지 않는다 — 도구를 고르는 것은 가짜 대화형 CLI 의 지시(`MCP 서버.도구 :: {…}`)이고, 그 CLI 는 runner 가 준 MCP 서버를 실제 stdio 로 부른다. 사진은 `openspec/specs/local-agents/e2e/results/pc-proposals/`.
+
+```bash
+cd server && node --test --test-concurrency=1 test/pcProposals.test.js && node test/pcProposals.e2e.mjs   # :8999
+cd desktop && node --test test/tools.test.js   # DT-01 ~ DT-09
+cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.js                        # :8999 · :5399
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → CLI 가 도구 다섯을 보고 PC 의 스킬을 찾아 제안 → 「스킬을 등록할까요?」(파일 · 뺀 것 · 어디에) → 「등록」 → 내 스킬 목록에 · `.env` 없음 (1280) | 스펙 LA-PP-01 | F-PP-01 · e2e 3 · 4단계 · PT-04 · PT-05 | feature · HTTP · DB | ✅ |
+| 실행 설정(`hooks` · `allowed-tools`)이 있으면 카드가 알리고, 「회사 스킬」은 스킬 폴더의 「전사에 공유」와 같은 규칙(관리자가 아니어도) · 실행 설정이 있으면 한 번 더 확인해야 설치 (어두운 화면) | 스펙 LA-PP-02 | F-PP-02 · PT-05 · PT-06 | feature · DB | ✅ |
+| 채팅 실행의 Claude Code 는 `ENABLE_TOOL_SEARCH=false`(도구는 세션과 함께 — 회사 게이트웨이가 지연 도구 참조를 못 받음), 그 사람의 환경 · runner 설정이 이김, 단계 · Codex 에는 없음 | 스펙 LA-PP-07 | DT-09 | 단위 | ✅ |
+| 서버가 다시 봄: 경로 탈출 · `.git` · 비밀 이름 · 확실한 열쇠 · `.gitmodules` · SKILL.md 없음 · 301개 · 같은 이름 · 실행 설정은 서버가 읽음 | 스펙 LA-PP-03 | PT-04 | DB | ✅ |
+| 토큰은 그 사람 · 그 기기 · 켜진 그 채팅 실행만(90분), 없음 · 위조 401, 끝난 실행 · 끊은 기기 403, 앱의 실행 열쇠도 닫힘 · 기다리는 제안 10개까지 | 스펙 LA-PP-04 | PT-01 · PT-03 · PT-09 · e2e 3 · 6단계 · DT-04 | DB · HTTP · 단위 | ✅ |
+| 카드는 그 사람만(404) · 보인 그대로의 확인(409 stale) · 한 번만(409) · 한 시간 뒤 만료 · 「그만두기」 | 스펙 「채팅에서 내 PC의 스킬 · 폴더 등록 제안」 | PT-05 · PT-07 · F-PP-04 | DB · feature | ✅ |
+| 휴대폰 390: 카드가 화면 안, 옆 넘침 없음, 밝은 · 어두운 | 스펙 LA-PP-05 | F-PP-04 | feature | ✅ |
+| 옛 데스크톱(0.2.7): 토큰 없음 · 첫 메시지에 업데이트 안내 · 고르기에 「0.2.8 이상으로 업데이트하면 …」 | 스펙 LA-PP-06 | PT-02 | DB | ✅ |
+| 어느 폴더: `~` · 작업 폴더 기준 상대(탈출 거절) · 링크 · 디스크 맨 위 · 홈과 그 위 · `~/Library` · 시스템 · CLI 의 집 · `.ssh` · 앱 데이터 거절 | 스펙 「허용하는 폴더 경로」 | DT-01 · DT-05 | 단위 | ✅ |
+| PC 의 스킬 목록(Claude Code · Codex · 작업 폴더 · 말한 폴더, 링크는 가리키는 곳만) · 앱이 읽는 스킬(챔피언 검사, `.mcp.json` 은 확인할 파일로 빠짐) | 스펙 「파일은 앱이 읽는다」 | DT-02 · DT-03 | 단위 | ✅ |
+| stdio MCP 서버(initialize · tools/list · tools/call · ping), 설정 파일에 서버 토큰 없음(0600), 닫힌 실행 · 틀린 열쇠는 아무것도 못 함 | 스펙 「도구는 데스크톱 앱이 제공한다」 | DT-04 | 단위 | ✅ |
+| Claude Code `--mcp-config`(내 MCP 옆에) + 도구 허용 · Codex `-c mcp_servers.…` · 앱은 liteTools · liteFolders 를 알림 · 묶은 앱은 자기 실행 파일을 node 로(RunAsNode 퓨즈 그대로) | 스펙 「도구는 데스크톱 앱이 제공한다」 | DT-07 · DT-08 · e2e 2 · 7단계(Codex) | 단위 · HTTP | ✅ |
+| 「~/영업 키트 올려 줘」 → 「폴더를 올릴까요?」(챔피언 미리 보기 · 에이전트 자산 · 이름) → 「올리기」 → 그 PC 가 챔피언 엔진(`FolderSync.bind`)으로 올림 → 「폴더를 올렸어요 · 열기」, main 에 `.env` · `node_modules` 없음, 출처는 그 PC | 스펙 CF-PP-01 | F-PP-03 · e2e 5단계 · PT-08 | feature · HTTP · DB | ✅ |
+| 서버는 제안의 pick 만 말할 수 있음(페이지의 pick · 다른 제안 · 이미 올린 pick 은 `no_pick`), 경로는 서버에 가지 않음 | 스펙 CF-PP-02 | DT-06 · PT-08 | 단위 · DB | ✅ |
+| 올라가지 않으면 빈 폴더를 지우고 다시 누를 수 있음, 남의 PC 의 답은 무시, pick 을 잃으면 실패로 끝, PC 꺼짐 409 | 스펙 CF-PP-03 | PT-08 | DB | ✅ |
+| 회귀: 채팅 에이전트 · 챔피언 폴더 · 데스크톱 전체 | — | `chatAgents.test.js` · `chatAgents.e2e.mjs` · `championFolders.test.js` · `champion-sync.e2e.mjs` · desktop `test/*.test.js` · F-CA-* · F-CF-* | DB · HTTP · 단위 · feature | ✅ |
+| 실제 Claude Code 2.1.332(회사 게이트웨이 · 임시 설정 · 임시 홈): 「내 PC 의 견적-규칙 스킬을 Process GPT 에 등록해 줘」 → 도구 설명만 보고 `lite_list_pc_skills` → `lite_propose_skill`, `.env` 빠짐, 카드를 확인해 달라며 멈춤 (게이트웨이 때문에 `ENABLE_TOOL_SEARCH=false`) | 스펙 「요청의 의미는 CLI가 해석한다」 | `desktop/test/realClaudeTools.test.js`(사람이 켤 때만) | 실제 CLI | ✅ 1회 |
+| 실제 Codex · 폴더 제안을 실제 CLI 로 · 묶은 앱 · Windows 이름 있는 파이프 | — | — | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

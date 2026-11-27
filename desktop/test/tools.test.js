@@ -1,0 +1,416 @@
+'use strict'
+// The Process GPT tools a chat run's CLI gets (desktop 0.2.8 — src/mcp/server.js · src/runner/tools.js, spec openspec/specs/local-agents
+// 「채팅에서 내 PC 의 스킬 · 폴더를 등록 제안」 · champion-folders 「채팅으로 폴더 올리기 제안」). No CLI and no server: the stdio MCP server is
+// called as an MCP client would (JSON-RPC over its stdin · stdout), the server's API is a stand-in that records what it was sent.
+//   DT-01 which folder: ~, a path relative to the work folder (never leaving it), absolute; never a link, the disk's top, the home folder or
+//         above, the system's folders (~/Library, /System, /usr …), the CLIs' homes, a secret's folder, this app's data
+//   DT-02 the skills on this PC: Claude Code's ($CLAUDE_CONFIG_DIR/skills), Codex's, the work folder's — name and description from SKILL.md;
+//         a link listed as one (where it points), never read through; `under` a folder the person named
+//   DT-03 a skill read here: the champion folders' scan — secrets, personal settings, rebuildable, links, keys of a sure shape and files to
+//         check left out; SKILL.md at its top; a skill's size; its run settings (front matter · .mcp.json)
+//   DT-04 the stdio MCP server: initialize · tools/list (five tools) · tools/call through the app's channel with the run's key; a closed run
+//         (or a wrong key) answers nothing of it
+//   DT-05 lite_propose_skill: the files go to the server with the run's token as a proposal — no path of this PC, no token in the config
+//         file; what the CLI is told: not registered until 「등록」
+//   DT-06 lite_propose_folder: the champion folders' own pick and preview; the server's tools:upload binds only a pick made for that
+//         proposal (never the page's own, never a path) with the card as the person's yes
+//   DT-07 the CLI's command line: Claude Code --mcp-config (the app's server beside the person's own) and its tools allowed; Codex -c
+//         mcp_servers.…; none without the tools
+//   DT-08 the app says it has them (caps liteTools · liteFolders); the packaged app can run the server as node (RunAsNode left as shipped)
+//   DT-09 a chat run's Claude Code gets ENABLE_TOOL_SEARCH=false (the tools load with the session — the company gateway cannot take
+//         Claude Code's deferred tool references); the person's own env or the runner's setting wins; not for a step, not for Codex
+//   node --test test/tools.test.js
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const crypto = require('node:crypto')
+const { spawn } = require('node:child_process')
+const TL = require('../src/runner/tools')
+const SY = require('../src/runner/sync')
+const MT = require('../src/mcp/tools')
+const { CliSession, codexMcp } = require('../src/runner/session')
+
+const WIN = process.platform === 'win32'
+const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-tools-')))
+const HOME = path.join(ROOT, 'home')
+const DATA = path.join(ROOT, 'app', 'data')
+const WORK = path.join(ROOT, 'work')
+const CLAUDE = path.join(HOME, '.claude')
+const ENV = { ...process.env, CLAUDE_CONFIG_DIR: CLAUDE, CODEX_HOME: path.join(HOME, '.codex') }
+const put = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text) }
+const SKILL = (name, desc, extra = '') => `---\nname: ${name}\ndescription: ${desc}\n${extra}---\n# ${name}\n본문\n`
+fs.mkdirSync(DATA, { recursive: true })
+fs.mkdirSync(WORK, { recursive: true })
+// (whatever a failing test left open goes too: the MCP servers it started, the app's channel)
+const kids = []
+let desk, srv
+test.after(() => {
+  for (const k of kids) try { k.kill() } catch { /* gone */ }
+  desk?.stop()
+  try { fs.rmSync(ROOT, { recursive: true, force: true }) } catch { /* gone */ }
+})
+
+// a stand-in for the server's API (what it was sent)
+function server({ status = 200, answer = (p, body) => ({ id: crypto.randomUUID(), name: body?.name || '', state: 'pending', expiresInMinutes: 60 }) } = {}) {
+  const calls = []
+  const fetchImpl = async (url, opts = {}) => {
+    const body = opts.body ? JSON.parse(opts.body) : null
+    calls.push({ url, method: opts.method || 'GET', auth: opts.headers?.Authorization, body })
+    const p = new URL(url).pathname
+    return { ok: status < 400, status, json: async () => (status < 400 ? answer(p, body) : { error: 'nope', code: 'x' }) }
+  }
+  return { calls, fetchImpl }
+}
+const memStore = () => { const m = new Map(); return { get: (id) => m.get(String(id)) || null, put: (e) => m.set(String(e.folderId), e), all: () => [...m.values()], drop: (id) => m.delete(String(id)) } }
+
+test('DT-01 어느 폴더: ~ · 작업 폴더 기준 상대 경로(밖으로 못 나감) · 절대 경로 — 링크 · 디스크 맨 위 · 홈과 그 위 · 시스템 폴더 · CLI 의 집 · 비밀 폴더 · 앱 데이터는 거절', async () => {
+  const r = (s) => TL.resolvePath(s, { cwd: WORK, home: HOME })
+  assert.equal(r('~').abs, HOME)
+  assert.equal(r('~/a/b').abs, path.join(HOME, 'a', 'b'))
+  assert.equal(r('sub/x').abs, path.join(WORK, 'sub', 'x'))
+  assert.equal(r('../밖').error, 'escapes')
+  assert.equal(r('sub/../../밖').error, 'escapes')
+  assert.equal(r('~other/x').error, 'bad_path')
+  assert.equal(r('a\0b').error, 'bad_path')
+  assert.equal(r('').error, 'bad_path')
+  assert.equal(TL.resolvePath('rel', { cwd: null }).error, 'bad_path')
+  const check = (p) => TL.checkFolder(p, { home: HOME, env: ENV, dataDir: DATA })
+  put(path.join(HOME, 'skills', 'a', 'SKILL.md'), SKILL('a', 'x'))
+  assert.equal((await check(path.join(HOME, 'skills', 'a'))).real, path.join(HOME, 'skills', 'a'))
+  fs.symlinkSync(path.join(HOME, 'skills', 'a'), path.join(HOME, 'skills', 'link-a'), WIN ? 'junction' : 'dir')
+  assert.equal((await check(path.join(HOME, 'skills', 'link-a'))).error, 'link')
+  assert.equal((await check(path.parse(ROOT).root)).error, 'system_folder')
+  assert.equal((await check(HOME)).error, 'home_folder')
+  assert.equal((await check(ROOT)).error, 'home_folder', 'above the home folder')
+  fs.mkdirSync(path.join(HOME, 'Library', 'Mail'), { recursive: true })
+  if (!WIN) assert.equal((await check(path.join(HOME, 'Library', 'Mail'))).error, 'system_folder', '~/Library')
+  if (process.platform === 'darwin') assert.equal((await check('/System/Library')).error, 'system_folder')
+  if (!WIN) assert.equal((await check('/usr/bin')).error, 'system_folder')
+  fs.mkdirSync(CLAUDE, { recursive: true })
+  assert.equal((await check(CLAUDE)).error, 'cli_home')
+  fs.mkdirSync(path.join(HOME, '.ssh', 'keys'), { recursive: true })
+  assert.equal((await check(path.join(HOME, '.ssh', 'keys'))).error, 'secret_folder')
+  assert.equal((await check(DATA)).error, 'app_folder')
+  assert.equal((await check(path.join(HOME, 'nope'))).error, 'not_found')
+  assert.equal((await check(path.join(HOME, 'skills', 'a', 'SKILL.md'))).error, 'not_folder')
+})
+
+test('DT-02 이 PC 의 스킬: Claude Code · Codex · 작업 폴더 — 이름 · 설명은 SKILL.md 에서, 링크는 링크로(가리키는 곳만), under 로 사람이 말한 폴더', async () => {
+  put(path.join(CLAUDE, 'skills', '견적-규칙', 'SKILL.md'), SKILL('견적-규칙', '견적서를 회사 양식으로 써요', 'allowed-tools: Bash\n'))
+  put(path.join(CLAUDE, 'skills', 'meeting', 'SKILL.md'), SKILL('회의록', '회의록을 정리해요'))
+  fs.mkdirSync(path.join(CLAUDE, 'skills', 'empty-dir'), { recursive: true })
+  put(path.join(HOME, 'elsewhere', 'linked', 'SKILL.md'), SKILL('linked', 'x'))
+  fs.symlinkSync(path.join(HOME, 'elsewhere', 'linked'), path.join(CLAUDE, 'skills', 'linked'), WIN ? 'junction' : 'dir')
+  put(path.join(HOME, '.codex', 'skills', 'codex-one', 'SKILL.md'), SKILL('codex-one', 'Codex 의 스킬'))
+  put(path.join(WORK, '.claude', 'skills', 'project-one', 'SKILL.md'), SKILL('project-one', '작업 폴더의 스킬'))
+  const desk = new TL.ToolDesk({ dataDir: DATA, server: 'http://srv', home: HOME })
+  const run = { cwd: WORK, env: ENV, lang: 'ko', jobId: 'j' }
+  const r = JSON.parse((await desk.listPcSkills(run)).text)
+  const by = Object.fromEntries(r.skills.map((s) => [s.name, s]))
+  assert.equal(by['견적-규칙'].description, '견적서를 회사 양식으로 써요')
+  assert.equal(by['견적-규칙'].runs, true, 'its run settings are said')
+  assert.equal(by['견적-규칙'].path, `~${path.sep}${path.join('.claude', 'skills', '견적-규칙')}`)
+  assert.equal(by['회의록'].where, 'Claude Code (personal)')
+  assert.equal(by.linked.link, true)
+  assert.equal(by.linked.pointsTo, `~${path.sep}${path.join('elsewhere', 'linked')}`)
+  assert.equal(by.linked.description, '', 'not read through')
+  assert.equal(by['codex-one'].where, 'Codex')
+  assert.equal(by['project-one'].where, 'this work folder')
+  assert.ok(!by['empty-dir'])
+  assert.match(r.note, /pointsTo/)
+  const u = JSON.parse((await desk.listPcSkills(run, { under: '~/elsewhere' })).text)
+  assert.deepEqual(u.skills.map((s) => s.name), ['linked'])
+  assert.equal((await desk.listPcSkills(run, { under: '~' })).isError, true, 'the home folder itself')
+})
+
+const SKILL_DIR = path.join(HOME, 'skills', 'proposal')
+function skillFolder() {
+  fs.rmSync(SKILL_DIR, { recursive: true, force: true })
+  put(path.join(SKILL_DIR, 'SKILL.md'), SKILL('제안서-쓰기', '제안서를 회사 양식으로 써요', 'hooks:\n  PreToolUse: []\n'))
+  put(path.join(SKILL_DIR, 'templates', '표지.md'), '# 표지\n')
+  put(path.join(SKILL_DIR, '.env'), 'API_KEY=1\n')
+  put(path.join(SKILL_DIR, 'id_rsa'), 'x\n')
+  put(path.join(SKILL_DIR, '.claude', 'settings.local.json'), '{}\n')
+  put(path.join(SKILL_DIR, 'node_modules', 'x', 'index.js'), 'x\n')
+  put(path.join(SKILL_DIR, 'keys.txt'), `token = ghp_${'a1B2'.repeat(9)}\n`)
+  put(path.join(SKILL_DIR, 'conf.sh'), 'SECRET_VALUE=aZ3kQ9mW2xP7vL5nR8tY4uJ6\n')
+  put(path.join(SKILL_DIR, '.mcp.json'), JSON.stringify({ mcpServers: { x: { command: 'x' } } }))
+  fs.symlinkSync(path.join(HOME, 'elsewhere'), path.join(SKILL_DIR, 'out-link'), WIN ? 'junction' : 'dir')
+}
+
+test('DT-03 여기서 읽는 스킬: 챔피언 폴더의 검사 그대로 — 비밀 · 개인 설정 · 다시 만들 것 · 링크 · 확실한 열쇠 · 확인할 파일은 빼고, 맨 위 SKILL.md · 크기 · 실행 설정', async () => {
+  skillFolder()
+  const gitDir = path.join(DATA, 'tools', 'scan.git')
+  const k = await TL.packSkill(SKILL_DIR, { gitDir })
+  assert.ok(k.skill, JSON.stringify(k))
+  const paths = k.skill.files.map((f) => f.path).sort()
+  assert.deepEqual(paths, ['SKILL.md', 'templates/표지.md'])
+  assert.equal(Buffer.from(k.skill.files.find((f) => f.path === 'templates/표지.md').data, 'base64').toString(), '# 표지\n')
+  const groups = Object.fromEntries(k.skill.excluded.map((g) => [g.group, g.count]))
+  assert.ok(groups.secret >= 2, '.env · id_rsa')
+  assert.ok(groups.personal >= 1, 'settings.local.json')
+  assert.ok(groups.rebuildable >= 1, 'node_modules')
+  assert.ok(groups.structure >= 1, 'the link')
+  assert.equal(k.skill.flagged, 3, 'a sure key, a value to check and a .mcp.json (it runs things — a file to check) stay out')
+  assert.deepEqual(k.skill.runs, ['hooks'])
+  assert.deepEqual(k.skill.runFiles, [])
+  assert.equal(k.skill.name, '제안서-쓰기')
+  // no SKILL.md at its top
+  const plain = path.join(HOME, 'plain')
+  put(path.join(plain, 'docs', 'SKILL.md'), SKILL('x', 'y'))
+  assert.equal((await TL.packSkill(plain, { gitDir })).error, 'no_skill_md')
+  // too many files for a skill
+  const many = path.join(HOME, 'many')
+  put(path.join(many, 'SKILL.md'), SKILL('many', 'm'))
+  for (let i = 0; i < TL.SKILL_MAX_FILES; i++) put(path.join(many, 'f', `${i}.md`), 'x')
+  assert.equal((await TL.packSkill(many, { gitDir })).error, 'too_many')
+})
+
+// the stdio MCP server as an MCP client calls it → {call(method, params), notify, close}
+function mcp(file) {
+  const p = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'mcp', 'server.js'), '--config', file], { stdio: ['pipe', 'pipe', 'pipe'] })
+  kids.push(p)
+  let buf = ''
+  const waiting = new Map()
+  p.stdout.on('data', (d) => {
+    buf += d
+    let n
+    while ((n = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, n); buf = buf.slice(n + 1)
+      const m = JSON.parse(line)
+      waiting.get(m.id)?.(m); waiting.delete(m.id)
+    }
+  })
+  let id = 0
+  return {
+    call: (method, params = {}) => new Promise((res) => { const i = ++id; waiting.set(i, res); p.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: i, method, params })}\n`) }),
+    notify: (method, params = {}) => p.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`),
+    close: () => new Promise((res) => { p.once('exit', res); p.stdin.end() }),
+  }
+}
+const textOf = (m) => m.result?.content?.[0]?.text || ''
+
+test('DT-04 stdio MCP 서버: initialize · tools/list(다섯) · tools/call 은 이 실행의 열쇠로 앱에 — 닫힌 실행 · 틀린 열쇠는 아무것도 못 한다', async () => {
+  srv = server()
+  desk = new TL.ToolDesk({ dataDir: DATA, server: 'http://srv.test/lite', home: HOME, fetchImpl: srv.fetchImpl })
+  const stateDir = path.join(DATA, 'sessions', 'job-1')
+  const open = await desk.open({ stateDir, jobId: crypto.randomUUID(), cwd: WORK, lang: 'ko', env: ENV, token: 'plt1.run-token.sig' })
+  const conf = JSON.parse(fs.readFileSync(open.file, 'utf8'))
+  assert.deepEqual(Object.keys(conf).sort(), ['ipc', 'key', 'lang'], 'no server token in the file')
+  if (!WIN) assert.equal(fs.statSync(open.file).mode & 0o777, 0o600)
+  assert.deepEqual(open.program.args.slice(-2), ['--config', open.file])
+  const c = mcp(open.file)
+  const init = await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } })
+  assert.equal(init.result.protocolVersion, '2025-06-18')
+  assert.equal(init.result.serverInfo.name, MT.SERVER_NAME)
+  c.notify('notifications/initialized')
+  const list = await c.call('tools/list')
+  assert.deepEqual(list.result.tools.map((t) => t.name), ['lite_list_pc_skills', 'lite_list_my_skills', 'lite_propose_skill', 'lite_list_my_folders', 'lite_propose_folder'])
+  assert.match(list.result.tools.find((t) => t.name === 'lite_propose_skill').description, /NOTHING is registered until the person presses 「등록」/)
+  const pcs = await c.call('tools/call', { name: 'lite_list_pc_skills', arguments: {} })
+  assert.ok(JSON.parse(textOf(pcs)).skills.some((s) => s.name === '견적-규칙'))
+  const unknown = await c.call('tools/call', { name: 'rm_rf', arguments: {} })
+  assert.equal(unknown.result.isError, true)
+  assert.equal((await c.call('nope')).error.code, -32601)
+  assert.deepEqual((await c.call('ping')).result, {})
+  // the run ends: its key no longer answers
+  desk.close(open.key)
+  const after = await c.call('tools/call', { name: 'lite_list_pc_skills', arguments: {} })
+  assert.equal(after.result.isError, true)
+  assert.match(textOf(after), /closed/)
+  await c.close()
+  // a wrong key on the same channel
+  const bad = path.join(stateDir, 'bad.json')
+  fs.writeFileSync(bad, JSON.stringify({ ...conf, key: 'f'.repeat(64) }))
+  const c2 = mcp(bad)
+  assert.equal((await c2.call('tools/call', { name: 'lite_list_pc_skills', arguments: {} })).result.isError, true)
+  await c2.close()
+})
+
+test('DT-05 lite_propose_skill: 파일은 이 실행의 토큰으로 서버에 「제안」으로 — PC 의 경로 없음 · CLI 에게는 「등록」을 눌러야 등록된다고', async () => {
+  skillFolder()
+  const token = 'plt1.the-run.token'
+  const open = await desk.open({ stateDir: path.join(DATA, 'sessions', 'job-2'), jobId: crypto.randomUUID(), cwd: WORK, lang: 'ko', env: ENV, token })
+  const c = mcp(open.file)
+  await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } })
+  const r = await c.call('tools/call', { name: 'lite_propose_skill', arguments: { path: '~/skills/proposal', scope: 'company' } })
+  assert.equal(r.result.isError, undefined, textOf(r))
+  assert.match(textOf(r), /「스킬을 등록할까요\?」 카드/)
+  assert.match(textOf(r), /「등록」을 눌러야 등록돼요/)
+  assert.match(textOf(r), /실행 설정이 있어요/)
+  const sent = srv.calls.at(-1)
+  assert.equal(sent.url, 'http://srv.test/lite/api/local-agents/tools/skills/propose')
+  assert.equal(sent.auth, `Bearer ${token}`)
+  assert.equal(sent.body.name, '제안서-쓰기')
+  assert.equal(sent.body.scope, 'company')
+  assert.deepEqual(sent.body.source, { where: 'other', label: 'proposal' })
+  assert.deepEqual(sent.body.files.map((f) => f.path).sort(), ['SKILL.md', 'templates/표지.md'])
+  assert.ok(!JSON.stringify(sent.body).includes(HOME), 'no path of this PC')
+  // a skill in Claude Code's own folder says so; a named SKILL.md is its folder; a name given
+  await c.call('tools/call', { name: 'lite_propose_skill', arguments: { path: path.join(CLAUDE, 'skills', '견적-규칙', 'SKILL.md'), name: '견적 규칙 v2' } })
+  assert.deepEqual(srv.calls.at(-1).body.source, { where: 'claude', label: '견적-규칙' })
+  assert.equal(srv.calls.at(-1).body.name, '견적 규칙 v2')
+  // refused here, nothing sent
+  const n = srv.calls.length
+  for (const [p, why] of [['../밖', /작업 폴더 밖/], ['~', /홈 폴더/], ['~/skills/link-a', /링크/], ['~/.ssh/keys', /\.ssh/], ['~/plain', /SKILL\.md/]]) {
+    const x = await c.call('tools/call', { name: 'lite_propose_skill', arguments: { path: p } })
+    assert.equal(x.result.isError, true, p)
+    assert.match(textOf(x), why, p)
+  }
+  assert.equal(srv.calls.length, n, 'nothing went to the server')
+  // the server's own refusal is what the CLI hears (a name taken — ask the person)
+  const no = server({ status: 409 })
+  desk.fetch = no.fetchImpl
+  const x = await c.call('tools/call', { name: 'lite_propose_skill', arguments: { path: '~/skills/proposal' } })
+  assert.equal(x.result.isError, true)
+  desk.fetch = srv.fetchImpl
+  // a run without a token from the server: the tools say so
+  const open2 = await desk.open({ stateDir: path.join(DATA, 'sessions', 'job-3'), jobId: crypto.randomUUID(), cwd: WORK, lang: 'en', env: ENV, token: null })
+  const c3 = mcp(open2.file)
+  const y = await c3.call('tools/call', { name: 'lite_propose_skill', arguments: { path: '~/skills/proposal' } })
+  assert.match(textOf(y), /not available in this run/)
+  await c3.close()
+  await c.close()
+})
+
+test('DT-06 lite_propose_folder: 챔피언 폴더의 pick · 미리 보기 그대로, tools:upload 는 그 제안의 pick 만 묶는다(페이지의 pick · 경로는 아님) — 카드가 그 사람의 「예」', async () => {
+  const sent = []
+  const folders = new SY.FolderSync({ dataDir: DATA, server: 'http://srv.test/lite', userId: 'u-1', store: memStore(), send: (m) => { sent.push(m); return true } })
+  folders.linkUp({ id: 'u-1' })
+  const binds = []
+  folders.bind = async (v, { confirm }) => { binds.push({ ...v, yes: await confirm({ files: 1 }) }); return { ok: true, folderId: v.folderId, pushed: { files: 2, bytes: 10 } } }
+  const s = server()
+  const answers = []
+  const d = new TL.ToolDesk({ dataDir: DATA, server: 'http://srv.test/lite', home: HOME, fetchImpl: s.fetchImpl, folders, send: (m) => { answers.push(m); return true } })
+  const run = { cwd: WORK, env: ENV, lang: 'ko', jobId: 'j', token: 'plt1.t.s' }
+  const kit = path.join(HOME, '영업 키트')
+  put(path.join(kit, 'README.md'), '# 영업 키트\n')
+  put(path.join(kit, '.claude', 'skills', '견적', 'SKILL.md'), SKILL('견적', '견적서'))
+  put(path.join(kit, '.env'), 'X=1\n')
+  const r = await d.proposeFolder(run, { path: '~/영업 키트' })
+  assert.equal(r.isError, undefined, r.text)
+  assert.match(r.text, /「폴더를 올릴까요\?」 카드/)
+  assert.match(r.text, /「올리기」를 눌러야 업로드돼요/)
+  const body = s.calls.at(-1).body
+  assert.equal(s.calls.at(-1).url, 'http://srv.test/lite/api/local-agents/tools/folders/propose')
+  assert.equal(body.label, '영업 키트')
+  assert.equal(body.preview.files, 2)
+  assert.ok(body.preview.excluded.some((g) => g.group === 'secret'))
+  assert.ok(body.preview.kit.some((k) => k.type === 'skill'))
+  assert.ok(!JSON.stringify(body).includes(HOME), 'no path of this PC')
+  // (the server's answer named the proposal: the app keeps which pick it was for)
+  const [pickId, mine] = [...d.proposed.entries()][0]
+  assert.equal(pickId, body.pickId)
+  // a pick of the page's own dialog (not proposed from a run) is never bound this way
+  const pagePick = await folders.pick(kit)
+  await d.handle({ type: 'tools:upload', proposalId: mine.proposalId, pickId: pagePick.pickId, folderId: crypto.randomUUID(), folderName: 'x' })
+  assert.deepEqual(answers.at(-1), { type: 'tools:uploaded', proposalId: mine.proposalId, ok: false, why: 'no_pick' })
+  // another proposal's id with this pick: no
+  await d.handle({ type: 'tools:upload', proposalId: crypto.randomUUID(), pickId, folderId: crypto.randomUUID(), folderName: 'x' })
+  assert.equal(answers.at(-1).why, 'no_pick')
+  assert.equal(binds.length, 0)
+  // the card's 「올리기」: the champion folders' bind, the card as the yes
+  const folderId = crypto.randomUUID()
+  await d.handle({ type: 'tools:upload', proposalId: mine.proposalId, pickId, folderId, folderName: '영업 키트' })
+  assert.deepEqual(binds, [{ pickId, folderId, folderName: '영업 키트', yes: true }])
+  assert.deepEqual(answers.at(-1), { type: 'tools:uploaded', proposalId: mine.proposalId, ok: true, why: null, pushed: { files: 2, bytes: 10 } })
+  // the same again: done once
+  await d.handle({ type: 'tools:upload', proposalId: mine.proposalId, pickId, folderId, folderName: '영업 키트' })
+  assert.equal(answers.at(-1).why, 'no_pick')
+  // refused here: the home folder, a system folder, nothing to upload
+  assert.match((await d.proposeFolder(run, { path: '~' })).text, /홈 폴더/)
+  fs.mkdirSync(path.join(HOME, 'empty'), { recursive: true })
+  assert.match((await d.proposeFolder(run, { path: '~/empty' })).text, /올릴 파일이 없어요/)
+  // an app without the champion folders' engine
+  const none = new TL.ToolDesk({ dataDir: DATA, server: 'http://srv', home: HOME, fetchImpl: s.fetchImpl })
+  assert.match((await none.proposeFolder(run, { path: '~/영업 키트' })).text, /폴더를 올릴 수 없어요/)
+  folders.stop()
+})
+
+test('DT-07 CLI 의 명령: Claude Code 는 --mcp-config(내 MCP 옆에) · 도구 허용, Codex 는 -c mcp_servers.… — 도구가 없으면 아무것도', () => {
+  const program = { command: '/Applications/Process GPT Lite.app/Contents/MacOS/Process GPT Lite', args: ['/x/app.asar/src/mcp/server.js', '--config', '/d/lite-tools.json'], env: { ELECTRON_RUN_AS_NODE: '1' } }
+  const stateDir = path.join(DATA, 'sessions', 'args')
+  const S = new CliSession({ agent: 'claude-code', cwd: WORK, stateDir, tools: { program }, pty: {}, env: {} })
+  fs.mkdirSync(stateDir, { recursive: true })
+  S.env = ENV
+  const a = S.claudeArgs()
+  const i = a.args.indexOf('--mcp-config')
+  assert.ok(i > 0)
+  assert.ok(!a.args.includes('--strict-mcp-config'), 'the person\'s own MCP servers stay')
+  const conf = JSON.parse(fs.readFileSync(a.args[i + 1], 'utf8'))
+  assert.deepEqual(conf.mcpServers[MT.SERVER_NAME], { type: 'stdio', ...program })
+  const settings = JSON.parse(fs.readFileSync(S.settingsFile, 'utf8'))
+  assert.deepEqual(settings.permissions.allow, MT.NAMES.map((n) => `mcp__process_gpt_lite__${n}`))
+  assert.ok(settings.hooks.Stop)
+  const none = new CliSession({ agent: 'claude-code', cwd: WORK, stateDir: path.join(DATA, 'sessions', 'args2'), pty: {}, env: {} })
+  fs.mkdirSync(none.stateDir, { recursive: true })
+  none.env = ENV
+  const b = none.claudeArgs()
+  assert.ok(!b.args.includes('--mcp-config'))
+  assert.equal(JSON.parse(fs.readFileSync(none.settingsFile, 'utf8')).permissions, undefined)
+  const cx = codexMcp({ program })
+  assert.deepEqual(cx.filter((x, k) => k % 2 === 0), ['-c', '-c', '-c', '-c'])
+  assert.equal(cx[1], `mcp_servers.process_gpt_lite.command=${JSON.stringify(program.command)}`)
+  assert.equal(cx[3], `mcp_servers.process_gpt_lite.args=${JSON.stringify(program.args)}`)
+  assert.equal(cx[5], 'mcp_servers.process_gpt_lite.env={ELECTRON_RUN_AS_NODE="1"}')
+  assert.deepEqual(codexMcp(null), [])
+})
+
+test('DT-08 앱이 알린다(liteTools · liteFolders) · 포장한 앱은 자기 바이너리를 node 로 MCP 서버를 띄운다(RunAsNode 는 그대로)', async () => {
+  const { createLocalRunner } = require('../src/runner')
+  const hellos = []
+  class WS { constructor() { this.readyState = 1; setTimeout(() => this.onopen?.(), 0) } send(t) { hellos.push(JSON.parse(t)) } close() {} }
+  const r = createLocalRunner({ server: 'http://srv.test', token: 'pld1_x', dataDir: path.join(ROOT, 'runner-a'), prefs: () => ({ enabled: true }), WS, searchPath: '/nowhere', folders: memStore(), userId: 'u' })
+  await r.start()
+  await new Promise((res) => setTimeout(res, 20))
+  const caps = hellos.find((h) => h.type === 'hello').caps
+  assert.equal(caps.liteTools, true)
+  assert.equal(caps.liteFolders, true)
+  r.stop()
+  const hellos2 = []
+  class WS2 extends WS { send(t) { hellos2.push(JSON.parse(t)) } }
+  const r2 = createLocalRunner({ server: 'http://srv.test', token: 'pld1_x', dataDir: path.join(ROOT, 'runner-b'), prefs: () => ({ enabled: true }), WS: WS2, searchPath: '/nowhere', tools: false })
+  await r2.start()
+  await new Promise((res) => setTimeout(res, 20))
+  assert.equal(hellos2.find((h) => h.type === 'hello').caps.liteTools, false)
+  r2.stop()
+  // plain Node here; the app's own binary with ELECTRON_RUN_AS_NODE in the app (its fuse left as Electron ships it)
+  const p = TL.mcpProgram('/d/c.json')
+  assert.equal(p.command, process.execPath)
+  assert.match(p.args[0], /src[\\/]mcp[\\/]server\.js$/)
+  const { FUSES } = require('../scripts/adhoc-sign')
+  assert.notEqual(FUSES.runAsNode, false, 'the RunAsNode fuse must stay on: the CLI starts the tools with the app\'s own binary')
+  desk?.stop()
+})
+
+test('DT-09 채팅 실행의 Claude Code 에는 ENABLE_TOOL_SEARCH=false(도구는 세션과 함께) — 그 사람의 환경 · runner 설정이 이기고, 단계 · Codex 에는 없음', async () => {
+  const { Runner } = require('../src/runner/runner')
+  const C = require('../src/runner/clis')
+  // what the run hands its session (openSession is stopped right there) → its env
+  const envOf = async (r, kind, agent = 'claude-code') => {
+    let got = null
+    r.openSession = (o) => { got = o; throw new Error('stop here') }
+    const job = { id: crypto.randomUUID(), kind, agent, lang: 'ko', prompt: 'x', message: 'x', label: agent }
+    const out = await r.runInteractive({ job, dir: WORK, early: [], live: [] })
+    assert.equal(out.ok, false)
+    return got.env
+  }
+  const was = process.env.ENABLE_TOOL_SEARCH
+  delete process.env.ENABLE_TOOL_SEARCH
+  try {
+    const r = new Runner({ dataDir: path.join(ROOT, 'runner-ts'), server: 'http://srv.test', toolSearch: null })
+    assert.deepEqual(await envOf(r, 'chat'), { ENABLE_TOOL_SEARCH: 'false' })
+    assert.deepEqual(await envOf(r, 'step'), {}, 'a process step: as it was')
+    assert.deepEqual(await envOf(r, 'chat', 'codex'), {}, 'Codex has no such search')
+    // the runner's setting
+    assert.deepEqual(await envOf(new Runner({ dataDir: path.join(ROOT, 'runner-ts'), server: 'http://srv.test', toolSearch: 'auto' }), 'chat'), { ENABLE_TOOL_SEARCH: 'auto' })
+    // the CLI environment the runner was given (tests: their own) · the person's own environment — passed on as it is
+    assert.deepEqual(await envOf(new Runner({ dataDir: path.join(ROOT, 'runner-ts'), server: 'http://srv.test', toolSearch: null, sessionEnv: { ENABLE_TOOL_SEARCH: 'true' } }), 'chat'), {})
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    assert.deepEqual(await envOf(r, 'chat'), {})
+    assert.equal(C.cliEnv({}).ENABLE_TOOL_SEARCH, 'true', 'the person\'s own value reaches the CLI')
+    assert.equal(C.cliEnv({ ENABLE_TOOL_SEARCH: 'false' }).ENABLE_TOOL_SEARCH, 'false', 'the run\'s value is the CLI\'s')
+  } finally { if (was === undefined) delete process.env.ENABLE_TOOL_SEARCH; else process.env.ENABLE_TOOL_SEARCH = was }
+})

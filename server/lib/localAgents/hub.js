@@ -96,6 +96,10 @@ export async function receive(link, msg) {
     const run = withTenant(link.tenant, () => SL.receive(link, msg)).catch((e) => console.warn('[local-agents] seat', msg.type, e.message))
     return ['seat:pushed', 'seat:release', 'seat:left'].includes(msg.type) ? undefined : run
   }
+  // a folder a chat card asked this PC to upload (「폴더를 올릴까요?」 — pcTools.js): how it went
+  if (typeof msg.type === 'string' && msg.type.startsWith('tools:')) {
+    return withTenant(link.tenant, async () => (await import('./pcTools.js')).receive(link, msg)).catch((e) => console.warn('[local-agents] tools', msg.type, e.message))
+  }
   await withTenant(link.tenant, () => handlers.message(link, msg)).catch((e) => console.warn('[local-agents] message', msg.type, e.message))
 }
 

@@ -170,7 +170,10 @@ export function capsOf(raw = {}) {
   // may not edit without that folder's own run settings — hooks · permissions · MCP servers, the desktop's runSettings.js)
   return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true, conversation: raw?.conversation === true, chat: raw?.chat === true,
     browser: raw?.browser === true, browserGuard: raw?.browserGuard === true, folders: raw?.folders === true, seats: raw?.seats === true,
-    leaveOffSettings: raw?.leaveOffSettings === true }
+    leaveOffSettings: raw?.leaveOffSettings === true,
+    // (liteTools: a chat run's CLI gets the Process GPT tools — 「스킬을 등록할까요?」 · 「폴더를 올릴까요?」, desktop 0.2.8, pcTools.js ·
+    // liteFolders: it can upload the folder such a card names — its champion folders' engine is on)
+    liteTools: raw?.liteTools === true, liteFolders: raw?.liteFolders === true }
 }
 // browser: 「브라우저 작업은 내 PC에서」 — this PC's own setting (desktop 0.2.3): 'own' (the person's own tasks, the default) · 'all' (also tasks
 // nobody watches) · 'off' (lib/browserRemote.js routeOf)
