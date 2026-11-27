@@ -37,7 +37,7 @@ test('데스크톱이 페이지 안에서 돌리는 읽기 스크립트는 서�
 
 // ---- where a task runs: each PC's own setting (prefs.browser), the person's own tasks only unless that PC says 'all' ----
 test('어디서 도나: 그 PC 의 설정 — 기본은 내가 시킨 작업만, 사람이 없는 작업은 「모두」인 PC 만, 끄거나 단계 실행을 끄면 서버', () => {
-  const pc = (id, since, prefs = {}, browser = true) => ({ id, name: id, since: new Date(since), caps: { browser }, prefs })
+  const pc = (id, since, prefs = {}, browser = true) => ({ id, name: id, since: new Date(since), caps: { browser, browserGuard: browser }, prefs })
   assert.deepEqual(routeOf({ links: [] }), { kind: 'server', why: 'no-desktop' })
   assert.deepEqual(routeOf({ links: [pc('old', 1, {}, false)] }), { kind: 'server', why: 'old-desktop' })
   assert.equal(routeOf({ links: [pc('a', 1)] }).link.id, 'a', '정한 적 없음 = 내가 시킨 작업은 PC')

@@ -235,6 +235,8 @@ test('D-05 다른 사이트 · 메일 링크는 창 밖(시스템 브라우저)�
   // a file of the same server opened in a new window (원본 받기, 문서 링크): an ordinary window, closed again
   await page.evaluate(() => window.open('/api/config', '_blank'))
   await expect.poll(windows).toBe(2)
+  // (once its page is in: /api/config can take a few seconds to answer — the window has no address until then)
+  await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.webContents.getURL().includes('/api/config'))), { timeout: 15_000 }).toBe(true)
   await app.evaluate(({ BrowserWindow }) => { for (const w of BrowserWindow.getAllWindows()) if (w.webContents.getURL().includes('/api/config')) w.close() })
   await expect.poll(windows).toBe(1)
   await page.evaluate(() => document.querySelectorAll('#x-blank,#x-self,#x-mail').forEach((a) => a.remove()))
@@ -297,7 +299,8 @@ test('D-08 Google 로그인은 창 안에서 Google 계정 화면으로 간다',
   const cfg = await page.evaluate(() => fetch('/api/config').then((r) => r.json()))
   test.skip(!cfg.googleLogin, '이 서버에는 Google 로그인이 없음')
   // a second profile of the app is not needed: sign out in this one, then back in afterwards
-  await page.evaluate(() => { localStorage.removeItem('pgpt-pro-session'); location.href = '/login' })
+  // (0.2.6: the app keeps the sign-in sealed — window.pglDesktop.session — not in the page's storage)
+  await page.evaluate(() => { window.pglDesktop.session?.clear?.(); localStorage.removeItem('pgpt-pro-session'); location.href = '/login' })
   await page.waitForURL(`${serverOf()}/login`)
   const before = (await opened()).length
   await page.getByRole('button', { name: /Google로 계속하기/ }).click()

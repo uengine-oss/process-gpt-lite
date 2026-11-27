@@ -103,6 +103,10 @@ ready.then(() => {
     if (r.meta.mode !== 'chat' || r.meta.settings) router.push('/chat').catch(() => {})
     app.dockOpen = true
   })
+  // the desktop app: a link to one of these screens that would open a new window shows it here (desktop/src/main.js showInWindow)
+  window.pglDesktop?.onNavigate?.((to) => {
+    if (typeof to === 'string' && to.startsWith('/') && !to.startsWith('//')) router.push(to).catch(() => {})
+  })
 })
 // push notifications and the installed app's badge (public/sw.js)
 registerWorker()

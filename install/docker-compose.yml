@@ -389,6 +389,9 @@ services:
       PRO_CRON_CALLBACK: http://server:8787
       PRO_CRON_SECRET: ${CRON_SECRET}
       PRO_DEMO_LOGIN: ${DEMO_LOGIN:-0}
+      # the address the auth service sends sign-in codes from (auth's GOTRUE_SMTP_ADMIN_EMAIL above): a browser task never
+      # types in a code from that mail (server/lib/mailCode.js)
+      PRO_AUTH_MAIL_FROM: ${SMTP_ADMIN_EMAIL:-noreply@pgpt-lite.local}
       PRO_FOLDERS_ROOT: /data/folders
       PRO_CRAFT_WEB_ROOT: /data/craft
       # ArtCraft CLIs (craft profile, ./install.sh --with-craft); missing = those apps are off

@@ -159,7 +159,7 @@ test('LB-01 앱에서 로그인하면 이 PC 의 브라우저가 알려지고, �
   const mine = devices.find((d) => d.id === st.deviceId)
   expect(mine.online).toBe(true)
   expect(mine.caps.browser).toBe(true)
-  expect(mine.appVersion).toBe('0.2.3')
+  expect(mine.appVersion).toBe(JSON.parse(fs.readFileSync(path.join(DESKTOP, 'package.json'), 'utf8')).version) // (the app's own version)
   // this PC's own setting (kept by the app with its runner settings, sent with its link): the person's own tasks by default
   expect(st.prefs.browser).toBe('own')
   expect(await api('/browser/where')).toMatchObject({ own: { where: 'local', device: { name: '테스트 맥' } }, unattended: { where: 'server', why: 'not-own' },
