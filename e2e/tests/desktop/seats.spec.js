@@ -16,7 +16,7 @@
 //   F-WL-14 웹(앱 아님)의 「작업실」은 서버 작업실과 데스크톱 앱 안내만
 //   F-WL-15 남이 넣은 실행 설정(.mcp.json)이 든 변형: 시트가 먼저 파일과 바꾼 사람을 알리고, 「그래도 열기」로 이 PC 에 받는다
 // It starts its own stack — a BFF (PRO_BACKGROUND=0, tenant seats-pc-ui) on 8972 and Vite on 5372 in front of it (the next free port when
-// taken) — and removes what it made.
+// taken; SEATS_UI_API_PORT · SEATS_UI_WEB_PORT to name them) — and removes what it made.
 //   cd e2e && npx playwright test --project=desktop tests/desktop/seats.spec.js
 // Screenshots: openspec/specs/variation-seats/e2e/results/ (f-wl-1N-*.png).
 import { test, expect, _electron } from '@playwright/test'
@@ -125,8 +125,10 @@ test.beforeAll(async () => {
   fs.mkdirSync(SHOTS, { recursive: true })
   fs.mkdirSync(PERSON, { recursive: true })
   fs.writeFileSync(path.join(PERSON, '내 메모.md'), '내 PC 의 내 폴더 — 앱은 여기에 쓰지 않는다\n')
-  API_PORT = freePort(8972)
-  WEB_PORT = freePort(5372)
+  // (SEATS_UI_API_PORT · SEATS_UI_WEB_PORT: ports given for this run — refused when taken; else the next free from 8972 · 5372)
+  const given = (k) => { const p = Number(process.env[k]) || 0; if (p && !portFree(p)) throw new Error(`${k}=${p} is in use`); return p }
+  API_PORT = given('SEATS_UI_API_PORT') || freePort(8972)
+  WEB_PORT = given('SEATS_UI_WEB_PORT') || freePort(5372)
   const env = { ...process.env, PRO_PORT: String(API_PORT), PRO_BACKGROUND: '0', PRO_ONTOLOGY_WORKER: '0', PRO_SCENARIOS: 'off', PRO_TENANT_ID: TENANT, PRO_TENANT_HOSTS: '',
     PRO_FOLDERS_ROOT: path.join(ROOT, 'folders'), PRO_LOCAL_AGENT_TICK_MS: '500', PRO_LLM_BASE_URL: 'http://127.0.0.1:9/v1', PRO_PUBLIC_URL: `http://127.0.0.1:${WEB_PORT}`, PRO_GIT_PUBLIC_URL: '' }
   bff = spawn(process.execPath, ['index.js'], { cwd: SERVER, env, stdio: ['ignore', 'pipe', 'pipe'] })

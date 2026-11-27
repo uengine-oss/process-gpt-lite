@@ -24,6 +24,10 @@ process.env.PRO_TENANT_ID = TENANT
 process.env.PRO_FOLDERS_ROOT = path.join(ROOT, 'folders')
 process.env.PRO_LLM_BASE_URL = 'http://127.0.0.1:9/v1'
 process.env.PRO_GIT_PUBLIC_URL = ''
+// (git here reads no ignore list of this computer's own — an upload asks git what the folder's .gitignore leaves out, and a developer's
+// global list naming .claude/settings.local.json would answer for it; lib/folders/git.js takes the environment as it is at load)
+process.env.XDG_CONFIG_HOME = path.join(ROOT, 'xdg')
+process.env.GIT_CONFIG_GLOBAL = path.join(ROOT, 'gitconfig')
 const SL = await import('../lib/folders/seatLink.js')
 const H = await import('../lib/folders/gitHttp.js')
 const D = await import('../lib/localAgents/devices.js')
@@ -520,4 +524,37 @@ test('WL-P-08 설정에서 기기 연결을 끊으면 그 기기의 작업본 �
   assert.equal(Number((await S.variationById(v.id)).seat_epoch), epoch + 1)
   assert.equal((await SE.seatOf(v2.id)).place, 'device', '채팅 실행은 그 실행이 끝날 때 내려놓는다')
   assert.equal((await SE.seatOf(v3.id)).place, 'device')
+})
+
+test('WL-P-13 프로젝트의 작업 공간(템플릿에서 시작)도 그 사람의 PC 에서: 작업본 토큰이 그 가지를 받고, 저장 지점은 받기 전 검사를 지나 변형으로 — 남의 토큰에는 숨은 채로', { skip: !db && 'no database' }, async () => {
+  // (a workspace as folders/templates.js makes one: a branch under var/t/, source.template, held by its person — hidden from every token
+  // but that person's own desktop tokens, gitHttp.js workspaceHidden)
+  const f = await folderWith('작업 공간')
+  const v = await S.createVariation(f, { title: '견적 프로젝트', kind: 'person', branch: `${S.WORKSPACE_PREFIX}${crypto.randomBytes(8).toString('hex')}`,
+    holder: { type: 'user', id: owner.id, name: owner.name }, createdBy: owner.id,
+    source: { label: '프로젝트', thread_id: crypto.randomUUID(), project: true, template: { folder_id: f.id, slug: f.slug, name: f.name, commit: await G.head(f.repo_path, f.default_branch), outputs: '산출물' } } })
+  assert.ok(S.isWorkspaceBranch(v.branch))
+  const d = await device(owner)
+  const pc = await onPc(f, v, d)
+  const c = claimsOf(pc.prep.token)
+  const shown = await H.hiddenFor(f, c)
+  assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, ['refs/heads/var/t/']) && !H.hiddenBy(`refs/heads/${v.branch}`, shown), '그 사람의 작업본 토큰에는 그 작업 공간이 보인다')
+  // a save point: through git's own pre-receive check (pushCheck.js) — everything it stands on is the token's to see — and into the workspace
+  const t = await pushToken(pc, v)
+  const one = await commitIn(pc.dir, { '산출물/견적서.md': '# 견적서\n\n합계: 120만 원\n' })
+  const p = await git(pc.dir, ['push', '-q', remote(f), `HEAD:refs/heads/${t.branch}`], t.token)
+  assert.equal(p.code, 0, p.err)
+  const taken = await say(pc.L, { type: 'seat:pushed', variation: v.id, epoch: pc.epoch, head: one }, ['seat:taken', 'seat:refused'])
+  assert.deepEqual([taken.type, taken.head], ['seat:taken', one], JSON.stringify(taken))
+  assert.match(await fileOn(f, v.branch, '산출물/견적서.md'), /120만 원/)
+  // anyone else's working-copy token in the same folder, and a cluster token: the workspace stays hidden
+  const mv = await personVar(f, mate, '동료 작업')
+  const mpc = await onPc(f, mv, await device(mate, '동료 PC'), mate)
+  assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, await H.hiddenFor(f, claimsOf(mpc.prep.token))), '남의 작업본 토큰에는 숨은 채로')
+  const ls = await git(mpc.dir, ['ls-remote', remote(f)], mpc.prep.token)
+  assert.equal(ls.code, 0, ls.err)
+  assert.doesNotMatch(ls.out, /refs\/heads\/var\/t\//)
+  assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, await H.hiddenFor(f, { scope: null })))
+  // (a token whose variation is of another folder sees nothing of this one's workspaces)
+  assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, await H.hiddenFor(await folderWith('다른 폴더'), c)))
 })

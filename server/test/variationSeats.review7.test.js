@@ -61,7 +61,9 @@ async function theFolder() {
   if (folder) return folder
   const f = await S.createFolder(owner, { name: `파일시스템 ${crypto.randomBytes(3).toString('hex')}` })
   await S.upload(f, owner, '안내문.md', Buffer.from('# 안내\n'))
-  await S.upload(f, owner, '.gitignore', Buffer.from('*.env\n'))
+  // (the folder's own .gitignore — written in place and committed on main: an upload never takes one)
+  await fsp.writeFile(path.join(f.repo_path, '.gitignore'), '*.env\n')
+  await S.commitMain(f, owner, '.gitignore')
   return (folder = await S.folderById(f.id))
 }
 const personVar = async (f, title) => {
