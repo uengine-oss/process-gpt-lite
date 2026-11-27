@@ -27,8 +27,9 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     // CLI (0.2.2 — the composer's agent picker; only in a terminal)
     caps: { clis: Object.fromEntries(Object.entries(caps).map(([k, c]) => [k, { installed: c.installed, version: c.version, loggedIn: c.loggedIn, runnable: c.runnable }])), maxJobs, terminal: runner.interactive(), conversation: runner.interactive(), chat: runner.interactive(),
       // (0.2.3: browser tasks may run in this PC's browser — the server's 「브라우저 작업은 내 PC에서」 · 0.2.5: folders of this PC kept
-      // as Lite folders — 「내 PC 폴더 올리기」)
-      browser: !!browser, folders: !!folderStore },
+      // as Lite folders — 「내 PC 폴더 올리기」 · 0.2.6: that browser keeps off the Lite app and marks its requests to it — the server
+      // sends browser tasks only to a desktop that says so)
+      browser: !!browser, browserGuard: !!browser, folders: !!folderStore },
     prefs: prefs(),
     active: runner.activeIds(),
   })

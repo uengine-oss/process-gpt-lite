@@ -36,11 +36,13 @@ onMounted(async () => {
 
 function google() {
   // googleLogin: Lite's own Google sign-in (an installed Lite). Behind the ProcessGPT gateway a company's
-  // Google client connects mail only (cfg.google) and signing in is ProcessGPT's own (server/lib/sso.js). Either way the sign-in
-  // carries this tab's value back to /auth/done (src/signInNonce.js): AuthDone takes no session it did not start
+  // Google client connects mail only (cfg.google) and signing in is ProcessGPT's own (server/lib/sso.js). Either way this tab keeps
+  // that it started a sign-in (src/signInNonce.js): AuthDone takes no session it did not start. (ProcessGPT's redirect_to stays the
+  // plain /auth/done its project allows; Lite's own sign-in carries the value through its state)
   const own = cfg.value.googleLogin ?? cfg.value.google
   if (!own && cfg.value.sso?.google) {
-    location.href = `${cfg.value.sso.google}&redirect_to=${encodeURIComponent(`${location.origin}${BASE}/auth/done?n=${startSignIn()}`)}`
+    startSignIn(undefined, undefined, { via: 'sso' })
+    location.href = `${cfg.value.sso.google}&redirect_to=${encodeURIComponent(location.origin + BASE + '/auth/done')}`
     return
   }
   if (!own) {

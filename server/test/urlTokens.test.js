@@ -5,9 +5,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { maskUrl } from '../lib/urlTokens.js'
-import { signInPlaces, isSignInStep, stepPatterns } from '../lib/signInSteps.js'
-import { startSignIn, takeSignIn, doneStep, subjectOf, SIGN_IN_MS } from '../../src/signInNonce.js'
+import { maskUrl, maskTitle, withoutMasked } from '../lib/urlTokens.js'
+import { signInPlaces, isSignInStep, stepPatterns, onPlaces } from '../lib/signInSteps.js'
+import { startSignIn, takeSignIn, doneStep, subjectOf, fromSupabase, SIGN_IN_MS } from '../../src/signInNonce.js'
 
 const require = createRequire(import.meta.url)
 
@@ -17,6 +17,10 @@ test('BT-U-01 주소의 토큰 값은 이름으로 가린다 — 쿼리와 fragm
   assert.equal(maskUrl('https://app.example/cb?code=4/0AbC&state=s-1&scope=email'), 'https://app.example/cb?code=…&state=s-1&scope=email')
   assert.equal(maskUrl('https://x.example/a?id_token=1&provider_token=2&provider_refresh_token=3&token=4&sig=5&keep=6'),
     'https://x.example/a?id_token=…&provider_token=…&provider_refresh_token=…&token=…&sig=…&keep=6')
+  // code: an OAuth answer's (with its state), or on a host the caller names — a stock code on a portal is not a secret
+  assert.equal(maskUrl('https://finance.naver.com/item/main.naver?code=005930'), 'https://finance.naver.com/item/main.naver?code=005930')
+  assert.equal(maskUrl('https://app.example/cb#code=c-1&state=s'), 'https://app.example/cb#code=…&state=s')
+  assert.equal(maskUrl('https://acme.process-gpt.io/lite/auth/done?code=pkce-1', { authHost: (h) => h.endsWith('process-gpt.io') }), 'https://acme.process-gpt.io/lite/auth/done?code=…')
   // a signed address keeps where it goes and for how long: only the signature's value goes
   assert.equal(maskUrl('https://lite.example/api/team/shares/7/raw?exp=1764&sig=ab12cd'), 'https://lite.example/api/team/shares/7/raw?exp=1764&sig=…')
   // nothing to hide: the address as it is
@@ -24,7 +28,7 @@ test('BT-U-01 주소의 토큰 값은 이름으로 가린다 — 쿼리와 fragm
 })
 
 test('BT-U-02 이름은 대소문자 · %-인코딩과 상관없이, 빈 값 · 값 없는 이름은 그대로', () => {
-  assert.equal(maskUrl('https://x.example/a?ACCESS_TOKEN=a&Refresh_Token=b&%63ode=c&%73ig=d'), 'https://x.example/a?ACCESS_TOKEN=…&Refresh_Token=…&%63ode=…&%73ig=…')
+  assert.equal(maskUrl('https://x.example/a?ACCESS_TOKEN=a&Refresh_Token=b&%63ode=c&%73ig=d&STATE=s'), 'https://x.example/a?ACCESS_TOKEN=…&Refresh_Token=…&%63ode=…&%73ig=…&STATE=s')
   assert.equal(maskUrl('https://x.example/a#Access_Token=a&%72efresh_token=b'), 'https://x.example/a#Access_Token=…&%72efresh_token=…')
   assert.equal(maskUrl('https://x.example/a?code=&token&sig=&tokens=1&barcode=2'), 'https://x.example/a?code=&token&sig=&tokens=1&barcode=2')
   // a value that is itself %-encoded, a repeated name
@@ -36,28 +40,54 @@ test('BT-U-03 세션 JSON 의 fragment · 해시 경로의 쿼리 · 주소 안�
   assert.equal(maskUrl(`https://lite.example/auth/done#${login}`), 'https://lite.example/auth/done#…')
   assert.equal(maskUrl('https://spa.example/#/callback?token=t1&next=%2Fhome'), 'https://spa.example/#/callback?token=…&next=%2Fhome')
   assert.equal(maskUrl('https://spa.example/#section-2'), 'https://spa.example/#section-2')
-  assert.equal(maskUrl('https://kim:hunter2@intra.example/p?q=1'), 'https://kim:…@intra.example/p?q=1')
+  assert.equal(maskUrl('https://kim:hunter2@intra.example/p?q=1'), 'https://…:…@intra.example/p?q=1')
+  assert.equal(maskUrl('https://ghp_secret@git.example/r'), 'https://…@git.example/r', 'a user name alone (a token as the user)')
   for (const x of ['about:blank', '', 'not an address', 'chrome-error://chromewebdata/']) assert.equal(maskUrl(x), x)
   assert.equal(maskUrl(null), '')
   assert.equal(maskUrl(undefined), '')
   // the token value never survives in any form
-  const raw = 'https://t.example/x?code=SECRET1#access_token=SECRET2&refresh_token=SECRET3'
+  const raw = 'https://t.example/x?code=SECRET1&state=s#access_token=SECRET2&refresh_token=SECRET3'
   assert.doesNotMatch(maskUrl(raw), /SECRET/)
+})
+
+test('BT-U-07 키 · 서명 이름들, ; 로 나뉜 매개변수, 값 안의 주소(한 단계), 주소가 제목인 페이지, 가린 주소를 다시 쓸 때', () => {
+  assert.equal(maskUrl('https://s3.example/o?X-Amz-Algorithm=A&X-Amz-Credential=c&X-Amz-Signature=s&X-Amz-Security-Token=t'),
+    'https://s3.example/o?X-Amz-Algorithm=A&X-Amz-Credential=…&X-Amz-Signature=…&X-Amz-Security-Token=…')
+  assert.equal(maskUrl('https://gcs.example/o?X-Goog-Credential=c&X-Goog-Signature=s'), 'https://gcs.example/o?X-Goog-Credential=…&X-Goog-Signature=…')
+  assert.equal(maskUrl('https://cf.example/o?Policy=p&Signature=s&Key-Pair-Id=k'), 'https://cf.example/o?Policy=…&Signature=…&Key-Pair-Id=…')
+  assert.equal(maskUrl('https://x.example/?oauth_token=a&oauth_verifier=b&jwt=c&key=d&api_key=e&apikey=f&client_secret=g&token_hash=h&q=1'),
+    'https://x.example/?oauth_token=…&oauth_verifier=…&jwt=…&key=…&api_key=…&apikey=…&client_secret=…&token_hash=…&q=1')
+  assert.equal(maskUrl('https://x.example/a?a=1;token=2;b=3'), 'https://x.example/a?a=1;token=…;b=3')
+  assert.equal(maskUrl('https://x.example/login?next=https%3A%2F%2Fy.example%2Fcb%23access_token%3DSECRET%26x%3D1'), 'https://x.example/login?next=https%3A%2F%2Fy.example%2Fcb%23access_token%3D…%26x%3D1')
+  assert.equal(maskUrl('https://x.example/login?next=%2Fcb%3Ftoken%3DSECRET%26a%3D1'), 'https://x.example/login?next=%2Fcb%3Ftoken%3D…%26a%3D1')
+  assert.equal(maskUrl('https://x.example/a?next=%2Fhome&r=https%3A%2F%2Fy.example%2F'), 'https://x.example/a?next=%2Fhome&r=https%3A%2F%2Fy.example%2F')
+  // (one level: an address inside an address inside a value is not looked into)
+  const two = encodeURIComponent(`https://y.example/?next=${encodeURIComponent('https://z.example/#access_token=DEEP')}`)
+  assert.match(maskUrl(`https://x.example/?next=${two}`), /DEEP/)
+  // a page with no title of its own is titled with its address
+  assert.equal(maskTitle('127.0.0.1:5173/landing?code=S&state=t', 'http://127.0.0.1:5173/landing?code=S&state=t'), '127.0.0.1:5173/landing?code=…&state=t')
+  assert.equal(maskTitle('http://x.example/?token=T', 'http://x.example/?token=T'), 'http://x.example/?token=…')
+  assert.equal(maskTitle('주문 내역', 'http://x.example/?token=T'), '주문 내역')
+  // where the address itself is not known: the masked values are left out, never sent as "…"
+  assert.equal(withoutMasked('https://x.example/landing?code=…&state=st&token=%E2%80%A6#access_token=…&t=b'), 'https://x.example/landing?state=st#t=b')
+  assert.equal(withoutMasked('https://x.example/a?q=1#x'), 'https://x.example/a?q=1#x')
+  assert.equal(withoutMasked('https://x.example/done#…'), 'https://x.example/done')
 })
 
 test('BT-U-04 데스크톱 브라우저가 쓰는 가림 함수는 서버의 것과 글자 하나 다르지 않다', () => {
   const desktop = require('../../desktop/src/browser/urlTokens.js')
   assert.equal(String(desktop.maskUrl), String(maskUrl), 'desktop/src/browser/urlTokens.js 를 server/lib/urlTokens.js 와 같게')
-  assert.equal(desktop.maskUrl('https://x.example/a?code=1#access_token=2'), 'https://x.example/a?code=…#access_token=…')
+  assert.equal(String(desktop.maskTitle), String(maskTitle), 'maskTitle 도 같게')
+  assert.equal(desktop.maskUrl('https://x.example/a?code=1&state=s#access_token=2'), 'https://x.example/a?code=…&state=s#access_token=…')
 })
 
 const GATEWAY = { supabaseUrl: 'https://auth.process-gpt.io', supabasePublicUrl: '', publicUrl: 'https://www.process-gpt.io/lite', tenantHosts: '', tenantFromHeader: true }
 const INSTALLED = { supabaseUrl: 'http://127.0.0.1:54321', supabasePublicUrl: 'https://supa.acme.example', publicUrl: 'https://lite.acme.example', tenantHosts: 'en.localhost=en-demo', tenantFromHeader: false }
 
-test('BT-U-05 로그인 단계: 로그인 서버 · 이 앱 주소(게이트웨이의 회사 주소, /lite 아래 포함)의 /auth/v1/authorize · callback · verify', () => {
+test('BT-U-05 로그인으로 들어가는 길: 로그인 서버의 단계 · Lite 의 로그인 API(어떤 요청이든) · 로그인 화면(페이지로) — 로그인 서버와 이 앱의 주소에서', () => {
   const gw = signInPlaces(GATEWAY)
-  assert.deepEqual(gw, { hosts: ['auth.process-gpt.io', 'www.process-gpt.io'], parents: ['process-gpt.io'] })
-  for (const u of [
+  assert.deepEqual(gw, { hosts: ['auth.process-gpt.io', 'www.process-gpt.io'], parents: ['process-gpt.io'], prefixes: ['/lite'], app: { publicUrl: 'https://www.process-gpt.io/lite', tenantUrl: null, gateway: true } })
+  const steps = [
     'https://auth.process-gpt.io/auth/v1/authorize?provider=google&redirect_to=https://acme.process-gpt.io/lite/api/config',
     'https://acme.process-gpt.io/auth/v1/authorize?provider=google',
     'https://acme.process-gpt.io/lite/auth/v1/callback?code=x&state=y',
@@ -68,39 +98,66 @@ test('BT-U-05 로그인 단계: 로그인 서버 · 이 앱 주소(게이트웨�
     'https://acme.process-gpt.io//auth//v1//authorize/',
     'https://u:p@acme.process-gpt.io/auth/v1/authorize',
     'https://process-gpt.io/auth/v1/authorize',
-  ]) assert.equal(isSignInStep(u, gw), true, u)
+    // a password, a code, a sign-up, a reset, a magic link, single sign-on — the auth server's other ways in
+    'https://auth.process-gpt.io/auth/v1/token?grant_type=password', 'https://acme.process-gpt.io/auth/v1/otp', 'https://acme.process-gpt.io/auth/v1/signup',
+    'https://acme.process-gpt.io/auth/v1/recover', 'https://acme.process-gpt.io/auth/v1/magiclink', 'https://acme.process-gpt.io/auth/v1/sso',
+    // Lite's own sign-in API, behind the gateway (/lite) or not
+    'https://acme.process-gpt.io/lite/api/auth/email/start', 'https://acme.process-gpt.io/lite/api/auth/email/verify', 'https://acme.process-gpt.io/lite/api/auth/google/start?n=ab',
+    'https://acme.process-gpt.io/api/auth/refresh',
+  ]
+  for (const u of steps) {
+    assert.equal(isSignInStep(u, gw), true, u)
+    assert.equal(isSignInStep(u, gw, { document: false }), true, `${u} (not a page load)`)
+  }
+  // the sign-in screens, as pages only (Lite's and ProcessGPT's)
+  for (const u of ['https://acme.process-gpt.io/lite/login', 'https://acme.process-gpt.io/lite/login?error=x', 'https://acme.process-gpt.io/lite/auth/done?n=a#x',
+    'https://acme.process-gpt.io/auth/login', 'https://acme.process-gpt.io/auth/register', 'https://acme.process-gpt.io/auth/forgot-password',
+    'https://acme.process-gpt.io/auth/reset-password', 'https://acme.process-gpt.io/auth/two-step?redirect=/', 'https://acme.process-gpt.io/tenant/register',
+    'https://acme.process-gpt.io/pi-system-backend/auth/sso/exchange?redirect_to=%2Fauth', 'https://acme.process-gpt.io/LITE/Login/']) {
+    assert.equal(isSignInStep(u, gw), true, u)
+    assert.equal(isSignInStep(u, gw, { document: false }), false, `${u}: a request of a page that is not a page load`)
+  }
   for (const u of [
-    // the Google connection this app makes itself, and Google's own pages
+    // the Google connection this app makes in that browser, and Google's own pages
     'https://acme.process-gpt.io/lite/api/auth/google/callback?code=x&state=y',
+    'https://acme.process-gpt.io/lite/api/auth/google/done',
     'https://accounts.google.com/o/oauth2/v2/auth?client_id=x&redirect_uri=https://acme.process-gpt.io/lite/api/auth/google/callback',
-    // other steps of the auth server, other sites' Supabase sign-ins, look-alike hosts
-    'https://auth.process-gpt.io/auth/v1/settings',
-    'https://acme.process-gpt.io/lite/chat',
-    'https://other-project.supabase.co/auth/v1/authorize?provider=google',
-    'https://process-gpt.io.evil.example/auth/v1/authorize',
-    'https://evil.example/process-gpt.io/auth/v1/authorize',
-    'ftp://acme.process-gpt.io/auth/v1/authorize',
-    'not an address',
+    // other pages and steps, other sites' Supabase sign-ins, look-alike hosts
+    'https://auth.process-gpt.io/auth/v1/settings', 'https://auth.process-gpt.io/auth/v1/user',
+    'https://acme.process-gpt.io/lite/chat', 'https://acme.process-gpt.io/lite/api/config', 'https://acme.process-gpt.io/lite/api/team/shares/1/raw?sig=x',
+    'https://acme.process-gpt.io/blog/login-tips', 'https://acme.process-gpt.io/auth/maintenance',
+    'https://other-project.supabase.co/auth/v1/authorize?provider=google', 'https://example.com/login',
+    'https://process-gpt.io.evil.example/auth/v1/authorize', 'https://evil.example/process-gpt.io/auth/v1/authorize',
+    'ftp://acme.process-gpt.io/auth/v1/authorize', 'not an address',
   ]) assert.equal(isSignInStep(u, gw), false, u)
+  assert.equal(onPlaces('https://acme.process-gpt.io/lite/chat', gw), true)
+  assert.equal(onPlaces('https://notebooklm.google.com/', gw), false)
   const inst = signInPlaces(INSTALLED)
-  assert.deepEqual(inst, { hosts: ['127.0.0.1', 'supa.acme.example', 'lite.acme.example', 'en.localhost'], parents: [] })
+  assert.deepEqual(inst, { hosts: ['127.0.0.1', 'supa.acme.example', 'lite.acme.example', 'en.localhost'], parents: [], prefixes: ['/lite'], app: { publicUrl: 'https://lite.acme.example', tenantUrl: null, gateway: false } })
+  // the sign-in API and screens are this app's own pages only: the auth server's host (here 127.0.0.1) serves other sites too
+  assert.equal(isSignInStep('http://127.0.0.1:61234/login', inst), false, 'another site on the same machine')
+  assert.equal(isSignInStep('https://supa.acme.example/login', inst), false)
+  assert.equal(isSignInStep('https://lite.acme.example:8443/login', inst), false, 'another port')
   assert.equal(isSignInStep('http://127.0.0.1:54321/auth/v1/authorize?provider=google', inst), true)
   assert.equal(isSignInStep('https://lite.acme.example/auth/v1/verify?token=x', inst), true, 'the installed app\'s web server passes /auth/v1 on')
   assert.equal(isSignInStep('http://en.localhost:5180/auth/v1/callback', inst), true)
-  assert.equal(isSignInStep('https://supa.acme.example/auth/v1/authorize', inst), true)
+  assert.equal(isSignInStep('https://lite.acme.example/login', inst), true)
+  assert.equal(isSignInStep('https://lite.acme.example/api/auth/email/verify', inst, { document: false }), true)
   assert.equal(isSignInStep('https://acme.process-gpt.io/auth/v1/authorize', inst), false, 'not behind the gateway: no sibling hosts')
 })
 
-test('BT-U-06 브라우저가 멈춰 보는 것: 그 호스트들의 문서(페이지 · 프레임 · 리디렉션 한 걸음)만', () => {
+test('BT-U-06 브라우저가 멈춰 보는 것: 그 호스트들의 페이지 로드와 /auth/v1/ · /api/auth/ 아래 요청만', () => {
   const p = stepPatterns(signInPlaces(GATEWAY))
-  assert.ok(p.length > 0)
-  assert.ok(p.every((x) => x.resourceType === 'Document' && x.requestStage === 'Request'), 'documents only, before they are sent')
-  const urls = p.map((x) => x.urlPattern)
+  const pages = p.filter((x) => x.resourceType === 'Document').map((x) => x.urlPattern)
+  const apis = p.filter((x) => !x.resourceType).map((x) => x.urlPattern)
+  assert.ok(p.every((x) => x.requestStage === 'Request'), 'before they are sent')
   for (const u of ['*://auth.process-gpt.io/*', '*://auth.process-gpt.io:*', '*://*@auth.process-gpt.io/*', '*://auth.process-gpt.io./*',
-    '*://www.process-gpt.io/*', '*://process-gpt.io/*', '*://*.process-gpt.io/*', '*://*.process-gpt.io:*', '*://*.process-gpt.io./*']) assert.ok(urls.includes(u), u)
-  assert.equal(urls.length, new Set(urls).size)
-  assert.ok(urls.every((u) => /process-gpt\.io\.?(\/\*|:\*)$/.test(u)), 'nothing but those hosts')
-  assert.deepEqual(stepPatterns({ hosts: [], parents: [] }), [], 'nothing to look at: nothing is paused')
+    '*://www.process-gpt.io/*', '*://process-gpt.io/*', '*://*.process-gpt.io/*', '*://*.process-gpt.io:*', '*://*.process-gpt.io./*']) assert.ok(pages.includes(u), u)
+  for (const u of ['*://auth.process-gpt.io*/auth/v1/*', '*://auth.process-gpt.io*/api/auth/*', '*://*.process-gpt.io*/auth/v1/*', '*://*.process-gpt.io*/api/auth/*']) assert.ok(apis.includes(u), u)
+  assert.equal(pages.length, new Set(pages).size)
+  assert.ok(pages.every((u) => /process-gpt\.io\.?(\/\*|:\*)$/.test(u)), 'pages: nothing but those hosts')
+  assert.ok(apis.every((u) => /process-gpt\.io\.?\*\/(auth\/v1|api\/auth)\/\*$/.test(u)), 'other requests: only those paths on those hosts')
+  assert.deepEqual(stepPatterns({ hosts: [], parents: [], prefixes: [], app: null }), [], 'nothing to look at: nothing is paused')
 })
 
 const store = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m } }
@@ -123,6 +180,26 @@ test('BT-A-01 /auth/done 은 이 탭이 시작한 로그인의 값과 맞을 때
   const broken = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') }, removeItem: () => {} }
   assert.equal(startSignIn(broken), '', 'a tab that cannot keep it starts no sign-in it could take')
   assert.equal(takeSignIn('?n=x', broken), false)
+})
+
+test('BT-A-04 ProcessGPT(Supabase) 로그인: redirect_to 에 값을 싣지 않고, 이 탭에 시작한 그 로그인이 있을 때만 · 한 번 · 30분 안에', () => {
+  const sso = { sso: true }
+  const s = store()
+  startSignIn(s, 1000, { via: 'sso' })
+  assert.equal(takeSignIn('', s, 2000, sso), true, 'no value on the address: the sign-in under way is enough')
+  assert.equal(takeSignIn('', s, 2000, sso), false, 'once')
+  assert.equal(takeSignIn('', store(), 2000, sso), false, 'another tab (nothing under way)')
+  startSignIn(s, 1000, { via: 'sso' })
+  assert.equal(takeSignIn('', s, 1000 + SIGN_IN_MS + 1, sso), false, 'too late')
+  // the two ways do not stand in for each other
+  const own = startSignIn(s, 1000)
+  assert.equal(takeSignIn(`?n=${own}`, s, 2000, sso), false, 'a Supabase answer while Lite\'s own sign-in was under way')
+  const v = startSignIn(s, 1000, { via: 'sso' })
+  assert.equal(takeSignIn(`?n=${v}`, s, 2000), false, 'Lite\'s own answer while a Supabase sign-in was under way')
+  assert.equal(fromSupabase('#access_token=a&refresh_token=b'), true)
+  assert.equal(fromSupabase('#error=access_denied'), true)
+  assert.equal(fromSupabase(`#${encodeURIComponent('{"session":{}}')}`), false)
+  assert.equal(fromSupabase(''), false)
 })
 
 const jwt = (sub) => `h.${Buffer.from(JSON.stringify({ sub })).toString('base64url')}.s`

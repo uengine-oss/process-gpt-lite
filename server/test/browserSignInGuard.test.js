@@ -1,11 +1,13 @@
-// This server's browser (lib/browserServer.js, a real Chromium) does not open the sign-in steps of the auth server this app signs people
-// in with (lib/signInSteps.js): typed, linked, on a redirect from another site, in a new tab — while other sites, this app's own pages
-// (its Google connection included) and the HTTP cache work as before. Made-up servers on this machine only:
+// This server's browser (lib/browserServer.js, a real Chromium) never signs in to this app (lib/signInSteps.js): the auth server's
+// sign-in steps, Lite's sign-in API and the sign-in screens are refused before they are sent — typed, linked, on a redirect from
+// another site, in a new tab or a popup, in a frame of another site (in a process of its own), by a page's own fetch — while other
+// sites, this app's other pages (its Google connection included) and the HTTP cache work as before. Made-up servers on this machine:
 //   auth.localhost   the auth server (PRO_SUPABASE_URL): /auth/v1/authorize → (Google, a moment) → /auth/v1/callback → Lite's address
-//                    #access_token=…
-//   lite.localhost   this app (PRO_PUBLIC_URL), which passes /auth/v1/* on (/lite/auth/v1/… too)
-//   127.0.0.1        another site: links, a redirect, a popup, pictures and scripts that may be cached — and /google, standing in for
-//                    Google's consent that sends a signed-in browser straight back (after a moment, as over the network)
+//                    #access_token=… ; /auth/v1/token · signup · otp answer a session
+//   lite.localhost   this app (PRO_PUBLIC_URL …/lite): Lite under /lite (its sign-in API, /login, /auth/done, the Google connection's
+//                    callback → done), ProcessGPT's screens at the root (/auth/login …); passes /auth/v1/* on
+//   127.0.0.1        another site: links, a redirect, a popup, a frame, pictures and scripts that may be cached — and /google, standing
+//                    in for Google's consent that sends a signed-in browser straight back (after GOOGLE_MS, as over the network)
 //   node --test test/browserSignInGuard.test.js   (no database)
 import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -17,8 +19,10 @@ import path from 'node:path'
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-signin-guard-'))
 process.env.PRO_BROWSER_PROFILES = tmp
 const { config } = await import('../config.js')
-const { ServerDriver } = await import('../lib/browserServer.js')
+const { ServerDriver, LAUNCH_ARGS } = await import('../lib/browserServer.js')
+const { browserPidFor } = await import('../lib/browserSteps.js')
 
+const GOOGLE_MS = 20
 const hits = new Map() // "<server> <path>" → count
 const hit = (who, p) => hits.set(`${who} ${p}`, (hits.get(`${who} ${p}`) || 0) + 1)
 const count = (who, p) => hits.get(`${who} ${p}`) || 0
@@ -28,39 +32,60 @@ const serve = (who, routes) => {
     hit(who, u.pathname)
     const r = routes(u, req)
     if (r.location) { setTimeout(() => { res.writeHead(302, { Location: r.location }); res.end() }, r.delayMs || 0); return }
-    res.writeHead(r.status || 200, { 'Content-Type': r.type || 'text/html; charset=utf-8', 'Cache-Control': r.cache || 'no-store' })
+    res.writeHead(r.status || 200, { 'Content-Type': r.type || 'text/html; charset=utf-8', 'Cache-Control': r.cache || 'no-store', 'Access-Control-Allow-Origin': '*' })
     res.end(r.body || '')
   })
   return new Promise((ok) => s.listen(0, '127.0.0.1', () => ok(s)))
 }
 const page = (title, body = '') => ({ body: `<!doctype html><title>${title}</title><body>${body}</body>` })
+const session = { type: 'application/json', body: '{"access_token":"SECRET-ACCESS","refresh_token":"SECRET-REFRESH"}' }
 let auth, lite, site, A, Lt, S, d
 const saved = { supabaseUrl: config.supabaseUrl, supabasePublicUrl: config.supabasePublicUrl, publicUrl: config.publicUrl, tenantHosts: config.tenantHosts, tenantFromHeader: config.tenantFromHeader }
+// a page whose button sends one request with the page's own fetch, and says on the page how it went
+const fetchPage = (title, url) => page(title, `<button onclick="fetch('${url}', { method: 'POST', body: '{}' }).then((r) => { document.body.dataset.r = 'sent ' + r.status }, () => { document.body.dataset.r = 'failed' })">보내기</button>`)
 
 before(async () => {
   auth = await serve('auth', (u) => {
-    if (u.pathname === '/auth/v1/authorize') return { location: `${S}/google?back=${encodeURIComponent(`${A}/auth/v1/callback?code=c-${Date.now()}`)}` }
+    if (u.pathname === '/auth/v1/authorize') return { location: `${S}/google?back=${encodeURIComponent(`${A}/auth/v1/callback?code=c-${Date.now()}&state=s`)}` }
     if (u.pathname === '/auth/v1/callback') return { location: `${Lt}/lite/api/config#access_token=SECRET-ACCESS&refresh_token=SECRET-REFRESH&token_type=bearer` }
+    if (['/auth/v1/token', '/auth/v1/signup', '/auth/v1/otp'].includes(u.pathname)) return session
     if (u.pathname.toLowerCase().includes('verify')) return page('verified')
     return page('auth server root')
   })
   lite = await serve('lite', (u) => {
     if (u.pathname === '/lite/api/config') return { type: 'application/json', body: '{"demoLogin":false}' }
-    if (u.pathname === '/lite/api/auth/google/callback') return page('Google 연결됨', '<p>연결했어요</p>')
-    if (u.pathname.startsWith('/lite/auth/v1/')) return { location: `${A}/auth/v1/callback?code=via-lite` }
+    // this app's Google connection in its own browser (mode 'browser'): callback → done
+    if (u.pathname === '/lite/api/auth/google/callback') return { location: `${Lt}/lite/api/auth/google/done` }
+    if (u.pathname === '/lite/api/auth/google/done') return page('Google 연결됨', '<p>연결했어요</p>')
+    if (u.pathname === '/lite/api/auth/google/start') return { location: `${S}/google?back=${encodeURIComponent(`${Lt}/lite/auth/done#SECRET-SESSION`)}` }
+    if (u.pathname.startsWith('/lite/api/auth/')) return session
+    if (u.pathname.startsWith('/lite/auth/v1/')) return { location: `${A}/auth/v1/callback?code=via-lite&state=s` }
     if (u.pathname === '/lite/asset.js') return { type: 'text/javascript', cache: 'public, max-age=3600', body: 'window.__asset = 1' }
+    // the Lite app's screen that shows the sign-in (the app's router puts it on any address when nobody is signed in)
+    if (u.pathname === '/lite/chat') {
+      return page('Lite', `<script src="/lite/asset.js"></script>
+        <button onclick="fetch('/lite/api/auth/email/start', { method: 'POST' }).then(() => { document.body.dataset.start = 'sent' }, () => { document.body.dataset.start = 'failed' })">코드 받기</button>
+        <button onclick="fetch('/lite/api/auth/email/verify', { method: 'POST' }).then(() => { document.body.dataset.verify = 'sent' }, () => { document.body.dataset.verify = 'failed' })">코드 확인</button>
+        <button onclick="location.href = '/lite/api/auth/google/start?n=${'ab'.repeat(24)}'">Google로 계속하기</button>`)
+    }
+    // ProcessGPT's own screen at the root: its password sign-in posts to the auth server
+    if (u.pathname === '/') return fetchPage('ProcessGPT', `${A}/auth/v1/token?grant_type=password`)
     return page('Lite', '<script src="/lite/asset.js"></script>')
   })
   site = await serve('site', (u) => {
-    if (u.pathname === '/google') return { location: u.searchParams.get('back'), delayMs: 300 }
+    if (u.pathname === '/google') return { location: u.searchParams.get('back'), delayMs: GOOGLE_MS }
     if (u.pathname === '/go') return { location: `${A}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(`${Lt}/lite/api/config`)}` }
     if (u.pathname === '/link') return page('링크', `<a id="sign" href="${A}/auth/v1/authorize?provider=google">Google 로 로그인</a>`)
     if (u.pathname === '/popup') return page('새 창', `<button id="open" onclick="window.open('${A}/auth/v1/authorize?provider=google')">새 창으로 로그인</button>`)
     if (u.pathname === '/blank') return page('새 탭', `<a id="tab" target="_blank" href="${A}/auth/v1/authorize?provider=google">새 탭으로 로그인</a>`)
     if (u.pathname === '/frame') return page('프레임', `<iframe src="${A}/auth/v1/authorize?provider=google" width="400" height="300"></iframe>`)
+    // a frame of another site that goes to the sign-in itself (a moment after it loads), and one sent there by its own redirect
+    if (u.pathname === '/frames') return page('프레임들', `<iframe src="http://other.localhost:${site.address().port}/inner" width="400" height="300"></iframe><iframe src="http://other.localhost:${site.address().port}/go" width="400" height="300"></iframe>`)
+    if (u.pathname === '/inner') return page('inner', `<script>setTimeout(() => { location.href = '${A}/auth/v1/authorize?provider=google' }, 100)</script>안쪽`)
     if (u.pathname === '/app.js') return { type: 'text/javascript', cache: 'public, max-age=3600', body: 'window.__app = 1' }
     if (u.pathname === '/logo.png') return { type: 'image/svg+xml', cache: 'public, max-age=3600', body: '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"/>' }
     if (u.pathname === '/a' || u.pathname === '/b') return page(`page ${u.pathname}`, '<script src="/app.js"></script><img src="/logo.png">')
+    if (u.pathname === '/xhr') return fetchPage('다른 사이트', `${A}/auth/v1/token?grant_type=password`)
     return page('site')
   })
   A = `http://auth.localhost:${auth.address().port}`
@@ -76,21 +101,27 @@ after(async () => {
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
-// what reached the sign-in steps and the page with the tokens since mark()
-const mark = () => ({ authorize: count('auth', '/auth/v1/authorize'), callback: count('auth', '/auth/v1/callback'), tokens: count('lite', '/lite/api/config') })
-const since = (m) => { const n = mark(); return { authorize: n.authorize - m.authorize, callback: n.callback - m.callback, tokens: n.tokens - m.tokens } }
-const noSignIn = (why, m) => assert.deepEqual(since(m), { authorize: 0, callback: 0, tokens: 0 }, `${why}: a sign-in step or the page with the tokens was reached`)
-// a new tab's own first load may leave before the tab can be guarded: the sign-in never comes back (no callback, no tokens)
-const neverBack = (why, m) => { const d = since(m); assert.deepEqual([d.callback, d.tokens], [0, 0], `${why}: ${JSON.stringify(d)}`); return d.authorize }
+// what reached the sign-in (the auth server's steps, Lite's sign-in API and screens) and the page with the tokens since mark()
+const SIGN_IN = [['auth', '/auth/v1/authorize'], ['auth', '/auth/v1/callback'], ['auth', '/auth/v1/token'], ['auth', '/auth/v1/signup'], ['auth', '/auth/v1/otp'],
+  ['lite', '/lite/api/auth/email/start'], ['lite', '/lite/api/auth/email/verify'], ['lite', '/lite/api/auth/google/start'], ['lite', '/lite/login'], ['lite', '/lite/auth/done'],
+  ['lite', '/auth/login'], ['lite', '/auth/register'], ['lite', '/auth/forgot-password'], ['lite', '/lite/api/config']]
+const mark = () => Object.fromEntries(SIGN_IN.map(([w, p]) => [`${w} ${p}`, count(w, p)]))
+const noSignIn = (why, m) => {
+  const now = mark()
+  const reached = Object.keys(now).filter((k) => now[k] > m[k])
+  assert.deepEqual(reached, [], `${why}: reached ${reached.join(', ')}`)
+}
+const click = async (text) => d.click((await d.look()).els.find((e) => e.text === text).i).catch(() => {})
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 test('BT-E-01 로그인 서버의 authorize 주소로 가면 막힌다 — 요청이 나가지 않고, 다음 보기가 그 사실을 말한다', async () => {
   const m = mark()
   const r = await d.navigate(`${A}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(`${Lt}/lite/api/config`)}`)
   assert.equal(r.ok, false)
-  assert.match(r.error, /^refused: this browser does not open the sign-in pages/)
+  assert.match(r.error, /^refused: this browser does not sign in to this app/)
   noSignIn('typed', m)
   const snap = await d.look()
-  assert.match(snap.text, new RegExp(`\\[not opened\\] auth\\.localhost:${auth.address().port}/auth/v1/authorize — a sign-in step`))
+  assert.match(snap.text, new RegExp(`\\[not opened\\] auth\\.localhost:${auth.address().port}/auth/v1/authorize — a way into this app's own sign-in`))
   assert.doesNotMatch(snap.text, /redirect_to|provider=google/, 'the query is not repeated')
   assert.equal((await d.look()).text.includes('[not opened]'), false, 'said once')
 })
@@ -117,38 +148,25 @@ test('BT-E-03 callback · verify, 이 앱이 넘겨주는 /lite/auth/v1/…, 대
   assert.equal([...hits.keys()].filter((k) => /^auth \/(AUTH|auth\/v1\/%61)/.test(k)).length, 0)
 })
 
-test('BT-E-04 링크를 눌러도 · 프레임 안에서도 막히고, 새 창(window.open) · 새 탭 링크로 가면 그 탭이 닫혀 토큰 페이지에 닿지 않는다', async () => {
-  await d.navigate(`${S}/link`)
-  let m = mark()
-  const link = (await d.look()).els.find((e) => e.text === 'Google 로 로그인')
-  await d.click(link.i).catch(() => {})
-  await new Promise((r) => setTimeout(r, 800))
-  noSignIn('a link', m)
-  m = mark()
-  await d.navigate(`${S}/frame`)
-  await new Promise((r) => setTimeout(r, 800))
-  noSignIn('a frame', m)
-  // a new tab: a page's own window.open, and a link that opens a tab of its own (noopener). Its first load can be on its way before the
-  // tab can be guarded (window.open: usually not) — the tab closes then, before the sign-in's next hop (after the other site's answer,
-  // here Google's); the work stays where it was and the next look says why
-  for (const [path, text] of [['/popup', '새 창으로 로그인'], ['/blank', '새 탭으로 로그인']]) {
+test('BT-E-04 링크 · 프레임 · 새 창(window.open) · 새 탭 링크(noopener)도 첫 요청부터 막힌다', async () => {
+  for (const [path, text] of [['/link', 'Google 로 로그인'], ['/frame', null], ['/popup', '새 창으로 로그인'], ['/blank', '새 탭으로 로그인']]) {
     await d.navigate(`${S}${path}`)
-    m = mark()
-    await d.click((await d.look()).els.find((e) => e.text === text).i).catch(() => {})
-    await new Promise((r) => setTimeout(r, 1500))
-    const first = neverBack(text, m)
-    console.log(`[BT-E-04] ${text}: the new tab's first load reached authorize ${first}× (then closed)`)
-    assert.equal(d.ctx.pages().length, 1, `${text}: the new tab is gone`)
-    assert.match((await d.look()).text, /\[not opened\] auth\.localhost:\d+\/auth\/v1\/authorize/, `${text}: the next look says why`)
+    const m = mark()
+    if (text) await click(text)
+    await sleep(800)
+    noSignIn(path, m)
+    assert.match((await d.look()).text, /\[not opened\] auth\.localhost:\d+\/auth\/v1\/authorize/, `${path}: the next look says why`)
+    await d.closeOtherTabs()
   }
 })
 
-test('BT-E-05 보통 사이트 · 이 앱의 화면 · 이 앱 자신의 Google 연결 주소 · 로그인 서버의 다른 주소는 그대로 열린다', async () => {
+test('BT-E-05 보통 사이트 · 이 앱의 화면 · 이 앱 자신의 Google 연결(콜백 → 끝 화면) · 로그인 서버의 다른 주소는 그대로 열린다', async () => {
   for (const [u, title] of [[`${S}/`, 'site'], [`${Lt}/lite/chat`, 'Lite'], [`${Lt}/lite/api/auth/google/callback?code=x&state=y`, 'Google 연결됨'], [`${A}/`, 'auth server root']]) {
     const r = await d.navigate(u)
     assert.equal(r.ok, true, `${u}: ${r.error}`)
     assert.equal(await d.title(), title, u)
   }
+  assert.equal(count('lite', '/lite/api/auth/google/done'), 1, 'the connection ends on its own page')
 })
 
 test('BT-E-06 캐시는 그대로: 보통 사이트와 이 앱의 페이지 모두 스크립트 · 그림을 다시 받지 않는다', async () => {
@@ -160,6 +178,37 @@ test('BT-E-06 캐시는 그대로: 보통 사이트와 이 앱의 페이지 모�
   assert.equal(count('lite', '/lite/asset.js'), 1, 'script on this app\'s host fetched once')
 })
 
+test('BT-E-08 이 앱에 로그인하지 않는다: Lite 의 로그인 화면 · 완료 화면 · 코드 받기/확인 · Google로 계속하기, ProcessGPT 의 로그인 화면 · 비밀번호 로그인', async () => {
+  let m = mark()
+  for (const u of [`${Lt}/lite/login`, `${Lt}/lite/auth/done?n=${'ab'.repeat(24)}#SECRET`, `${Lt}/lite/api/auth/google/start?n=x`, `${Lt}/auth/login`, `${Lt}/auth/register`, `${Lt}/auth/forgot-password`]) {
+    const r = await d.navigate(u)
+    assert.equal(r.ok, false, `${u} opened`)
+    assert.match(r.error, /^refused:/, u)
+  }
+  noSignIn('the sign-in screens, as pages', m)
+  // the app's screen that shows the sign-in: its requests are refused (the page sees them fail), its Google start is not opened
+  assert.equal((await d.navigate(`${Lt}/lite/chat`)).ok, true)
+  m = mark()
+  await click('코드 받기')
+  await click('코드 확인')
+  await sleep(300)
+  assert.deepEqual(await d.page.evaluate(() => [document.body.dataset.start, document.body.dataset.verify]), ['failed', 'failed'])
+  await click('Google로 계속하기')
+  await sleep(500)
+  noSignIn('Lite\'s sign-in from its screen', m)
+  // (each look says what was refused since the one before: the Google start, after the two codes said on the looks that found its button)
+  assert.match((await d.look()).text, /\[not opened\] lite\.localhost:\d+\/lite\/api\/auth\/google\/start/)
+  // ProcessGPT's password sign-in from its own screen, and the same request from another site's page
+  for (const u of [`${Lt}/`, `${S}/xhr`]) {
+    assert.equal((await d.navigate(u)).ok, true)
+    m = mark()
+    await click('보내기')
+    await sleep(300)
+    assert.equal(await d.page.evaluate(() => document.body.dataset.r), 'failed', u)
+    noSignIn(`a password sign-in from ${u}`, m)
+  }
+})
+
 test('BT-E-07 Playwright route 가 함께 있어도(시험 · 다른 기능) 막힘은 그대로, 보통 사이트는 열린다', async () => {
   const routed = []
   await d.ctx.route('**/*', (r) => { routed.push(r.request().url()); return r.continue() })
@@ -167,6 +216,10 @@ test('BT-E-07 Playwright route 가 함께 있어도(시험 · 다른 기능) 막
     const m = mark()
     const r = await d.navigate(`${S}/go`)
     assert.equal(r.ok, false)
+    await d.navigate(`${S}/blank`)
+    await click('새 탭으로 로그인')
+    await sleep(500)
+    await d.closeOtherTabs()
     noSignIn('with a route', m)
     const a = await d.navigate(`${S}/a`)
     assert.equal(a.ok, true, a.error)
@@ -176,4 +229,54 @@ test('BT-E-07 Playwright route 가 함께 있어도(시험 · 다른 기능) 막
     await d.navigate(`${S}/b`)
     console.log(`[BT-E-07] with a Playwright route the cached script was fetched again ${count('site', '/app.js') - before}×`)
   } finally { await d.ctx.unrouteAll({ behavior: 'ignoreErrors' }) }
+})
+
+test('BT-E-09 새 탭 · 새 창 경쟁: Google 단계가 20 ms 여도 스무 번 모두 첫 요청부터 막힌다', async () => {
+  const runs = { '/blank': 0, '/popup': 0 }
+  for (let i = 0; i < 20; i++) {
+    for (const [path, text] of [['/blank', '새 탭으로 로그인'], ['/popup', '새 창으로 로그인']]) {
+      await d.navigate(`${S}${path}`)
+      const m = mark()
+      await click(text)
+      await sleep(150)
+      const now = mark()
+      if (Object.keys(now).some((k) => now[k] > m[k])) runs[path]++
+      await d.closeOtherTabs()
+    }
+  }
+  console.log(`[BT-E-09] runs that reached the sign-in: ${JSON.stringify(runs)} of 20 each`)
+  assert.deepEqual(runs, { '/blank': 0, '/popup': 0 })
+})
+
+test('BT-E-10 다른 사이트의 프레임(--site-per-process: 따로 도는 프로세스)이 로그인으로 가도 막힌다', async () => {
+  LAUNCH_ARGS.push('--site-per-process')
+  const oop = await ServerDriver.open('sign-in-guard-oopif', {})
+  try {
+    const m = mark()
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await oop.navigate(`${S}/frames`)).ok, true)
+      await sleep(800)
+    }
+    assert.ok(count('site', '/inner') >= 3, 'the frames loaded')
+    noSignIn('frames of another site', m)
+    assert.match((await oop.look()).text, /\[not opened\] auth\.localhost:\d+\/auth\/v1\/authorize/)
+  } finally {
+    LAUNCH_ARGS.pop()
+    await oop.close()
+    fs.rmSync(path.join(tmp, 'sign-in-guard-oopif'), { recursive: true, force: true })
+  }
+})
+
+test('BT-E-11 막음을 켜지 못하면 그 브라우저는 쓰지 않는다(닫고, 띄우기가 실패)', async () => {
+  const keep = ServerDriver.prototype.guardSignIn
+  ServerDriver.prototype.guardSignIn = async () => { throw new Error('the sign-in guard could not be turned on') }
+  const dir = path.join(tmp, 'sign-in-guard-off')
+  try {
+    await assert.rejects(ServerDriver.open('sign-in-guard-off', {}), /sign-in guard could not be turned on/)
+    await sleep(500)
+    assert.equal(browserPidFor(dir), 0, 'its Chromium is closed')
+  } finally {
+    ServerDriver.prototype.guardSignIn = keep
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })

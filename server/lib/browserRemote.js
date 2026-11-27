@@ -8,6 +8,9 @@
 //   · 'all': also tasks nobody watches (a process step, a scheduled or agent's run) — they can reach that PC's sign-ins, so only when
 //     the person turned this on; even then not that PC's own network (localhost, 10/8, 192.168/16 …: desktop host.js begin noPrivate)
 //   · 'off', or 「이 컴퓨터에서 단계 실행」 off (prefs.enabled false): never that PC
+//   · a task that starts on a page of this Lite server itself (a share page, a preview Lite showed): this server — the PC's agent
+//     browser does not open the Lite it is linked to (desktop/src/policy.js agentMay; lib/liteOwn.js liteOwnPage)
+//   · a desktop older than 0.2.6 (no caps.browserGuard — its browser neither keeps off the Lite app nor marks its requests): this server
 // Else this server, as before (phones only, an older desktop). Decided when a task gets the browser; a task never moves by itself after
 // that — a PC that goes off pauses it and the person chooses (lib/browser.js whenOffline).
 //
@@ -19,13 +22,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { STEP, pause } from './browserSteps.js'
 import { LIVE, VIEW, SNAP_OPTS, blankOf, hostOf } from './browserServer.js'
+import { maskUrl } from './urlTokens.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
+import { liteOwnPage } from './liteOwn.js'
 import { config } from '../config.js'
 
 export const LinkLost = BL.LinkLost
-// the oldest desktop that runs browser tasks (said where a newer one is needed)
-export const MIN_DESKTOP = '0.2.3'
+// the oldest desktop that runs browser tasks (said where a newer one is needed): 0.2.6 — its browser keeps off the Lite app and marks
+// its requests (caps.browserGuard); an older one's browser does neither, and its tasks run here
+export const MIN_DESKTOP = '0.2.6'
+// a desktop link whose browser may take a task
+export const browsesHere = (link) => !!link?.caps?.browser && !!link?.caps?.browserGuard
 
 // ---- where a task runs ----
 // links: the person's desktops' links now · own: the person's own task (asked for in their own chat), not one nobody watches
@@ -59,18 +67,24 @@ export function privateAddress(u) {
   return h === 'localhost' || !h.includes('.') || NET_SUFFIX.test(h)
 }
 export const prefOf = (link) => (link?.prefs?.enabled === false ? 'off' : ['off', 'own', 'all'].includes(link?.prefs?.browser) ? link.prefs.browser : 'own')
-export function routeOf({ links = [], own = true } = {}) {
+
+// (whether an address is a page of this Lite server itself: lib/liteOwn.js)
+export { liteOwnPage } from './liteOwn.js'
+
+// startUrl: where the task starts — a page of this Lite server keeps it on this server even when a PC would take it ('lite-page')
+export function routeOf({ links = [], own = true, startUrl = '' } = {}) {
   if (!links.length) return { kind: 'server', why: 'no-desktop' }
-  const able = links.filter((l) => l.caps?.browser).sort((a, b) => b.since - a.since)
+  const able = links.filter(browsesHere).sort((a, b) => b.since - a.since)
   if (!able.length) return { kind: 'server', why: 'old-desktop' }
   const on = able.filter((l) => prefOf(l) !== 'off')
   if (!on.length) return { kind: 'server', why: 'off' }
   const ok = on.filter((l) => own || prefOf(l) === 'all')
   if (!ok.length) return { kind: 'server', why: 'not-own' }
+  if (startUrl && liteOwnPage(startUrl)) return { kind: 'server', why: 'lite-page' }
   return { kind: 'local', link: ok[0] }
 }
-export async function routeFor(userId, { own = true } = {}) {
-  return routeOf({ links: H.linksOf(config.tenantId, userId), own })
+export async function routeFor(userId, { own = true, startUrl = '' } = {}) {
+  return routeOf({ links: H.linksOf(config.tenantId, userId), own, startUrl })
 }
 // what the settings show, everywhere (web · phone · the app): each linked desktop's own setting, and where the person's own tasks and the
 // ones nobody watches run now. Changed only on that PC (the app's settings), never from here.
@@ -81,7 +95,7 @@ export async function whereFor(user) {
   return {
     own: { where: own.kind, why: own.why || null, device: own.link ? { id: own.link.id, name: own.link.name } : null },
     unattended: { where: unattended.kind, why: unattended.why || null, device: unattended.link ? { id: unattended.link.id, name: unattended.link.name } : null },
-    devices: links.map((l) => ({ id: l.id, name: l.name, browser: !!l.caps?.browser, pref: prefOf(l), enabled: l.prefs?.enabled !== false })),
+    devices: links.map((l) => ({ id: l.id, name: l.name, browser: browsesHere(l), pref: prefOf(l), enabled: l.prefs?.enabled !== false })),
     min: MIN_DESKTOP,
   }
 }
@@ -116,10 +130,13 @@ export class RemoteDriver {
   url() { return this.cur.url }
   viewport() { return this.cur.vp }
   async title() { return this.cur.title || '' }
-  // where the page is now (every answer carries it; one from a browser with no tab — closing, an app going down — says nothing)
+  // where the page is now (every answer carries it; one from a browser with no tab — closing, an app going down — says nothing). The
+  // address itself (raw — from a desktop that masks url: lib/urlTokens.js) is kept for going back there; lib/browser.js masks
+  // whatever it shows of it
   at(a = {}) {
     if (!a || !a.tab) return
-    if (typeof a.url === 'string') this.cur.url = a.url
+    if (typeof a.raw === 'string') this.cur.url = a.raw
+    else if (typeof a.url === 'string') this.cur.url = a.url
     if (typeof a.title === 'string') this.cur.title = a.title
     if (a.vp?.width > 0 && a.vp?.height > 0) this.cur.vp = { width: a.vp.width | 0, height: a.vp.height | 0 }
     if (Number.isFinite(a.tab)) this.cur.tab = a.tab
@@ -138,7 +155,8 @@ export class RemoteDriver {
   quiet(op, args, opts, fallback) { return this.call(op, args, opts).catch((e) => { if (e.lost) this.lost = true; return fallback }) }
 
   // ---- from the link ----
-  onFrame(data, url) { if (url) this.cur.url = url; this.on.frame?.(this, data, url) }
+  // (a frame's address is masked: it stands for the page only until the next answer says where it is — not when it is the same page)
+  onFrame(data, url) { if (url && url !== maskUrl(this.cur.url)) this.cur.url = url; this.on.frame?.(this, data, url) }
   async onEvent(ev) {
     if (ev.kind === 'download') {
       if (!this.on.wantsDownload?.(this)) return

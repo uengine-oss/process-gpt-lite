@@ -4,15 +4,16 @@ import { useRouter } from 'vue-router'
 import { auth, sessionUser } from '../api.js'
 import { BASE } from '../base.js'
 import { sessionFromFragment } from '../authFragment.js'
-import { takeSignIn, doneStep } from '../signInNonce.js'
+import { takeSignIn, doneStep, fromSupabase } from '../signInNonce.js'
 
 const router = useRouter()
 const fail = (why) => { auth.clear(); router.replace('/login?error=' + encodeURIComponent(why)) }
 onMounted(async () => {
   // Lite's own Google sign-in (#<JSON>) or ProcessGPT's Supabase one behind the gateway (#access_token=…) — taken only when it is the
-  // sign-in this tab started (?n=…), and never over the session of someone signed in here (src/signInNonce.js doneStep)
+  // sign-in this tab started (src/signInNonce.js: Lite's own by its ?n=…, ProcessGPT's by the sign-in this tab has under way), and
+  // never over the session of someone signed in here (doneStep)
   const got = sessionFromFragment(location.hash)
-  const mine = takeSignIn(location.search)
+  const mine = takeSignIn(location.search, undefined, undefined, { sso: fromSupabase(location.hash) })
   history.replaceState(null, '', BASE + '/auth/done')
   const step = doneStep({ mine, got, here: auth.get()?.session || null, who: sessionUser() })
   if (step === 'stay') return router.replace('/chat')

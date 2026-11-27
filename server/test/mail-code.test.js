@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { extractCode, registrable, namesOf, fromSite, pickCode } from '../lib/mailCode.js'
+import { extractCode, registrable, namesOf, fromSite, pickCode, mailboxOf, senderOf, noteSignInMail, signInMailSince, forgetSignInMails, SIGN_IN_MS, linksIn } from '../lib/mailCode.js'
 
 const CASES = JSON.parse(fs.readFileSync(new URL('./mail-code-cases.json', import.meta.url), 'utf8'))
 for (const c of CASES) test(`code: ${c.name}`, () => assert.equal(extractCode(c.text), c.expect))
@@ -45,4 +45,111 @@ test("the code from the newest fitting mail: not before the request, not used, t
   assert.equal(pickCode(mails, { ...opts, used: new Set(['site']) }).code, '222222')
   assert.equal(pickCode(mails, { ...opts, used: new Set(['site', 'named']) }), null)
   assert.equal(pickCode([], opts), null)
+})
+
+// ---- this installation's own sign-in mail: never a task's code (noteSignInMail · signInMailSince · ownSenders) ----
+test('one mailbox however its address is written: case, +tag, Gmail dots and googlemail.com', () => {
+  assert.equal(mailboxOf('Kim.Lee+lite@Example.COM'), 'kim.lee@example.com')
+  assert.equal(mailboxOf('kim.lee+x@googlemail.com'), 'kimlee@gmail.com')
+  assert.equal(mailboxOf('KIMLEE@gmail.com.'), 'kimlee@gmail.com')
+  assert.equal(mailboxOf('not an address'), '')
+  assert.equal(senderOf('Process GPT Lite <NoReply@Lite.Example>'), 'noreply@lite.example')
+  assert.equal(senderOf('"noreply@lite.example" <someone@other.example>'), 'someone@other.example')
+  assert.equal(senderOf('noreply@lite.example'), 'noreply@lite.example')
+})
+
+const t1 = Date.parse('2026-11-01T02:00:00Z')
+const at1 = (s) => new Date(t1 + s * 1000).toISOString()
+const liteMail = { id: 'lite', from: 'Process GPT Lite <noreply@lite.example>', subject: '[Process GPT] 로그인 코드', text: '로그인 코드는 555555 입니다', date: at1(5) }
+const shopMail = (id, s, code) => ({ id, from: 'no-reply@shop.example', subject: '인증 코드', text: `인증 코드는 ${code} 입니다`, date: at1(s) })
+const shop = { site: 'login.shop.example', names: ['테스트 상점'], since: t1 - 600000 }
+
+test('a mail that came after this installation mailed a sign-in code to that mailbox is not taken; one before it is', () => {
+  forgetSignInMails()
+  noteSignInMail('kim@example.com', t1)
+  const ownSince = signInMailSince(['Kim@Example.com'], t1 + 10000)
+  assert.equal(ownSince, t1 - 60000, 'from a minute before the send (clocks)')
+  assert.equal(pickCode([shopMail('after', 5, '666666')], { ...shop, ownSince }), null)
+  assert.equal(pickCode([shopMail('during-slack', -30, '666666')], { ...shop, ownSince }), null)
+  assert.equal(pickCode([{ ...shopMail('no-date', 0, '666666'), date: null }], { ...shop, ownSince }), null)
+  assert.equal(pickCode([shopMail('before', -300, '777777'), shopMail('after', 5, '666666')], { ...shop, ownSince }).code, '777777')
+  // without the sign-in send the same mail is taken
+  assert.equal(pickCode([shopMail('after', 5, '666666')], shop).code, '666666')
+})
+
+test('the sign-in send is found whichever way the address was written (+tag, Gmail dots, googlemail.com)', () => {
+  forgetSignInMails()
+  noteSignInMail('Kim.Lee+work@gmail.com', t1)
+  for (const addr of ['kimlee@gmail.com', 'kim.lee@googlemail.com', 'KIM.LEE+other@gmail.com']) {
+    const ownSince = signInMailSince([addr], t1 + 1000)
+    assert.equal(ownSince, t1 - 60000, addr)
+    assert.equal(pickCode([shopMail('after', 5, '666666')], { ...shop, ownSince }), null, addr)
+  }
+  noteSignInMail('ann+lite@example.com', t1)
+  assert.equal(signInMailSince(['ann@example.com'], t1 + 1000), t1 - 60000)
+  assert.equal(signInMailSince(['kimlee@example.com', 'someone@gmail.com'], t1 + 1000), null, 'other mailboxes: none')
+  // a non-Gmail address keeps its dots
+  assert.equal(signInMailSince(['an.n@example.com'], t1 + 1000), null)
+})
+
+test('a mail from the address this installation sends its sign-in mail from is never taken', () => {
+  forgetSignInMails()
+  const site = { site: 'lite.example', names: [], since: t1 - 600000 }
+  assert.equal(pickCode([liteMail], site).code, '555555', 'without the setting it would be')
+  assert.equal(pickCode([liteMail], { ...site, ownSenders: ['NOREPLY@lite.example'] }), null)
+  const long = { ...site, since: t1 - 6 * 3600000 }
+  assert.equal(pickCode([{ ...liteMail, date: at1(-3 * 3600) }], long).code, '555555')
+  assert.equal(pickCode([{ ...liteMail, date: at1(-3 * 3600) }], { ...long, ownSenders: ['noreply@lite.example'] }), null, 'at any time')
+  // other senders on the same site are not affected
+  assert.equal(pickCode([{ ...liteMail, id: 'x', from: 'help@lite.example' }], { ...site, ownSenders: ['noreply@lite.example'] }).code, '555555')
+})
+
+test('BT-C-01 a mail that links to a step of this app\'s own sign-in (its auth server\'s verify link) is never taken', () => {
+  forgetSignInMails()
+  const places = { hosts: ['auth.lite.example', 'lite.example'], parents: [], prefixes: ['/lite'] }
+  assert.deepEqual(linksIn('확인 <https://auth.lite.example/auth/v1/verify?token=x&type=magiclink>\n(https://lite.example/chat) ftp://x'),
+    ['https://auth.lite.example/auth/v1/verify?token=x&type=magiclink', 'https://lite.example/chat'])
+  const site = { site: 'lite.example', names: [], since: t1 - 600000, places }
+  const own = { ...liteMail, id: 'own', from: 'Auth <mailer@other-sender.example>', text: `${liteMail.text}\n로그인: https://auth.lite.example/auth/v1/verify?token=abc&type=magiclink&redirect_to=https://lite.example/` }
+  assert.equal(pickCode([own], site), null)
+  // a mail that only links to the app's ordinary pages is a site's mail as any other
+  assert.equal(pickCode([{ ...own, id: 'plain', text: `${liteMail.text}\nhttps://lite.example/chat` }], site).code, '555555')
+})
+
+test("other sites' mails are unaffected by this installation's sign-in record and sender", () => {
+  forgetSignInMails()
+  noteSignInMail('ann@example.com', t1)
+  const opts = { ...shop, ownSince: signInMailSince(['bob@example.com'], t1 + 1000), ownSenders: ['noreply@lite.example'] }
+  assert.equal(opts.ownSince, null)
+  assert.deepEqual(pickCode([shopMail('shop', 5, '888888')], opts), { id: 'shop', code: '888888', how: 'domain', from: 'shop.example', at: at1(5) })
+})
+
+test('the sign-in record lasts 15 minutes — after that a site\'s mailed code is entered again', () => {
+  assert.equal(SIGN_IN_MS, 15 * 60000)
+  forgetSignInMails()
+  noteSignInMail('kim@example.com', t1)
+  assert.equal(signInMailSince(['kim@example.com'], t1 + 14 * 60000), t1 - 60000)
+  assert.equal(signInMailSince(['kim@example.com'], t1 + 16 * 60000), null)
+  // the first send still within the 15 minutes counts
+  noteSignInMail('kim@example.com', t1)
+  noteSignInMail('kim@example.com', t1 + 10 * 60000)
+  assert.equal(signInMailSince(['kim@example.com'], t1 + 12 * 60000), t1 - 60000)
+  assert.equal(signInMailSince(['kim@example.com'], t1 + 20 * 60000), t1 + 10 * 60000 - 60000)
+  // a site's code that came 16 minutes after this installation's sign-in mail is taken again
+  forgetSignInMails()
+  noteSignInMail('kim@example.com', t1)
+  const later = { id: 'later', from: 'no-reply@shop.example', subject: '인증 코드', text: '인증 코드는 909090 입니다', date: new Date(t1 + 16 * 60000).toISOString() }
+  const soon = { ...later, id: 'soon', date: new Date(t1 + 5 * 60000).toISOString() }
+  assert.equal(pickCode([soon], { site: 'shop.example', since: t1 - 60000, ownSince: signInMailSince(['kim@example.com'], t1 + 6 * 60000) }), null, '15분 안에는 넣지 않는다')
+  assert.equal(pickCode([later], { site: 'shop.example', since: t1 - 60000, ownSince: signInMailSince(['kim@example.com'], t1 + 16 * 60000) })?.code, '909090')
+  forgetSignInMails()
+})
+
+test('index.js: 로그인 코드를 보내 달라고 하기 바로 전에(같은 회사 주소일 때만) 그 주소를 적어 둔다', () => {
+  const src = fs.readFileSync(new URL('../index.js', import.meta.url), 'utf8')
+  const route = src.indexOf("app.post('/api/auth/email/start'")
+  const check = src.indexOf('tenantEmail(req.body.email)', route)
+  const note = src.indexOf('noteSignInMail(req.body.email)', route)
+  const otp = src.indexOf('/auth/v1/otp', route)
+  assert.ok(route > 0 && check > route && note > check && otp > note)
 })

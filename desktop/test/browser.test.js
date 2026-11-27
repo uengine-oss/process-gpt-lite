@@ -9,7 +9,7 @@ const os = require('node:os')
 const path = require('node:path')
 const fs = require('node:fs')
 const { BrowserService, Parts, sendBig, PART, WHOLE, MAX_PARTS, OPEN, OPS } = require('../src/browser/protocol')
-const { webAddress, privateHost, createBrowserHost, MAX_WORDS, POPUPS } = require('../src/browser/host')
+const { webAddress, privateHost, createBrowserHost, requestVerdict, APP_REFUSED, AGENT_HEADER, NOTICE_MS, MAX_WORDS, POPUPS } = require('../src/browser/host')
 const { answersGate } = require('../src/policy')
 const settings = require('../src/settings')
 const P = require('../src/browser/pageScripts')
@@ -258,4 +258,195 @@ test('새 탭은 동작 안에서(시간 끝 안에) — 탭이 없을 때 동�
   driver.ensureTab = async () => { throw new Error('no window') }
   await svc.handle({ type: 'browser', id: 'l2', op: 'look', args: {} })
   assert.deepEqual([replyOf(out, 'l2').ok, replyOf(out, 'l2').error], [false, 'no window'])
+})
+
+// ---- desktop 0.2.6: never the Lite app this browser is part of, nor its sign-in ----
+test('이 세션의 요청: Lite 앱과 그 로그인 출처는 언제나 막고, 이 PC 의 망은 사람이 없는 작업에서만 — 웹 주소가 아닌 것은 페이지 규칙에', () => {
+  const app = { server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'] }
+  assert.equal(requestVerdict('https://acme.process-gpt.io/lite/api/me', { app }), 'app')
+  assert.equal(requestVerdict('wss://acme.process-gpt.io/lite/api/events', { app }), 'app')
+  assert.equal(requestVerdict('https://auth.process-gpt.io/auth/v1/token?grant_type=password', { app, noPrivate: true }), 'app')
+  assert.equal(requestVerdict('https://shop.example/', { app }), null)
+  assert.equal(requestVerdict('http://127.0.0.1:8080/', { app }), null, '사람이 시킨 작업은 이 PC 의 망도 그대로')
+  assert.equal(requestVerdict('http://127.0.0.1:8080/', { app, noPrivate: true }), 'private')
+  assert.equal(requestVerdict('https://shop.example/', { app, noPrivate: true }), 'name')
+  assert.equal(requestVerdict('data:text/plain,x', { app }), null)
+  // a server on this PC: by its other names too
+  const local = { server: 'http://localhost:5391', authOrigins: [] }
+  for (const u of ['http://127.0.0.1:5391/api/auth/email/start', 'http://[::1]:5391/login']) assert.equal(requestVerdict(u, { app: local }), 'app', u)
+  assert.equal(requestVerdict('http://127.0.0.1:5392/', { app: local }), null)
+})
+
+test('「열기」 동작: Lite 앱 · 로그인 주소는 열지 않고 까닭을 답한다 — 다음 읽기에 붙고, 이 PC 에 보인 창이면 사람에게 한 번 알린다', async () => {
+  const told = []
+  const host = createBrowserHost({ electron: { BrowserWindow: class {}, session: { fromPartition: () => ({}) } }, tmp: os.tmpdir(),
+    appServer: () => ({ server: 'http://127.0.0.1:5391', authOrigins: ['https://auth.example'] }), notice: (n) => told.push(n.origin) })
+  const sent = []
+  const win = { isDestroyed: () => false, isVisible: () => true }
+  const tab = { id: 1, win, wc: { getURL: () => 'about:blank', getTitle: () => '' }, cdp: { send: async (m, p) => { sent.push([m, p?.url]); return { loaderId: 'l1' } }, waitStage: async () => {} } }
+  Object.assign(host.state, { partition: 'persist:pgl-browser-u-1', user: 'u-1', active: tab, tabs: [tab], step: { ...host.state.step, navMs: 2000, settleMs: 10 } })
+  for (const url of ['http://localhost:5391/chat', 'http://127.0.0.1:5391/login']) {
+    const r = await host.navigate({ url })
+    assert.deepEqual([r.ok, r.error], [false, APP_REFUSED], url)
+  }
+  assert.deepEqual(sent, [], '페이지에 보내지도 않았다')
+  assert.deepEqual(told, [], '숨은 창: 사람에게 알리지 않는다(에이전트가 답을 받는다)')
+  host.state.shown = true
+  await host.navigate({ url: 'https://auth.example/auth/v1/authorize?provider=google' })
+  await host.navigate({ url: 'https://auth.example/auth/v1/authorize?provider=google' })
+  assert.deepEqual(told, ['https://auth.example'], '보인 창: 한 번(같은 주소는 잠시 다시 알리지 않음)')
+  const ok = await host.navigate({ url: 'https://shop.example/' })
+  assert.equal(ok.ok, true)
+  assert.deepEqual(sent, [['Page.navigate', 'https://shop.example/']])
+  assert.equal(host.state.refused.length, 4)
+  assert.ok(host.state.refused.every((r) => r.endsWith(APP_REFUSED)))
+  assert.match(APP_REFUSED, /Process GPT Lite/)
+})
+
+// ---- desktop 0.2.6 review: the app's server by any name of this PC, the mark on every request, one box at a time, a clean session ----
+// A host with a session that keeps its handlers (as Electron's would), a resolver that answers from names, and one live tab
+function fakeHost({ server = 'http://localhost:5391', authOrigins = [], names = {}, dir } = {}) {
+  const on = {}, cleared = [], told = [], resolved = []
+  let app = { server, authOrigins }
+  const shown = { isDestroyed: () => false, isVisible: () => true }
+  const ses = {
+    webRequest: { onBeforeRequest: (fn) => { on.request = fn }, onBeforeSendHeaders: (fn) => { on.headers = fn } },
+    setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, setDisplayMediaRequestHandler() {}, on() {},
+    resolveHost: async (h) => { resolved.push(h); if (!(h in names)) throw new Error('ERR_NAME_NOT_RESOLVED'); return { endpoints: names[h].map((address) => ({ address })) } },
+    clearStorageData: async ({ origin }) => { cleared.push(origin) },
+  }
+  const electron = { BrowserWindow: { fromWebContents: () => shown }, session: { fromPartition: () => ses }, app: { getPath: () => dir } }
+  const host = createBrowserHost({ electron, tmp: os.tmpdir(), appServer: () => app, notice: (n) => told.push(n.origin) })
+  const tab = { id: 1, win: shown, wc: { getURL: () => 'about:blank', getTitle: () => '' }, cdp: { on() {}, off() {}, send: async () => ({ loaderId: 'l1' }), waitStage: async () => {} } }
+  Object.assign(host.state, { tabs: [tab], active: tab })
+  const ask = (url, resourceType = 'xhr') => new Promise((r) => on.request({ url, resourceType, webContents: {} }, r))
+  return { host, on, cleared, told, resolved, ask, ses, setApp: (a) => { app = a } }
+}
+
+test('이 PC 에 있는 Lite 서버는 이 PC 를 가리키는 다른 이름으로도 막는다 — 서버 포트로 가는 이름을 이 세션의 resolver 로 풀어 보고, 서버의 이름도 푼다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-host-'))
+  try {
+    const f = fakeHost({ dir, names: { 'localtest.me': ['127.0.0.1'], '127.0.0.1.nip.io': ['127.0.0.1'], 'mapped.test': ['::ffff:7f00:1'], 'public.test': ['93.184.216.34'], 'both.test': ['93.184.216.34', '127.0.0.1'] } })
+    await f.host.open({ user: 'u-1' })
+    for (const u of ['http://localtest.me:5391/login', 'http://127.0.0.1.nip.io:5391/api/auth/email/start', 'ws://mapped.test:5391/api/events', 'http://both.test:5391/',
+      'http://nowhere.lan:5391/', 'http://intranet:5391/', 'http://[::ffff:7f00:1]:5391/', 'http://[::7f00:1]:5391/']) assert.deepEqual(await f.ask(u), { cancel: true }, u)
+    // (a public-looking name that does not resolve goes on — it reaches nothing; a name that may be local does not)
+    for (const u of ['http://public.test:5391/', 'http://nowhere.test:5391/', 'http://localtest.me:3000/', 'https://shop.example/']) assert.deepEqual(await f.ask(u), {}, u)
+    // the agent's 「열기」 too
+    const r = await f.host.navigate({ url: 'http://localtest.me:5391/chat' })
+    assert.deepEqual([r.ok, r.error], [false, APP_REFUSED])
+    // a server the app reaches by a name of its own that resolves to this PC: this PC's other names on its port are it
+    const g = fakeHost({ dir, server: 'http://lite.test:18080', names: { 'lite.test': ['127.0.0.1'], 'other.test': ['127.0.0.1'] } })
+    await g.host.open({ user: 'u-1' })
+    for (const u of ['http://localhost:18080/chat', 'http://127.0.0.1:18080/', 'http://other.test:18080/']) assert.deepEqual(await g.ask(u), { cancel: true }, u)
+    assert.deepEqual(await g.ask('http://localhost:3000/'), {})
+    // a company server: its own name only (it resolves elsewhere)
+    const c = fakeHost({ dir, server: 'https://acme.process-gpt.io/lite', names: { 'acme.process-gpt.io': ['34.1.2.3'], 'localtest.me': ['127.0.0.1'] } })
+    await c.host.open({ user: 'u-1' })
+    assert.deepEqual(await c.ask('https://localhost/'), {})
+    assert.deepEqual(await c.ask('https://acme.process-gpt.io/lite/api/me'), { cancel: true })
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('표시는 앱 서버의 다른 주소일 수 있는 곳에만 — 이 PC · 내부망(주소 · 이름 · 푼 주소), 앱 이름 아래, 앱 서버의 주소 · 앱이 알린 제 주소. 보통의 공개 사이트에는 없다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-host-'))
+  try {
+    const names = { 'acme.process-gpt.io': ['34.1.2.3'], 'cdn-twin.example': ['34.1.2.3'], 'public.example': ['93.184.216.34'], 'home.example': ['192.168.1.20'], 'loop.example': ['127.0.0.1'],
+      'lite-tunnel.example': ['104.1.1.1'], 'auth.process-gpt.io': ['35.9.9.9'] }
+    const f = fakeHost({ dir, server: 'https://acme.process-gpt.io/lite', authOrigins: ['https://auth.process-gpt.io'], names })
+    await f.host.open({ user: 'u-1' })
+    // (onBeforeRequest decides, onBeforeSendHeaders adds it — the same request id)
+    let id = 0
+    const sent = async (url) => {
+      const n = ++id
+      const v = await new Promise((r) => f.on.request({ id: n, url, resourceType: 'xhr', webContents: {} }, r))
+      if (v.cancel) return 'refused'
+      const out = await new Promise((r) => f.on.headers({ id: n, url, requestHeaders: { Accept: '*/*', Cookie: 'a=1' } }, r))
+      return out.requestHeaders?.[AGENT_HEADER] === '1' ? 'marked' : 'plain'
+    }
+    for (const u of ['http://127.0.0.1:8991/api/me', 'http://192.168.1.20:18080/', 'http://[::ffff:c0a8:114]/', 'http://router.local/', 'http://intranet/', 'https://home.example/',
+      'https://loop.example/', 'https://www.process-gpt.io/', 'wss://other.process-gpt.io/api/events', 'https://cdn-twin.example/', 'http://localhost:3000/']) assert.equal(await sent(u), 'marked', u)
+    for (const u of ['https://public.example/', 'https://accounts.google.com/signin', 'https://notebooklm.google.com/', 'https://nowhere.example/']) assert.equal(await sent(u), 'plain', u)
+    // the mark goes once, with the other headers as they were
+    const out = await new Promise((r) => { f.on.request({ id: 99, url: 'http://127.0.0.1:9/', resourceType: 'xhr', webContents: {} }, () => f.on.headers({ id: 99, url: 'http://127.0.0.1:9/', requestHeaders: { Accept: 'text/html', Cookie: 'a=1' } }, r)) })
+    assert.deepEqual(out.requestHeaders, { Accept: 'text/html', Cookie: 'a=1', [AGENT_HEADER]: '1' })
+    assert.deepEqual(await new Promise((r) => f.on.headers({ id: 99, url: 'http://127.0.0.1:9/', requestHeaders: {} }, r)), {}, '한 번만')
+    assert.equal(AGENT_HEADER, 'X-PGL-Agent-Browser')
+    // the addresses the server gives for itself (a tunnel): refused as the app, and names under them marked
+    const t = fakeHost({ dir, server: 'http://localhost:18080', names })
+    t.setApp({ server: 'http://localhost:18080', authOrigins: [], appOrigins: ['https://lite-tunnel.example'] })
+    await t.host.open({ user: 'u-1' })
+    assert.deepEqual(await t.ask('https://lite-tunnel.example/api/me'), { cancel: true })
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('이 PC 에 있는 서버가 80 · 443 에 있어도 이름을 풀지 못한 보통의 사이트는 막지 않는다 — 이 PC · 내부망일 수 있는 이름만', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-host-'))
+  try {
+    const f = fakeHost({ dir, server: 'http://localhost', names: { 'x.localtest.me': ['127.0.0.1'], 'shop.example': ['93.184.216.34'] } })
+    await f.host.open({ user: 'u-1' })
+    for (const u of ['https://slow-or-gone.example/', 'https://shop.example/', 'http://shop.example/']) assert.deepEqual(await f.ask(u), {}, u)
+    for (const u of ['https://x.localtest.me/', 'http://printer.lan/', 'http://intranet/', 'http://nas.home.arpa/']) assert.deepEqual(await f.ask(u), { cancel: true }, u)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('보인 창의 안내 상자는 10초에 한 번까지(주소가 달라도) — 에이전트의 답과 다음 읽기에는 매번', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-host-'))
+  try {
+    const f = fakeHost({ dir, authOrigins: ['https://auth.example'] })
+    await f.host.open({ user: 'u-1' })
+    f.host.state.shown = true
+    for (let i = 0; i < 30; i++) await f.ask(i % 2 ? `http://localhost:5391/x${i}` : 'https://auth.example/auth/v1/authorize', 'mainFrame')
+    assert.deepEqual(f.told, ['https://auth.example'])
+    assert.equal(f.host.state.refused.length, 5, '다음 읽기에 붙는 것은 마지막 다섯')
+    assert.equal(NOTICE_MS, 10_000)
+    f.host.state.toldAt = Date.now() - NOTICE_MS - 1
+    await f.ask('http://localhost:5391/', 'mainFrame')
+    assert.deepEqual(f.told, ['https://auth.example', 'http://localhost:5391'])
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('앞선 판에서 이 세션에 남은 Lite 의 저장소 · 쿠키는 한 번 지운다 — 서버 · 로그인 출처(이 PC 의 서버면 그 이름들), 한 번 한 것은 다시 하지 않는다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-host-'))
+  try {
+    const f = fakeHost({ dir, authOrigins: ['http://localhost:54321'] })
+    await f.host.open({ user: 'u-1' })
+    assert.deepEqual(f.cleared.sort(), ['http://127.0.0.1:5391', 'http://[::1]:5391', 'http://localhost:5391', 'http://localhost:54321'])
+    const kept = JSON.parse(fs.readFileSync(path.join(dir, 'browser-cleared.json'), 'utf8'))
+    assert.equal(kept['persist:pgl-browser-u-1'].length, 4)
+    // the app again (a new host): nothing again; another person's session, or another server: theirs once
+    const again = fakeHost({ dir, authOrigins: ['http://localhost:54321'] })
+    await again.host.open({ user: 'u-1' })
+    assert.deepEqual(again.cleared, [])
+    const other = fakeHost({ dir, server: 'https://acme.process-gpt.io/lite' })
+    await other.host.open({ user: 'u-1' })
+    assert.deepEqual(other.cleared, ['https://acme.process-gpt.io'])
+    const person = fakeHost({ dir })
+    await person.host.open({ user: 'u-2' })
+    assert.equal(person.cleared.length, 3)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('앱 서버의 포트(80 · 443 이 아님)로 가는 요청에는 이름이 어디로 풀리든 표시', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-host-'))
+  try {
+    // (a name that resolves to a public address: on the app's port it is marked all the same)
+    const f = fakeHost({ dir, server: 'http://localhost:5391', names: { 'any-name.example': ['93.184.216.34'], 'public.example': ['93.184.216.34'] } })
+    await f.host.open({ user: 'u-1' })
+    let id = 1000
+    const sent = async (url) => {
+      const n = ++id
+      const v = await new Promise((r) => f.on.request({ id: n, url, resourceType: 'xhr', webContents: {} }, r))
+      if (v.cancel) return 'refused'
+      const out = await new Promise((r) => f.on.headers({ id: n, url, requestHeaders: {} }, r))
+      return out.requestHeaders?.[AGENT_HEADER] === '1' ? 'marked' : 'plain'
+    }
+    for (const u of ['http://any-name.example:5391/api/me', 'ws://any-name.example:5391/api/events', 'https://any-name.example:5391/']) assert.equal(await sent(u), 'marked', u)
+    for (const u of ['http://any-name.example:5392/', 'https://public.example/', 'http://public.example/']) assert.equal(await sent(u), 'plain', u)
+    // a server on 80 · 443: every site is on that port — not marked for it
+    const g = fakeHost({ dir, server: 'https://acme.process-gpt.io/lite', names: { 'public.example': ['93.184.216.34'], 'acme.process-gpt.io': ['34.1.2.3'] } })
+    await g.host.open({ user: 'u-1' })
+    const out = await new Promise((r) => g.on.request({ id: 1, url: 'https://public.example/', resourceType: 'xhr', webContents: {} }, () => g.on.headers({ id: 1, url: 'https://public.example/', requestHeaders: {} }, r)))
+    assert.deepEqual(out, {})
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

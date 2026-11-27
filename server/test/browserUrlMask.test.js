@@ -26,7 +26,8 @@ const llm = http.createServer((req, res) => {
     else {
       const goal = /Goal: (.*)/.exec(body.messages[0].content)?.[1] || ''
       const s = scripts[goal]
-      const [name, args] = s.moves[Math.min(s.i++, s.moves.length - 1)]
+      const move = s.moves[Math.min(s.i++, s.moves.length - 1)]
+      const [name, args] = typeof move === 'function' ? move(body) : move
       message = { role: 'assistant', content: null, tool_calls: [{ id: 'call_' + crypto.randomUUID().slice(0, 8), type: 'function', function: { name, arguments: JSON.stringify(args) } }] }
     }
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -44,9 +45,12 @@ const judge = http.createServer((req, res) => {
     res.end(JSON.stringify({ probabilities: Object.fromEntries(keys.map((k) => [k, ['ok', 'idle'].includes(k) ? 0.96 : 0.01])), model: 'scripted' }))
   })
 })
-// the site: /start sends the browser on to a page whose address carries the tokens (as a sign-in's callback does)
+// the site: /start sends the browser on to a page whose address carries the tokens (as a sign-in's callback does); /signed is a
+// signed address (its sig is masked where shown) — every address it was asked for is kept (opened)
+const opened = []
 const site = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x')
+  opened.push(req.url)
   if (u.pathname === '/start') { res.writeHead(302, { Location: '/landing?code=SECRET-CODE-1&state=st-1#access_token=SECRET-ACCESS-2&refresh_token=SECRET-REFRESH-3&token_type=bearer' }); return res.end() }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end('<!doctype html><title>도착</title><body><h1>로그인 뒤 도착한 곳</h1><p>여기까지 왔어요</p></body>')
@@ -65,6 +69,8 @@ const { config } = await import('../config.js')
 const { q, pool } = await import('../lib/supa.js')
 
 const SITE = `http://127.0.0.1:${site.address().port}`
+// the address of the page in the agent's last look (as the model reads it)
+const lastUrl = (body) => JSON.parse([...body.messages].reverse().find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('{')).content.split('\n')[0]).url
 const user = crypto.randomUUID()
 let threadId, hub, pc
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -129,7 +135,7 @@ test('BT-M-01 서버 브라우저: 토큰이 붙은 주소는 모델 · 판정 �
   assert.ok(!rows.some((x) => SECRET.test(x.c)), 'nowhere in the conversation')
 })
 
-test('BT-M-02 내 PC 의 브라우저: PC 가 보내는 주소(답마다의 페이지 · 실시간 화면 · 보기)부터 값이 가려져 있다', { skip: skipPc }, async () => {
+test('BT-M-02 내 PC 의 브라우저: PC 가 보여 주라고 보내는 주소(답의 url · 실시간 화면 · 보기)는 가려져 있고, 원래 주소는 돌아가기용으로만 온다', { skip: skipPc }, async () => {
   hub = http.createServer()
   H.attach(hub)
   await new Promise((r) => hub.listen(0, '127.0.0.1', r))
@@ -137,7 +143,8 @@ test('BT-M-02 내 PC 의 브라우저: PC 가 보내는 주소(답마다의 페�
   // what came from the PC itself, before this server masks anything
   const fromPc = []
   const keep = { at: R.RemoteDriver.prototype.at, onFrame: R.RemoteDriver.prototype.onFrame, look: R.RemoteDriver.prototype.look }
-  R.RemoteDriver.prototype.at = function (a = {}) { if (a && typeof a.url === 'string') fromPc.push(a.url); return keep.at.call(this, a) }
+  const rawFromPc = []
+  R.RemoteDriver.prototype.at = function (a = {}) { if (a && typeof a.url === 'string') fromPc.push(a.url); if (a && typeof a.raw === 'string') rawFromPc.push(a.raw); return keep.at.call(this, a) }
   R.RemoteDriver.prototype.onFrame = function (data, url) { fromPc.push(url); return keep.onFrame.call(this, data, url) }
   R.RemoteDriver.prototype.look = async function () { const snap = await keep.look.call(this); fromPc.push(snap?.url || ''); return snap }
   try {
@@ -147,6 +154,60 @@ test('BT-M-02 내 PC 의 브라우저: PC 가 보내는 주소(답마다의 페�
     const got = await runAndCollect('PC 에서 토큰 주소 열기')
     assertMasked(got, 'local')
     assert.ok(fromPc.some((u) => /\/landing\?code=…&state=st-1#access_token=…/.test(u)), `the PC sent the address, masked: ${fromPc.slice(-5).join(' ')}`)
-    assert.ok(!fromPc.some((u) => SECRET.test(u)), 'the values never left the PC')
+    assert.ok(!fromPc.some((u) => SECRET.test(u)), 'nothing the PC sends to be shown carries the values')
+    // (the address itself comes along with each answer, for this server to go back there — and is never shown: assertMasked above)
+    assert.ok(rawFromPc.some((u) => /\/landing\?code=SECRET-CODE-1/.test(u)), 'the address itself, for going back')
   } finally { Object.assign(R.RemoteDriver.prototype, keep) }
+})
+
+test('BT-M-03 이어서 하기 · 다시 시도는 가려진 주소가 아니라 원래 주소로 연다', async () => {
+  const goal = '서명된 주소 열기'
+  scripts[goal] = { i: 0, moves: [['goto', { url: `${SITE}/signed?exp=9&sig=SIG-ONE` }], ['note', { text: '열었음' }], ['finish', { summary: '열었어요.' }]] }
+  const r = await browser.runBrowserTask({ userId: user, threadId, goal, gates: false })
+  assert.match(r.url, /\/signed\?exp=9&sig=…$/)
+  const card = (await q(`select id, content from pro_messages where thread_id=$1 and kind='task' and content->>'goal'=$2 order by created_at desc limit 1`, [threadId, goal]))[0]
+  assert.match(card.content.url, /sig=…$/)
+  // the browser goes elsewhere; then a task goes on from that card
+  scripts['다른 곳'] = { i: 0, moves: [['goto', { url: `${SITE}/plain` }], ['finish', { summary: '다른 곳.' }]] }
+  await browser.runBrowserTask({ userId: user, threadId, goal: '다른 곳', gates: false })
+  scripts[goal] = { i: 0, moves: [['note', { text: '이어서 봄' }], ['finish', { summary: '이어서 했어요.' }]] }
+  const before = opened.length
+  const r2 = await browser.runBrowserTask({ userId: user, threadId, goal: '이어서', from: card.id, instruction: '이어서 봐 줘', gates: false })
+  assert.equal(r2.state, 'done', JSON.stringify(r2).slice(0, 200))
+  const again = opened.slice(before).filter((u) => u.startsWith('/signed'))
+  assert.deepEqual(again, ['/signed?exp=9&sig=SIG-ONE'], 'the start page opened as it was')
+  assert.ok(!opened.some((u) => /%E2%80%A6|…/.test(u)), 'never a masked address')
+})
+
+test('BT-M-04 에이전트가 본(가려진) 주소로 다시 가면 원래 주소가 열린다', async () => {
+  const goal = '본 주소로 다시 가기'
+  let seen = ''
+  scripts[goal] = { i: 0, moves: [
+    ['goto', { url: `${SITE}/signed?exp=9&sig=SIG-TWO` }],
+    (body) => { seen = lastUrl(body); return ['goto', { url: `${SITE}/plain` }] },
+    () => ['goto', { url: seen }],
+    ['finish', { summary: '다시 갔어요.' }],
+  ] }
+  const before = opened.length
+  const r = await browser.runBrowserTask({ userId: user, threadId, goal, gates: false })
+  assert.equal(r.state, 'done')
+  assert.match(seen, /\/signed\?exp=9&sig=…$/, 'the agent was shown it masked')
+  assert.deepEqual(opened.slice(before).filter((u) => u.startsWith('/signed')), ['/signed?exp=9&sig=SIG-TWO', '/signed?exp=9&sig=SIG-TWO'])
+  // (the agent typed the first address itself; what this server told it of the pages never carried the value)
+  const told = bodies.flatMap((b) => JSON.parse(b).messages || []).filter((m) => m.role !== 'assistant').map((m) => JSON.stringify(m.content))
+  assert.ok(!told.some((c) => c.includes('SIG-TWO')), 'the value itself never reached the model from this server')
+})
+
+test('BT-M-05 PC 의 브라우저: 답에 실린 원래 주소는 이 서버가 돌아갈 때만 쓰고, 실시간 화면의 (가려진) 주소가 그것을 덮지 않는다', () => {
+  const link = { userId: 'u-raw', id: 'd-1', name: 'PC' }
+  const d = new R.RemoteDriver(link, 'u-raw', {})
+  d.at({ tab: 1, url: 'https://x.example/p?sig=…', raw: 'https://x.example/p?sig=S' })
+  assert.equal(d.url(), 'https://x.example/p?sig=S')
+  d.onFrame('jpeg', 'https://x.example/p?sig=…')
+  assert.equal(d.url(), 'https://x.example/p?sig=S', 'the same page: the address itself stays')
+  d.onFrame('jpeg', 'https://x.example/next')
+  assert.equal(d.url(), 'https://x.example/next', 'another page: until the next answer says where it is')
+  // a desktop that sends no raw: its url, as before
+  d.at({ tab: 1, url: 'https://x.example/old' })
+  assert.equal(d.url(), 'https://x.example/old')
 })

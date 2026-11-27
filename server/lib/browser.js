@@ -6,7 +6,9 @@
 // chosen when a task gets the browser, never switched by itself afterwards. Secret fields are blanked in the page
 // snapshot and masked on screen and in the model's screenshots by either driver; logins typed during takeover in this
 // server's browser are captured into the vault. Page addresses are shown and kept with sign-in tokens and signatures masked
-// (lib/urlTokens.js maskUrl: the model's view, the live view, the card, the result, log lines); the browser goes to them as they are.
+// (lib/urlTokens.js maskUrl: the model's view, the live view, the card, the result, log lines); the browser goes to them as they are —
+// the address itself is kept here (shownTo: an address the agent was shown, for it to open again; lastAt: where a task's card ended,
+// for a task that goes on from it).
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -27,8 +29,10 @@ import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } fr
 import { judge } from './judge.js'
 import { STEP, StepError, isStop, bounded, pause, watchdog } from './browserSteps.js'
 import { ServerDriver, within, blankOf, lookAt } from './browserServer.js'
-import { RemoteDriver, routeFor, privateAddress } from './browserRemote.js'
-import { maskUrl } from './urlTokens.js'
+import { RemoteDriver, routeFor, privateAddress, browsesHere } from './browserRemote.js'
+import { maskUrl, withoutMasked } from './urlTokens.js'
+import { signInPlaces, onPlaces } from './signInSteps.js'
+import { liteOwnPage } from './liteOwn.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
 import { BLOCK, HARD, turnOf, progressOf, budgetAfter } from './browserProgress.js'
@@ -62,6 +66,20 @@ export function clearStaleLocks(dir) {
 // s.driver is the one in use (s.server: this server's Chromium, launched when first needed; s.local: their PC's).
 const sessions = new Map() // userId -> { driver, server, local, task, threadId, frame, captures, queue, planning, joining }
 const launching = new Map() // userId -> the launch in progress (two tasks at once share it)
+
+// An address as shown and kept (lib/urlTokens.js): an OAuth answer's code is masked on this app's and its auth server's hosts too
+const shown = (u) => maskUrl(u, { authHost: (h) => onPlaces(`https://${h}/`, signInPlaces()) })
+// the address itself behind one the agent was shown (a look of this task), else the shown one with its masked values left out
+const realOf = (task, u) => task?.shownTo?.get(u) || withoutMasked(u)
+// where a task's card ended, as it was (for a task that goes on from that card: resume, 「이어서」) — the last few hundred cards,
+// this server's memory only (after a restart: the card's address without its masked values)
+const lastAt = new Map()
+function keepLastAt(cardId, url) {
+  lastAt.delete(cardId)
+  lastAt.set(cardId, url)
+  while (lastAt.size > 500) lastAt.delete(lastAt.keys().next().value)
+}
+const startOf = (cardId, card) => (lastAt.has(cardId) && shown(lastAt.get(cardId)) === card ? lastAt.get(cardId) : withoutMasked(card))
 
 // The type a downloaded file is stored with, so its link plays (audio, video) or opens (PDF, images) in
 // the person's browser. Markup is left as a download: it is never rendered from the storage origin.
@@ -135,7 +153,7 @@ function hooksFor(userId, s) {
     frame: (d, data, url) => {
       if (s.driver !== d) return
       s.frame = data
-      if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: maskUrl(url) })
+      if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: shown(url) })
     },
     wantsDownload: (d) => !!s.task && s.driver === d,
     download: (d, file) => keepDownload(userId, s, file).catch((e) => console.warn('[browser] download', e.message)),
@@ -172,10 +190,11 @@ async function localDriver(userId, s, link) {
 }
 // Where this task runs, decided when it gets the browser (lib/browserRemote.js routeFor): the person's PC when their desktop is on, has
 // a browser and its own setting lets this task there (own: the person's own task; one nobody watches only when that PC says 'all'),
-// else this server. A PC that does not open its browser in time leaves the task to this server (said on the card: where.why). The page
+// else this server; one that starts on a page of this Lite server itself stays on this server (startUrl: why 'lite-page'). A PC that does
+// not open its browser in time leaves the task to this server (said on the card: where.why). The page
 // has to answer before it is used; a task nobody watches is kept off that PC's own network (begin noPrivate).
-async function takeBrowser(userId, s, { own = true, unattended = false } = {}) {
-  const r = await routeFor(userId, { own }).catch((e) => { console.warn('[browser] route', e.message); return { kind: 'server', why: 'error' } })
+async function takeBrowser(userId, s, { own = true, unattended = false, startUrl = '' } = {}) {
+  const r = await routeFor(userId, { own, startUrl }).catch((e) => { console.warn('[browser] route', e.message); return { kind: 'server', why: 'error' } })
   let why = r.why || null
   if (r.kind === 'local') {
     try {
@@ -217,7 +236,7 @@ async function pushFrame(userId, s) {
   const data = await s.driver?.frameShot().catch(() => null)
   if (!data) return null
   s.frame = data
-  if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: maskUrl(s.driver.url()) })
+  if (s.task) emit(userId, 'browser.frame', { taskId: s.task.id, data, url: shown(s.driver.url()) })
   return data
 }
 
@@ -363,7 +382,7 @@ function earlierNote(e, { instruction = '' } = {}) {
     : `This task was stopped before it was finished${why ? ` (${why})` : ''}. It is resumed now with a fresh budget of actions. Go on from where it stopped; do not redo what is already done.`,
   did ? `What was already done (oldest first):\n${did}` : '',
   notes ? `Facts recorded so far:\n${notes}` : '',
-  e.url ? `The page it was on last: ${maskUrl(e.url)}` : ''].filter(Boolean).join('\n\n')
+  e.url ? `The page it was on last: ${shown(e.url)}` : ''].filter(Boolean).join('\n\n')
 }
 // what the queued card says it waits on: the task holding the browser waits for the person (its question), the task it was asked to
 // come after, or just the task ahead
@@ -411,7 +430,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     goal = resume ? e.goal : `${e.goal}\n\n${L('이어서 할 일', 'Go on with')}: ${String(instruction || '').trim()}`
     skill = skill || e.skill || null
     files = files.length ? files : (e.files || [])
-    startUrl = startUrl || e.url || e.startUrl || ''
+    startUrl = startUrl || (e.url ? startOf(earlier.id, e.url) : '') || e.startUrl || ''
   }
   const sk = skill ? browserSkill(skill) : null
   if (skill && !sk) console.warn('[browser] no browser skill named', skill)
@@ -421,7 +440,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // the card goes up at once and the plan fills it in: a slow model must not leave "시작할게요" with nothing under it
   // (skill: the browser skill it runs — the router reads the card as one line with it, lib/turnPlan.js taskLine; a resumed task keeps its
   // own card: it says it runs again)
-  const card = resume ? { id: resume } : await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: maskUrl(startUrl || ''), ...(sk ? { skill: sk.name } : {}), ...(from ? { from } : {}) })
+  const card = resume ? { id: resume } : await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: shown(startUrl || ''), ...(sk ? { skill: sk.name } : {}), ...(from ? { from } : {}) })
   if (resume) await updateMessage(userId, card.id, { state: 'running', need: null, reason: '', summary: '', stall: null, progress: null, blocked: null, offer: null, order: null, answered: null, steered: null })
   s.planning.set(card.id, false)
   // an idle browser is taken now — where it runs is decided (the person's PC or this server: takeBrowser), its page checked
@@ -433,7 +452,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   let notTaken = null
   // (nobody watches it: unattended, or not the person's own — not their PC's own network)
   const guarded = !!unattended || !own
-  const ready = idle ? takeBrowser(userId, s, { own, unattended }).then((w) => { where = w }, (e) => { notTaken = e; console.warn('[browser] take', e.message) }) : null
+  const ready = idle ? takeBrowser(userId, s, { own, unattended, startUrl }).then((w) => { where = w }, (e) => { notTaken = e; console.warn('[browser] take', e.message) }) : null
   // (not this PC's own network for a task nobody watches: the start page waits for the check below)
   const early = startUrl && idle
     ? (emit(userId, 'status', { threadId, text: L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`) }),
@@ -507,7 +526,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // the browser could not be had (this server's Chromium did not start): the card says so and the next task in line goes on — never a
   // card left running and a queue held (2026-11-25 review)
   if (!where) {
-    try { where = await takeBrowser(userId, s, { own, unattended }) } catch (err) { notTaken = err }
+    try { where = await takeBrowser(userId, s, { own, unattended, startUrl }) } catch (err) { notTaken = err }
   }
   if (!where) {
     console.warn(`[browser] task ${card.id}: no browser — ${notTaken?.message}`)
@@ -532,7 +551,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   // from an earlier card: the page it is on counts when its address shows the same as the card's — kept masked)
   if (early && !ahead) await early
   if (startUrl && offLimits(guarded, s.driver, startUrl)) task.notes.push(L(`${hostOf(startUrl)}: 사람이 없는 작업이라 PC 의 내부망 주소는 열지 않음`, `${hostOf(startUrl)}: not opened — a task nobody watches does not open addresses on the PC's own network`))
-  else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab) && !(earlier && maskUrl(s.driver.url()) === maskUrl(startUrl))) {
+  else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab) && !(earlier && shown(s.driver.url()) === shown(startUrl))) {
     say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
     await s.driver.navigate(startUrl, { signal: task.abort.signal }).catch(() => {})
   }
@@ -589,12 +608,13 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     // the card keeps the result short and the rest folded (2026-11-25: 「불필요하게 뭐 아주 길게 … 이런거 필요없고 보고싶으면 볼 수 있겠으나」):
     // brief on the card, what it did step by step (did) and the whole account (detail) for 「자세히」 — and what a task that goes on
     // from it needs (its notes, its skill, where it started, its files)
-    await updateMessage(userId, card.id, { state: result.state, summary: result.brief, detail: result.detail || '', did: result.did || [], refused: result.refused || [], url: maskUrl(s.driver.url()) || undefined, shot, stall: null, ...why,
+    await updateMessage(userId, card.id, { state: result.state, summary: result.brief, detail: result.detail || '', did: result.did || [], refused: result.refused || [], url: shown(s.driver.url()) || undefined, shot, stall: null, ...why,
       ...(task.where ? { where: task.where } : {}), ...(byHandOnPc(task) ? { pcKept: task.keep } : {}),
       notes: task.notes.slice(-20).map((x) => String(x).slice(0, 400)), files: keptFiles(task.files), ...(task.progressCount ? { progress: { count: task.progressCount } } : {}), answered: null, steered: null })
     say(task, null)
     await setThreadStatus(userId, threadId, null)
-    result.url = maskUrl(s.driver.url())
+    result.url = shown(s.driver.url())
+    keepLastAt(card.id, s.driver.url())
     result.notes = task.notes
     result.taskId = task.id
     result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
@@ -723,7 +743,7 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
       pushed = 2
       // the same picture is the live view's newest frame (no second screenshot after the action)
       s.frame = shot.toString('base64')
-      emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: maskUrl(s.driver.url()) })
+      emit(task.userId, 'browser.frame', { taskId: task.id, data: s.frame, url: shown(s.driver.url()) })
     }
     t = Date.now()
     phase(task, 'model', L('다음 할 일 고르는 중', 'Deciding what to do next'), L('AI 모델의 답', "the AI model's answer"))
@@ -1068,7 +1088,13 @@ export function honest(result, task, { moved = false } = {}) {
 // the agent's view of the page (a page that does not answer in time — a script holding it — reads as empty, and says so;
 // the driver keeps which frame holds each number of this look, and acts on that element)
 // (its address as shown: tokens masked — lib/urlTokens.js; the model, the checks and the card read this one)
-const look = (s) => within(s.driver.look(), STEP.snapMs + 2000, null).then((x) => x || blankOf(s.driver.url())).then((x) => { x.url = maskUrl(x.url); return x })
+const look = (s) => within(s.driver.look(), STEP.snapMs + 2000, null).then((x) => x || blankOf(s.driver.url())).then((x) => {
+  x.url = shown(x.url)
+  // (the address itself, for the agent to open again what it was shown: lib/browser.js realOf)
+  const raw = s.driver.url()
+  if (s.task && raw !== x.url && shown(raw) === x.url) (s.task.shownTo ||= new Map()).set(x.url, raw)
+  return x
+})
 // the agent's view of any Playwright page (the live wall check, test/browser-walls.live.mjs)
 export const snapshotOf = (page) => lookAt(page)
 // the same address and the same things on screen
@@ -1506,7 +1532,7 @@ async function whenOffline(s, task, messages) {
   const device = was.device || {}
   const tenant = config.tenantId
   const host = hostOf(url)
-  let link = H.linksOf(tenant, task.userId).find((l) => l.id === device.id && l.caps?.browser) || null
+  let link = H.linksOf(tenant, task.userId).find((l) => l.id === device.id && browsesHere(l)) || null
   // the PC is still linked but its browser keeps failing to open: after MAX_REOPENS tries the task pauses as if it were off (the person
   // chooses this server's browser, or waits for the app to come back) — never a loop of reopening (2026-11-25 review)
   let broken = false
@@ -1570,8 +1596,8 @@ async function toServer(s, task, messages, { url, device }) {
     say(task, L(`서버 브라우저에서 ${hostOf(url)} 여는 중`, `Opening ${hostOf(url)} in the server's browser`))
     await s.driver.navigate(url, { signal: task.abort.signal }).catch(() => {})
   }
-  console.log(`[browser] task ${task.id}: goes on in this server's browser at ${maskUrl(url) || '(no address)'} (the person chose it; ${device.name} is off)`)
-  messages.push({ role: 'user', content: `[The person's PC went offline. The task goes on in the server's browser, which opened ${maskUrl(url) || 'a blank page'} again. Sign-ins made on the PC are not in this browser: a page that needs one may ask to sign in now.]` })
+  console.log(`[browser] task ${task.id}: goes on in this server's browser at ${shown(url) || '(no address)'} (the person chose it; ${device.name} is off)`)
+  messages.push({ role: 'user', content: `[The person's PC went offline. The task goes on in the server's browser, which opened ${shown(url) || 'a blank page'} again. Sign-ins made on the PC are not in this browser: a page that needs one may ask to sign in now.]` })
   task.prev = null
   task.judged = null
   await pushFrame(task.userId, s)
@@ -1708,7 +1734,8 @@ async function doAct(s, task, name, a) {
     case 'goto': {
       if (offLimits(task.guarded, d, a.url)) return 'refused: this task runs with nobody watching on the person\'s PC, which does not open addresses on its own network (localhost, 10.x, 192.168.x …); use a public address'
       // the document, not the page going quiet: a page that keeps loading is read as it is (lib/browserSteps.js navigate)
-      const r = await d.navigate(a.url, { signal: task.signal })
+      // (an address the agent was shown masked opens as it was: realOf)
+      const r = await d.navigate(realOf(task, a.url), { signal: task.signal })
       if (!r.ok) return `error: could not open ${a.url} (${r.error})`
       return r.partial ? `ok (the page was still loading after ${Math.round(r.ms / 1000)} s; it was stopped and is read as it is)` : 'ok'
     }
@@ -1808,8 +1835,9 @@ async function doAct(s, task, name, a) {
       const site = normSite(host)
       const label = a.label || L('인증 코드', 'verification code')
       // a code the site e-mailed: the person's own mailbox is watched while the card asks them (lib/mailCode.js);
-      // whichever comes first — the mail or the person — goes into the field
-      const watch = await mailCode.enabledFor(task.userId).catch(() => false)
+      // whichever comes first — the mail or the person — goes into the field. Never on this app's own pages (lib/liteOwn.js): a code
+      // there is the person's to type
+      const watch = !liteOwnPage(d.url()) && await mailCode.enabledFor(task.userId).catch(() => false)
       const names = watch ? mailCode.namesOf(await d.title().catch(() => '')) : []
       if (task.unattended) {
         const found = watch && await mailCode.watchForCode(task.userId, { site: host, names, since: task.drivingSince, timeoutMs: 120000 })
@@ -2543,7 +2571,7 @@ async function runConnect(s, task, { url, cookie, ours }) {
   try {
     const shot = await pushFrame(userId, s)
     if (s.task === task) s.task = null
-    await updateMessage(userId, task.id, { ...end, url: maskUrl(s.driver?.url() || url), shot, connect: 'google', site: hostOf(url), siteName: 'Google' })
+    await updateMessage(userId, task.id, { ...end, url: shown(s.driver?.url() || url), shot, connect: 'google', site: hostOf(url), siteName: 'Google' })
     // the card of a finished task shows no text of its own: the result is said in the chat (a stopped one
     // says why on the card itself)
     if (end.state === 'done') await addMessage(userId, task.threadId, 'agent', 'text', { text: end.summary })
@@ -2590,7 +2618,7 @@ export async function close(userId) {
 
 export function lastFrame(userId) {
   const s = sessions.get(userId)
-  return s ? { data: s.frame, url: maskUrl(s.driver?.url() || ''), running: !!s.task, taskId: s.task?.id || null, where: s.task?.where || null } : null
+  return s ? { data: s.frame, url: shown(s.driver?.url() || ''), running: !!s.task, taskId: s.task?.id || null, where: s.task?.where || null } : null
 }
 
 // The person's browser on this server (launched if it is not running): tests route made-up sites through it.

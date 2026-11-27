@@ -1,7 +1,7 @@
 // 로그인 완료 화면(/auth/done)은 그 창에서 시작한 로그인만 받는다 (스펙 google-connect 「로그인 완료 화면은 그 창에서 시작한 로그인만 받는다」,
 // src/signInNonce.js) — 웹과 데스크톱 앱 창이 같은 화면이다. Google 과 로그인 서버의 단계는 이 시험의 브라우저가 흉내 낸다: 화면이 보낸
-// 시작 주소를 가로채, 그 창이 실어 보낸 값을 그대로 돌려준다(설치형 /api/auth/google/start?n= → /auth/done?n=…#<세션>, 게이트웨이는
-// Supabase authorize 의 redirect_to 로 #access_token=…). 세션은 데모 로그인으로 받은 실제 세션이다.
+// 시작 주소를 가로채 돌려준다(설치형 /api/auth/google/start?n= → /auth/done?n=…#<세션>, 게이트웨이는 Supabase authorize 의
+// redirect_to — 그대로의 /auth/done — 로 #access_token=…). 세션은 데모 로그인으로 받은 실제 세션이다.
 import { test, expect } from '../../lib/fixtures.js'
 import * as api from '../../lib/api.js'
 import { PGPT_URL } from '../../lib/env.js'
@@ -66,7 +66,7 @@ test('F-AD-02 설치형 「Google로 계속하기」: 그 창이 보낸 값으�
   } finally { await ctx.close() }
 })
 
-test('F-AD-03 게이트웨이(ProcessGPT 의 Supabase 로그인): redirect_to 에 그 창의 값이 실려 가고, 돌아오면 로그인된다', async ({ browser }) => {
+test('F-AD-03 게이트웨이(ProcessGPT 의 Supabase 로그인): redirect_to 는 그대로의 /auth/done, 그 창이 시작한 로그인이면 돌아와 로그인된다(한 번만)', async ({ browser }) => {
   const me = await api.login('authdone-a')
   const ctx = await browser.newContext({ locale: 'ko-KR' })
   try {
@@ -80,8 +80,16 @@ test('F-AD-03 게이트웨이(ProcessGPT 의 Supabase 로그인): redirect_to �
     await page.goto(`${PGPT_URL}/login`)
     await page.getByRole('button', { name: 'Google로 계속하기' }).click()
     await landed(page)
-    expect(redirectTo).toMatch(new RegExp(`^${PGPT_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/auth/done\\?n=[0-9a-f]{48}$`))
+    expect(redirectTo).toBe(`${PGPT_URL}/auth/done`)
     expect((await sessionOf(page))?.session?.access_token).toBe(me.session.access_token)
+    // the same answer once more, in another browser with nobody signed in and no sign-in under way: not taken
+    const ctx2 = await browser.newContext({ locale: 'ko-KR' })
+    try {
+      const other = await ctx2.newPage()
+      await other.goto(`${PGPT_URL}/auth/done#${supabaseFragment(me.session)}`)
+      await other.waitForURL(/\/login\?error=/)
+      expect(await sessionOf(other)).toBeNull()
+    } finally { await ctx2.close() }
   } finally { await ctx.close() }
 })
 
@@ -99,8 +107,13 @@ test('F-AD-04 이미 로그인한 사람은 다른 사람의 세션으로 바뀌
     expect((await sessionOf(page))?.session?.access_token).toBe(me.session.access_token)
     // started here, but another person's session comes back
     const n = 'ef'.repeat(24)
-    await page.evaluate((v) => sessionStorage.setItem('pgl-sign-in', JSON.stringify({ n: v, at: Date.now() })), n)
+    await page.evaluate((v) => sessionStorage.setItem('pgl-sign-in', JSON.stringify({ n: v, at: Date.now(), via: 'own' })), n)
     await page.goto(doneUrl(n, other))
+    await landed(page)
+    expect((await sessionOf(page))?.session?.access_token).toBe(me.session.access_token)
+    // a ProcessGPT sign-in under way here, and another person's session comes back
+    await page.evaluate((v) => sessionStorage.setItem('pgl-sign-in', JSON.stringify({ n: v, at: Date.now(), via: 'sso' })), n)
+    await page.goto(`${PGPT_URL}/auth/done#${supabaseFragment(other.session)}`)
     await landed(page)
     expect((await sessionOf(page))?.session?.access_token).toBe(me.session.access_token)
   } finally { await ctx.close() }
