@@ -88,6 +88,48 @@ test('markdown the agents write becomes plain text', () => {
   for (const mark of ['**', '__', '~~', '`', '|---', '# ']) assert.ok(!out.includes(mark), `${mark} left in:\n${out}`)
 })
 
+// (PR #123 review) code stays as it was written — the answer shared to another app (lib/answerShare.js) reads through the same rules
+test('code stays as written: fenced blocks (fence lines dropped) and inline code are not read as a list, a heading, bold or a link', () => {
+  const md = ['# 설정', '', '```yaml', '- name: build', '# comment', 'run: echo **kwargs** [x](y)', '', '', '', '  indented: true', '```', '',
+    '함수 `f(**kwargs)` 와 `- x` 를 써요 · ``a `b` c`` 도 · 한 줄의 ```x``` 도', '~~~', '* item', '~~~', '**굵게** 와 [링크](https://example.com/a)', '',
+    '```py', 'def f(*args, **kwargs): pass  # 닫지 않은 블록은 끝까지'].join('\n')
+  const out = T.toPlain(md)
+  assert.ok(out.startsWith('설정\n'), out)
+  assert.ok(out.includes('- name: build\n# comment\nrun: echo **kwargs** [x](y)\n\n\n\n  indented: true'), out)
+  assert.ok(out.includes('함수 f(**kwargs) 와 - x 를 써요 · a `b` c 도 · 한 줄의 x 도'), out)
+  assert.ok(out.includes('\n* item\n'), out)
+  assert.ok(out.includes('굵게 와 링크 (https://example.com/a)'), out)
+  assert.ok(out.endsWith('def f(*args, **kwargs): pass  # 닫지 않은 블록은 끝까지'), out)
+  for (const fence of ['```', '~~~']) assert.ok(!out.includes(fence), `${fence} left in:\n${out}`)
+  // (the marks that stand code aside never come from the text itself)
+  assert.equal(T.toPlain('a \uE0000\uE001 b `c`'), 'a 0 b c')
+  // a long signed address (more than 2,048 characters) is still a link's address
+  const url = `https://bucket.s3.amazonaws.com/a/q.pdf?X-Amz-Security-Token=${'A'.repeat(3000)}`
+  assert.equal(T.toPlain(`[견적](${url})`), `견적 (${url})`)
+})
+
+// Each slow shape — a run of 「[a](」 with no 「)」, of 「**a 」, of 「```x」 … — read in a child with a deadline: a rule that goes back over its
+// text again and again (one froze the server, PR #123) fails here instead of hanging the run. 12,000 characters (an answer to another app)
+// within 200 ms, ten Telegram messages' worth (TG_TEXT_MAX) within 1.5 s.
+test('no shape of text holds the server: the slow shapes at 12,000 characters in 200 ms, at ten messages\' worth in 1.5 s (in a child, with a deadline)', { timeout: 60_000 }, async () => {
+  const { spawnSync } = await import('node:child_process')
+  const units = ['[a](', '![a](', '[', '**a ', '~~a ', '__a ', ' *a', '`a ', '```x', '```\n', '[a](x ', `[a](${'x'.repeat(2000)}`, '|a|\n', '<br', ' #', '**a\n']
+  const script = `
+    const { toPlain, TG_TEXT_MAX } = await import(${JSON.stringify(new URL('../lib/telegram.js', import.meta.url).href)})
+    const out = {}
+    for (const n of [12000, TG_TEXT_MAX]) for (const u of ${JSON.stringify(units)}) {
+      const s = u.repeat(Math.ceil(n / u.length)).slice(0, n)
+      const t0 = performance.now(); toPlain(s); out[n + ' ' + JSON.stringify(u).slice(0, 12)] = Math.round(performance.now() - t0)
+    }
+    console.log('MS ' + JSON.stringify(out)); process.exit(0)`
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { timeout: 30_000, encoding: 'utf8', env: { ...process.env, PRO_BACKGROUND: '0' } })
+  assert.ok(!r.error && !r.signal, `did not finish in 30 s: ${r.signal || r.error}`)
+  const line = String(r.stdout).split('\n').find((l) => l.startsWith('MS '))
+  assert.ok(line, `no timings: ${r.stdout}\n${r.stderr}`)
+  const ms = JSON.parse(line.slice(3))
+  for (const [k, t] of Object.entries(ms)) assert.ok(t < (k.startsWith('12000 ') ? 200 : 1500), `${k}: ${t} ms`)
+})
+
 test('long text goes in numbered pieces of at most 4096 characters, nothing lost', () => {
   assert.deepEqual(T.splitMessage('짧은 알림'), ['짧은 알림'])
   assert.deepEqual(T.splitMessage('   '), [])

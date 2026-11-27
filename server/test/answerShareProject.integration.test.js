@@ -17,8 +17,8 @@
 //   (PR #118 후속 · PR #122 검토) AP-U-01c 줄 가운데 서명 조각은 값만 「…」 · 평범한 key 주소는 그대로 · 덧붙이기 직전에 다시 확인(한 문장) — AP-U-04c 문서 카드 ·
 //   AP-U-05c 확인 카드 · AP-U-06c 「프로젝트로 옮겼어요」(대화가 그 사람 것이 아니게 되면 404, 이어받혔으면 그쪽 카드) · AP-U-07d 버리는 프로젝트의 작업 공간도 버림 ·
 //   AP-U-04d 확인과 덧붙이기 사이에 대화가 사라지면 404(500 아님) · 답의 글은 행마다 한 번 · AP-U-05d 카드를 쓰는 동안 답이 사라지면 곧바로 404, 모델 한 번
-//   (11-28 「다른 앱으로 보내기」 · 「글 복사」) AP-U-11 공유 시트에 넘길 글은 방과 같은 정리의 평문(12,000자에서 「…(이어짐)」), 복사할 글은 정리한 전체 Markdown ·
-//   남의 답 404 · 답이 아닌 메시지 400
+//   (11-28 「다른 앱으로 보내기」 · 「글 복사」) AP-U-11a 공유 시트에 넘길 글은 방과 같은 정리의 평문(12,000자에서 「…(이어짐)」, 코드는 쓴 그대로) ·
+//   AP-U-11 복사할 글은 정리한 전체 Markdown · 남의 답 404 · 답이 아닌 메시지 400 · 1분 한도 429
 // Run: node --test --test-concurrency=1 test/answerShareProject.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -48,6 +48,8 @@ process.env.PRO_LLM_FAST_MODEL = 'fake'
 process.env.PRO_PROJECT_OFFERS_PER_MIN = '200'
 // (a 「만들기」 nobody refreshed for 1.5 s may be taken over — AP-U-07c holds one that long)
 process.env.PRO_PROJECT_MAKING_STALE_MS = '1500'
+// (the words for 「글 복사」 · 「다른 앱으로 보내기」: a small budget here — AP-U-11 runs into it)
+process.env.PRO_ANSWER_TEXT_PER_MIN = '30'
 
 const { config } = await import('../config.js')
 const { q, pool, admin } = await import('../lib/supa.js')
@@ -844,9 +846,9 @@ test('AP-U-05d 「프로젝트로 시작」: 모델이 카드를 쓰는 동안 �
 })
 
 // ---------- AP-U-11 to another app · the clipboard (「다른 앱으로 보내기」 — the phone's share sheet, 「글 복사」, 2026-11-28) ----------
-test('AP-U-11 다른 앱으로 보낼 글 · 복사할 글: 방과 같은 정리(경로 · 비공개 주소 없음) · 보낼 글은 평문 · 12,000자에서 「…(이어짐)」 · 복사는 전체 Markdown · 남의 답 404 · 답이 아닌 메시지 400', { skip: !db && 'no database' }, async () => {
-  const { me, chat, answer, question, kAnswer } = await setup()
-  // (pure: Markdown's marks off — a link keeps its address only when the cleaning left one; a cut one says so at its end, in the request's language)
+test('AP-U-11a 순수: 보낼 글은 방과 같은 정리의 평문(링크는 주소가 남은 것만 「글자 (주소)」 · 표는 줄 · 코드는 쓴 그대로) · 12,000자에서 「…(이어짐)」', async () => {
+  // (Markdown's marks off — a link keeps its address only when the cleaning left one; a cut one says so at its end, in the request's language;
+  // the slow shapes are telegram.test.js's, in a child with a deadline)
   const { withLang } = await import('../lib/lang.js')
   const md = { kind: 'text', content: { text: ['# 결과 요약', '', '**납기**: 2주 이내 · `견적서.xlsx` 참고', '- 첫째 항목', '1. 번호 항목',
     '[견적 안내](https://www.example.com/quote) · [서명된 견적](https://bucket.s3.amazonaws.com/a/q.pdf?X-Amz-Signature=deadbeef&X-Amz-Credential=c)',
@@ -861,13 +863,13 @@ test('AP-U-11 다른 앱으로 보낼 글 · 복사할 글: 방과 같은 정리
   assert.ok(!AS.outText(long).includes('끝 문장'))
   assert.ok(withLang('en', () => AS.outText(long)).endsWith('\n\n…(continued)'))
   assert.equal(AS.outText({ kind: 'text', content: { text: '짧은 답이에요.' } }), '짧은 답이에요.')
-  // (a run of 「[a](」 with no 「)」 — the plain-text reading once froze on it: the room's 12,000 characters at once)
-  for (const unit of ['[a](', '![a](', '**a ', '[']) {
-    const bad = { kind: 'text', content: { text: unit.repeat(Math.ceil(AS.LIMITS.text / unit.length)) } }
-    const t0 = performance.now()
-    AS.outText(bad)
-    assert.ok(performance.now() - t0 < 200, `${unit}: ${Math.round(performance.now() - t0)} ms`)
-  }
+  // code stays as written: a fenced block (its fence lines off) and inline code are not a list, a heading or bold
+  const code = { kind: 'text', content: { text: '설정 예시예요.\n\n```yaml\n- name: build\n# comment\nrun: f(**kwargs)\n```\n\n`**kwargs` 는 그대로 넘겨요.' } }
+  assert.equal(AS.outText(code), '설정 예시예요.\n\n- name: build\n# comment\nrun: f(**kwargs)\n\n**kwargs 는 그대로 넘겨요.')
+})
+
+test('AP-U-11 다른 앱으로 보낼 글 · 복사할 글: 방과 같은 정리(경로 · 비공개 주소 없음) · 보낼 글은 평문 · 12,000자에서 「…(이어짐)」 · 복사는 전체 Markdown · 남의 답 404 · 답이 아닌 메시지 400 · 1분 한도', { skip: !db && 'no database' }, async () => {
+  const { me, chat, answer, question, kAnswer } = await setup()
   // the document answer: its title, the whole cleaned answer to copy (Markdown), the plain words to send — the workspace link only its label
   const r = await call(me, 'GET', `/messages/${answer.id}/share/text`)
   assert.equal(r.status, 200, r.text)
@@ -900,4 +902,11 @@ test('AP-U-11 다른 앱으로 보낼 글 · 복사할 글: 방과 같은 정리
   try {
     assert.equal((await call(me, 'GET', `/messages/${answer.id}/share/text`)).status, 200)
   } finally { await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$2) on conflict do nothing`, [TENANT, me.id]) }
+  // a budget of its own per person (PRO_ANSWER_TEXT_PER_MIN — 30 here): the next ask in that minute is 429, another person's are not counted
+  const busy = await person('윤도현')
+  const codes = []
+  for (let i = 0; i < 31; i++) codes.push((await call(busy, 'GET', `/messages/${crypto.randomUUID()}/share/text`)).status)
+  assert.deepEqual([...new Set(codes.slice(0, 30))], [404])
+  assert.equal(codes[30], 429)
+  assert.equal((await call(me, 'GET', `/messages/${kAnswer.id}/share/text`)).status, 404, '다른 사람의 한도는 따로')
 })

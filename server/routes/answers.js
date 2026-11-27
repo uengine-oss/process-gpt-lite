@@ -12,6 +12,9 @@ import * as AS from '../lib/answerShare.js'
 import * as CP from '../lib/chatProject.js'
 import { requireMember } from '../lib/team/access.js'
 
+// how many times a minute one person may ask for an answer's words (GET …/share/text — each sheet opened asks once)
+export const TEXT_PER_MIN = Number(process.env.PRO_ANSWER_TEXT_PER_MIN || 60)
+
 export function answerRoutes(auth) {
   const r = express.Router()
   const h = (fn) => async (req, res) => {
@@ -24,14 +27,15 @@ export function answerRoutes(auth) {
     }
   }
   const me = (req) => ({ id: req.user.id, email: req.user.email, name: req.user.name })
-  // (a small budget per person: a share posts into rooms and tells their people)
+  // (a small budget per person and kind: a share posts into rooms and tells their people; the words for 「글 복사」 · 「다른 앱으로 보내기」 are
+  // cleaned and read into plain text on each ask — one per sheet opened, a larger bucket of its own)
   const sent = new Map()
-  const budget = (userId, n = 20, ms = 60_000) => {
+  const budget = (key, n = 20, ms = 60_000) => {
     const now = Date.now()
-    const list = (sent.get(userId) || []).filter((t) => now - t < ms)
+    const list = (sent.get(key) || []).filter((t) => now - t < ms)
     if (list.length >= n) throw Object.assign(new Error(L('잠시 후에 다시 보내 주세요.', 'Please send again in a moment.')), { status: 429 })
     list.push(now)
-    sent.set(userId, list)
+    sent.set(key, list)
   }
 
   // (to a room or a person: teammates only — someone taken off the team neither lists the rooms nor opens a conversation of two by sending:
@@ -45,7 +49,7 @@ export function answerRoutes(auth) {
   }))
   r.post('/messages/:id/share/doc', auth, h((req) => AS.saveDoc(me(req), req.params.id)))
   // (「글 복사」 · 「다른 앱으로 보내기」: the words only — the person's clipboard or phone takes them, wherever they pick; their own answer, no team rule)
-  r.get('/messages/:id/share/text', auth, h((req) => AS.textFor(me(req), req.params.id)))
+  r.get('/messages/:id/share/text', auth, h((req) => { budget(`${req.user.id}:text`, TEXT_PER_MIN); return AS.textFor(me(req), req.params.id) }))
   r.post('/messages/:id/project-offer', auth, h(async (req) => {
     const msg = await AS.answerOf(me(req), req.params.id)
     return { offer: await CP.offer(me(req), { threadId: msg.thread_id, messageId: msg.id, via: 'button' }) }

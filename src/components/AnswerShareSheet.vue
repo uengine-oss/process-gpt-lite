@@ -59,30 +59,35 @@ async function saveDoc() {
 }
 function openDoc() { const d = doc.value; close(); if (d) openArtifact(app, router, d).catch(() => {}) }
 // 「글 복사」: the server's cleaned words (out.text — the whole answer, its Markdown as it is: no signed or storage address, no key on the
-// clipboard). Pressed before they came, it waits for them — and keeps the press: where the clipboard takes a ClipboardItem whose words are
-// still coming (Safari asks the write to start in the press itself), it starts there with the words to come; elsewhere it waits (3 s at most)
-// and writes then. Only when the words cannot come: the page's own reading (paths only — src/paths.js).
+// clipboard), never the page's own reading of the answer. Pressed before they came, it waits for them (3 s at most) — and keeps the press:
+// where the clipboard takes a ClipboardItem whose words are still coming (Safari asks the write to start in the press itself), it starts there
+// with the words to come; elsewhere it writes once they are here. They did not come (a slow line, the server failing): nothing is copied and
+// the sheet says so — a press again asks again (PR #123 review).
 const COPY_WAIT_MS = 3000
 const within = (p, ms) => new Promise((ok, no) => {
   const t = setTimeout(() => no(new Error('timeout')), ms)
   p.then((v) => { clearTimeout(t); ok(v) }, (e) => { clearTimeout(t); no(e) })
 })
-const copyWords = () => within(loadOut(), COPY_WAIT_MS).then((o) => o.text, () => text.value)
 const copyBusy = ref(false)
 async function copy() {
   if (copyBusy.value) return
   err.value = ''
   copyBusy.value = true
+  // (asked once per press: the ClipboardItem and the write after it wait on the same words)
+  let asked = null
+  const words = () => (asked ||= within(loadOut(), COPY_WAIT_MS).then((o) => o.text))
   try {
     const cb = navigator.clipboard
     if (out.value) await cb.writeText(out.value.text)
     else if (typeof ClipboardItem === 'function' && typeof cb.write === 'function') {
-      // (a browser that takes no words still coming: the words once here, as below)
-      try { await cb.write([new ClipboardItem({ 'text/plain': copyWords().then((t) => new Blob([t], { type: 'text/plain' })) })]) } catch { await cb.writeText(await copyWords()) }
-    } else await cb.writeText(await copyWords())
+      // (a browser that takes no words still coming: the words once here — and nothing when they did not come)
+      try { await cb.write([new ClipboardItem({ 'text/plain': words().then((t) => new Blob([t], { type: 'text/plain' })) })]) } catch { await cb.writeText(await words()) }
+    } else await cb.writeText(await words())
     copied.value = true
     setTimeout(() => { copied.value = false }, 2000)
-  } catch { err.value = '복사하지 못했어요.' } finally { copyBusy.value = false }
+  } catch {
+    err.value = out.value ? '복사하지 못했어요.' : '정리한 글을 받지 못했어요. 다시 눌러 주세요.'
+  } finally { copyBusy.value = false }
 }
 // 「글 선택」 (opened by holding the answer — a long press opens this menu, not the browser's selection): the answer's words selected, the
 // browser's own handles and copy menu from there

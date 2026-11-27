@@ -14,8 +14,8 @@
 //           없음, 12,000자에서 「…(이어짐)」) · 취소(AbortError)는 조용히 · 열지 못하면 「글 복사」로 안내 · 글이 늦게 오면 「준비하고 있어요…」 뒤에 넘김 ·
 //           「글 복사」는 서버가 정리한 전체 Markdown(서명 주소 없음) · 글이 오기 전에 눌러도 기다렸다 그 글로(ClipboardItem 을 누른 순간에 시작)
 //           (2026-11-28 사용자 결정 「Phone share sheet」)
-//   F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 「다른 앱으로 보내기」 없음 · 「글 복사」는 서버가 정리한 글(글이 늦으면 기다렸다 쓰기,
-//           못 받으면 화면 규칙)
+//   F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 「다른 앱으로 보내기」 없음 · 「글 복사」는 서버가 정리한 글만(글이 늦으면 3 초까지
+//           기다렸다 쓰기, 못 받으면 복사하지 않고 「정리한 글을 받지 못했어요」 · 다시 누르면 다시 요청)
 // 자기 스택(lib/localStack.js: 회사 answer-project-ui 의 BFF + Vite, 8997 · 5397 에서 빈 곳)을 띄우고 지운다. 가짜 모델 · 가짜 deepagents 는 이 파일이
 // 빈 포트에 띄운다 — 실제 모델 · 에이전트 · 판정 서버는 부르지 않는다. 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js
@@ -581,6 +581,8 @@ const FAKE_SHARE = () => {
   Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true, get: () => ({ writeText: async (t) => { window.__copied.push(String(t)) } }) })
 }
 const CUT = '\n\n…(이어짐)'
+// what the sheet says when the cleaned words did not come (nothing copied)
+const NO_WORDS = '정리한 글을 받지 못했어요. 다시 눌러 주세요.'
 // 「글 복사」 with the server's words here: the whole answer (not cut), its Markdown as it is — and no path, no signed address, no key
 const copiedClean = (t) => {
   for (const bad of SECRETS) expect(t, `on the clipboard: ${bad}`).not.toContain(bad)
@@ -694,6 +696,31 @@ for (const theme of ['light', 'dark']) {
       expect(way).toEqual([{ way: 'item', active: true }])
       expect(c.errors).toEqual([])
       await c.context().close()
+      // the words longer than 3 s on the way: nothing on the clipboard, the sheet says so — a press once they came copies them (PR #123 review)
+      const t = await open(browser, HY, PHONE, { theme, init: CLIP_ITEM })
+      await slowWords(t, 4500)
+      await toChat(t, true)
+      const tb = t.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`)
+      await expect(tb).toBeVisible({ timeout: 30000 })
+      await tb.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      const arrived = t.waitForResponse((r) => r.url().includes(`/messages/${ans.id}/share/text`))
+      await tb.click()
+      const tc = t.locator('[data-test="answer-share-copy"]')
+      await tc.click()
+      await expect(t.locator('[data-test="answer-share-error"]')).toHaveText(NO_WORDS, { timeout: 8000 })
+      await expect(tc).not.toContainText('복사했어요')
+      expect(await t.evaluate(() => window.__copied)).toEqual([])
+      await noSideScroll(t)
+      await shot(t, 'share', 'f-as-04-copy-timeout-light')
+      await arrived
+      await tc.click()
+      await expect(tc).toContainText('복사했어요')
+      await expect(t.locator('[data-test="answer-share-error"]')).toHaveCount(0)
+      const got2 = await t.evaluate(() => window.__copied)
+      expect(got2).toHaveLength(1)
+      copiedClean(got2[0])
+      expect(t.errors).toEqual([])
+      await t.context().close()
     }
   })
 }
@@ -727,18 +754,26 @@ test('F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 
   expect(asked, 'asked once, as the sheet opened').toHaveLength(1)
   expect(p.errors).toEqual([])
   await p.context().close()
-  // the words could not come: 「글 복사」 still copies — the page's own reading, the paths as their files' names (as before)
+  // the server failing (500): nothing on the clipboard — never the page's own reading (its signed address) — and the sheet says so; a press
+  // again, once it answers, copies the cleaned words (PR #123 review)
   const f = await open(browser, HY, DESK, { init: CLIPBOARD })
-  await f.route('**/share/text', (route) => route.abort())
+  await f.route('**/share/text', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '처리하지 못했어요.' }) }))
   await f.goto('/chat')
   await f.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`).click({ timeout: 30000 })
-  await f.locator('[data-test="answer-share-copy"]').click()
-  await expect(f.locator('[data-test="answer-share-copy"]')).toContainText('복사했어요')
-  const fell = await f.evaluate(() => window.__copied)
-  expect(fell).toHaveLength(1)
-  expect(fell[0]).toContain('견적서 초안.xlsx')
-  expect(fell[0]).not.toContain('/workspace/')
+  const fc = f.locator('[data-test="answer-share-copy"]')
+  await fc.click()
+  await expect(f.locator('[data-test="answer-share-error"]')).toHaveText(NO_WORDS)
+  await expect(fc).not.toContainText('복사했어요')
+  expect(await f.evaluate(() => window.__copied)).toEqual([])
+  await shot(f, 'share', 'f-as-05-copy-failed')
+  await f.unroute('**/share/text')
+  await fc.click()
+  await expect(fc).toContainText('복사했어요')
   await expect(f.locator('[data-test="answer-share-error"]')).toHaveCount(0)
+  const again = await f.evaluate(() => window.__copied)
+  expect(again).toHaveLength(1)
+  copiedClean(again[0])
+  expect(f.errors).toEqual([])
   await f.context().close()
   // pressed before the words came, a clipboard that takes words only (no ClipboardItem write): it waits for the server's words, then writes
   const w = await open(browser, HY, DESK, { init: CLIPBOARD })
