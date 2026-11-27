@@ -83,8 +83,8 @@ function checkUrl(url) {
   if (u.username || u.password) throw new GitError('the folder address may not carry credentials')
   return u.href
 }
-// a ref name the server gave: plain branch names only
-const REF = /^(?!.*\.\.)(?!.*\/\/)(?!.*\.lock$)[A-Za-z0-9._-][A-Za-z0-9._/-]{0,180}$/
+// a ref name the server gave: plain branch names only (never one that starts with '-' — git would read it as an option)
+const REF = /^(?!.*\.\.)(?!.*\/\/)(?!.*\.lock$)[A-Za-z0-9._][A-Za-z0-9._/-]{0,180}$/
 const checkRef = (r) => { if (!REF.test(String(r || ''))) throw new GitError(`not a branch name: ${String(r).slice(0, 60)}`); return r }
 
 const head = async (dir, ref = 'HEAD') => (await git(dir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { check: false })).trim() || null

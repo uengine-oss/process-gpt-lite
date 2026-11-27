@@ -18,6 +18,9 @@
 //   folders      — { [server]: [{folderId, userId, path, label, include, exclude, sourceId, branch, state, why, paths, head, taken, files, bytes,
 //                  lastPushedAt, boundAt}] }: the folders of this computer kept as Lite folders (챔피언 폴더 — runner/sync.js), per server and
 //                  person. The picked folder's path is kept here only (the server and the page know its label — the folder's name)
+//   seats        — { [server]: [{variationId, userId, folderId, folderName, title, branch, dir, epoch, head, pushedAt, autoSave, state, why, dirty,
+//                  ahead, branchOk, flagged, person}] }: the variations' working copies this computer holds (작업본 — runner/seats.js), per
+//                  server and person. The working copy's path (dir — always under the app's data folder) is kept here only
 //   webSession   — { [origin]: {v, enc: true} }: the web app's sign-in on that server's origin (0.2.6 — the page's src/sessionStore.js, its
 //                  session tokens), sealed with the OS keychain; kept here only when it can be sealed (canSealWeb) — otherwise the page keeps
 //                  it in its own storage, as a browser does
@@ -186,5 +189,25 @@ function folderStore(server, userId) {
   }
 }
 
+// ---------- the variations' working copies on this computer (runner/seats.js) — one person's on one server ----------
+// the same shape as folderStore, keyed by the variation
+function seatStore(server, userId) {
+  const uid = String(userId || '')
+  const listOf = () => ((data.seats || {})[server] || []).filter((e) => e && typeof e === 'object')
+  const mine = () => listOf().filter((e) => e.userId === uid)
+  const write = (list) => set({ seats: { ...(data.seats || {}), [server]: list } })
+  return {
+    all: () => mine().map((e) => ({ ...e })),
+    get: (variationId) => { const e = mine().find((x) => x.variationId === variationId); return e ? { ...e } : null },
+    put: (entry) => {
+      const list = listOf()
+      const at = list.findIndex((e) => e.userId === uid && e.variationId === entry.variationId)
+      const next = { ...entry, userId: uid }
+      write(at < 0 ? [...list, next] : list.map((e, i) => (i === at ? next : e)))
+    },
+    drop: (variationId) => write(listOf().filter((e) => !(e.userId === uid && e.variationId === variationId))),
+  }
+}
+
 module.exports = { init, get, set, useServer, noteAuthOrigins, setGate, gate, setPairing, pairing, forgetPairing, optedOut, runnerPrefs, finishMinutesOf, FINISH_MINUTES, browserPrefOf, BROWSER_PREFS, folderStore,
-  canSealWeb, setNoSeal, webSession, setWebSession, forgetWebSession, webSessionKept, MAX_WEB_SESSION }
+  seatStore, canSealWeb, setNoSeal, webSession, setWebSession, forgetWebSession, webSessionKept, MAX_WEB_SESSION }

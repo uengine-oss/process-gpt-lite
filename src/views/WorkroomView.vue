@@ -6,7 +6,10 @@
 // steer box under the terminal instead (it has no terminal session of its own).
 // The open file's bar has 「내려받기」 (DownloadButton — the one every place a file opens has, spec file-download): a text file with
 // changes not saved yet is saved first, then downloaded under its name.
-import { ref, computed, onMounted, nextTick } from 'vue'
+// A variation whose working copy is on this very computer (the desktop app's — src/desktopSeats.js, spec variation-seats P1): the files
+// here are what came up last (read only); the bar on top opens the working copy in Finder · the system terminal, uploads now and gives
+// it back (PcSeatBar), and the terminal's place says how the work goes on this PC.
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from '../components/Icon.vue'
 import DownloadButton from '../components/DownloadButton.vue'
@@ -14,7 +17,9 @@ import WorkroomTerminal from '../components/WorkroomTerminal.vue'
 import FileView from '../components/files/FileView.vue'
 import SeatPill from '../components/folders/SeatPill.vue'
 import FIcon from '../components/folders/FIcon.vue'
+import PcSeatBar from '../components/folders/PcSeatBar.vue'
 import { folders as F } from '../foldersApi.js'
+import { bridge as seatBridge, pcSeatOf, refreshPcSeats } from '../desktopSeats.js'
 import { viewOf, fmtSize } from '../components/folders/fileKind.js'
 import { api, auth, freshToken } from '../api.js'
 import { BASE } from '../base.js'
@@ -53,6 +58,16 @@ const termOff = (m) => { const t = room.value?.terminal; return !t ? '' : !t.ok 
 // a shared folder's variation: where its working copy is (its seat — server lib/folders/seats.js). Read only here unless it is my
 // server workroom; 「돌려놓기」 saves what is here as it is and puts it away, 「돌려 달라고 하기」 asks whoever has it
 const seat = computed(() => room.value?.seat || null)
+// this very computer has it (its working copy is the app's — the bar on top, and no terminal here)
+const here = computed(() => (kind.value === 'variation' && seat.value?.place === 'device' && seat.value.mine ? pcSeatOf(room.value?.variation || id.value) : null))
+if (seatBridge()) refreshPcSeats()
+// (counts and the last upload come from the app; what came up shows in the files on 「새로고침」 and after each upload)
+let lastPush = null
+watch(() => here.value?.pushedAt, (t) => { if (t && lastPush && t !== lastPush) load(); lastPush = t || lastPush })
+const pcBusy = ref('')
+// (this PC's working copy went without a word here — given back from the web — the room follows)
+watch(here, (n, o) => { if (o && !n && !pcBusy.value) load() })
+function released() { router.replace(`/folders/${room.value?.slug}/v/${room.value?.variation || id.value}`) }
 const readonly = computed(() => !!room.value?.readonly)
 const seatNote = ref('')
 const seatBusy = ref(false)
@@ -187,8 +202,9 @@ async function sendSteer() {
       <button class="ib" title="뒤로" data-test="workroom-back" @click="goBack"><Icon name="back" :size="17" /></button>
       <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : agentLabel }}</span>
       <span v-if="room" class="chip" :title="room.branch || room.folder"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch && room.branch !== room.folder"> · {{ room.branch }}</template></span>
-      <SeatPill v-if="seat" class="seatp" :seat="seat" dark compact />
-      <span v-if="room" class="st" :class="{ on: live && !off, bad: failed || !!off }" :title="off || (failed ? termWhy[tab] : '')"><i />{{ statusText }}</span>
+      <SeatPill v-if="seat" class="seatp" :seat="seat" :here="here" dark compact />
+      <!-- (no terminal here when this PC has the working copy — not a fault: the PC's bar says how it goes) -->
+      <span v-if="room && !here" class="st" :class="{ on: live && !off, bad: failed || !!off }" :title="off || (failed ? termWhy[tab] : '')"><i />{{ statusText }}</span>
       <span class="ttl">{{ room?.title }}<template v-if="room?.sub"> · {{ room.sub }}</template><b v-if="room?.running" class="run"> · 실행 중</b></span>
       <span class="sp" />
       <div v-if="isClaude" class="seg">
@@ -200,7 +216,8 @@ async function sendSteer() {
     </header>
     <p v-if="err" class="err" data-test="workroom-error" role="alert">{{ err }}</p>
     <!-- read only: the variation's working copy is elsewhere (or put away) — what is shown is its branch as last saved -->
-    <div v-if="room && readonly" class="robar" data-test="wr-readonly" role="status">
+    <PcSeatBar v-if="room && (here || pcBusy)" :vid="room.variation || id" dark @busy="(b) => (pcBusy = b)" @released="released" />
+    <div v-else-if="room && readonly" class="robar" data-test="wr-readonly" role="status">
       <FIcon :name="seat?.place === 'device' ? 'pc' : seat?.place ? 'terminal' : 'archive'" :size="16" />
       <span class="rt"><b>읽기 전용</b>
         <span v-if="!seat?.place">이 변형은 보관 중이에요 — 마지막으로 저장된 내용을 보여 줘요.</span>
@@ -245,7 +262,13 @@ async function sendSteer() {
               @state="(s, why) => { termState[m] = s; termWhy[m] = why || '' }" @closed="moved" />
           </template>
           <!-- no terminal here, or it would not connect: the reason in its place (and a retry) -->
-          <div v-if="off || failed" class="deny" role="alert" data-test="workroom-deny">
+          <div v-if="here" class="deny pcwork" data-test="wr-pc" role="status">
+            <FIcon name="pc" :size="26" />
+            <b>이 변형의 작업본은 이 PC 에 있어요</b>
+            <span>위의 「폴더 열기」로 Finder 에서, 「터미널 열기」로 내 터미널에서 열어 Claude Code · Codex · 편집기로 고치세요.</span>
+            <span class="sub">파일이 1분 동안 조용하거나 CLI 의 턴이 끝나면 있는 그대로 이 변형에 올라가요. 오른쪽 「파일」은 올라온 데까지예요.</span>
+          </div>
+          <div v-else-if="off || failed" class="deny" role="alert" data-test="workroom-deny">
             <b>{{ off ? '이 작업실에서는 터미널을 열 수 없어요' : '터미널에 연결하지 못했어요' }}</b>
             <span>{{ off || termWhy[tab] }}</span>
             <span v-if="off" class="sub">{{ readonly ? '파일은 오른쪽 「파일」에서 읽을 수 있어요.' : '파일은 오른쪽 「파일」에서 그대로 보고 고칠 수 있어요.' }}</span>
@@ -273,7 +296,7 @@ async function sendSteer() {
           </button>
           <p v-if="room && !room.files.length" class="empty">아직 파일이 없어요.</p>
         </div>
-        <p class="tip">{{ readonly ? '읽기 전용이에요 — 이 변형이 마지막으로 저장된 내용이에요.' : '파일을 누르면 터미널 자리에서 열려요. 고친 내용은 에이전트가 다음에 읽을 때 그대로 반영돼요.' }}</p>
+        <p class="tip">{{ here ? '이 PC 에서 올라온 데까지예요 — 고치는 것은 이 PC 의 작업본에서 해요.' : readonly ? '읽기 전용이에요 — 이 변형이 마지막으로 저장된 내용이에요.' : '파일을 누르면 터미널 자리에서 열려요. 고친 내용은 에이전트가 다음에 읽을 때 그대로 반영돼요.' }}</p>
       </aside>
     </div>
   </div>
@@ -311,6 +334,8 @@ async function sendSteer() {
 .deny { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); box-sizing: border-box; margin: 0; padding: 16px 18px; border-radius: 10px; background: #2a1f24; color: #f3b2b2; font-size: 13.5px; line-height: 1.55;
   display: flex; flex-direction: column; align-items: flex-start; gap: 6px; overflow-wrap: anywhere; }
 .deny b { color: #ffd6d6; } .deny .sub { color: #b99a9e; font-size: 12.5px; } .deny .fb { margin-top: 6px; }
+/* this PC has the working copy: not an error — the way the work goes here */
+.deny.pcwork { background: #22263a; color: #c3c8d2; border-color: #343a63; } .deny.pcwork > svg { color: #c3a8ff; } .deny.pcwork b { color: #f0f1f4; } .deny.pcwork .sub { color: #9aa0ab; }
 .fbox { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .fbar { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 12px; border-bottom: 1px solid #2b2f3a; flex: none; }
 .fname { color: #f0f1f4; font-weight: 600; white-space: nowrap; }

@@ -52,6 +52,14 @@ export const folders = {
   recallSeat: (slug, vid, why = '') => call(`/folders/${enc(slug)}/variations/${vid}/seat/recall`, { method: 'POST', body: { why } }),
   // may this kept folder be downloaded (within the download limits — a refusal says which file or how much): asked before the download
   keptCheck: (slug, vid, id) => call(`/folders/${enc(slug)}/variations/${vid}/kept/${enc(id)}?check=1`),
+  // 「이 PC 에서 작업」 (desktop 0.2.7): the seat to one of my linked computers — it makes the working copy and says ready (src/desktopSeats.js)
+  // (head: the commit the trust check looked at — the server refuses with why 'moved' when the variation changed since)
+  openOnPc: (slug, vid, deviceId, head = null) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'POST', body: { to: 'device', deviceId, ...(head ? { head } : {}) } }),
+  // before 「이 PC 에서 작업」: the files of the variation that run things by themselves on a computer, and who changed each last
+  seatTrust: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/trust`),
+  seatPrefs: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'PATCH', body }),
+  // what the 작업실 sheet needs at once: my variations of the folder with their seats, my computers, whether I may open main
+  workroom: (slug) => call(`/folders/${enc(slug)}/workroom`),
   commit: (slug, vid, body = {}) => call(`/folders/${enc(slug)}/variations/${vid}/commit`, { method: 'POST', body }),
   discard: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/discard`, { method: 'POST' }),
   handover: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/handover`, { method: 'POST', body }),
@@ -142,15 +150,19 @@ export const roleLabel = { owner: '소유', editor: '편집', runner: '실행', 
 // A seat as its pill says it, in parts (each its own text — the English dictionary translates each): {icon, tone, parts}
 //   none → 보관 중 · server workroom → 서버 작업실에서 · <who> · a server agent → 서버 에이전트가 작업 중 · a computer → <who>의 PC 에서 · <its name>
 //   · PC 꺼짐 · 저장 안 한 변경 N · 마지막 올림 … · moving → 넘기는 중…
-export function seatText(seat) {
+// here: this very computer holds it (the desktop app's own working copy — src/desktopSeats.js pcSeatOf): 「이 PC 에서」, its counts as the
+// app has them now (pc) rather than as last reported to the server
+export function seatText(seat, { here = null } = {}) {
   if (!seat?.place) return { icon: 'archive', tone: 'none', parts: ['보관 중'] }
   if (seat.state && seat.state !== 'held') return { icon: 'handover', tone: 'moving', parts: ['넘기는 중…'] }
   const who = seat.who?.name || ''
   if (seat.place === 'server') return seat.run === 'agent' ? { icon: 'agent', tone: 'agent', parts: ['서버 에이전트가 작업 중'] } : { icon: 'terminal', tone: 'server', parts: ['서버 작업실에서', who].filter(Boolean) }
-  const parts = [`${who}의 PC 에서`, seat.device?.name || ''].filter(Boolean)
-  if (seat.device && !seat.device.online) parts.push('PC 꺼짐')
-  if (seat.dirty) parts.push(`저장 안 한 변경 ${seat.dirty}`)
-  if (seat.pushedAt) parts.push(ago(seat.pushedAt) === '방금' ? '방금 올림' : `마지막 올림 ${ago(seat.pushedAt)}`)
+  const parts = here ? ['이 PC 에서'] : [`${who}의 PC 에서`, seat.device?.name || ''].filter(Boolean)
+  if (!here && seat.device && !seat.device.online) parts.push('PC 꺼짐')
+  const dirty = here ? here.dirty : seat.dirty
+  const pushedAt = (here && here.pushedAt) || seat.pushedAt
+  if (dirty) parts.push(`저장 안 한 변경 ${dirty}`)
+  if (pushedAt) parts.push(ago(pushedAt) === '방금' ? '방금 올림' : `마지막 올림 ${ago(pushedAt)}`)
   return { icon: 'pc', tone: 'device', parts }
 }
 export const statusLabel = { open: '작업 중', ready: '반영 대기', conflicted: '충돌', merged: '반영됨', discarded: '버림' }
