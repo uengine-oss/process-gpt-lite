@@ -28,6 +28,7 @@ import { craftAppsFor, displayName, documentFrom, documentsOfRun, editable, offi
 import { AsyncLocalStorage } from 'node:async_hooks'
 import * as llmKeys from './llmKeys.js'
 import * as turns from './turns.js'
+import { agentMetadata, isHiddenTool } from './agentMeta.js'
 import { refer as referContext } from './context/refer.js'
 import { rebuildSoon } from './context/digest.js'
 import { findRepeat } from './context/repeat.js'
@@ -509,6 +510,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (conversation?.id && !mine) console.warn(`[turn] conversation from the page is not this person's — not taken user=${userId.slice(0, 8)}`)
   if (mine) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || ''), ...(mine.kind ? { kind: mine.kind } : {}) })
   // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
+  // (and the address itself: what the page sends is cut to the person's own uploads at the route — lib/attachments.js pageFiles —
+  // before it gets here; the server's own callers — a teammate's shared copies — pass their files as they made them)
   const ownPath = (p) => typeof p === 'string' && p.startsWith(`/workspace/uploads/${user.id}/`) && !p.split('/').includes('..')
   files = (files || []).filter((f) => f?.url).map((f) => ({ ...f,
     ...(f.key && !String(f.key).startsWith(`pgpt-pro/${user.id}/att/`) ? { key: undefined } : {}),
@@ -774,7 +777,16 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // of that folder unless it names it)
   const changeLink = folderLink && (await getThread(userId, threadId).catch(() => null))?.kind === 'process' ? null : folderLink
   const named = !folderBlocked ? await folderFor(user, text).catch(() => null) : null
-  const sharedFolder = await TF.chatFolderTarget({ user, link: changeLink, named, text, blocked: folderBlocked }).catch(() => named)
+  let sharedFolder = await TF.chatFolderTarget({ user, link: changeLink, named, text, blocked: folderBlocked }).catch(() => named)
+  // (the words could be a change to the folder; the judge says whether they are — a pasted mail draft with 「…넣어서 보내」 is not, and
+  // run as the folder's variation work in a room of its own it left the next message without it: 2026-11-27 production recording)
+  if (sharedFolder) {
+    const read = await TF.readFolderEdit({ folder: sharedFolder, text }).catch((e) => { console.warn('[folders] edit read', e.message); return null })
+    if (read && !read.edit) {
+      console.log(`[folders] not a change to '${sharedFolder.name}' (${read.by} ${read.p}) thread=${String(threadId).slice(0, 8)} — goes on as a chat message`)
+      sharedFolder = null
+    }
+  }
   if (sharedFolder) return folderTurn({ user, session, threadId, text, onDelta, folder: sharedFolder })
   // the author's own private skill is not installed: their run is pointed at its copy, and after the
   // first good run the chat asks once more whether to share it
@@ -1370,7 +1382,7 @@ const PHASES = [
   [/^soundcraft_/, '소리 만드는 중'], [/^filmcraft_/, '영상 편집하는 중'], [/^folder_/, '폴더 살펴보는 중'],
   [/^office_live_(read|documents)|^office_guide/, '문서 읽는 중'], [/^office_live_/, '문서 고치는 중'],
   [/hwpx|docx|pptx|xlsx|office|document|render_hwp/i, '문서 만드는 중'], [/panel/i, '패널 만드는 중'],
-  [/gmail|mail/i, '메일 확인하는 중'], [/calendar/i, '일정 확인하는 중'], [/youtube/i, '영상 정보 찾는 중'],
+  [/^send_mail_as_me$/, '보낼 메일 준비하는 중'], [/gmail|mail/i, '메일 확인하는 중'], [/calendar/i, '일정 확인하는 중'], [/youtube/i, '영상 정보 찾는 중'],
   [/slack|notion|github|drive/i, '연결된 서비스 확인하는 중'], [/search|web|fetch|browse|tavily/i, '찾아보는 중'],
   [/^(ls|glob|grep|read_file|read)$/i, '파일 살펴보는 중'], [/^(write_file|edit_file|write|edit)$/i, '파일 쓰는 중'],
   [/execute|shell|bash|python|run_code/i, '실행하는 중'], [/^task$|subagent/i, '나눠서 일하는 중'], [/todo/i, '할 일 정리하는 중'],
@@ -1378,7 +1390,7 @@ const PHASES = [
 ]
 // the same phases in English, in PHASES order
 const PHASES_EN = ['Drawing the plan', 'Making the picture', 'Editing the image', 'Making the sound', 'Editing the video', 'Looking through the folder',
-  'Reading the document', 'Editing the document', 'Making the document', 'Making the panel', 'Checking mail', 'Checking the calendar', 'Looking up the video',
+  'Reading the document', 'Editing the document', 'Making the document', 'Making the panel', 'Preparing the mail to send', 'Checking mail', 'Checking the calendar', 'Looking up the video',
   'Checking connected services', 'Looking it up', 'Looking through files', 'Writing files', 'Running it', 'Splitting up the work', 'Organizing to-dos',
   'Checking the process', 'Using a skill']
 export const toolPhase = (tool) => {
@@ -1760,10 +1772,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         files: chatFiles(sent),
         user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
         conversation_id: conv, stream: true,
-        metadata: { client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
+        metadata: agentMetadata({ client: 'pgpt-pro', style: isEn() ? 'English, concise, first person. Use a markdown "# Title" first line only for long structured documents.' : 'Korean 해요체, concise. Use a markdown "# 제목" first line only for long structured documents.',
           // (the language in every mode: a message that is only a link has none of its own — design turnplan §1.5)
           language: isEn() ? 'en' : 'ko',
-          ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents', ...(facts?.contexts?.length ? { contexts: facts.contexts } : {}) } : {}) },
+          // (the company's tools a person's turn must not use — its shared-account mail: lib/agentMeta.js, added last by agentMetadata)
+          ...(viaRouter ? { auto_route: true, route_text: text, agent: 'deepagents', ...(facts?.contexts?.length ? { contexts: facts.contexts } : {}) } : {}) }),
       }),
     })
   }
@@ -1883,6 +1896,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (j.type === 'process_result' && j.data?.processDefinition) processResult = j.data
       if (j.type === 'tool_start') {
         const tool = j.tool || j.tool_name || j.name || ''
+        // a tool Lite's turns must not get reached the agent anyway (a deepagents that does not read metadata.hidden_tools yet)
+        if (isHiddenTool(tool)) console.warn(`[delegate] hidden tool '${tool}' ran anyway user=${user.id.slice(0, 8)} — deepagents did not hide it`)
         usedTools.add(tool)
         inputs.set(tool, j.input ?? null)
         const entry = trail.add(tool, j.input, toolPhase(tool))

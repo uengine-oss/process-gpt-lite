@@ -28,6 +28,10 @@ update public.tenants
            'pgpt-improve', jsonb_build_object('url', 'http://server:8787/mcp/improve', 'type', 'streamable-http', 'enabled', true,
                'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}')),
            'pgpt-team', jsonb_build_object('url', 'http://server:8787/mcp/team', 'type', 'streamable-http', 'enabled', true,
-               'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}'))
+               'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}')),
+           -- 「내 계정으로 보내기」: a mail the agent writes goes out from the person's own mailbox after they press 보내기 on its card;
+           -- X-Conversation-Id ({{conversation_id}}, filled by deepagents) says which chat the card goes in
+           'pgpt-mail', jsonb_build_object('url', 'http://server:8787/mcp/mail', 'type', 'streamable-http', 'enabled', true,
+               'headers', jsonb_build_object('Authorization', 'Bearer {{user_jwt}}', 'X-Conversation-Id', '{{conversation_id}}'))
          ), true)
  where id = :'tenant';

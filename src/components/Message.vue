@@ -17,6 +17,7 @@ import TodoCard from './TodoCard.vue'
 import ProcessDraftCard from './ProcessDraftCard.vue'
 import SkillDraftCard from './SkillDraftCard.vue'
 import ChoiceCard from './ChoiceCard.vue'
+import MailOutCard from './MailOutCard.vue'
 // 팀원에게 물어 채우기: 「○○님께 메신저로 물어볼까요?」 and what came back (server lib/askTeammate.js)
 import AskTeamCard from './AskTeamCard.vue'
 import ShareButton from './team/ShareButton.vue'
@@ -300,6 +301,8 @@ onMounted(async () => {
     <!-- 「텔레그램으로 알려줘」 before a bot is connected: connect it right here (server lib/agent.js telegramTurn) -->
     <div v-else-if="msg.kind === 'telegram_connect'" class="tgc"><TelegramConnect :schedule-name="c.scheduleName || ''" /></div>
     <ChoiceCard v-else-if="msg.kind === 'choice'" :msg="msg" />
+    <!-- a mail the agent wrote for the person: it leaves from their own mailbox only when they press 보내기 (server lib/mailOut.js) -->
+    <MailOutCard v-else-if="msg.kind === 'mail_out'" :msg="msg" @connect="emit('connect')" />
     <!-- a value only a teammate knows: ask them on the messenger? — and their answer filling the draft (server lib/askTeammate.js) -->
     <AskTeamCard v-else-if="msg.kind === 'ask_team' || msg.kind === 'ask_team_reply'" :msg="msg" />
     <!-- a step run by a CLI agent on its assignee's computer (server lib/localAgents): the card follows the run -->

@@ -52,7 +52,19 @@ const long = computed(() => String(mail.value?.text || '').length > 600)
 const uploading = computed(() => added.value.some((f) => f.state === 'up'))
 // a file that did not upload is not left out without a word: it is taken off, or uploaded again
 const failedUpload = computed(() => added.value.some((f) => f.state === 'err'))
-const canSend = computed(() => draft.value && info.value?.mode !== 'none' && draft.value.to.trim() && draft.value.body.trim() && !sending.value && !uploading.value && !failedUpload.value)
+// a send that got no answer in time (server lib/mailReply.js sendUncertain): it may have left — 보내기 stays shut until the person checked
+// the Sent folder and said which (a second press would mail it twice)
+const unknown = ref(null)
+const canSend = computed(() => draft.value && info.value?.mode !== 'none' && !unknown.value && draft.value.to.trim() && draft.value.body.trim() && !sending.value && !uploading.value && !failedUpload.value)
+async function resolve(wasSent) {
+  sending.value = true; sendErr.value = ''
+  try {
+    await api(`/actions/${encodeURIComponent(id)}/reply/resolve`, { method: 'POST', body: { sent: wasSent } })
+    unknown.value = null
+    if (wasSent) sent.value = { to: draft.value?.to || '', subject: draft.value?.subject || '', via: 'checked' }
+  } catch (e) { sendErr.value = e.message }
+  sending.value = false
+}
 // 다시 쓰기 over the person's own changes asks once more first (the way 연결 끊기 does)
 const written = ref('')         // the draft as the model last wrote it
 const edited = computed(() => !!draft.value && JSON.stringify(draft.value) !== written.value)
@@ -225,6 +237,7 @@ onMounted(async () => {
     picked.value = info.value.files.map((f) => f.messageId)
     if (info.value.sent) sent.value = info.value.sent
     else if (info.value.reply) { draft.value = pick(info.value.reply); written.value = JSON.stringify(draft.value) }
+    if (info.value.unknown) unknown.value = info.value.unknown
     else if (replyCard.value) write()
   } catch (e) { loadErr.value = e.message }
 })
@@ -256,7 +269,10 @@ async function send() {
   try {
     const files = [...picked.value.map((messageId) => ({ messageId })), ...added.value.filter((f) => f.key).map((f) => ({ key: f.key, name: f.name }))]
     sent.value = (await app.sendReply(id, { ...draft.value, files })).sent
-  } catch (e) { sendErr.value = e.message }
+  } catch (e) {
+    sendErr.value = e.message
+    if (e.code === 'send_unknown') unknown.value = { at: new Date().toISOString() }
+  }
   sending.value = false
 }
 
@@ -502,7 +518,7 @@ function showFiles() {
           <section v-if="sent" class="done" data-test="mail-sent">
             <Icon name="check" :size="18" />
             <div>
-              <b>{{ sent.via === 'drafts' ? '임시 보관함에 넣었어요' : sent.via === 'demo' ? '기록했어요' : '답장을 보냈어요' }}</b>
+              <b>{{ sent.via === 'drafts' ? '임시 보관함에 넣었어요' : sent.via === 'demo' ? '기록했어요' : sent.via === 'checked' ? '보낸 편지함에서 확인했어요' : '답장을 보냈어요' }}</b>
               <small>{{ sent.to }} · {{ sent.subject }}</small>
               <small v-if="sent.via === 'drafts'">메일 앱의 임시 보관함에서 보내 주세요.</small>
               <small v-if="sent.via === 'demo'">데모 메일함이라 실제로 보내지 않았어요.</small>
@@ -535,6 +551,10 @@ function showFiles() {
               <p v-if="info.mode === 'none'" class="err">Gmail에서 메일 보내기를 허락받지 않았어요. 설정에서 메일을 다시 연결하면 여기서 보낼 수 있어요.</p>
               <p v-if="failedUpload" class="err" data-test="mail-upload-failed">올리지 못한 파일은 빼고 보내거나 다시 올려 주세요.</p>
               <p v-if="sendErr" class="err" data-test="mail-send-error">{{ sendErr }}</p>
+              <div v-if="unknown" class="row" data-test="mail-send-unknown">
+                <button class="pill-btn sm" :disabled="sending" data-test="mail-not-sent" @click="resolve(false)">보내지 못했어요</button>
+                <button class="dark-btn sm" :disabled="sending" data-test="mail-was-sent" @click="resolve(true)">보낸 편지함에 있어요</button>
+              </div>
               <div class="row">
                 <button class="pill-btn sm" :class="{ warn: sure }" :disabled="drafting || sending" data-test="mail-rewrite" @click="rewrite">{{ sure ? '한 번 더 누르면 새로 써요' : '다시 쓰기' }}</button>
                 <button class="dark-btn sm" :disabled="!canSend" data-test="mail-send" @click="send">

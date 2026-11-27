@@ -1833,6 +1833,38 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/ask-t
 | **PR #108 검토 2차**: 고침은 이 요청의 빈칸 표시를 빼야(남아 있으면) · 값이 둘레와 글자를 나눠 써도 받음 · C1 · 방향 표시 제거 · 정리는 맡은 회사만 · 오래된 것부터 · 데이터베이스 시각으로 다시 봄 · 다시 묻기가 남긴 카드는 다시 묻기로 · 「팀원에게 알려줘」 · 메일 받는 사람도 여럿이면 후보 · 제안 재사용 검사는 그 사람의 대화만 · 말로 한 답은 카드의 요청을 찾아 · 긴 값 경고 | 검토 11-27 2차 | AT-U-11 · AT-I-09 · 11 · 12 · F-AT-05 | 단위 · 통합 · feature | ✅ |
 | 실제 deepagents 가 초안을 쓰다 이 도구를 고르는지 · 운영 공통 MCP 목록의 `pgpt-team` | — | — | — | ✗ |
 
+### 74. 메일은 내 계정으로 · 받은 메일의 스레드 안에서 · 「보낼 메일」 카드에서 보내기를 눌러야 — 붙여 넣은 초안을 잊지 않는다 (스펙 `mail-reply-review` · `chat-thread-list` · `agent-tools`)
+
+운영 녹화 11-27 12:56 · 12:59: 붙여 둔 공유 폴더가 있는 채팅에서 답장 초안을 붙여 「…넣어서 보내」 → 그 폴더의 변경안 작업으로 빠짐 → 다음 말 「(고친 값)으로 해서 보내」가 초안을 보지 못함 → 다시 붙여 넣자 에이전트가 회사 메일 도구(`send_email`)로 회사 공용 발송 계정에서 새 메일로 보냄. 시험 파일이 자기 스택(회사 `mailout-ui`, BFF 8989 · Vite 5389 부터 빈 곳 — `RT_API_FROM` · `RT_WEB_FROM`)과 가짜 Gmail · 가짜 회사 SMTP · 가짜 deepagents(운영 에이전트처럼 `hidden_tools` 에 `send_email` 이 없으면 회사 SMTP 로 보내고, 있으면 Lite 의 `send_mail_as_me` 를 부름 — 대화마다 앞의 말을 기억) · 가짜 모델(59970 부터 — `RT_FAKE_FROM`)을 띄우고 지운다. 실제 메일 · 실제 모델은 부르지 않는다. 시험 계정 `pro-rt-ms-sender` · `pro-rt-ms-nomail`, 사람 · 회사는 지어낸 것.
+
+```bash
+cd server && node --test test/mailOut.integration.test.js test/mailReply.integration.test.js test/folderEditRead.test.js test/agentTools.test.js   # DB 20 · 11 · 6 · 이름 목록
+cd e2e && npx playwright test --project=feature tests/feature/mail-send-as-me.spec.js                              # F-MY-01~06
+# process-gpt-deepagents: uv run pytest tests/test_hidden_tools.py · process-gpt context-router: pytest tests/test_server.py
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 붙여 둔 폴더가 있어도 폴더와 상관없는 말(메일 보내기 · 붙여 넣은 글로 하는 일)은 판정 모델이 「그 밖의 일」로 읽으면 변경안 작업을 만들지 않고 지금 대화에서 답한다 · 다음 말은 같은 대화로 가서 붙여 넣은 초안을 본다 | 녹화 12:56 | F-MY-01 · `folderEditRead.test.js` | feature · 단위 | ✅ |
+| 폴더의 문서를 고치라는 말 · 판정을 받지 못한 말은 예전처럼 변경안 작업 | 회귀 | `folderEditRead.test.js` · F-FO(folders) | 단위 · feature | ✅ |
+| 한 말에는 에이전트 답 하나 · 카드 하나, 에이전트를 한 번만 부른다 | 녹화 12:56 | F-MY-02 | feature | ✅ |
+| 에이전트의 메일은 보내지 않고 「보낼 메일」 카드(보낸 사람 = 연결한 내 주소, 받는 사람, 제목, 스레드 「「원래 제목」에 이어서」, 본문, 첨부), 「보내기」를 눌러야 나간다 | 녹화 12:59 · D-1123-02 | F-MY-01 · `mailOut.integration.test.js` | feature · DB | ✅ |
+| 「보내기」 → 내 Gmail 에서 받은 메일의 스레드로(`threadId` · `In-Reply-To` · `References`), 한 번만(동시에 두 번 · 보낸 뒤 409), 그 메일의 Home 카드는 답한 것으로 | 녹화 12:59 | F-MY-03 · DB 「보내기」 · 「두 번 동시에」 | feature · DB | ✅ |
+| 회사 공용 발송 계정(SMTP)에는 아무것도 닿지 않고, Lite 의 요청은 `metadata.hidden_tools: ["send_email"]` · deepagents 는 그 요청에서 그 도구를 불러오지 않는다 | 녹화 12:59 | F-MY-03 · DB 「SMTP」 · deepagents `test_hidden_tools.py` | feature · DB · 단위 | ✅ |
+| 메일을 연결하지 않았으면 보내지 않음: 「메일을 연결하면 내 계정으로 보낼 수 있어요.」 · 「연결하기」(메일 연결 시트) · 「초안으로 두기」, 보내기 409 · Gmail 보내기 권한 없음 403 · IMAP 은 임시 보관함 | 브리프 2 | F-MY-04 · DB 「연결한 메일이 없으면」 · 「Gmail 이 보내기를 허락하지 않았으면」 | feature · DB | ✅ |
+| 같은 메일을 고쳐 다시 쓰면 앞의 카드는 「고친 초안이 아래에 있어요」, 다른 사람의 카드 404, Lite 에이전트 턴 밖에서는 카드를 띄우지 않음 | 설계 | DB | DB | ✅ |
+| 휴대폰 390 밝은 · 밤: 카드가 화면 안, 옆으로 넘치지 않음 | 브리프 시험 | F-MY-05 | feature | ✅ |
+| 카드는 부른 에이전트의 대화(`X-Conversation-Id`)로 찾고, 대화 id 없이 에이전트 작업이 둘이면 띄우지 않음 | 검토 #2 | DB 「부른 에이전트의 대화로」 | DB | ✅ |
+| 나가는 것은 저장되고 보인 그대로: 고침은 「저장」으로 먼저, 「보내기」는 확인 값만(받는 사람 · 본문은 요청에서 읽지 않음), 카드 · 보낸 메일함 · 첨부(저장 위치 · 크기)가 바뀌었거나 15분이 지나면 409 `stale` · 본문은 접지 않음 | 검토 #1 · #4 · 2차 #2 | F-MY-03 · DB 「저장된 카드 그대로」 · 「stale」 · 「다른 메일함 · 첨부가 바뀌었으면」 | feature · DB | ✅ |
+| 받는 사람도 메일 id 도 없으면 짐작하지 않음(스레드 없음 · 받는 사람 빈 카드 · 보내기 400) · 메일 id 면 Reply-To · Reply-To 다름 · 스레드 밖 받는 사람 알림 · 이미 답한 메일 409 | 검토 #3 · #8 | DB 「짐작하지 않는다」 · 「이미 답한 메일」 | DB | ✅ |
+| 첨부는 내가 올린 파일 · 그 메일의 초안만, 크기 · 출처, 같은 이름 둘이면 빼고 까닭 · 페이지가 싣는 파일도 자기 업로드만 | 검토 #4 · #9 | DB 「첨부는」 · 「페이지가 보낸 파일」 | DB | ✅ |
+| 제때 답이 없으면(시간 초과 · 504 · 보낸 뒤 끊김; 토큰 없음 · 연결 거부는 그냥 실패) 「보냈는지 확인하지 못했어요」 — 「보내기」 막음, 「보내지 못했어요」면 다시, 「보낸 편지함에 있어요」면 보낸 것으로 · 4xx · 그 밖의 5xx 는 나가지 않은 것 · 답장 시트도 같음 | 검토 #6 · 2차 #4 | F-MY-06 · DB 「확인하지 못했어요」 · 「보내기 전에 실패한 것」 · 답장 시트 「시간 초과」 | feature · DB | ✅ |
+| 같은 메일(제목 · 받는 사람 · 답하는 메일)만 「고친 초안이 아래에」, 빈 제목은 같은 메일로 보지 않음 | 검토 #7 | DB 「같은 메일을 고쳐」 | DB | ✅ |
+| 숨길 도구 · 서버는 한 곳에서 모든 에이전트 요청에, 서버 이름이 붙은 이름도, 환경 변수는 기본값에 더함(「-이름」은 뺌) · deepagents 는 서버째 숨김 · 요청이 끝나면 되돌림 | 검토 #5 · #12 | DB 「숨길 도구 · 서버」 · deepagents `test_hidden_tools.py` | DB · 단위 | ✅ |
+| 폴더 판정은 긴 말의 앞과 끝을 읽고 JSON 답은 몇 초만 기다림 | 검토 #10 | `folderEditRead.test.js` | 단위 | ✅ |
+| 대화에 머무는 말이 그 대화의 행(제목 · 요약 · 요지 · 종류)을 그 말로 덮지 않는다(답의 「↳ …」 가 앞의 말처럼 보이던 것) | 녹화 12:59 · 검토 #11 | context-router `test_server.py` | 단위(process-gpt) | ✅ |
+| 운영의 실제 Gmail 발송 · 실제 에이전트가 `send_mail_as_me` 를 고르는지(배포 뒤 시험 계정으로) | — | — | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

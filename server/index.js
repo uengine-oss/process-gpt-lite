@@ -65,6 +65,7 @@ import { startPlanSync } from './lib/plans/apply.js'
 import { startMeter } from './lib/plans/meter.js'
 import { telegramRoutes } from './routes/telegram.js'
 import { mailReplyRoutes } from './routes/mailReply.js'
+import { mailOutRoutes } from './routes/mailOut.js'
 import { mailAttachmentRoutes } from './routes/mailAttachments.js'
 import { savePrivateCard, saveKindOf } from './lib/mailAttachments.js'
 import { keepVersion, saveCardAs, savedCopyOk } from './lib/cardCopies.js'
@@ -76,6 +77,7 @@ import { signedIn, forget as forgetPerson } from './lib/people.js'
 import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
+import { mountMail } from './mcp/mail.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
 import { openFileCard } from './lib/fileCards.js'
@@ -103,7 +105,7 @@ import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { roomSeat } from './lib/folders/rooms.js'
 import { startSeatSweep } from './lib/folders/seats.js'
-import { saveAttachment } from './lib/attachments.js'
+import { saveAttachment, pageFiles } from './lib/attachments.js'
 import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L, isEn, asUser } from './lib/lang.js'
 import * as gconnect from './lib/googleConnect.js'
@@ -625,6 +627,8 @@ if (config.scenarios) {
 app.use('/api', telegramRoutes(auth))
 // a mail's Home card: the mail as it arrived, a reply draft, the send on 보내기 (routes/mailReply.js)
 app.use('/api', mailReplyRoutes(auth))
+// a mail the agent wrote for the person: its 「보낼 메일」 card, sent from their own mailbox on 보내기 (routes/mailOut.js)
+app.use('/api', mailOutRoutes(auth))
 // a mail's attachments: opened where they belong (IeumOffice · the viewer · a download) from a private copy, never a public address
 // (routes/mailAttachments.js)
 app.use('/api', mailAttachmentRoutes(auth))
@@ -640,6 +644,7 @@ mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
 mountFolders(app)
 mountImprove(app)
+mountMail(app)
 mountPanelApps(app)
 mountTeam(app)
 mountConnectors(app)
@@ -809,7 +814,7 @@ async function postMessage(req, res, t, clientId) {
   // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
   if (req.body?.agent && req.body.agent !== 'default') {
     const { send, end } = openStream(res)
-    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId })) }) } catch (e) {
+    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: pageFiles(req.user.id, req.body.files), refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId })) }) } catch (e) {
       if (!e.status || e.status >= 500) console.warn('[local-agents] chat send', e.message)
       await addMessage(req.user.id, t.id, 'agent', 'text', { text: L(`내 PC 에이전트로 보내지 못했어요 — ${e.message}`, `Could not send this to the agent on your PC — ${e.message}`), failed: true, localRefused: true }).catch(() => {})
       send('error', { message: e.message, status: e.status || 500 })
@@ -822,7 +827,7 @@ async function postMessage(req, res, t, clientId) {
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId, onDelta: (d) => send('delta', { d }),
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: pageFiles(req.user.id, req.body.files), conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId, onDelta: (d) => send('delta', { d }),
       // the draft answer turned out to be an interim text (a tool call followed it): the page clears the draft (lib/turnPlan.js)
       onRetract: () => send('retract', {}) })
     send('done', final)
