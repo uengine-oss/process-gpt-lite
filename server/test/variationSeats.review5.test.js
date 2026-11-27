@@ -40,7 +40,9 @@ const ago = (ms) => new Date(Date.now() - ms).toISOString()
 
 test('T-01 치우다 멈춘 서버의 .retiring 사본은 쓸기가 그 변형의 「따로 남긴 파일」로 남긴다 — 다른 서버가 작업 중인 사본은 둔다', { skip: !db && 'no database' }, async () => {
   const f0 = await S.createFolder(owner, { name: `멈춘 사본 ${crypto.randomBytes(3).toString('hex')}` })
-  await S.upload(f0, owner, '.gitignore', Buffer.from('*.env\n'))
+  // (the folder's own .gitignore — written in place and committed on main: an upload never takes one)
+  await fs.writeFile(path.join(f0.repo_path, '.gitignore'), '*.env\n')
+  await S.commitMain(f0, owner, '.gitignore')
   const f = await S.folderById(f0.id)
   const mkVar = (title) => S.createVariation(f, { title, kind: 'person', holder: { type: 'user', id: owner.id, name: owner.name }, createdBy: owner.id })
   const retiring = path.join(S.foldersRoot(), '.retiring')

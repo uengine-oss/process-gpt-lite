@@ -48,7 +48,8 @@ after(async () => {
 async function folderWith(label, gitignore = '') {
   const f = await S.createFolder(owner, { name: `${label} ${crypto.randomBytes(3).toString('hex')}` })
   await S.upload(f, owner, '안내문.md', Buffer.from('# 안내\n'))
-  if (gitignore) await S.upload(f, owner, '.gitignore', Buffer.from(gitignore))
+  // (the folder's own .gitignore — written in place and committed on main: an upload never takes one)
+  if (gitignore) { await fs.writeFile(path.join(f.repo_path, '.gitignore'), gitignore); await S.commitMain(f, owner, '.gitignore') }
   return S.folderById(f.id)
 }
 const personVar = (f, title = '내 작업') => S.createVariation(f, { title, kind: 'person', holder: { type: 'user', id: owner.id, name: owner.name }, createdBy: owner.id })

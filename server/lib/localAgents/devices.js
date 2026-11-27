@@ -49,6 +49,8 @@ export async function revoke(user, id) {
 // is that device's, of that folder — and for a push, still running there (offered · running). → null when it may, else why not.
 export async function gitAccess(claims, { push = false } = {}) {
   if (claims?.scope === 'sync') return syncAccess(claims, { push })
+  if (claims?.scope === 'seat') return seatAccess(claims, { push })
+  if (claims?.scope === 'left') return leftAccess(claims, { push })
   if (!/^[0-9a-f-]{36}$/i.test(String(claims?.device || '')) || !/^[0-9a-f-]{36}$/i.test(String(claims?.job || ''))) return 'not a desktop job token'
   const [d] = await q('select revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
   if (!d || d.revoked_at) return 'this desktop is not linked any more'
@@ -82,8 +84,8 @@ export async function syncAccess(claims, { push = false } = {}) {
   return null
 }
 
-// The same for a desktop's working-copy token (variation seats — folders/seats.js, spec variation-seats; the desktop's own working copy and
-// the git scope 'seat' come with its next version, design P1): one variation on one device at one epoch, checked on every request — the
+// The same for a desktop's working-copy token (variation seats — folders/seats.js · seatLink.js, spec variation-seats; desktop 0.2.7):
+// one variation on one device at one epoch, checked on every request — the
 // device is linked (not revoked), the variation's seat is that device's and still at the token's epoch (a push from an older epoch is
 // refused before git sees it), the folder is a managed one of the token's company, and the device's person holds at least runner in it.
 // → null when it may, else why not.
@@ -106,6 +108,51 @@ export async function seatAccess(claims, { push = false } = {}) {
   return null
 }
 
+// The same for a desktop's leftover token (scope 'left' — folders/seatLink.js): a computer that lost a variation's seat (taken while it was
+// off, put away meanwhile) brings back what it still had as a variation of its own, never into the variation itself. One push: the token
+// names a random `once` that a push which went through uses up (usedOnce). Checked on every request — the device is linked, the variation
+// is of the token's folder and company, the device's person is its holder or that device held its seat before (the seat log), the
+// folder is a managed one and the person holds at least runner in it. → null when it may, else why not.
+// The use is kept in the seat log too (action 'left-push', note 'once:<value>'): a server that restarted, or another process of it, refuses
+// the same token as well (review 11-26 #11); the memory only answers first.
+const usedOnce = new Map() // once → when it was used (kept past the token's hour)
+const ONCE_NOTE = (once) => `once:${String(once)}`
+export async function useOnce(claims, now = Date.now()) {
+  const once = claims?.once
+  if (!once) return
+  usedOnce.set(String(once), now)
+  if (usedOnce.size > 5000) for (const [k, t] of usedOnce) if (now - t > 2 * 3600_000) usedOnce.delete(k)
+  await q(`insert into pro_variation_seat_log (tenant_id, variation_id, folder_id, by_user, action, device_id, epoch, note)
+           select $1, $2::uuid, $3::uuid, (select user_id::text from pro_local_devices where id=$4::uuid), 'left-push', $4::uuid, $5, $6`,
+  [claims.tenant, claims.seat, claims.folder, claims.device, Number(claims.epoch) || 0, ONCE_NOTE(once)]).catch((e) => console.warn('[seats] once', e.message))
+}
+export async function onceUsed(claims) {
+  const once = String(claims?.once || '')
+  if (usedOnce.has(once)) return true
+  const [row] = await q(`select 1 from pro_variation_seat_log where variation_id=$1 and tenant_id=$2 and action='left-push' and note=$3 limit 1`, [claims.seat, claims.tenant, ONCE_NOTE(once)])
+    .catch((e) => { if (e.code === '42P01') return []; throw e })
+  return !!row
+}
+export async function leftAccess(claims, { push = false } = {}) {
+  if (claims?.scope !== 'left' || !/^[0-9a-f-]{36}$/i.test(String(claims?.device || '')) || !/^[0-9a-f-]{36}$/i.test(String(claims?.seat || '')) || !claims.once) return 'not a desktop leftover token'
+  if (await onceUsed(claims)) return 'this leftover token was used already'
+  const [d] = await q('select user_id, revoked_at from pro_local_devices where id=$1 and tenant_id=$2', [claims.device, claims.tenant])
+  if (!d || d.revoked_at) return 'this desktop is not linked any more'
+  const [f] = await q('select * from pro_folders where id=$1 and tenant_id=$2', [claims.folder, claims.tenant])
+  if (!f || f.kind !== 'managed') return 'this folder is not served over git'
+  const [v] = await q('select holder_type, holder_id from pro_folder_variations where id=$1 and folder_id=$2', [claims.seat, claims.folder])
+  if (!v) return 'this token is for another folder'
+  if (!(v.holder_type === 'user' && String(v.holder_id) === String(d.user_id))) {
+    const [had] = await q('select 1 from pro_variation_seat_log where variation_id=$1 and device_id=$2 and tenant_id=$3 limit 1', [claims.seat, claims.device, claims.tenant])
+      .catch((e) => { if (e.code === '42P01') return []; throw e })
+    if (!had) return 'this variation was never on this desktop'
+  }
+  const { roleOf, RANK } = await import('../folders/service.js')
+  const role = await roleOf(f, { id: String(d.user_id) })
+  if (!role || RANK[role] < RANK[push ? 'runner' : 'viewer']) return 'working on this folder needs the runner role'
+  return null
+}
+
 // what the desktop reported (hello / caps): kept for the settings screen and for dispatching; only the known keys, short strings
 export function capsOf(raw = {}) {
   const clis = {}
@@ -118,10 +165,12 @@ export function capsOf(raw = {}) {
   // (chat: it runs chat messages for its person's CLI — desktop 0.2.2, the composer's agent picker · browser: it has a browser the
   // server's browser agent can drive — desktop 0.2.3, lib/browserRemote.js)
   // (folders: it uploads folders its person picked — champion folders, desktop 0.2.5 · browserGuard: that browser keeps off the Lite app and
-  // marks its requests to it — desktop 0.2.6; browser tasks go only to such a desktop, lib/browserRemote.js browsesHere · leaveOffSettings:
-  // it runs a folder its person may not edit without that folder's own run settings — hooks · permissions · MCP servers, the desktop's runSettings.js)
+  // marks its requests to it — desktop 0.2.6; browser tasks go only to such a desktop, lib/browserRemote.js browsesHere · seats: it keeps
+  // working copies of variations — 「이 PC 에서 작업」, desktop 0.2.7, folders/seatLink.js · leaveOffSettings: it runs a folder its person
+  // may not edit without that folder's own run settings — hooks · permissions · MCP servers, the desktop's runSettings.js)
   return { clis, maxJobs: Math.max(1, Math.min(4, Number(raw?.maxJobs) || 2)), terminal: raw?.terminal === true, conversation: raw?.conversation === true, chat: raw?.chat === true,
-    browser: raw?.browser === true, browserGuard: raw?.browserGuard === true, folders: raw?.folders === true, leaveOffSettings: raw?.leaveOffSettings === true }
+    browser: raw?.browser === true, browserGuard: raw?.browserGuard === true, folders: raw?.folders === true, seats: raw?.seats === true,
+    leaveOffSettings: raw?.leaveOffSettings === true }
 }
 // browser: 「브라우저 작업은 내 PC에서」 — this PC's own setting (desktop 0.2.3): 'own' (the person's own tasks, the default) · 'all' (also tasks
 // nobody watches) · 'off' (lib/browserRemote.js routeOf)

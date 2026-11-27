@@ -13,6 +13,10 @@ import RefSheet from './RefSheet.vue'
 import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
 import SeatPill from './SeatPill.vue'
+// 「작업실」 — where to open it (variation seats P1): my variations of this folder (this PC in the desktop app, or the server workroom), a new
+// one, main for editors (SeatSheet); a variation whose working copy is on this very computer says 「이 PC 에서」 (src/desktopSeats.js)
+import SeatSheet from './SeatSheet.vue'
+import { bridge as seatBridge, pcSeatOf, refreshPcSeats } from '../../desktopSeats.js'
 // 에이전트 자산 · the computers that upload this folder (champion folders — src/desktopFolders.js, server lib/folders/kit.js · sources.js)
 import KitTab from './KitTab.vue'
 import { bridge as pcBridge, pcFolders, refreshPcFolders, pcFolderOf, stateText, stopped, whyText, reasonText } from '../../desktopFolders.js'
@@ -40,6 +44,10 @@ const showPast = ref(false)
 const picked = ref([])
 const merging = ref(null)       // {ids} or {integration}
 const sharing = ref(false)
+const choosing = ref(false)
+if (seatBridge()) refreshPcSeats()
+// commits only this PC had of a working copy of this folder that went (kept in the app 30 days — desktop runner/seats.js keepCommit): a line here
+const pcKept = ref([])
 const toast = ref('')
 const closed = ref(new Set())
 const uploading = ref('')
@@ -96,6 +104,7 @@ async function load() {
     folder.value = f; files.value = t; kit.value = k; refs.value = rs
     sources.value = f.settings?.champion ? await F.sources(props.slug).catch(() => []) : []
     if (pcBridge()?.list) refreshPcFolders()
+    if (seatBridge()?.kept) pcKept.value = await seatBridge().kept(f.id).catch(() => [])
     if (f.kind === 'skill') skill.value = await F.skillInfo(props.slug).catch(() => null)
     picked.value = picked.value.filter((id) => f.variations.some((v) => v.id === id && v.status === 'ready'))
     if (f.kind === 'linked' && !cand.value) cand.value = await F.candidates(props.slug).catch(() => null)
@@ -410,7 +419,7 @@ const ix = computed(() => folder.value?.index_state || {})
         </button>
  <button v-if="!isSkill" class="pill-btn hbtn" @click="sharing = true"><FIcon name="people" :size="16" /> 공유</button>
         <button v-if="mayTemplate && !tpl" class="pill-btn hbtn" data-test="folder-template-on" title="이 폴더에서 프로젝트를 시작할 수 있게 해요" @click="toggleTemplate"><FIcon name="branch" :size="16" /> 템플릿으로 지정</button>
-        <button v-if="can('editor') && folder.kind === 'managed'" class="pill-btn hbtn" title="main 을 작업실(파일·셸)에서 열기" @click="router.push(`/workroom/folder/${folder.slug}`)"><FIcon name="terminal" :size="16" /> 작업실</button>
+        <button v-if="can('runner') && folder.kind === 'managed'" class="pill-btn hbtn" data-test="folder-workroom" title="내 작업본 · main 을 어디서 열지 고르기" @click="choosing = true"><FIcon name="terminal" :size="16" /> 작업실</button>
       </div>
 
       <!-- a template: what it is for (TEMPLATE.md), where a project's outputs stay, and 「템플릿으로 시작」 -->
@@ -434,6 +443,10 @@ const ix = computed(() => folder.value?.index_state || {})
         <span class="pt"><b>이 PC 의 「{{ mine.label }}」 폴더와 연결됨</b><small class="meta"><span>{{ mine.why ? `멈춤 · ${whyText(mine.why)}` : stateText(mine.state) }}</span><span v-if="mine.lastPushedAt">{{ ago(mine.lastPushedAt) }} 올림</span></small></span>
         <button v-if="pcBridge()?.reveal" class="tb press" @click="revealPc">폴더 열기</button>
         <button class="tb press dk" data-test="folder-pc-sync-now" :disabled="!!syncing || mine.state === 'pushing'" @click="syncNow">{{ syncing === 'push' || mine.state === 'pushing' ? '올리는 중…' : '지금 올리기' }}</button>
+      </div>
+      <div v-if="pcKept.length" class="pcbar glass stop" data-test="folder-pc-kept" role="status">
+        <FIcon name="pc" :size="17" />
+        <span class="pt"><b>{{ `서버에 올라가지 않은 커밋 ${pcKept.length}개를 이 PC에 30일 동안 보관해요.` }}</b><small>이 폴더의 작업본 터미널에서 git log --glob=refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.</small></span>
       </div>
       <div v-if="isSkill && skill?.visibility === 'private' && skill?.mine" class="banner ask glass">
         <FIcon name="people" :size="18" />
@@ -577,7 +590,7 @@ const ix = computed(() => folder.value?.index_state || {})
                 <span class="vmeta">
                   <Avatar :who="whoOf({ id: v.holder_id, name: holderName(v), type: v.holder_type })" :size="20" /> {{ holderName(v) }}
                   <span class="src" :class="v.kind">{{ sourceLabel[v.kind] }}</span>
-                  <SeatPill v-if="v.seat && folder.kind === 'managed'" :seat="v.seat" compact />
+                  <SeatPill v-if="v.seat && folder.kind === 'managed'" :seat="v.seat" :here="v.seat.mine && v.seat.place === 'device' ? pcSeatOf(v.id) : null" compact />
                   <span class="ab" title="main 보다 앞선 커밋 / 뒤처진 커밋">↑{{ v.ahead }} ↓{{ v.behind }}</span>
                   <span class="when">{{ ago(v.updated_at) }}</span>
                 </span>
@@ -616,6 +629,7 @@ const ix = computed(() => folder.value?.index_state || {})
 
       <MergeSheet v-if="merging" :folder="folder" :ids="merging.ids" :integration="merging.integration" @close="merging = null; load()" @done="merged" />
       <ShareSheet v-if="sharing" :folder="folder" :pick="pickShare" @close="sharing = false; pickShare = ''; load()" />
+      <SeatSheet v-if="choosing" :slug="folder.slug" :folder-name="folder.name" @close="choosing = false; load()" />
       <FolderDropSheet v-if="dropSheet" :scan="dropSheet.scan" :rules="dropSheet.rules" mode="into" :folder="folder" @close="dropSheet = null" @done="dropDone" />
       <RefSheet v-if="addingRef" :folder="folder" :taken="[...refs.map((r) => r.label), ...refs.map((r) => r.slot)]" @close="addingRef = false" @added="refAdded" />
       <!-- the menus: beside their button on a wide screen, a sheet from the bottom on a phone -->

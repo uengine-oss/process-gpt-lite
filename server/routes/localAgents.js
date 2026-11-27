@@ -45,6 +45,8 @@ export function localAgentRoutes(auth) {
     const d = await D.revoke(req.user, req.params.id)
     if (!d) throw Object.assign(new Error(L('그 기기를 찾지 못했어요.', 'That device was not found.')), { status: 404 })
     H.closeDevice(T(), d.id)
+    // (its working copies of variations: their seats go — 보관 중 from what it last pushed; lib/folders/seatLink.js)
+    await import('../lib/folders/seatLink.js').then((m) => m.deviceGone(d.id, req.user.id)).catch((e) => console.warn('[seats] device gone', e.message))
     return d
   }))
   r.get('/local-agents/catalog', auth, h(async () => {
