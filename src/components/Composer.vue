@@ -116,7 +116,8 @@ const sendLast = computed(() => props.stoppable && !dictation)
 // ■ by the keyboard (Enter · Space — a click without a pointer): the focus goes back to the box, not lost with the button
 function stopTurn(e) {
   emit('stop')
-  if (e?.detail === 0) nextTick(() => ta.value?.focus())
+  // (not on a touch screen: a screen reader's activation also has detail 0, and focusing the box there opens the keyboard)
+  if (e?.detail === 0 && !coarse.value) nextTick(() => ta.value?.focus())
 }
 // (immediate: a request left before this composer was there — an open document's AI button on another page, OfficeSheet)
 watch(() => app.prefill, async (v) => {

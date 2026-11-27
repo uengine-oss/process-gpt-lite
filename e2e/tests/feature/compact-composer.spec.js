@@ -12,6 +12,7 @@
 //   F-CC-07 360px · 브라우저 작업 독이 있는 채로 일하는 동안 글을 친다 — 독 · 입력창 · 단추가 겹치지 않고 화면 안
 //   F-CC-08 위로 올려 읽던 사람의 자리는 줄이 접히고 펴져도 그대로
 //   F-CC-09 받아쓰기가 없는 브라우저: 글을 쳐도 ■ 는 제자리(보내기는 ■ 오른쪽)
+//   F-CC-10 화면 분할: 아무것도 입력하지 않을 때 화면이 낮아지면 새 기준 — 입력창을 눌러도 접지 않고, 그 뒤에 자판으로 더 낮아져야 접음
 // 자기 스택(lib/localStack.js: 회사 compact-ui 의 BFF + Vite, 8998 · 5398 부터 빈 포트 — RT_API_FROM · RT_WEB_FROM)을 띄우고 지운다.
 // 가짜 모델(8996)과 가짜 deepagents(8997 — 할 일을 쓰고 오래 조용함: 「멈추기」 전까지 턴이 이어짐)는 이 파일이 띄운다. 실제 모델 · 에이전트는 부르지 않는다.
 //   cd e2e && npx playwright test --project=feature tests/feature/compact-composer.spec.js
@@ -325,8 +326,9 @@ test('F-CC-03 390px · 기능 접근: 알약 → 진행 상황, 칩 → 에이�
   await stopBtn(p).evaluate((el) => { window.__names = []; new MutationObserver(() => window.__names.push(el.getAttribute('aria-label'))).observe(el, { attributes: true, attributeFilter: ['aria-label'] }) })
   const [res] = await Promise.all([p.waitForResponse((r) => r.url().includes(`/api/threads/${th}/stop`)), p.keyboard.press('Enter')])
   expect(res.status()).toBe(200)
-  // the focus goes back to the box, not lost with the button
-  await expect(composer(p).locator('textarea')).toBeFocused()
+  // a touch screen: the box does not take the focus back (that opens the keyboard — a screen reader's activation is a click without a
+  // pointer too); a mouse screen does (F-CC-04)
+  await expect(composer(p).locator('textarea')).not.toBeFocused()
   await expect(p.locator('.row.r-agent .bubble.agent').last()).toContainText('멈췄어요', { timeout: 10_000 })
   await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
   expect(await p.evaluate(() => window.__names)).toContain('멈추는 중')
@@ -389,6 +391,16 @@ test('F-CC-04 1280px · 알약만 입력창 위, 칩 · ■는 입력창 안, �
     await expect(pill(p)).toBeVisible()
     await expect(composer(p).locator('.agentrow [data-test="chat-agent"]')).toBeVisible()
     await noSideScroll(p)
+    // ■ by the keyboard on a mouse screen: the focus goes back to the box, not lost with the button
+    let reached = false
+    for (let i = 0; i < 6 && !reached; i++) {
+      await p.keyboard.press('Tab')
+      reached = await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === '답 멈추기')
+    }
+    expect(reached, 'Tab reaches 답 멈추기').toBe(true)
+    await p.keyboard.press('Enter')
+    await expect(composer(p).locator('textarea')).toBeFocused()
+    await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
     expect(p.errors).toEqual([])
     await p.context().close()
   }
@@ -576,6 +588,42 @@ test('F-CC-09 받아쓰기가 없는 브라우저 — 글을 입력해도 ■ �
   expect(Math.abs(s1.x - s0.x)).toBeLessThanOrEqual(1)
   expect((await bb(send)).x).toBeGreaterThanOrEqual(s1.x + s1.width - 0.5)
   await ta.fill('')
+  await stopBtn(p).tap()
+  await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CC-10 화면 분할 — 입력 중이 아닐 때 줄어든 화면 높이는 자판이 올라온 것으로 판단하지 않음: 입력창에 포커스만 두면 접히지 않고, 그 뒤 자판으로 높이가 더 줄어들면 접힘', async ({ browser }) => {
+  await seed(await clearMain())
+  const p = await open(browser, PHONE)
+  await run(p)
+  const ta = composer(p).locator('textarea')
+  await ta.blur()
+  await expect(pill(p)).toBeVisible()
+  // split screen (or leaving fullscreen): 844 → 520 with nothing focused — the new baseline, no keyboard
+  await p.setViewportSize({ width: 390, height: 520 })
+  await p.waitForTimeout(200)
+  await ta.tap()
+  await p.waitForTimeout(300)
+  await expect(ta).toBeFocused()
+  await expect(composer(p)).toHaveAttribute('data-folded', 'no')
+  await expect(pill(p)).toBeVisible()
+  // the keyboard comes up in the half screen (520 → 320, the box focused): now it folds
+  await p.setViewportSize({ width: 390, height: 320 })
+  await expect(composer(p)).toHaveAttribute('data-folded', 'yes')
+  await expect(pill(p)).toBeHidden()
+  await expect(stopBtn(p)).toBeVisible()
+  // the keyboard goes (the box still focused): back
+  await p.setViewportSize({ width: 390, height: 520 })
+  await expect(composer(p)).toHaveAttribute('data-folded', 'no')
+  // the whole screen again with nothing focused (split screen closed): no keyboard read into it either way
+  await ta.blur()
+  await p.setViewportSize({ width: 390, height: 844 })
+  await ta.tap()
+  await p.waitForTimeout(300)
+  await expect(composer(p)).toHaveAttribute('data-folded', 'no')
+  await ta.blur()
   await stopBtn(p).tap()
   await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
   expect(p.errors).toEqual([])

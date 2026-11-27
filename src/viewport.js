@@ -19,16 +19,25 @@ coarseMq?.addEventListener?.('change', (e) => { coarse.value = e.matches })
 const KB_MIN = 120
 const vv = window.visualViewport
 const seenH = () => Math.round(vv ? vv.height * (vv.scale || 1) : window.innerHeight)
-let tallW = window.innerWidth
+// the page's own width, not the visual viewport's (iOS zooms the page when a small field gets focus — that is not a new width)
+const seenW = () => document.documentElement.clientWidth || window.innerWidth
+// with nothing editable focused no keyboard is up: whatever is visible then is the baseline (split screen, leaving fullscreen,
+// a turn while typing — every height change without a keyboard resets it instead of reading as one)
+const editing = () => {
+  const a = document.activeElement
+  return !!a && (a.isContentEditable || /^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName))
+}
+let tallW = seenW()
 let tallH = seenH()
 export const keyboardUp = ref(false)
 function onViewport() {
-  const w = window.innerWidth, h = seenH()
-  if (w !== tallW) { tallW = w; tallH = h } else tallH = Math.max(tallH, h)
+  const w = seenW(), h = seenH()
+  if (w !== tallW || !editing()) { tallW = w; tallH = h } else tallH = Math.max(tallH, h)
   keyboardUp.value = tallH - h > Math.max(KB_MIN, tallH * 0.18)
 }
 vv?.addEventListener('resize', onViewport)
 window.addEventListener('resize', onViewport)
+document.addEventListener('focusout', () => setTimeout(onViewport, 0))
 // a page wide enough for a left column beside the chat (Home's dock, the project · routine · thread lists); narrower, a list is a page
 // of its own over the chat
 export const wideLayout = computed(() => pageW.value > 1000)
