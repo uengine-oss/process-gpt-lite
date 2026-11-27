@@ -22,7 +22,16 @@
 // one — FileView), a function gives where the newest version is ({last}) → {url, name} (a private card's signed address — OfficeSheet).
 // `saveCheck` (OfficeSheet): after the editor's own upload, whether the save also landed where the card keeps it (the folder's commit, my
 // private card) → {ok} | {ok: false, why}; when it did not, the download is not called 「방금 저장한 판」 — the last saved version is offered.
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+// A document the person saves (not autoSave — a chat's document): the bar says how its save went (src/officeSave.js saveBadge) — 「저장 안 됨」,
+// 「저장하는 중…」, 「저장했어요 · 10:42」 or 「저장하지 못했어요 · 다시 시도」 (never 「저장 중…」 for good: SAVE_WAIT_MS). The frame sees the
+// editor's own 저장 (its button, ⌘S) and the answer (saved, save-failed). 2026-11-27 production: the editor's connection to its host
+// (/office/__ipc, one WebSocket) is closed by Cloudflare after ~100 s with nothing on it, and the editor's page then sends its save into
+// the closed socket, unanswered — 「저장 중…」 for good. The frame keeps the connection busy (KEEPALIVE_MS: the page's 'context' message,
+// which the page passes on to the host), and when it closes anyway (the page says 'closed') a save fails at once and the bar offers
+// 다시 열기. `saveAs` (OfficeSheet, a chat's own card): the editor's 「다른 이름으로 저장」 asks the sheet, which names the copy; without
+// it the editor's 「다른 이름으로 저장」 is hidden (the web host cancels every file dialog: it did nothing). ask(): the frame's own question
+// over the document (askPerson — exposed as ask; the sheet's close asks 「저장하고 닫기 · 저장하지 않고 닫기 · 취소」 with it).
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 import ShareButton from './team/ShareButton.vue'
 import DownloadButton from './DownloadButton.vue'
@@ -33,6 +42,7 @@ import { kindOf, kindLabel } from '../artifacts.js'
 import { openLiveLink } from '../liveLink.js'
 import { watchEdits, pressSave } from '../officeAutosave.js'
 import { installSheetTouchPan } from '../officeTouchPan.js'
+import { KEEPALIVE_MS, SAVE_WAIT_MS, saveBadge } from '../officeSave.js'
 
 const props = defineProps({
   fileUrl: { type: String, default: '' },
@@ -46,10 +56,12 @@ const props = defineProps({
   quietSave: { type: Boolean, default: false },
   // 「내려받기」 in the bar: true, false (the host has its own), or ({last}) → {url, name} — where the newest version is
   download: { type: [Boolean, Function], default: true },
-  // () → {ok} | {ok: false, why}: the host's own step after a save (see above)
+  // () → {ok, where?} | {ok: false, why}: the host's own step after a save (see above); where: where the save went, said with 「저장했어요」
   saveCheck: { type: Function, default: null },
+  // () → void: the editor's 「다른 이름으로 저장」 (see above); null hides it
+  saveAs: { type: Function, default: null },
 })
-const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited', 'selection'])
+const emit = defineEmits(['ready', 'saved', 'error', 'agent', 'update:maximized', 'close', 'live', 'linkfail', 'assistant', 'mention', 'edited', 'selection', 'gone'])
 
 const root = ref(null)
 const frame = ref(null)
@@ -271,26 +283,124 @@ function idleSave() {
   saveNow()
 }
 // press 저장 and wait for the editor's answer: {saved, url?} | {saved:false, error|timeout}
-// (any: a document that does not save by itself — 「내려받기」 asks for its edits to be saved first)
-function saveNow(timeoutMs = 25000, { any = false } = {}) {
+// (any: a document that does not save by itself — 「내려받기」, closing, 다시 시도 and 「다른 이름으로 저장」 ask for its edits to be saved;
+// force: also when the editor's 저장 says there is nothing new — a retry after its upload failed)
+function saveNow(timeoutMs = 25000, { any = false, force = false } = {}) {
   if ((!props.autoSave && !any) || props.readOnly || !frame.value) return Promise.resolve({ saved: false })
-  if (inFlight) return inFlight.then(() => (edited.value || agentEdits.value ? saveNow(timeoutMs, { any }) : { saved: true }))
+  // (the editor's connection is gone: its save would never be answered)
+  if (gone.value) { failSave(GONE); return Promise.resolve({ saved: false, error: GONE }) }
+  if (inFlight) return inFlight.then(() => (edited.value || agentEdits.value ? saveNow(timeoutMs, { any, force }) : { saved: true }))
   clearTimeout(idleTimer)
   const seq = editSeq
   const aseq = agentSeq
   saving.value = true
+  if (!props.autoSave) { clearTimeout(pressTimer); saveState.value = { kind: 'saving' } }
   inFlight = new Promise((resolve) => {
     const t = setTimeout(() => done({ saved: false, timeout: true }), timeoutMs)
     function done(r) {
       clearTimeout(t); settle = null; inFlight = null; saving.value = false
       if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
       if (r.saved && agentSeq === aseq) agentEdits.value = false
+      if (!r.saved) failSave(r.timeout ? `편집기가 ${Math.round(timeoutMs / 1000)}초 안에 저장을 마치지 못했어요` : r.error || '')
       resolve(r)
     }
     settle = done
-    if (!pressSave(frame.value)) done({ saved: false, error: '편집기가 열려 있지 않아요' })
+    if (!pressSave(frame.value, { force })) done({ saved: false, error: '편집기가 열려 있지 않아요' })
   })
   return inFlight
+}
+
+// ---- the person's own 저장 (a document that does not save by itself): what the bar says ----
+const GONE = '편집기와 연결이 끊겼어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요'
+// the editor's connection to its host closed (the page said 'closed'): nothing it does is saved any more
+const gone = ref(false)
+const saveState = ref({ kind: 'idle' }) // {kind: 'idle'|'saving'|'saved'|'failed', at?, why?, where?}
+let pressTimer = null
+const badge = computed(() => {
+  if (props.readOnly) return null
+  if (gone.value) return saveBadge({}, { gone: true })
+  return props.autoSave ? null : saveBadge(saveState.value, { edited: edited.value || agentEdits.value })
+})
+// the person pressed the editor's 저장 (its button or ⌘S): the answer is awaited (the frame's own saves wait in saveNow)
+function pressed() {
+  if (props.readOnly || props.autoSave || inFlight) return
+  if (gone.value) return failSave(GONE)
+  // nothing new: the editor writes nothing and says nothing
+  if (!edited.value && !agentEdits.value) return
+  saveState.value = { kind: 'saving' }
+  clearTimeout(pressTimer)
+  pressTimer = setTimeout(() => failSave(`편집기가 ${Math.round(SAVE_WAIT_MS / 1000)}초 안에 저장을 마치지 못했어요`), SAVE_WAIT_MS)
+}
+function failSave(why) {
+  clearTimeout(pressTimer); pressTimer = null
+  if (props.autoSave || props.readOnly) return
+  saveState.value = { kind: 'failed', why: String(why || '') }
+  show('error', `저장하지 못했어요${why ? ` — ${why}` : ''}`, 10000)
+}
+// the editor saved: the host's own step (the chat card, the folder's commit) decides whether it is saved
+async function afterSave(url) {
+  clearTimeout(pressTimer); pressTimer = null
+  if (props.autoSave || props.readOnly) return
+  saveState.value = { kind: 'saving' }
+  const c = props.saveCheck ? await props.saveCheck().catch((e) => ({ ok: false, why: e?.message || '' })) : { ok: true }
+  if (!c?.ok) return failSave(c?.why || '')
+  saveState.value = { kind: 'saved', at: Date.now(), where: c.where || '' }
+  if (!props.quietSave) show('success', c.where ? `저장했어요 · ${c.where}` : url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.', 4000)
+}
+// 「저장하지 못했어요 · 다시 시도」 · 「연결 끊김 · 다시 열기」
+async function badgeAction() {
+  const a = badge.value?.action
+  if (a === 'reopen') return reopen()
+  if (a !== 'retry') return
+  // the editor's copy went up, the host's own step did not: that step again
+  if (!edited.value && !agentEdits.value && lastSaved) return afterSave(lastSaved)
+  await saveNow(SAVE_WAIT_MS, { any: true, force: true })
+}
+// a new connection: the editor opens the version saved last (edits not saved in this one are lost — asked first)
+async function reopen() {
+  if (edited.value || agentEdits.value) {
+    const a = await askPerson({ title: '편집기를 다시 열까요?', text: '편집기와 연결이 끊겨 이 문서는 지금 저장할 수 없어요. 다시 열면 마지막으로 저장한 버전이 열리고, 저장하지 않은 내용은 사라져요. 필요한 부분은 먼저 복사해 두세요.',
+      buttons: [{ id: 'reopen', label: '다시 열기', kind: 'danger' }, { id: 'cancel', label: '취소' }], cancel: 'cancel' })
+    if (a.id !== 'reopen') return
+  }
+  // (a new frame: the same address would not load the page again)
+  frameSrc.value = ''
+  await nextTick()
+  load()
+}
+// the connection kept busy: the page passes 'context' on to the host — the same context again (nothing changes there)
+let keepTimer = null
+function keepAlive() {
+  clearInterval(keepTimer)
+  keepTimer = setInterval(() => { if (ready && !gone.value) post({ type: 'context', context: props.context ? JSON.parse(JSON.stringify(props.context)) : null }) }, KEEPALIVE_MS)
+}
+const stopKeepAlive = () => { clearInterval(keepTimer); keepTimer = null }
+
+// ---- the frame's own question over the document: askPerson({title, text, input?, buttons: [{id, label, kind}], cancel}) → {id, value} ----
+const askBox = ref(null)
+const askInput = ref(null)
+function askPerson({ title, text = '', input = null, buttons, cancel = 'cancel' }) {
+  answer(askBox.value?.cancel)
+  return new Promise((resolve) => {
+    askBox.value = { title, text, input, value: input ?? '', buttons, cancel, resolve }
+    nextTick(() => {
+      const el = askInput.value
+      if (el) { el.focus(); const dot = el.value.lastIndexOf('.'); el.setSelectionRange(0, dot > 0 ? dot : el.value.length) }
+      else root.value?.querySelector('.ask-b button')?.focus()
+    })
+  })
+}
+function answer(id) {
+  const b = askBox.value
+  if (!b) return
+  askBox.value = null
+  b.resolve({ id: id ?? b.cancel, value: b.value })
+}
+// the editor's 「다른 이름으로 저장」: the sheet names the copy; elsewhere it is not offered (hidden — this is a press that got through)
+function onSaveAs() {
+  if (props.readOnly) return
+  if (props.saveAs) return props.saveAs()
+  show('info', '이 문서는 여기서 다른 이름으로 저장할 수 없어요 — 「내려받기」로 받아 두세요.', 6000)
 }
 // before the sheet closes: save what is left; {clean:true} when there was nothing to save
 async function flush(timeoutMs) {
@@ -324,24 +434,32 @@ async function downloadSource({ last = false } = {}) {
   return { url: lastSaved || props.fileUrl, name: props.name }
 }
 const onHide = () => { if (document.visibilityState === 'hidden' && edited.value && !inFlight) saveNow() }
-const onLeave = (e) => { if (props.autoSave && (edited.value || inFlight)) { e.preventDefault(); e.returnValue = '' } }
+// leaving the page with edits not saved (any editable document — a chat's one is saved only by 저장): the browser asks first
+const onLeave = (e) => { if (!props.readOnly && (edited.value || agentEdits.value || inFlight)) { e.preventDefault(); e.returnValue = '' } }
 function startWatching() {
   unwatch?.()
-  unwatch = watchEdits(frame.value, onEdit)
-  // the editor's own 자동 저장 switch (off on the web host) would contradict the bar's 자동 저장
+  unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs })
   const doc = frame.value?.contentDocument
-  if (props.autoSave && doc?.head && !doc.getElementById('pgpt-autosave')) {
-    const st = doc.createElement('style')
-    st.id = 'pgpt-autosave'
-    st.textContent = '.autosave-toggle { display: none !important; }'
-    doc.head.appendChild(st)
-  }
+  if (!doc?.head || doc.getElementById('pgpt-autosave')) return
+  const rules = []
+  // the editor's own 자동 저장 switch (off on the web host) would contradict the bar's 자동 저장
+  if (props.autoSave) rules.push('.autosave-toggle { display: none !important; }')
+  // 다른 이름으로 저장 only where the sheet can name the copy (the web host cancels the editor's own file dialog)
+  if (!props.saveAs) rules.push('.qa-save-as { display: none !important; }')
+  const st = doc.createElement('style')
+  st.id = 'pgpt-autosave'
+  st.textContent = rules.join('\n')
+  doc.head.appendChild(st)
 }
 
 defineExpose({
   flush,
   edited,
   saving,
+  agentEdits,
+  gone,
+  saveNow,
+  ask: askPerson,
   editor,
   reconnect,
   canPictures: (ed = editor()) => ed === 'hwp' || (ed === 'docs' && editor() === 'docs' && pagePictures.value),
@@ -353,6 +471,9 @@ async function load() {
   stopLive()
   unwatch?.(); unwatch = null; clearTimeout(idleTimer); edited.value = false; hinted = false; agentEdits.value = false; lastSaved = ''
   ready = false
+  stopKeepAlive(); gone.value = false; clearTimeout(pressTimer); pressTimer = null; saveState.value = { kind: 'idle' }; answer()
+  // (a save of the page being replaced is not this one's)
+  settle?.({ saved: false, error: '문서를 다시 열었어요' })
   pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
@@ -392,9 +513,21 @@ function onMessage(event) {
   if (!isOfficeEditorMessage(event, frame.value?.contentWindow)) return
   const m = event.data
   if (m.type === 'ready') {
-    ready = true; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly || props.autoSave) hideAiDock(); startLive(); startWatching()
-    dressEditor(); syncSoon()
+    ready = true; gone.value = false; sendContext(); emit('ready'); if (editor() === 'hwp') foldHwpWhenReady(); if (props.readOnly || props.autoSave) hideAiDock(); startLive(); startWatching()
+    dressEditor(); syncSoon(); keepAlive()
     if (deck.value && !deckTimer) deckTimer = setInterval(readDeck, 600)
+  }
+  // the editor's connection to its host closed (production: Cloudflare ends one idle for ~100 s; a host restart, the network):
+  // whatever the page sends now is dropped unanswered — a save waiting fails at once, and the bar says so (그 앞의 'closed' of a
+  // page being replaced is not this page's: ready is false until the new page's 'ready')
+  else if (m.type === 'closed') {
+    if (!ready || gone.value) return
+    gone.value = true; stopKeepAlive()
+    const waiting = !!settle || !!pressTimer
+    if (settle) settle({ saved: false, error: GONE })
+    else if (pressTimer) failSave(GONE)
+    if (!props.readOnly && (props.autoSave || !waiting)) show('error', edited.value || agentEdits.value ? '편집기와 연결이 끊겨 지금은 저장할 수 없어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요.' : '편집기와 연결이 끊겼어요 — 「다시 열기」로 다시 열어 주세요.', 12000)
+    emit('gone')
   }
   else if (m.type === 'assistant') emit('assistant', { label: m.label || '', prompt: m.prompt || null, selection: m.selection || '' })
   else if (m.type === 'mention' && m.mention) emit('mention', { ...m.mention, file: props.name })
@@ -411,11 +544,12 @@ function onMessage(event) {
     if (m.url) { savedUrls.add(m.url); lastSaved = m.url }
     if (!settle) agentEdits.value = false
     if (m.name) link?.rename(m.name)
-    if (!props.autoSave && !props.quietSave) show('success', m.url ? '저장했어요. 편집본이 원본 옆에 올라갔어요.' : '저장했어요.')
     // saved by the editor's own 저장 too: everything up to now is in
     if (settle) settle({ saved: true, url: m.url || '' })
     else if (edited.value) { edited.value = false; emit('edited', false) }
     emit('saved', { url: m.url || '', name: m.name || props.name })
+    // (after the host heard it: its own step — the card, the folder — is part of 「저장했어요」)
+    afterSave(m.url || '')
   } else if (m.type === 'agent') {
     const label = { write: '내용을 쓰는 중', replace: '내용을 바꾸는 중', ops: '서식·구조를 고치는 중', save: '저장했어요' }[m.action]
     show('agent', `에이전트가 ${label || '작업하는 중'}${m.text ? ` · ${m.text}` : ''}`)
@@ -424,7 +558,14 @@ function onMessage(event) {
     clearTimeout(busyTimer)
     busyTimer = setTimeout(() => (busy.value = false), 4000)
     emit('agent', m)
-  } else if (m.type === 'save-failed') { settle?.({ saved: false, error: m.error || '' }); show('error', `저장한 문서를 올리지 못했어요: ${m.error || ''}`); emit('error', m.error) }
+  } else if (m.type === 'save-failed') {
+    const why = `편집기가 문서를 올리지 못했어요${m.error ? ` (${m.error})` : ''}`
+    if (props.autoSave || props.readOnly) show('error', `저장한 문서를 올리지 못했어요: ${m.error || ''}`)
+    // (a save the frame asked for — 「내려받기」, closing — says the editor's own words in its own sentence)
+    if (settle) settle({ saved: false, error: m.error || '' })
+    else failSave(why)
+    emit('error', m.error)
+  }
   else if (m.type === 'error') { opened(); show('error', `문서를 열지 못했어요: ${m.error || ''}`); emit('error', m.error) }
 }
 async function toggleFullscreen() {
@@ -447,6 +588,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive()
   document.removeEventListener('visibilitychange', onHide); window.removeEventListener('beforeunload', onLeave); unwatch?.(); clearTimeout(idleTimer); opened()
   coarseMq?.removeEventListener?.('change', onCoarse); boxObserver?.disconnect(); stopDeck()
+  stopKeepAlive(); clearTimeout(pressTimer); answer()
 })
 </script>
 
@@ -456,6 +598,9 @@ onBeforeUnmount(() => {
       <span class="fmt" :class="kindOf(name)">{{ kindLabel[kindOf(name)] || 'DOC' }}</span>
       <span class="name">{{ name || '문서' }}</span>
       <span v-if="readOnly" class="badge ro">보기 전용</span>
+      <!-- how the person's save went (src/officeSave.js saveBadge): 저장 안 됨 · 저장하는 중… · 저장했어요 · 10:42 · 저장하지 못했어요 · 다시 시도 · 연결 끊김 -->
+      <button v-else-if="badge" class="badge sv press" :class="badge.kind" data-testid="oef-save" :data-state="badge.kind" :title="badge.title" :aria-label="badge.title"
+        :disabled="!badge.action" aria-live="polite" @click="badgeAction"><i /><span class="t-long">{{ badge.text }}</span><span class="t-short">{{ badge.short }}</span></button>
       <span v-else-if="autoSave" class="badge auto" :class="{ on: saving || edited }" :title="saving ? '저장하는 중' : edited ? '잠시 뒤 저장해요' : '고친 내용은 저절로 저장돼요'">{{ saving ? '저장하는 중…' : edited ? '고치는 중' : '자동 저장' }}</span>
       <span v-if="live" class="badge live" :class="{ busy }" title="대화창에 적은 수정안이 이 문서에 바로 적용돼요"><i /><span class="t">{{ busy ? 'AI가 고치는 중' : '대화와 연결됨' }}</span></span>
       <button v-else-if="relinking" class="badge relink press" data-testid="oef-relinking" title="대화와의 연결이 잠깐 끊겨 다시 잇는 중이에요 — 저절로 이어져요 · 눌러서 지금 다시 연결" @click="reconnect"><i /><span class="t">다시 연결하는 중…</span></button>
@@ -494,8 +639,20 @@ onBeforeUnmount(() => {
         :disabled="slidePos.cur >= slidePos.total" @click="goSlide(1)"><Icon name="chevron" :size="22" /></button>
     </template>
     <Transition name="fade">
-      <div v-if="notice" class="notice" :class="notice.kind">{{ notice.text }}</div>
+      <div v-if="notice" class="notice" :class="notice.kind" data-testid="oef-notice" role="status">{{ notice.text }}</div>
     </Transition>
+    <!-- the frame's own question over the document (closing with edits not saved, 다른 이름으로 저장, 다시 열기) -->
+    <div v-if="askBox" class="ask-veil" data-testid="oef-ask" @click.self="answer(askBox.cancel)" @keydown.esc.prevent="answer(askBox.cancel)">
+      <div class="ask" role="alertdialog" aria-modal="true" :aria-label="askBox.title">
+        <b class="ask-t">{{ askBox.title }}</b>
+        <p v-if="askBox.text" class="ask-p">{{ askBox.text }}</p>
+        <input v-if="askBox.input != null" ref="askInput" v-model="askBox.value" class="ask-in" data-testid="oef-ask-name" :aria-label="askBox.title" spellcheck="false"
+          @keydown.enter.prevent="answer(askBox.buttons[0].id)" />
+        <div class="ask-b">
+          <button v-for="b in askBox.buttons" :key="b.id" class="press" :class="b.kind" :data-testid="`oef-ask-${b.id}`" @click="answer(b.id)">{{ b.label }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -517,7 +674,7 @@ onBeforeUnmount(() => {
 @media (max-width: 700px) { .ieum { display: none; } }
 /* a phone-wide sheet: the close button must stay in sight — size buttons go (the sheet is already the whole width), labels fold to icons */
 /* (the live state stays, as its dot alone) */
-@container (max-width: 520px) { .bar .opt, .bar .lb, .bar .badge:not(.live):not(.off):not(.relink):not(.ro):not(.auto), .bar .badge .t { display: none; } .bar .badge.live, .bar .badge.off, .bar .badge.relink { padding: 0; width: 22px; height: 22px; justify-content: center; } .bar { gap: 2px; padding: 0 4px 0 10px; } .bar .tb { padding: 0 8px; } .bar .tb.ic { padding: 0; } }
+@container (max-width: 520px) { .bar .opt, .bar .lb, .bar .badge:not(.live):not(.off):not(.relink):not(.ro):not(.auto):not(.sv), .bar .badge .t { display: none; } .bar .badge.live, .bar .badge.off, .bar .badge.relink { padding: 0; width: 22px; height: 22px; justify-content: center; } .bar { gap: 2px; padding: 0 4px 0 10px; } .bar .tb { padding: 0 8px; } .bar .tb.ic { padding: 0; } }
 .badge { padding: 1px 8px; border-radius: 10px; background: rgba(42, 120, 214, .12); color: #2a78d6; font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
 .badge.live { display: inline-flex; align-items: center; gap: 6px; background: rgba(40, 160, 90, .12); color: #1e8a4c; }
 .badge.live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -557,6 +714,32 @@ onBeforeUnmount(() => {
 .badge.ro { background: #eceff1; color: #455a64; font-weight: 600; }
 .badge.auto { background: rgba(40, 160, 90, .1); color: #1e8a4c; }
 .badge.auto.on { background: rgba(230, 150, 20, .14); color: #a86400; }
+/* the person's save (src/officeSave.js): its dot and words; a failure and a lost connection are buttons */
+.badge.sv { display: inline-flex; align-items: center; gap: 5px; height: 20px; border: 0; font: inherit; font-size: 11px; line-height: 1; cursor: default; }
+.badge.sv i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.badge.sv .t-short { display: none; }
+.badge.sv.edited { background: rgba(230, 150, 20, .14); color: #8a5300; }
+.badge.sv.saving { background: rgba(42, 120, 214, .12); color: #1f63b5; }
+.badge.sv.saving i { animation: livepulse 1s ease-in-out infinite; }
+.badge.sv.saved { background: rgba(40, 160, 90, .12); color: #1e7a45; }
+.badge.sv.failed, .badge.sv.gone { background: rgba(200, 60, 50, .12); color: #b3261e; cursor: pointer; font-weight: 600; }
+.badge.sv:disabled { opacity: 1; }
+/* the bar beside the chat (~860–960px on a laptop) holds the name, the badges and eight buttons: there the badge says it short, and the
+   pointing · ribbon buttons keep their icons only, so the name keeps its room and 닫기 stays in sight (their titles say what they are) */
+@container (max-width: 1000px) { .badge.sv .t-long { display: none; } .badge.sv .t-short { display: inline; } }
+@container (max-width: 960px) { .bar:has(.badge.sv) .lb { display: none; } }
+@container (max-width: 800px) { .bar:has(.badge.sv) .ieum { display: none; } }
+/* the frame's question: over the document, the bar stays (fixed light colours, as the bar) */
+.ask-veil { position: absolute; left: 0; right: 0; top: 44px; bottom: 0; z-index: 7; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(20, 24, 32, .3); }
+.ask { width: min(440px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 18px 18px 14px; border-radius: 16px; background: #fff; color: #1d1d1f; box-shadow: 0 18px 50px rgba(0, 0, 0, .3); }
+.ask-t { font-size: 15px; }
+.ask-p { margin: 0; font-size: 13.5px; line-height: 1.55; color: #3c4043; }
+.ask-in { height: 38px; padding: 0 10px; border: 1px solid rgba(0, 0, 0, .22); border-radius: 9px; font: inherit; font-size: 14px; color: #1d1d1f; background: #fff; }
+.ask-in:focus { outline: 2px solid #2a78d6; outline-offset: 0; }
+.ask-b { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.ask-b button { height: 34px; padding: 0 14px; border: 0; border-radius: 17px; font: inherit; font-size: 13.5px; color: #1d1d1f; background: rgba(0, 0, 0, .07); cursor: pointer; }
+.ask-b button.primary { background: #2a78d6; color: #fff; font-weight: 600; }
+.ask-b button.danger { background: rgba(200, 60, 50, .12); color: #b3261e; font-weight: 600; }
 .fade-enter-active, .fade-leave-active { transition: opacity .2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

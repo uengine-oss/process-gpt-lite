@@ -17,14 +17,35 @@ export function editingKey(e) {
 // the editor's own 저장 in its quick-access bar ("저장 (⌘S)" · "Save (Ctrl+S)"), never 다른 이름으로 저장
 export function saveButton(doc) {
   for (const b of doc?.querySelectorAll?.('.qa-btn') || []) {
-    const label = String(b.getAttribute('aria-label') || b.getAttribute('title') || '').trim()
-    if (/^(저장|save)(?!\s*as)/i.test(label)) return b
+    if (saveKindOf(b) === 'save') return b
   }
   return null
 }
 
-// press 저장 in the editor; false when the frame is not there
-export function pressSave(frame) {
+// What an editor control does with the document, by the editor's own label for it (its aria-label, tooltip or text — UI words
+// of the editor, not anything a person wrote): 'save' (저장 · Save), 'saveAs' (다른 이름으로 저장… · Save As…, or the quick-access
+// .qa-save-as) or null. 2026-11-27 production: the text editor's 「다른 이름으로 저장…」 did nothing (the web host answers every
+// file dialog with 「cancelled」), so the sheet takes it (OfficeEditorFrame) — and watches 저장 to say how the save went.
+export function saveKindOf(el) {
+  if (!el?.getAttribute) return null
+  if (el.classList?.contains('qa-save-as')) return 'saveAs'
+  const named = String(el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('data-tip') || '').replace(/\s+/g, ' ').trim()
+  const label = named || String(el.textContent || '').replace(/\s+/g, ' ').trim()
+  if (/^(다른 이름으로 저장|save as)/i.test(label)) return 'saveAs'
+  // (저장 by its name only — a button whose text merely starts with 저장 is something else)
+  if (/^(저장|save)(?!\s*as)(\s|\(|$)/i.test(named)) return 'save'
+  return null
+}
+
+// ⌘S · Ctrl+S → 'save', with ⇧ → 'saveAs' (the editors' own shortcuts), anything else → null
+export function saveKeyOf(e) {
+  if (!e || !(e.ctrlKey || e.metaKey) || e.altKey || e.repeat || e.code !== 'KeyS') return null
+  return e.shiftKey ? 'saveAs' : 'save'
+}
+
+// press 저장 in the editor; false when the frame is not there. force: also when the editor's button says there is nothing to save
+// (a retry after the editor's upload failed — the editor took that save as done): its own ⌘S writes the file again.
+export function pressSave(frame, { force = false } = {}) {
   const w = frame?.contentWindow
   const doc = frame?.contentDocument
   if (!w || !doc) return false
@@ -34,7 +55,7 @@ export function pressSave(frame) {
     el.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }))
   }
   const btn = saveButton(doc)
-  if (btn) { btn.click(); return true }
+  if (btn && !(force && btn.disabled)) { btn.click(); return true }
   ;(doc.activeElement || doc.body).dispatchEvent(new w.KeyboardEvent('keydown', { key: 's', code: 'KeyS', ctrlKey: true, bubbles: true, cancelable: true }))
   return true
 }
@@ -42,7 +63,9 @@ export function pressSave(frame) {
 // listen for edits in the editor page and the same-origin pages inside it (the 한글 editor's studio, which a
 // slow phone builds well after the page says it is ready: frames added later are watched as they come);
 // returns a function that stops listening. A drag on a slide (moving a shape) counts as an edit too.
-export function watchEdits(frame, onEdit) {
+// hooks.onSave: the person pressed the editor's 저장 (its button or ⌘S); hooks.onSaveAs: its 「다른 이름으로 저장」 — a press on the
+// control is taken here (the editor never sees it); its ⌘⇧S reaches the editor first, which does nothing with it in the web host.
+export function watchEdits(frame, onEdit, hooks = {}) {
   const offs = []
   const seen = new WeakSet()
   const frames = new WeakSet()
@@ -60,7 +83,23 @@ export function watchEdits(frame, onEdit) {
     let down = null
     const on = (type, fn) => { doc.addEventListener(type, fn, true); offs.push(() => doc.removeEventListener(type, fn, true)) }
     for (const t of ['input', 'paste', 'cut', 'drop', 'compositionend']) on(t, () => onEdit(t))
-    on('keydown', (e) => { if (editingKey(e)) onEdit('key') })
+    on('keydown', (e) => {
+      if (editingKey(e)) return onEdit('key')
+      const k = saveKeyOf(e)
+      if (k === 'save') hooks.onSave?.('key')
+      else if (k === 'saveAs') hooks.onSaveAs?.('key')
+    })
+    // (capture on the document: before the editor's own handler on its root)
+    on('click', (e) => {
+      const el = e.target?.closest?.('button, [role="button"], [role="menuitem"]')
+      if (!el || el.disabled || el.getAttribute('aria-disabled') === 'true') return
+      const k = saveKindOf(el)
+      if (k === 'save') hooks.onSave?.('button')
+      else if (k === 'saveAs' && hooks.onSaveAs) {
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation()
+        hooks.onSaveAs('button')
+      }
+    })
     // (a deck only: elsewhere a drag is mostly selecting)
     on('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY } })
     on('pointerup', (e) => {

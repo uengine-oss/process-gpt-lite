@@ -60,3 +60,38 @@ cd e2e && PGPT_URL=http://localhost:5192 API_URL=http://127.0.0.1:8792 npx playw
   - `f-fe-06-editing.png`: 고치는 중, 휴대폰.
   - `f-fe-07.png`: 채팅 카드에서 연 문서를 폴더에 저장한 화면.
   - `f-fe-08-opening.png`: 문서를 여는 중, 휴대폰.
+
+## 채팅의 문서 (2026-11-27 운영 녹화)
+
+화면 시험은 운영 이음오피스 이미지 `ghcr.io/uengine-oss/process-gpt-lite-office-host:55d0a6f`(11-27 운영이 쓰는 판)를 로컬 컨테이너(:5403)로 띄워 돌렸다. 시험은 자기 스택(BFF · Vite, 회사 `chat-save`)을 띄우고, 편집기와 Vite 사이에 끊을 수 있는 중계를 둔다(운영의 Cloudflare 가 조용한 웹소켓을 끊는 조건).
+
+```bash
+docker run -d --platform linux/amd64 --name cs-office-host -p 5403:5390 \
+  -e SUPABASE_JWT_SECRET -e SUPABASE_SERVICE_ROLE_KEY -e SUPABASE_ANON_KEY \
+  -e SUPABASE_URL=http://127.0.0.1:54321 -e IEUM_ALLOWED_SOURCES=http://127.0.0.1:54321 -e IEUM_LANG=ko \
+  --entrypoint sh ghcr.io/uengine-oss/process-gpt-lite-office-host:55d0a6f -c \
+  "node -e \"const n=require('net');n.createServer(c=>{const s=n.connect(54321,'host.docker.internal');c.pipe(s).pipe(c)}).listen(54321,'127.0.0.1')\" & exec node dist/office-host.mjs"
+cd server && node --test test/chatDocSave.test.js
+cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright test --project=feature tests/feature/chat-doc-save.spec.js
+```
+
+**운영 주소에서 잰 것**(로그인 없이 `wss://uengine.process-gpt.io/lite/office/__ipc?editor=markdown` 에 붙어 봄 — 호스트는 「missing token」을 알리고 소켓을 열어 둔 채 아무것도 열지 않는다): 아무것도 보내지 않은 소켓은 두 번 모두 125초에 1006 으로 닫혔고, 40초마다 한 프레임을 보낸 소켓은 6분 동안 열려 있었다.
+
+| 스펙 시나리오 | 시험 |
+|---|---|
+| 읽기만 하고 오래 둔 문서(채팅의 문서) | F-CS-03 — 30초 보내기를 끄면 같은 시험이 끊김 1회로 실패한다(재현 확인) |
+| 연결이 끊긴 뒤의 저장(채팅의 문서) | F-CS-02 |
+| 고치고 저장한다(녹화의 순서) | F-CS-01 · `chatDocSave.test.js` 「막대의 저장 표시」 |
+| 편집기가 올리기에 실패한다 | F-CS-06 |
+| 휴대폰 · 밤 테마 | F-CS-07 |
+| 고친 채 닫는다 · 고치는 중에 다른 카드를 누른다(채팅의 문서) · 저장하지 않고 닫는다 | F-CS-05 |
+| 저장한 뒤 더 고치고 다른 이름으로 저장한다 | F-CS-04 · `chatDocSave.test.js`(새 카드는 같은 방 · 같은 대화, 판 지키기, 거절) |
+
+`results/` (채팅의 문서):
+- `chat-doc-save-server.txt` · `chat-doc-save-e2e.txt`: 서버 · 화면 시험 출력.
+- `f-cs-01-saved.png` · `f-cs-01-saved-1100.png`: 저장한 뒤 — 막대 「저장했어요 · 시각」, 알림 「채팅의 파일 카드에서 이 버전이 열려요」, 편집기 상태 줄 「저장됨」 · 1100px 창에서는 짧은 표시(이름 · 닫기 단추가 화면 안).
+- `f-cs-02-gone.png` · `f-cs-02-reopen-ask.png`: 연결이 끊긴 뒤의 저장 — 「연결 끊김 · 다시 열기」 · 「저장하지 못했어요 — …」(지금 운영 이미지의 편집기 상태 줄은 여전히 「저장 중…」 — 호스트 쪽 고침이 들어가면 그것도 바로 실패로 바뀜), 다시 열기 전에 묻기.
+- `f-cs-04-ask-name.png` · `f-cs-04-saved-as.png`: 다른 이름으로 저장 — 이름 묻기, 새 파일로 저장해 연 화면.
+- `f-cs-05-ask-close.png`: 고친 채 닫을 때 묻기.
+- `f-cs-06-failed.png`: 올리기 실패 — 「저장하지 못했어요 · 다시 시도」.
+- `f-cs-07-phone-dark-edited.png` · `f-cs-07-phone-dark-ask.png` · `f-cs-07-phone-dark-saved.png`: 휴대폰 390 · 밤 테마.

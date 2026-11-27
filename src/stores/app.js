@@ -47,7 +47,8 @@ export function officeDocOf(msgId, c) {
   const folder = c?.folder?.slug ? c.folder : null
   // private: a card with no address of its own (a mail's attachment — server lib/mailAttachments.js): it was opened by a short-lived signed
   // one, and an editor's save never puts an address on it
-  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}), ...(c?.private ? { private: true } : {}) }
+  // branch: a received share's file — its saves are commits on that conversation's branch (no 「다른 이름으로 저장」 there, OfficeSheet)
+  return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}), ...(c?.private ? { private: true } : {}), ...(c?.branch ? { branch: true } : {}) }
 }
 
 // an attachment's upload, to stop it (not in the store's state: an AbortController is no data to watch)

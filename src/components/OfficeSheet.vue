@@ -11,11 +11,12 @@ import CraftEditorFrame from './CraftEditorFrame.vue'
 import CraftLiveOverlay from './CraftLiveOverlay.vue'
 import { CRAFT_APPS, officeEditorFor, craftMissing } from '../officeEditor.js'
 import { api, uploadAttachment, freshToken } from '../api.js'
-import { useApp, onOfficeLeave } from '../stores/app.js'
+import { useApp, onOfficeLeave, officeDocOf } from '../stores/app.js'
 import { openMailAttachment } from '../mailAttach.js'
 import { rawUrl } from '../foldersApi.js'
 import { useTeam } from '../stores/team.js'
 import { isEnglish } from '../i18n/lang.js'
+import { SAVE_WAIT_MS, saveAsName, saveAsSuggestion } from '../officeSave.js'
 
 const app = useApp()
 const team = useTeam()
@@ -41,6 +42,9 @@ const office = computed(() => !!app.officeDoc && !craft.value && !app.officeDoc.
 // sheet (its every save is applied as rows) and not other chat documents (each save of a received share
 // is a commit on its branch) — those keep the editor's own 저장.
 const autoSave = computed(() => office.value && !app.officeDoc.panelAppId && app.officeDoc.folder?.editable === true)
+// 「다른 이름으로 저장」: a chat's own document only (a new file card beside it — server lib/cardCopies.js); a folder's, a mail
+// attachment's, a received share's and a panel app's sheet keep their one place, and the editor's entry is hidden there
+const canSaveAs = computed(() => office.value && !!app.officeDoc.msgId && !app.officeDoc.private && !app.officeDoc.folder && !app.officeDoc.panelAppId && !app.officeDoc.branch && !app.officeDoc.mailAtt)
 const craftTitle = computed(() => office.value ? '문서' : ({ cadcraft: 'CADCraft', vectorcraft: 'VectorCraft', photocraft: 'PhotoCraft', soundcraft: 'SoundCraft', filmcraft: 'FilmCraft' })[officeEditorFor(app.officeDoc?.name || app.officeDoc?.url || '')] || '')
 const live = ref(false)
 const linkFail = ref('') // the document's live link gave up (OfficeEditorFrame 'linkfail')
@@ -223,7 +227,11 @@ let cardFail = null
 // which document a save was for: its card, else the mail's attachment it opened from
 const docKey = (d) => d?.msgId || (d?.mailAtt ? `${d.mailAtt.actionId}:${d.mailAtt.i}` : '')
 let closeArmed = false
-watch(() => app.officeDoc?.msgId, () => { session = newSession(); lastFail = null; cardFail = null; closeArmed = false })
+// the editor's copy this opening's saves went to — the card stands on it after a save (「다른 이름으로 저장」 keeps the card's version first)
+let sessionUrl = ''
+// the editor's next save is a 「다른 이름으로 저장」's: it does not move the card
+let skipCard = false
+watch(() => app.officeDoc?.msgId, () => { session = newSession(); lastFail = null; cardFail = null; closeArmed = false; sessionUrl = ''; skipCard = false })
 // A mail's attachment opened from its own private copy (src/mailAttach.js — not a folder's: that one is the folder's file above): its first
 // save becomes my own private file card in my chat (server lib/mailAttachments.js saved), later saves keep that card on the newest copy.
 // No address is ever put on it — the sheet keeps the signed one it opened with.
@@ -240,6 +248,7 @@ async function savedMailAtt(job) {
   } catch (e) { cardFail = { job, why: e.message, mail: true, key: docKey(d) }; flash('err', `편집본을 저장하지 못했어요: ${e.message}`, 8000) }
 }
 function saved({ url, name }) {
+  if (skipCard) { skipCard = false; return }
   if (url && app.officeDoc?.panelAppId) return savedPanelSheet(url)
   if (url && app.officeDoc?.mailAtt && !app.officeDoc.msgId) {
     const job = { url, name, sid: session }
@@ -258,7 +267,9 @@ async function postSave(job) {
   const here = app.officeDoc?.msgId === job.id
   lastFail = failed != null && (here ? app.officeDoc.folder : true) ? job : null
   lastFailWhy = lastFail ? failed || '' : ''
-  if (here && app.officeDoc.private && !app.officeDoc.folder) cardFail = failed != null ? { job, why: failed || '', key: job.id } : null
+  // a chat's card (mine, private or not) that did not take the save: it still opens the version before — said, and tried again
+  if (here && !app.officeDoc.folder) cardFail = failed != null ? { job, why: failed || (app.officeDoc.private ? '' : '채팅의 파일 카드가 고친 버전으로 바뀌지 않았어요'), key: job.id } : null
+  if (here && failed == null) sessionUrl = job.url
   if (!here) return
   // (a private card keeps the signed address it opened with: an editor's saved address is never one to load from — server lib/mailAttachments.js)
   if (m?.error == null) app.officeDoc = { ...app.officeDoc, url: app.officeDoc.private ? app.officeDoc.url : job.url, name: job.name || app.officeDoc.name, ...(m?.content?.folder ? { folder: m.content.folder } : {}) }
@@ -277,9 +288,29 @@ async function postSave(job) {
 // Before the document is closed or replaced (closing, another card, the meeting's back — app.setOfficeDoc):
 // what is left is saved and a folder save that failed is tried again. When that does not work the sheet
 // stays open once and says so; a second close leaves anyway.
+// A document the person saves (a chat's, 2026-11-27 「이게 지금 아마 닫으면 날아가지 싶은데」): with edits not saved yet — typed, or the
+// agent's — closing or replacing it asks 「저장하고 닫기 · 저장하지 않고 닫기 · 취소」 first; a save that does not go through keeps it open.
+async function leaveUnsaved(f) {
+  const lost = !!f.gone
+  const name = app.officeDoc?.name || '문서'
+  const a = await f.ask({
+    title: '저장하지 않은 내용이 있어요',
+    text: lost ? `편집기와 연결이 끊겨 「${name}」의 고친 내용을 지금은 저장할 수 없어요. 닫으면 저장하지 않은 내용이 사라져요 — 필요한 부분은 먼저 복사해 두세요.` : `닫기 전에 「${name}」의 고친 내용을 저장할까요? 저장하지 않고 닫으면 고친 내용이 사라져요.`,
+    buttons: [...(lost ? [] : [{ id: 'save', label: '저장하고 닫기', kind: 'primary' }]), { id: 'discard', label: '저장하지 않고 닫기', kind: 'danger' }, { id: 'cancel', label: '취소' }],
+    cancel: 'cancel',
+  })
+  if (a.id === 'discard') return true
+  if (a.id !== 'save') return false
+  const r = await f.saveNow(SAVE_WAIT_MS, { any: true })
+  if (!r.saved) return false // (the frame's bar and notice say why)
+  const c = await saveLanded()
+  if (!c.ok) { flash('err', `저장하지 못했어요 — ${c.why}`, 8000); return false }
+  return true
+}
 async function leave() {
   if (closeArmed) return true
   const f = officeFrame.value
+  if (office.value && !autoSave.value && !pic.value && f?.ask && (f.edited || f.agentEdits || f.saving)) return leaveUnsaved(f)
   let r = { clean: true }
   if (autoSave.value && !pic.value && f?.flush && (f.edited || f.saving)) {
     flash('info', '닫기 전에 저장하는 중…', 25000)
@@ -306,7 +337,45 @@ async function saveLanded() {
   if (card()) { const f = cardFail; savedChain = savedChain.then(() => (f.mail ? savedMailAtt(f.job) : postSave(f.job))); await savedChain }
   if (mine()) return { ok: false, why: lastFailWhy || '폴더에 저장하지 못했어요' }
   if (card()) return { ok: false, why: card().why || '편집본을 저장하지 못했어요' }
-  return { ok: true }
+  // where the save went (the bar's 「저장했어요」 says it): a chat's card opens the saved version from now on
+  const d = app.officeDoc
+  const where = d?.msgId && !d.folder && !d.private && !d.panelAppId ? '채팅의 파일 카드에서 이 버전이 열려요' : ''
+  return { ok: true, where }
+}
+
+// 「다른 이름으로 저장」 (the editor's own entry, which the web host cannot carry out — 2026-11-27): a name, then the document as it is now
+// becomes a new file card with that name in the same conversation and opens; this card stays on the version it was last saved as.
+async function saveAs() {
+  const f = officeFrame.value
+  const d = app.officeDoc
+  if (!f || !d?.msgId || !canSaveAs.value) return
+  const a = await f.ask({ title: '다른 이름으로 저장', text: '지금 내용을 이 대화에 새 파일로 저장해요. 지금 파일은 마지막으로 저장한 그대로 남아요.', input: saveAsSuggestion(d.name, { english: isEnglish }),
+    buttons: [{ id: 'save', label: '저장', kind: 'primary' }, { id: 'cancel', label: '취소' }], cancel: 'cancel' })
+  if (a.id !== 'save') return
+  const name = saveAsName(a.value, d.name)
+  if (!name) return flash('err', '파일 이름을 적어 주세요', 5000)
+  if (f.gone) return flash('err', '편집기와 연결이 끊겨 지금은 저장할 수 없어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요.', 8000)
+  flash('info', `「${name}」 이름으로 저장 중…`, 30000)
+  try {
+    await savedChain
+    // the card stands on this opening's copy, which the editor is about to write the new name's content into: the card keeps a copy of its own
+    if (sessionUrl && app.officeDoc?.url === sessionUrl) await api(`/messages/${encodeURIComponent(d.msgId)}/keep-version`, { method: 'POST' })
+    let url = null
+    if (f.edited || f.agentEdits || f.saving) {
+      skipCard = true
+      const r = await f.saveNow(SAVE_WAIT_MS, { any: true })
+      skipCard = false
+      if (!r.saved) { note.value = null; return }
+      url = r.url || null
+    }
+    const m = await api(`/messages/${encodeURIComponent(d.msgId)}/save-as`, { method: 'POST', body: { url, name, conversationId: app.convOf?.[d.msgId] || null } })
+    if (app.officeDoc?.msgId !== d.msgId) return
+    app.officeDoc = officeDocOf(m.id, m.content)
+    flash('ok', `「${name}」 이름으로 저장했어요 · 이 대화에 새 파일로 남았어요`, 6000)
+  } catch (e) {
+    skipCard = false
+    flash('err', `다른 이름으로 저장하지 못했어요: ${e.message}`, 8000)
+  }
 }
 // what 「내려받기」 saves, once the saves in flight are through: a folder's document from the folder's main (a save commits to it; a failed
 // one does not — that is then the last saved version); a private card (a mail's attachment, its edit) never by the
@@ -342,7 +411,7 @@ onBeforeUnmount(() => onOfficeLeave(null))
       <CraftEditorFrame v-if="CRAFT_APPS.has(officeEditorFor(app.officeDoc.name || app.officeDoc.url))" :file-url="app.officeDoc.url" :name="app.officeDoc.name"
         v-model:maximized="maximized" @saved="saved" @close="app.officeDoc = null" @live="(v) => (live = v)" />
       <OfficeEditorFrame v-else ref="officeFrame" :file-url="app.officeDoc.url" :name="app.officeDoc.name" :context="app.officeDoc.context" :read-only="!!app.officeDoc.readOnly"
-        :assistant="office" :auto-save="autoSave" :quiet-save="quietSave" :download="docDownload" :save-check="saveLanded" v-model:maximized="maximized"
+        :assistant="office" :auto-save="autoSave" :quiet-save="quietSave" :download="docDownload" :save-check="saveLanded" :save-as="canSaveAs ? saveAs : null" v-model:maximized="maximized"
         @saved="saved" @close="closeDoc" @live="(v) => (live = v)" @linkfail="(w) => (linkFail = w)" @assistant="assistant" @mention="mention" @selection="selection" />
       <!-- a picture of the document, out for editing in PhotoCraft (over the document, which stays open below) -->
       <Transition name="pic">

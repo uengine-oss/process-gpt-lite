@@ -38,6 +38,8 @@ const MIME = {
 }
 export const extOf = (name) => String(name || '').split('?')[0].split('.').pop().toLowerCase()
 export const editable = (name) => !!EDITOR_BY_EXT[extOf(name)]
+// the type a stored copy of this file is served with
+export const mimeOf = (name) => MIME[extOf(name)] || 'application/octet-stream'
 
 // A tool result in any of the shapes deepagents streams it (object, JSON, `content='{…}'`,
 // `content=[{'type':'text','text':'{…}'}]`) → the object inside, like process-gpt's parseMcpToolOutput.
