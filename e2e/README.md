@@ -721,6 +721,7 @@ Vite 개발 서버에 대고 돌린다. 회사 프로세스 지도는 개발 서
 | PC 가 꺼져 있으면 「PC 앱이 켜지면 시작」(Home 카드에도), 휴대폰에서 「기다리지 않고 업무 에이전트에게 맡기기」 | 사용자 11-24(추가) | M-03 · `localAgents.e2e.mjs` 4 | feature · e2e | ✅ |
 | 데스크톱이 꺼져 있고 「서버에 맡기기」면 바로 서버 에이전트, 기다릴 시간이 지나면 서버, 거절 · 바쁨 · 끊김 처리, 입력 상태(받음 · 반영 · 못 함) | — | `localAgents.test.js` · `localAgents.e2e.mjs` | 단위 · e2e | ✅ |
 | 실행은 사람의 대화형 CLI 를 터미널(node-pty)에서: `SessionStart` 뒤 붙여 넣기, `Stop` 훅 · rollout 으로 턴의 끝, 앱 다시 켜기 → 같은 세션(`--resume`), 폴더 신뢰, 주인의 타자만, 단계 아닌 세션의 훅 · 지켜보는 파일 | 사용자 11-24(결정) | `desktop/test/terminal.test.js` · `localAgents.test.js`(중계) | 단위 | ✅ |
+| 앱을 다시 켜도 첫 메시지를 다시 넣지 않음(LA-TERM-RESUME): 턴이 끝나 「끝내기」를 기다리던 실행은 같은 세션(`--resume` · `codex resume`)에 붙기만 하고 다시 기다림(채팅 · 단계 · Codex), 채팅의 턴 번호 · 단계의 요약이 이어짐, 첫 메시지를 받지 못한 실행은 새 세션에 한 번, 일하던 실행은 「하던 일을 마저 끝내세요」 한 줄, 서버가 덧붙인 말만, 살아 있는 실행을 다시 건네면 그 터미널에 붙음 — 판정은 실행 기록으로만 | 재녹화 11-28 | `desktop/test/restart.test.js` LA-TERM-RESUME-01~08 | 단위 | ✅ |
 | 터미널 하나를 여럿이: 보는 사람과 작업자가 작업자 데스크톱 터미널의 바이트 그대로 받음, 보는 사람의 입력은 서버가 버림, 작업자의 입력은 CLI 에, 바깥 사람 표 403, 서버의 「지금 화면」 | 사용자 11-24(결정) | `localAgents.e2e.mjs` 2 · C-01 | e2e · feature | ✅ |
 | runner 헤드리스(예비 길): 폴더 토큰이 `.git/config` · 로그 · 보고함에 없음, 정해진 명령만, 폴더 밖 경로 거절, Codex 는 멈추고 resume | — | `desktop/test/runner.test.js` | 단위 | ✅ |
 | 실제 대화형 Claude Code 2.1.330 을 터미널로(회사 스킬 · 실행 중 입력 · 훅으로 끝), 헤드리스 Claude Code · Codex 0.162.1 한 번씩 + 입력 | 사용자 11-24 | `localAgents.smoke.mjs tty · both · skill` → `openspec/specs/local-agents/e2e/results/smoke.md` | 손 | ✅ |

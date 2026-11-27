@@ -57,6 +57,15 @@ function refusedWhy(lang, e) {
 }
 // a chat's own name on this computer (its folder, its session record): its key, hashed (a thread id and a conversation's)
 const chatHash = (job) => crypto.createHash('sha1').update(String(job.chat?.key || job.id)).digest('hex').slice(0, 16)
+// a chat's message as its CLI took it, kept in the run's record by its length and hash (not its words)
+const markOf = (s) => { const t = String(s || ''); return { n: t.length, h: crypto.createHash('sha1').update(t).digest('hex').slice(0, 16) } }
+// what of a chat's message came after what its CLI took (words the server added while the run waited in its queue): the rest only — ''
+// when nothing came after, or when the message does not begin with the one taken
+function newWords(message, mark) {
+  const t = String(message || '')
+  if (!mark || !Number.isInteger(mark.n) || t.length <= mark.n) return ''
+  return markOf(t.slice(0, mark.n)).h === mark.h ? t.slice(mark.n).trim() : ''
+}
 // paths git leaves out of the folder's commits (.git/info/exclude), added once
 function excludeIn(dir, list) {
   const f = path.join(dir, '.git', 'info', 'exclude')
@@ -117,11 +126,24 @@ class Runner extends EventEmitter {
     for (const st of this.jobs.values()) for (const m of st.replies?.values() || []) this.send(m)
     // (an accept the server may not have got: said again — its answer starts the run)
     for (const st of this.jobs.values()) if (st.awaiting) this.send({ type: 'accept', jobId: st.job.id })
-    for (const [sid, x] of this.sessions) {
-      this.send({ type: 'term-open', sid, kind: x.kind, ref: x.ref, agent: x.S.agent, cli: x.S.cli, cols: x.S.cols, rows: x.S.rows, replay: x.S.buf.slice(-200_000), exited: x.S.exited })
-      if (x.tx.length) this.send({ type: 'tx', sid, items: x.tx, replay: true })
-    }
+    for (const [sid, x] of this.sessions) this.announce(sid, x)
     for (const st of this.jobs.values()) if (st.idleUntil) this.send({ type: 'idle', jobId: st.job.id, until: new Date(st.idleUntil).toISOString() })
+  }
+  // an open terminal said again: the screen so far and the conversation with it (the server builds its copy from them)
+  announce(sid, x) {
+    this.send({ type: 'term-open', sid, kind: x.kind, ref: x.ref, agent: x.S.agent, cli: x.S.cli, cols: x.S.cols, rows: x.S.rows, replay: x.S.buf.slice(-200_000), exited: x.S.exited })
+    if (x.tx.length) this.send({ type: 'tx', sid, items: x.tx, replay: true })
+  }
+  // The server offers a run this app still has — its CLI session is alive here: the run stays as it is (nothing goes into the CLI again).
+  // It is this desktop's again (accept), its terminal is announced again and its wait; a run already over says its report again.
+  again(jobId) {
+    const st = this.jobs.get(jobId)
+    if (!st || st.cancelled || st.phase === 'asking') return
+    if (st.reported) { const m = this.outbox.find((o) => o.jobId === jobId); if (m) this.send(m); return }
+    this.send({ type: 'accept', jobId })
+    const x = st.term ? this.sessions.get(st.term.id) : null
+    if (x) this.announce(st.term.id, x)
+    if (st.idleUntil) this.send({ type: 'idle', jobId, until: new Date(st.idleUntil).toISOString() })
   }
   // whether runs use a terminal here (else headless)
   interactive() { return this.mode !== 'headless' && !!P.load() }
@@ -195,7 +217,7 @@ class Runner extends EventEmitter {
   async take(job) {
     const bad = this.valid(job)
     if (bad) { this.log('[runner] refused a job:', bad); if (UUID.test(String(job?.id || ''))) this.send({ type: 'decline', jobId: job.id, reason: 'invalid' }); return }
-    if (this.jobs.has(job.id)) return
+    if (this.jobs.has(job.id)) return this.again(job.id)
     if (this.user?.id && job.person?.id && String(job.person.id) !== String(this.user.id)) { this.send({ type: 'decline', jobId: job.id, reason: 'invalid' }); return }
     const prefs = this.prefs() || {}
     if (prefs.enabled === false) { this.send({ type: 'decline', jobId: job.id, reason: 'disabled' }); return }
@@ -210,9 +232,15 @@ class Runner extends EventEmitter {
     // folder as it was left — when this computer still has both
     if (job.resume?.sessionId) {
       // (a chat: this run's own record after a restart, else the chat's — its last run's session, in the same folder)
-      const rec = this.record(job.id) || (job.kind === 'chat' ? this.chatRecord(job) : null)
+      const own = this.record(job.id)
+      const rec = own || (job.kind === 'chat' ? this.chatRecord(job) : null)
       const here = job.kind !== 'chat' || (rec && path.resolve(rec.dir || '') === path.resolve(this.dirFor(job)))
-      if (rec && here && rec.cli === String(job.resume.sessionId) && rec.agent === job.agent && fs.existsSync(path.join(rec.dir || '', '.git'))) st.resumeFrom = rec
+      if (rec && here && rec.cli === String(job.resume.sessionId) && rec.agent === job.agent && fs.existsSync(path.join(rec.dir || '', '.git'))) {
+        // (this run's own session, whose CLI never took the run's first message — the app went off before: the run starts as a new one,
+        // its first message given then; a session it went on with — a chat's earlier one — goes on)
+        if (rec === own && own.given === false && !own.resumed) this.log(`[runner] ${job.activity}: its first message never got in — started anew`)
+        else st.resumeFrom = { ...rec, own: rec === own }
+      }
     }
     this.jobs.set(job.id, st)
     this.changed()
@@ -417,12 +445,17 @@ class Runner extends EventEmitter {
     const { job } = st
     const lang = job.lang
     const chat = job.kind === 'chat'
-    const resume = st.resumeFrom?.cli || null
-    // (a chat: the person's own words — in the same session when it is resumed; with the chat's recap and the folder's note when it is new)
-    const prompt = chat ? (resume ? job.message || job.prompt : job.prompt)
-      : resume
-        ? T(lang, '이 앱이 다시 켜져서 같은 세션을 이어서 해요. 하던 일을 마저 끝내세요.', 'This app was restarted and this session goes on. Finish the work you were doing.')
-        : job.prompt
+    const from = st.resumeFrom
+    const resume = from?.cli || null
+    const { prompt, wait } = this.firstWords(st)
+    // (what this computer keeps of the session — the run's record: carried on from before a restart when it is this run's own)
+    st.rec = from?.own ? { cli: from.cli, given: from.given, turn: from.turn, turns: from.turns, msg: from.msg, summary: from.summary } : { given: false }
+    st.rec.resumed = !!resume
+    if (from?.own) {
+      // (a chat's turns go on from their number — the server takes each turn once; the step's or chat's last words before the restart)
+      if (chat && Number.isInteger(from.turns)) st.turnNo = from.turns
+      if (from.summary) st.summary = from.summary
+    }
     return new Promise((resolve) => {
       let S
       const end = (r) => { if (st.ending) return; st.ending = true; clearTimeout(st.settle); clearTimeout(st.runTimer); resolve(r) }
@@ -445,29 +478,36 @@ class Runner extends EventEmitter {
         if (!id || id === st.session) return
         st.session = id
         this.send({ type: 'session', jobId: job.id, sessionId: id })
-        this.remember(job.id, { cli: id, agent: job.agent, dir: st.dir, start: st.start, outDir: job.outDir })
+        this.mark(st, { cli: id })
         if (chat) this.rememberChat(job, { cli: id, agent: job.agent, dir: st.dir, at: new Date().toISOString() })
       })
       S.on('ready', () => {
         this.progress(st, 'status', T(lang, `${job.label || job.agent} 시작`, `${job.label || job.agent} started`))
         // steers that came before it could take input follow the prompt, in order
         for (const s of st.early.splice(0)) this.typeSteer(st, s)
+        // (its turn had ended before the app went off: it waits for its people again as after that turn — 「끝내기」, or the wait)
+        if (wait && !st.turnEnded && !S.busy) { st.turnEnded = Date.now(); this.settle(st) }
       })
       S.on('text', ({ text }) => { st.lastText = text; this.progress(st, 'text', text) })
       S.on('tool', ({ name, brief }) => this.progress(st, 'tool', `${name}${brief ? ` · ${this.rel(st, brief)}` : ''}`))
       S.on('prompt', ({ text }) => this.applied(st, text))
-      S.on('turn-start', () => { clearTimeout(st.settle); st.turnEnded = 0; this.idle(st, null) })
+      S.on('turn-start', () => {
+        clearTimeout(st.settle); st.turnEnded = 0; this.idle(st, null)
+        // (the CLI took a message — the run's first one at the first turn: never given again after a restart)
+        this.mark(st, { given: true, turn: 'working', ...(chat ? { msg: markOf(job.message) } : {}) })
+      })
       S.on('turn-end', ({ summary }) => {
         if (summary) st.summary = summary
         // (a chat: the answer and the turn's files go back now — the session stays open for the next message)
         if (chat) this.chatTurn(st, summary)
         st.turnEnded = Date.now()
+        this.mark(st, { given: true, turn: 'ended', summary: String(st.summary || '').slice(0, 8000) || undefined, ...(chat ? { turns: st.turnNo } : {}) })
         // (the screen as the turn left it: what a viewer sees of the run once it is over — before the CLI clears it on its way out)
         this.sessions.get(S.id)?.keep()
         this.settle(st)
       })
       // (stopped mid-turn — Esc, a refused tool use: it waits for its person as after a turn)
-      S.on('turn-interrupted', () => { st.turnEnded = Date.now(); this.settle(st) })
+      S.on('turn-interrupted', () => { st.turnEnded = Date.now(); this.mark(st, { turn: 'ended' }); this.settle(st) })
       S.on('turn-failed', ({ error }) => { this.progress(st, 'error', error); end({ ok: false, why: error }) })
       S.on('attention', ({ message }) => { if (message) { this.progress(st, 'status', message); this.emit('notice', { kind: 'attention', jobId: job.id, activity: job.activity, text: message }) } })
       S.on('exit', ({ code }) => { if (!st.ending) end(st.cancelled ? { ok: false, interrupted: true } : { ok: false, why: T(lang, `${job.label || job.agent} 가 끝났어요 (코드 ${code})`, `${job.label || job.agent} exited (code ${code})`) }) })
@@ -478,6 +518,34 @@ class Runner extends EventEmitter {
       this.idle(st, null)
       return r
     })
+  }
+  // What goes into the CLI first, as the person would paste it → {prompt, wait}. A run that starts: its prompt. The chat's next run in the
+  // chat's session: the person's words. A run that goes on after this app restarted is judged by its record (sessions/<job>.json — what
+  // the CLI did with this run), never by what the words say:
+  //   · the CLI never took its first message — that message (a run whose own new session never took it starts anew instead: take)
+  //   · the CLI was working when the app went off — a line that says to finish the work
+  //   · the turn had ended (the run waited for 「끝내기」) — nothing: it waits again (wait); only a chat's words the server added after
+  //     the message the CLI took go in
+  //   (a record an older app wrote, without these: as that app did)
+  firstWords(st) {
+    const { job } = st
+    const chat = job.kind === 'chat'
+    const from = st.resumeFrom
+    const goOn = T(job.lang, '이 앱이 다시 켜져서 같은 세션을 이어서 해요. 하던 일을 마저 끝내세요.', 'This app was restarted and this session goes on. Finish the work you were doing.')
+    if (!from) return { prompt: job.prompt, wait: false }
+    if (!from.own || typeof from.given !== 'boolean') return { prompt: chat ? job.message || job.prompt : goOn, wait: false }
+    if (!from.given) return { prompt: chat ? job.message || job.prompt : job.prompt, wait: false }
+    if (from.turn === 'working') return { prompt: goOn, wait: false }
+    const more = chat ? newWords(job.message, from.msg) : ''
+    return { prompt: more, wait: !more }
+  }
+  // the run's record (sessions/<job>.json) brought up to date: where its session is, and what the CLI did with the run
+  mark(st, patch) {
+    st.rec = { ...(st.rec || {}), ...patch }
+    const r = st.rec
+    if (!r.cli) return
+    this.remember(st.job.id, { cli: r.cli, agent: st.job.agent, dir: st.dir, start: st.start, outDir: st.job.outDir,
+      given: r.given, turn: r.turn, turns: r.turns, msg: r.msg, summary: r.summary, resumed: r.resumed })
   }
   // after a turn: the run waits for its people, and ends when nothing new came for finishMs, or when its owner says so (settle.js);
   // the server hears when it would end by itself (the card: 「끝내기」 · 「N분 동안 새 입력이 없으면 저절로 끝나요」)
