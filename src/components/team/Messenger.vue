@@ -42,6 +42,8 @@ import { verbLabel } from '../../mailKind.js'
 import FileRefCard from './FileRefCard.vue'
 // a mail mentioned (server lib/mailMention.js): a summary for everyone but its owner, the body only when the owner shares it
 import MailRefCard from './MailRefCard.vue'
+// an AI answer a teammate shared from their chat (server lib/answerShare.js): its title and words
+import AnswerRefCard from './AnswerRefCard.vue'
 // an attachment of a mail mentioned in the room (server lib/mailAttachments.js)
 import MailAttRefCard from './MailAttRefCard.vue'
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords, startDrag, shareItem, same, MAX as MAX_ITEMS } from '../../fileDrag.js'
@@ -122,7 +124,7 @@ const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션', askteam: 'AI 가 대신 묻는 중' }
+const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션', askteam: 'AI 가 대신 묻는 중', answer: 'AI 답 공유' }
 // team assist: the suggestion cards under the message that prompted them (lib/team/assist.js)
 const sugOf = (id) => (team.suggestions[team.active] || []).filter((x) => x.messageId === id)
 
@@ -544,6 +546,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
               <!-- (a mail its owner's rule posted as it arrived — server lib/mailRooms.js: said as such) -->
               <span class="who"><span><b>{{ m.sender.name }}</b> · <span :data-test="m.auto ? 'msg-auto' : null">{{ m.auto ? '메일 자동 공유' : kindWord[m.kind] }}</span></span><small>{{ when(m.at) }}</small></span></div>
             <p v-if="m.context?.title" class="ctitle">{{ m.context.title }}</p>
+            <p v-if="m.answer?.title" class="ctitle" data-no-i18n>✦ {{ m.answer.title }}</p>
             <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ hidePaths(team.trBody(m) || m.body) }}</p>
             <p v-if="team.tr[m.id]?.body" class="trl"><span>AI 번역</span><button class="press" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
             <div v-if="m.artifacts.length" class="arts">
@@ -655,6 +658,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                   <MailAttRefCard v-else-if="r.type === 'mailatt'" :m="m" :r="r" :i="i" />
                   <FileRefCard v-else :m="m" :r="r" :i="i" />
                 </template>
+                <!-- an AI answer shared from someone's chat (server lib/answerShare.js) -->
+                <AnswerRefCard v-if="m.kind === 'answer' && m.answer" :answer="m.answer" />
                 <!-- a request the AI sent for someone (server lib/askTeammate.js): the form for the one asked, the answer for both -->
                 <AskTeamForm v-if="m.kind === 'askteam' && m.ask" :m="m" />
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->

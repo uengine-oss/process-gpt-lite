@@ -1,0 +1,22 @@
+✔ AP-U-01 순수: 제목 · 문서 이름 · 문서 글 · 방 순서 · 카드 모양 · 추천 · 판정이 읽는 템플릿 · 계획 (2.125792ms)
+✔ AP-U-02 방 고르기: 내 대화방 · 대화가 없는 팀원 · 남의 답 404 · 답이 아닌 메시지 400 (765.412167ms)
+✔ AP-U-03 방에 보내기 · 팀원에게 바로 · 거절(팀원이 아님 · 나 · 내가 없는 방 · 팀에서 빠진 사람) (559.329ms)
+✔ AP-U-04 문서로 남기기: Markdown 파일 카드(한 번만) · 남의 답 404 (227.652584ms)
+[chat-project] offer thread=c21aa20b via=button templates=2 picks=folder-33239b:0.82 by=logprob draft=true
+✔ AP-U-05 「프로젝트로 시작」 카드: 판정이 고른 템플릿만(까닭) · 실행 권한 없는 템플릿은 후보에도 없음 · 출처 메일 · 아직 아무것도 만들지 않음 (1334.302042ms)
+[chat-project] made thread=dd694166 template=folder-33239b doc=true from=c21aa20b
+✔ AP-U-06 「만들기」(템플릿): 작업 공간 · 계획 · 첫 문서 · 「프로젝트로 옮겼어요」 · 원래 대화 그대로 · 두 번째 409 (340.82475ms)
+[chat-project] offer thread=c21aa20b via=button templates=2 picks=folder-33239b:0.82 by=logprob draft=true
+[chat-project] made thread=657e1cee template=- doc=true from=c21aa20b
+[chat-project] offer thread=c21aa20b via=button templates=2 picks=folder-33239b:0.82 by=logprob draft=true
+✔ AP-U-07 빈 프로젝트 · 「아니요」 · 실행 권한 없는 템플릿 403(프로젝트 안 생김) · 남의 카드 404 (329.648333ms)
+[chat-project] offer thread=c21aa20b via=button templates=0 picks=- by=none draft=true
+✔ AP-U-08 템플릿이 하나도 없으면 판정 모델을 부르지 않고 추천도 없음 (9.068584ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4140.971542

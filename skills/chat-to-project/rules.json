@@ -1,0 +1,9 @@
+{
+  "lines": 12,
+  "lineChars": 600,
+  "answerChars": 3000,
+  "draftTimeoutMs": 20000,
+  "draftMaxTokens": 1500,
+  "templates": { "judge": 12, "max": 3, "minP": 0.3, "timeoutMs": 8000, "kitItems": 6 },
+  "limits": { "title": 40, "intent": 200, "background": 120, "deliverables": 3 }
+}

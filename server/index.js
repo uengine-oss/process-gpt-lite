@@ -15,6 +15,8 @@ import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.
 import { runTurn, delegate, stopTurns, onceTurn } from './lib/agent.js'
 import { turnRoutes } from './lib/turnPlan.js'
 import { projectNoteRoutes } from './routes/projectNote.js'
+// 답을 공유(대화방 · 사람 · 문서) · 대화를 프로젝트로(확인 카드 · 템플릿 추천) — routes/answers.js
+import { answerRoutes } from './routes/answers.js'
 import { ruleOf, removeRule, settleRuleConfirm } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
@@ -762,6 +764,8 @@ app.get('/api/threads/:id/rule', auth, async (req, res) => res.json({ rule: awai
 app.use('/api', turnRoutes(auth))
 // 프로젝트 계획(lib/projectNote.js): GET · PUT /threads/:id/note, POST /threads/:id/note/undo, PUT /threads/:id/rule {skill}
 app.use('/api', projectNoteRoutes(auth))
+// 답을 공유 · 대화를 프로젝트로(lib/answerShare.js · lib/chatProject.js): GET · POST /messages/:id/share/…, POST /messages/:id/project-offer, POST /project-offers/:id/make · decline
+app.use('/api', answerRoutes(auth))
 app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await removeRule(req.user.id, req.params.id)))
 // 「규칙을 바꿀까요?」 card (a room that has a rule, words judged to set a new one): 「바꾸기」 (choice replace) makes that card hold the new
 // rule; 「이번 작업에만 적용」 (once) keeps the rule and gives the words to the browser task here (lib/agent.js onceTurn)

@@ -22,6 +22,8 @@ const MailReplySheet = defineAsyncComponent(() => import('./components/MailReply
 const Messenger = defineAsyncComponent(() => import('./components/team/Messenger.vue'))
 // a picture · sound · video opened from a conversation (artifacts.js viewMedia): over everything, the messenger included
 const MediaViewer = defineAsyncComponent(() => import('./components/MediaViewer.vue'))
+// an AI answer's 「공유」 (Message.vue · its message menu): to a room or a person, as a document, as a project (spec answer-share)
+const AnswerShareSheet = defineAsyncComponent(() => import('./components/AnswerShareSheet.vue'))
 
 const app = useApp()
 const team = useTeam()
@@ -67,6 +69,7 @@ const later = () => { newVersion.value = false }
     <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
     <Teleport to="body"><Transition name="fade"><Messenger v-if="team.open && teamHere" /></Transition></Teleport>
     <MediaViewer v-if="app.media" />
+    <AnswerShareSheet v-if="app.answerShare" :key="app.answerShare.msg.id" />
     <ShareArrival />
     <!-- a newer build was deployed while this page stayed open: reload to get it (appVersion.js) -->
     <div v-if="newVersion" class="newver" role="status" data-test="new-version">

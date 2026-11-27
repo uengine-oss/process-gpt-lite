@@ -58,6 +58,8 @@ import * as PN from './projectNote.js'
 import * as ASK from './askPerson.js'
 // a value only a teammate knows: the agent's ask_teammate → the card 「○○님께 메신저로 물어볼까요?」 (lib/askTeammate.js)
 import * as AT from './askTeammate.js'
+// 대화를 프로젝트로: 「이 내용으로 프로젝트 만들자」 → the confirm card (lib/chatProject.js)
+import * as CP from './chatProject.js'
 import { oddsOf, TURN_ODDS_MS } from './decide.js'
 
 // Files attached to the turn being handled, picked up by the deepagents call that answers it.
@@ -187,6 +189,22 @@ const ROUTER_TOOLS = [
           ack: { type: 'string', description: '보내 보겠다는 해요체 한 문장(보냈다고 말하지 말 것 — 회사 정책이 결과를 정함)' },
         },
         required: ['to', 'subject', 'body', 'ack'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      // 대화를 프로젝트로 (lib/chatProject.js — 2026-11-27 녹화: 「이 내용을 기반으로 프로젝트를 하나 만들자」가 채팅 안의 계획으로만 끝났다)
+      name: 'start_project',
+      description: 'The person wants to carry what this conversation is about on as a real project of their own — a project in the 프로젝트 tab, with its own folder and plan: «이 내용으로 프로젝트 하나 만들자», «이거 프로젝트로 제대로 가자», «이걸로 폴더 만들어서 프로젝트 시작하자», «make this a project». Nothing is made yet: a card shows the name and the template folders that fit, and the person presses 만들기. NOT for designing a business process (process), a panel, a document, or changing the plan of the project room this message is in.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'The project name the person said, exactly as they said it — empty when they named none' },
+          ack: { type: 'string', description: '해요체 한 문장: 아래 카드에서 이름과 템플릿을 확인하고 만들 수 있다고(만들었다고 말하지 말 것)' },
+        },
+        required: ['ack'],
       },
     },
   },
@@ -969,6 +987,14 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
         .catch((e) => { if (!e.status) console.warn('[mail]', e.message); return addMessage(userId, threadId, 'agent', 'text', { text: e.status ? e.message : L('메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.', "I couldn't send the mail. Please try again in a moment.") }) })
       break
     }
+    case 'start_project': {
+      // the confirm card (name · purpose · the template folders that fit): nothing is made before 「만들기」 (lib/chatProject.js)
+      await CP.offer(user, { threadId, said: text, title: String(args.title || '').trim(), via: 'words', before: said?.id || null }).catch(async (e) => {
+        console.warn('[chat-project] offer', e.message)
+        await addMessage(userId, threadId, 'agent', 'text', { text: L('프로젝트 카드를 만들지 못했어요. 답 아래의 「프로젝트로 시작」을 눌러 다시 시도해 주세요.', "I couldn't prepare the project card. Try again with 「Start a project」 under an answer.") })
+      })
+      break
+    }
     case 'add_action': {
       const [a] = await q(`insert into pro_actions(user_id,verb,text,due,prompt) values ($1,$2,$3,$4,$5) returning *`,
         [userId, args.verb, args.text, args.due || null, args.text])
@@ -1008,8 +1034,8 @@ export const routerStats = { calls: 0, fallbacks: 0, timeouts: 0, errors: 0, bad
 const routerCounts = () => `fallbacks ${routerStats.fallbacks} of ${routerStats.calls} (timeouts ${routerStats.timeouts}, errors ${routerStats.errors}, bad arguments ${routerStats.badArgs}; asked again ${routerStats.retried}, answered then ${routerStats.answeredOnRetry})`
 const isTimeout = (e) => /TimeoutError/.test(e?.name || '') || /timeout|timed out/i.test(String(e?.message || ''))
 export const TOOL_OPTIONS = () => [
-  { key: 'tool', label: L('지금 도구가 할 일이다: 예약 · 알림 · 팀원에게 알리기 · 사이트에서 하는 일(로그인 · 주문 · 신청) · 패널 기록 · 프로세스 시작 · 메일 보내기',
-    'A tool must do it now: a schedule or reminder, notifying a teammate, work on a website (signing in, ordering, applying), a panel record, starting a process, sending a mail') },
+  { key: 'tool', label: L('지금 도구가 할 일이다: 예약 · 알림 · 팀원에게 알리기 · 사이트에서 하는 일(로그인 · 주문 · 신청) · 패널 기록 · 프로세스 시작 · 메일 보내기 · 이 대화로 프로젝트 시작',
+    'A tool must do it now: a schedule or reminder, notifying a teammate, work on a website (signing in, ordering, applying), a panel record, starting a process, sending a mail, starting a project from this conversation') },
   { key: 'agent', label: L('에이전트가 할 일이다: 답 · 조사 · 요약 · 문서나 파일 작성', 'Work for the agent: an answer, research, a summary, writing a document or file') },
 ]
 // does this message need one of the router's tools? → {want, via: 'odds'|'structure', p?}

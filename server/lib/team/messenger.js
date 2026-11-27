@@ -277,7 +277,8 @@ export function view(viewerId, row, byEmail = {}) {
   const kind = agent ? (String(g.kind || '').startsWith('meeting') ? g.kind : 'agent') : g.kind && g.kind !== 'assist' ? g.kind : 'text'
   return {
     ...(g.meeting ? { meeting: g.meeting } : {}),
-    id: row.uuid, threadId: row.id, kind, body: String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
+    // (an answer shared without a word keeps its title as the row's line for other screens: here the card says it — no line of its own)
+    id: row.uuid, threadId: row.id, kind, body: g.kind === 'answer' && g.answer?.note === false ? '' : String(m.content || ''), at: m.timeStamp ? iso(typeof m.timeStamp === 'number' || /^\d+$/.test(m.timeStamp) ? Number(m.timeStamp) : m.timeStamp) : null,
     // the messenger's @AI answers as 「AI」 (lib/team/aiHelp.js), not as someone's agent
     // an agent's row: its owner (g.by) — the screens show the owner's face with the agent's mark; the messenger's @AI is 「AI」
     sender: { id: agent ? (g.by || null) : senderId, name: agent ? (g.ai ? 'AI' : agentLabel(g, byEmail) || g.byName || m.userName || m.name || L('에이전트', 'Agent')) : (member?.name || m.userName || m.name || L('팀원', 'Teammate')), agent,
@@ -293,6 +294,8 @@ export function view(viewerId, row, byEmail = {}) {
     ...(g.auto && !agent ? { auto: { by: String(g.auto.by || ''), label: String(g.auto.label || '') } } : {}),
     // a request the AI sent for someone (lib/askTeammate.js): the form only for the one asked, while it is open
     ...(g.kind === 'askteam' && g.ask && !agent ? { ask: askView(viewerId, g.ask) } : {}),
+    // an AI answer someone shared from their chat (lib/answerShare.js): its title and words, for everyone in the room
+    ...(g.kind === 'answer' && g.answer && !agent ? { answer: { title: String(g.answer.title || ''), text: String(g.answer.text || ''), kind: g.answer.kind === 'doc' ? 'doc' : 'text' } } : {}),
   }
 }
 // each viewer's copy of a row: their view, with the state of its file mentions
@@ -359,7 +362,8 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
 // lib/team/aiHelp.js — the room's general AI 제안 leaves it alone); mentions: the people named with @ (process-gpt's mentionedUsers);
 // auto: a mail its owner's rule posted as it arrived ({by, label} — lib/mailRooms.js autoShare; what it says only, the owner's card decides)
 // ask: a request the AI sends for me (kind 'askteam' — lib/askTeammate.js): the card it came from, the one asked, the items, the form
-export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [], auto = null, ask = null } = {}) {
+// answer: an AI answer of my chat I share (kind 'answer' — lib/answerShare.js): {title, text, kind} — the words I saw, nothing else of the chat
+export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [], auto = null, ask = null, answer = null } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const members = await membersOf(t.id)
@@ -370,9 +374,12 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   const files = artifacts.map((a) => a.name)
   const linked = (refs || []).map((r) => r.name)
   // (a mail mention says its subject — the summary everyone in the room sees anyway, never its body)
+  // (an answer shared without a word says its title — the room list's preview and Process GPT's own screen read this line)
   const content = String(body || '').slice(0, 8000) || (files.length || linked.length ? `${kind === 'mailref' ? '✉️' : '📎'} ${[...files, ...linked].join(', ')}` : '')
+    || (kind === 'answer' && answer?.title ? `💬 ${String(answer.title).slice(0, 120)}` : '')
   const pgptPart = kind === 'text' && !artifacts.length && !context && !refs?.length && !ai ? undefined
-    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(auto ? { auto: { by: String(auto.by || ''), label: String(auto.label || '').slice(0, 200) } } : {}), ...(ask && kind === 'askteam' ? { ask } : {}), ...(agent || {}) }
+    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(auto ? { auto: { by: String(auto.by || ''), label: String(auto.label || '').slice(0, 200) } } : {}), ...(ask && kind === 'askteam' ? { ask } : {}),
+      ...(answer && kind === 'answer' ? { answer: { title: String(answer.title || '').slice(0, 120), text: String(answer.text || '').slice(0, 12000), kind: answer.kind === 'doc' ? 'doc' : 'text', note: !!String(body || '').trim() } } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
   const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
     // (Process GPT's own name: its resolveMentions matches typed mentions against it)
@@ -389,8 +396,8 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees; a mail sent with its
   // attachments — lib/mailRooms.js — is one mail, not one mail and N more)
   const attachment = !!refs?.length && refs.every((r) => r.type === 'mailatt')
-  const subjects = kind === 'mailref' && refs.some((r) => r.type === 'mail') ? refs.filter((r) => r.type === 'mail').map((r) => r.name) : [...files, ...linked]
-  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref' || kind === 'askteam') await told('notify', () => notifyMembers(me, t, row, kind, subjects, context, members.filter((m) => m.id !== me.id), { attachment }))
+  const subjects = kind === 'mailref' && refs.some((r) => r.type === 'mail') ? refs.filter((r) => r.type === 'mail').map((r) => r.name) : kind === 'answer' && answer?.title ? [String(answer.title)] : [...files, ...linked]
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref' || kind === 'askteam' || kind === 'answer') await told('notify', () => notifyMembers(me, t, row, kind, subjects, context, members.filter((m) => m.id !== me.id), { attachment }))
   return viewFor(me, row, by)
 }
 
@@ -417,10 +424,12 @@ async function notifyMembers(me, t, row, kind, files, context, recipients, { att
       ? (en ? `${me.name} linked ${files[0] || 'a file'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '파일'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 링크로 멘션했어요`)
       : kind === 'askteam'
       ? (en ? `${me.name} asked you something (AI asking for them)` : `${me.name}님이 물어봤어요 · AI 가 대신 묻는 중`)
+      : kind === 'answer'
+      ? (en ? `${me.name} shared an AI answer "${files[0] || ''}"` : `${me.name}님이 AI 답 「${files[0] || ''}」${josa(`${files[0] || ''}」`, '을', '를')} 공유했어요`)
       : kind === 'share'
       ? (en ? `${me.name} shared ${files[0] || 'an output'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '산출물'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 공유했어요`)
       : (en ? `${me.name} mentioned you${ctx}` : `${me.name}님이 나를 언급했어요${ctx}`),
-    text: [row.messages.content, files.length && kind !== 'share' ? `${kind === 'mailref' ? (en ? 'Mail' : '메일') : kind === 'fileref' ? (en ? 'Linked files' : '링크한 파일') : en ? 'Outputs' : '산출물'}: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600),
+    text: [row.messages.content, files.length && kind !== 'share' && kind !== 'answer' ? `${kind === 'mailref' ? (en ? 'Mail' : '메일') : kind === 'fileref' ? (en ? 'Linked files' : '링크한 파일') : en ? 'Outputs' : '산출물'}: ${files.join(', ')}` : ''].filter(Boolean).join('\n').slice(0, 600),
   })
   for (const r of recipients) {
     const { title, text } = words((await langOf(r.id)) === 'en')
@@ -460,7 +469,7 @@ export async function inbox(me) {
   const rows = await q(`select c.uuid, c.id, c.messages, coalesce(rd.last_read_at, 'epoch'::timestamptz) as last_read_at
                         from chats c join chat_rooms r on r.id=c.id and r.tenant_id=$1 and r.participants @> $3::jsonb
                         left join pro_chat_reads rd on rd.room_id=c.id and rd.user_id=$2
-                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref','askteam') and coalesce(c.messages->>'email','') <> $4
+                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref','askteam','answer') and coalesce(c.messages->>'email','') <> $4
                         order by coalesce(public.pro_chat_ts(c.messages), now()) desc limit 50`, [T(), me.id, JSON.stringify([{ id: me.id }]), me.email])
   const senders = await people([...new Set(rows.map((r) => r.messages.userId).filter(Boolean))])
   const by = Object.fromEntries(senders.map((p) => [p.email, p]))
