@@ -1,3 +1,4 @@
+import * as SO from './lib/sendOnce.js'
 import express from 'express'
 import { apiHeaders } from './lib/apiHeaders.js'
 import nodeFs from 'node:fs'
@@ -94,6 +95,8 @@ import * as ASK from './lib/askPerson.js'
 import { running as turnsRunning } from './lib/turns.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
+import { roomSeat } from './lib/folders/rooms.js'
+import { startSeatSweep } from './lib/folders/seats.js'
 import { saveAttachment } from './lib/attachments.js'
 import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L, isEn, asUser } from './lib/lang.js'
@@ -779,11 +782,17 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // nothing to send: no words, no file, no dragged file (a composer that once cleared a chip still being checked sent this — PR #45 review)
   const has = (x) => Array.isArray(x) && x.length > 0
   if (!String(req.body?.text ?? '').trim() && !has(req.body?.files) && !has(req.body?.refs)) return res.status(400).json({ error: L('보낼 말이나 파일이 없어요.', 'There is nothing to send.') })
+  // the page's own id for this message (lib/sendOnce.js): a message sent again after a lost answer is taken once
+  const clientId = SO.validId(req.body?.clientId)
+  if (clientId && !(await SO.claim(t.id, clientId))) { const { send, end } = openStream(res); send('done', { duplicate: true }); return end() }
+  try { return await postMessage(req, res, t, clientId) } finally { if (clientId) SO.release(t.id, clientId) }
+})
+async function postMessage(req, res, t, clientId) {
   // the composer's picker named a CLI on the sender's own PC (lib/localAgents/chat.js): the message goes to their desktop — the server
   // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
   if (req.body?.agent && req.body.agent !== 'default') {
     const { send, end } = openStream(res)
-    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined })) }) } catch (e) {
+    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId })) }) } catch (e) {
       if (!e.status || e.status >= 500) console.warn('[local-agents] chat send', e.message)
       await addMessage(req.user.id, t.id, 'agent', 'text', { text: L(`내 PC 에이전트로 보내지 못했어요 — ${e.message}`, `Could not send this to the agent on your PC — ${e.message}`), failed: true, localRefused: true }).catch(() => {})
       send('error', { message: e.message, status: e.status || 500 })
@@ -791,12 +800,12 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     return end()
   }
   // an instance's conversation while a local CLI agent runs one of its steps: what its person types steers that run (lib/localAgents)
-  const steered = await steerFromThread(req.user, t, req.body?.text).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
+  const steered = await steerFromThread(req.user, t, req.body?.text, { clientId }).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
   if (steered) { const { send, end } = openStream(res); send('done', { steered: true, steer: steered.steer, delivered: steered.delivered }); return end() }
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, onDelta: (d) => send('delta', { d }),
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId, onDelta: (d) => send('delta', { d }),
       // the draft answer turned out to be an interim text (a tool call followed it): the page clears the draft (lib/turnPlan.js)
       onRetract: () => send('retract', {}) })
     send('done', final)
@@ -815,7 +824,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     send('error', { message: e.message })
   }
   end()
-})
+}
 // 멈추기: the answer being written in this thread (deepagents /chat/stop), or its browser task.
 // Messages waiting their turn (대기) then go ahead.
 app.post('/api/threads/:id/stop', auth, async (req, res) => {
@@ -958,16 +967,19 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
 
 // ---------- agent workroom (files · terminal · steering) ----------
 async function room(req, res) {
-  const r = await workroom.resolveRoom(req.params.kind, req.params.id).catch(() => null)
+  const r = await workroom.resolveRoom(req.params.kind, req.params.id, req.user).catch(() => null)
   if (!r) { res.status(404).json({ error: 'no workroom' }); return null }
   if (!(await workroom.canAccess(req.user, r).catch(() => false))) { res.status(403).json({ error: L('이 작업실을 볼 권한이 없어요', "You don't have access to this workroom") }); return null }
   return r
 }
-const fail = (res, e) => res.status(e.status || 500).json({ error: e.message, mtime: e.mtime })
+const fail = (res, e) => res.status(e.status || 500).json({ error: e.message, mtime: e.mtime, ...(e.readonly ? { readonly: true } : {}) })
 app.get('/api/workroom/:kind/:id', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
-  const { root, ...info } = r
-  res.json({ ...info, folder: path.basename(root), terminal: workroom.terminalInfo(r), files: await workroom.tree(r) })
+  // (what stays on the server: the disk paths of a read-only room, the seat's own row, the save hook)
+  const { root, cwd, git, seatRow, afterWrite, userId, folderRow, variationRow, role, ...info } = r
+  // a variation: where its working copy is (folders/seats.js) — read only here unless it is this person's server workroom
+  const seat = r.kind === 'variation' ? await roomSeat(r, req.user).catch(() => null) : null
+  res.json({ ...info, folder: root ? path.basename(root) : r.branch || '', ...(seat ? { seat } : {}), terminal: workroom.terminalInfo(r), files: await workroom.tree(r) })
 })
 app.get('/api/workroom/:kind/:id/file', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
@@ -983,12 +995,16 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
     // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: it gets the sandbox here. Plain text gets
     // the same script-free policy from the /api rule (apiHeaders); a PDF, picture, song or video goes without one (it would not show or play)
     const passive = /\.(png|jpe?g|gif|webp|avif|bmp|ico|tiff?|mp4|m4v|mov|webm|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|pdf|txt|md|csv|json)$/i.test(String(req.query.path))
-    res.sendFile(workroom.rawPath(r, req.query.path), { headers: { 'X-Content-Type-Options': 'nosniff', ...(passive ? {} : { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" }) } })
+    const headers = { 'X-Content-Type-Options': 'nosniff', ...(passive ? {} : { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" }) }
+    const f = await workroom.rawFile(r, req.query.path)
+    if (f.path) return res.sendFile(f.path, { headers })
+    // a read-only room: the file as the branch has it
+    res.set(headers).type(nodePath.extname(f.name) || 'application/octet-stream').send(f.buffer)
   } catch (e) { fail(res, e) }
 })
 app.put('/api/workroom/:kind/:id/file', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
-  try { res.json(await workroom.writeFile(r, req.body.path, String(req.body.content ?? ''), req.body.mtime)) } catch (e) { fail(res, e) }
+  try { res.json(await workroom.writeAs(r, req.user, req.body.path, String(req.body.content ?? ''), req.body.mtime)) } catch (e) { fail(res, e) }
 })
 app.post('/api/workroom/:kind/:id/publish', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
@@ -996,7 +1012,9 @@ app.post('/api/workroom/:kind/:id/publish', auth, async (req, res) => {
 })
 app.post('/api/workroom/:kind/:id/ticket', auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
-  // no terminal here (no node-pty, no folder, a shared server): say why instead of a socket that never opens
+  // no terminal here (no node-pty, no folder, a shared server, a variation whose working copy is elsewhere): say why instead of a socket
+  // that never opens
+  try { workroom.assertWritable(r, req.user) } catch (e) { return fail(res, e) }
   const st = workroom.terminalStatus(r, req.body.mode === 'claude' ? 'claude' : 'shell')
   if (!st.ok) return res.status(st.status).json({ error: st.reason })
   res.json({ ticket: workroom.issueTicket(req.user, r, req.body.mode) })
@@ -1345,6 +1363,9 @@ workroom.attachTerminal(server)
 // the desktops' links for local CLI agents (websocket upgrade on /api/local-agents/link) and their step worker — like the business
 // agent's, even with PRO_BACKGROUND=0 (PRO_LOCAL_AGENT_WORKER=0 turns the worker off)
 startLocalAgents(server)
+// variations' seats (lib/folders/seats.js): moves that ran out of time end as 보관 중; the main server also puts away the server agents'
+// working copies whose run died with the last process
+startSeatSweep(forEachTenant, { restart: background })
 // an ArtCraft app open in the page, driven live by the agent (websocket upgrade on /api/craft/live)
 attachCraftLive(server)
 // the interpreter's voice in a meeting (websocket upgrade on /api/meetings/voice)

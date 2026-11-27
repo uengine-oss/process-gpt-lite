@@ -210,7 +210,7 @@ function wordsOf(text, files = []) {
 // The composer sent a message to a local agent: the message in the chat (tagged with its agent), then — into the chat's running CLI as
 // its owner's input, onto the run that waits for the desktop, or a new run (the same CLI session when there was one). The server agent is
 // not called. → {jobId, steered, queued, delivered}
-export async function send({ user, thread, text, agent, conversation = null, files = [], refs = [] }) {
+export async function send({ user, thread, text, agent, conversation = null, files = [], refs = [], clientId = null }) {
   if (!isAgent(agent)) throw err(400, L('고를 수 있는 에이전트가 아니에요.', 'That is not an agent you can pick.'))
   if (!['chat', 'project'].includes(thread.kind)) throw err(400, L('이 대화에서는 기본 에이전트만 쓸 수 있어요.', 'Only the default agent answers here.'))
   // files dragged onto the composer (lib/fileRefs.js — read with the person's own access): by their addresses, since the CLI on the PC has
@@ -225,7 +225,9 @@ export async function send({ user, thread, text, agent, conversation = null, fil
   // (the message is in the chat first, whatever happens next: a refusal — a project folder the person may not edit — is said under it)
   const tag = { id: agent, label: LABEL(agent), where: HERE() }
   const msg = await addMessage(user.id, thread.id, 'user', 'text', { text: String(text || '').trim().slice(0, 8000) || (pointed?.shown?.length ? L('첨부한 파일을 확인해 줘', 'Please look at the attached files') : ''), agent: tag,
-    ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(conv ? { conv } : {}) })
+    ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(conv ? { conv } : {}),
+    // (the page's id for it — lib/sendOnce.js: the same message sent again is taken once)
+    ...(clientId ? { clientId: String(clientId) } : {}) })
   for (const f of (Array.isArray(files) ? files : []).slice(0, 10)) if (f?.url || f?.name) await addMessage(user.id, thread.id, 'user', 'file', { name: f.name, url: f.url, ...(conv ? { conv } : {}) })
   const open = await openJob(user, thread.id, key, agent)
   const where = open ? null : await folderFor(user, thread)
@@ -280,7 +282,7 @@ export async function prepare(job, link = null) {
   let line = c.line || folder.default_branch
   // a project's variation that was merged (반영) or dropped meanwhile: the project's live one now
   if (c.mode === 'project' && c.variation) {
-    const v = await S.variationById(c.variation)
+    let v = await S.variationById(c.variation)
     if (!v || !['open', 'ready', 'conflicted'].includes(v.status)) {
       const [thread] = await q('select * from pro_threads where id=$1', [job.thread_id])
       const TF = await import('../folders/threadFolders.js')
@@ -288,7 +290,16 @@ export async function prepare(job, link = null) {
       if (!lk || lk.mode !== 'project') throw new Error('the project no longer works in this folder')
       const { v: nv } = await TF.ensureProjectVariation({ id: String(job.user_id), name: job.person_name || '' }, thread, lk)
       line = nv.branch
+      v = nv
       await q(`update pro_local_jobs set chat = chat || jsonb_build_object('line', $2::text, 'variation', $3::text) where id=$1`, [job.id, nv.branch, nv.id])
+    }
+    // One working copy per variation (folders/seats.js): this computer takes the project variation's seat for the run — the person's own
+    // server workroom gives it up (saved as it is), a server agent's running turn or another place refuses it (the run then says why and
+    // offers 「기본으로 다시 보내기」). The seat goes when the run ends (note).
+    if (link?.id) {
+      const seat = await (await import('../folders/seats.js')).claimDevice(folder, v, { user: { id: String(job.user_id), name: job.person_name || '' }, device: link.id, job: job.id })
+      // (the run remembers it had a seat: what it pushes after losing it is not brought in — bringIn)
+      if (!seat.legacy) await q(`update pro_local_jobs set chat = coalesce(chat, '{}'::jsonb) || jsonb_build_object('seat', $2::int) where id=$1`, [job.id, seat.epoch])
     }
   }
   const base = await G.branchExists(folder.repo_path, line) ? line : folder.default_branch
@@ -341,6 +352,16 @@ async function bringIn(job, branch) {
   }
   const v = await S.variationById(c.variation)
   if (!v) return { folder, head, conflicted: true }
+  // one working copy per variation (folders/seats.js): a run that no longer holds the variation's seat (its person took it back, it moved)
+  // brings nothing into it — what it pushed becomes a variation of its own, 「… — <PC>에 남아 있던 변경」 (never thrown away, never mixed in)
+  const SE = await import('../folders/seats.js')
+  const holds = await SE.jobHolds(v.id, job.id)
+  if (holds === false || (holds === null && c.seat != null)) {
+    const left = await SE.leftover(folder, v, head, { user: String(job.user_id), where: job.device_name || '' }).catch((e) => { console.warn('[local-agents] chat leftover', e.message); return null })
+    // (a project's workspace: its leftover is kept as privately as the workspace — the run's branch, holding the same commits, goes)
+    if (left && v.source?.template) await G.git(folder.repo_path, ['update-ref', '-d', `refs/heads/${branch}`, head], { check: false })
+    return { folder, head, conflicted: true, leftover: left?.id || null }
+  }
   let now = null
   if (v.worktree_path && fs.existsSync(v.worktree_path)) {
     // (checked out — a server agent turn of the project has it open): merged there, so its worktree follows
@@ -354,6 +375,7 @@ async function bringIn(job, branch) {
     now = await advanceLine(folder, v.branch, head, { record: false })
   }
   await q(`update pro_folder_variations set head_commit=$2, status=case when status='open' then 'ready' else status end, updated_at=now() where id=$1`, [v.id, now])
+  if (holds) await SE.pushed(v.id, now)
   await S.touch(folder)
   const after = await S.variationById(v.id)
   const brought = await isAncestor(G, folder.repo_path, head, now)
@@ -534,6 +556,8 @@ export async function cardFor(user, job) { return cardOf(job, { worker: String(j
 // the card follows the run: its message in the chat (the sender's), and the card itself to whoever has it on screen
 export async function note(job, what) {
   if (what === 'link-lost') job = { ...job, why: 'link-lost' }
+  // a run that ended gives back the project variation's seat it held (folders/seats.js) — after its last push came in (complete)
+  if (['done', 'failed', 'cancelled', 'delegated'].includes(job.state)) await import('../folders/seats.js').then((x) => x.releaseJob(job)).catch((e) => console.warn('[local-agents] chat seat', e.message))
   const u = String(job.user_id)
   await withLang(await langOf(u).catch(() => 'ko'), async () => {
     const content = cardOf(job, { worker: true })

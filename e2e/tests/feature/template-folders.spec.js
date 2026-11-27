@@ -10,7 +10,7 @@
 //   F-TF-05 박도윤이 「새 프로젝트」에서 같은 템플릿을 고름(「템플릿으로 시작」) → 고친 main 에서 시작 · 김서연의 작업 공간은 없음(404)
 //   F-TF-06 390px 휴대폰 — 작업 공간 막대 · 반영 요청 시트(밝은 · 어두운 테마)
 //   F-TF-07 HTTP 로 돌아가는 길이 없음 — 새 변형의 기준(작업 공간 id · 가지 이름 · git 표현) · 판(sha)으로 raw · publish · 반영 요청이 보여 주는 것 ·
-//           템플릿 지정 권한(PATCH) · 보기 권한자의 「템플릿으로 시작」
+//           작업본 자리(자리 보기 · 돌려 달라고 하기 · 가져오기 · 작업실 목록) · 템플릿 지정 권한(PATCH) · 보기 권한자의 「템플릿으로 시작」
 // 자기 스택(lib/localStack.js: 회사 template-folders-web 의 BFF 8981 + Vite 5381 — 쓰이고 있으면 멈춘다; RT_TF_API_PORT · RT_TF_WEB_PORT)을 띄우고
 // 지운다. 가짜 모델과 가짜 deepagents 는 이 파일이 59981 한 곳에 띄운다 — 가짜 deepagents 는 메시지의 user_jwt 로 BFF 의 폴더 도구(/mcp/folders)를
 // 실제로 불러 템플릿과 참조 자리를 읽고, 작업 폴더(이 컴퓨터의 deepagents 작업 공간)에 쓰고 저장소의 방에 올린다(lib/roomStore.js 와 같은 열쇠).
@@ -396,6 +396,12 @@ test('F-TF-07 HTTP 로 돌아가는 길이 없음 — 새 변형의 기준 · �
   expect(Object.keys(req.source.request).sort()).toEqual(['note', 'paths'])
   expect(JSON.stringify(req)).not.toContain(WS_B.id)
   expect(JSON.stringify(req)).not.toContain(PROJ_B)
+  // its working copy's seat (variation seats): the template's owner sees nothing of it — no seat, no 「돌려 달라고 하기」, no take — and the
+  // template's 「작업실」 sheet never lists it, not even for its own person
+  for (const [m, p] of [['GET', 'seat'], ['POST', 'seat/recall'], ['POST', 'seat/take'], ['POST', 'seat'], ['POST', 'checkout']]) {
+    expect((await call(A, m, `/folders/${TPL.slug}/variations/${WS_B.id}/${p}`, m === 'POST' ? { why: '돌려주세요' } : undefined)).status, `${m} ${p}`).toBe(404)
+  }
+  expect((await call(B, 'GET', `/folders/${TPL.slug}/workroom`)).body.mine.map((x) => x.id)).not.toContain(WS_B.id)
   // importing branches: a linked folder's agent branches only — never a managed folder's (a workspace's, a desktop run's)
   expect((await call(A, 'POST', `/folders/${TPL.slug}/import`, { branches: [ws.branch, 'pgpt-agent/x'] })).status).toBe(400)
   // PATCH template: the owner only; never a work folder

@@ -36,9 +36,10 @@ const key = () => {
 }
 const sign = (body) => crypto.createHmac('sha256', key()).update(`pgf1.${body}`).digest('base64url')
 
-export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now(), scope = null, device = null, job = null } = {}) {
+// (seat, epoch: a desktop's working-copy token — variation seats, design P1: one variation at one epoch; devices.js seatAccess checks it)
+export function mintToken({ tenant = config.tenantId, folderId, push = PUSH_PREFIX, hours = TOKEN_HOURS(), now = Date.now(), scope = null, device = null, job = null, seat = null, epoch = null } = {}) {
   if (!folderId) throw new Error('a folder git token names its folder')
-  const extra = scope ? { scope: String(scope), device: String(device || ''), job: String(job || '') } : {}
+  const extra = scope ? { scope: String(scope), device: String(device || ''), job: String(job || ''), ...(seat ? { seat: String(seat), epoch: Number(epoch) || 0 } : {}) } : {}
   const body = Buffer.from(JSON.stringify({ tenant, folder: String(folderId), push, exp: Math.floor(now / 1000 + hours * 3600), ...extra })).toString('base64url')
   return `pgf1.${body}.${sign(body)}`
 }

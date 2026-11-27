@@ -150,7 +150,8 @@ export const useTeam = defineStore('team', {
         const looking = this.open && this.active === data.threadId && document.visibilityState === 'visible'
         // news once per message: an update of one already here (or already counted) is not another unread one
         const seen = (this._seen ||= new Set())
-        const news = at < 0 && !seen.has(m.id)
+        // (an old message brought up to date — a mail mention's share changed, server routes/team.js: update — is not news either)
+        const news = at < 0 && !seen.has(m.id) && !data.update
         seen.add(m.id)
         if (seen.size > 2000) seen.delete(seen.values().next().value)
         // a room's new name is not news: its line is in the room, the header changes — no unread, no toast (server lib/team/messenger.js rename)

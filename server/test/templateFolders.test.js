@@ -138,9 +138,13 @@ test('TF-U-05 템플릿으로 시작: 프로젝트 + 전용 작업 공간(지금
   assert.ok(!(await S.listFolders(ks)).some((f) => f.name.includes('가나정밀')))
   // the workroom of its checkout: its person only
   const { folderRoomAccess } = await import('../lib/folders/rooms.js')
-  const room = { folder: tpl.id, need: 'runner', workspaceOf: { holder_type: 'user', holder_id: ks.id, source: { template: true } } }
-  assert.ok(await folderRoomAccess(ks, room))
-  assert.ok(!(await folderRoomAccess(pd, room)))
+  const { folderRoom } = await import('../lib/folders/rooms.js')
+  // (the room as the server makes it — read only or not, it is no one else's: not even the template's owner may look)
+  for (const who of [ks, pd, ha]) {
+    const room = await folderRoom('variation', wsK.id, who)
+    assert.ok(room, 'room')
+    assert.equal(await folderRoomAccess(who, room), who === ks, who.name)
+  }
 })
 
 test('TF-U-06 프로젝트 턴: 에이전트에게 작업 공간 · 결과물 자리 · 참조 자리를 알리고, 결과물과 양식 고침은 작업 공간에만', { skip: !db }, async () => {
@@ -679,4 +683,37 @@ test('TF-U-25 보내는 파일: 이름에 pathspec 기호가 있어도 그 파�
   assert.equal(TPL.templateSettings(tpl, pd, false).template, undefined)
   assert.throws(() => TPL.templateSettings({ ...tpl, settings: { work: {} } }, ha, true), status(400))
   assert.throws(() => TPL.templateSettings({ ...tpl, kind: 'linked' }, ha, true), status(400))
+})
+
+// ---------- with variation seats (#86): a workspace's seat is its person's only ----------
+test('TF-U-26 작업본 자리: 작업 공간은 그 사람의 작업실 · 에이전트 · PC 에만 — 폴더 주인도 돌려 달라고 하거나 가져가지 못하고, 작업실 목록 · 남은 변경도 그 사람에게만', { skip: !db }, async () => {
+  const SE = await import('../lib/folders/seats.js')
+  const ws = await S.variationById(wsK.id)
+  const on = SE.seatsOn ? (await SE.seatOf(ws.id, { v: ws })) !== undefined : false
+  if (!on) { console.log('(no seat table here — sql/063)'); return }
+  // its person opens it in the server workroom
+  await SE.openServer(tpl, ws, { user: ks, run: 'workroom', dir: S.personCheckoutDir(ks, ws) })
+  try {
+    const seat = await SE.seatOf(ws.id, { v: await S.variationById(ws.id) })
+    assert.equal(seat.place, 'server'); assert.equal(String(seat.user_id), ks.id)
+    // the folder's owner: no 「돌려 달라고 하기」, no take — not even past a day
+    const viewOwner = await SE.viewOf({ ...seat, recall: { by: ha.id, at: new Date(Date.now() - 2 * SE.RECALL_WAIT_MS).toISOString() } }, await S.variationById(ws.id), { me: ha, role: 'owner' })
+    assert.equal(viewOwner.can.take, false)
+    assert.equal(viewOwner.can.recall, false)
+    await assert.rejects(SE.recall(tpl, await S.variationById(ws.id), ha, { role: 'owner' }), status(404))
+    await assert.rejects(SE.take(tpl, await S.variationById(ws.id), ha, { role: 'owner' }), status(404))
+    // the template's 「작업실」 sheet: never its person's workspace (it is opened from the project)
+    const sheet = await SE.workroomChoices(tpl, ks, 'runner')
+    assert.ok(!sheet.mine.some((x) => x.id === ws.id))
+  } finally { await SE.closeServer(tpl, await S.variationById(ws.id), { by: ks.id, me: ks }).catch(() => {}) }
+  // what a place that lost the workspace's seat left: as private as the workspace (its person's, hidden branch space, in no list)
+  const cur = await S.variationById(ws.id)
+  const tree = (await G.git(tpl.repo_path, ['rev-parse', `${cur.branch}^{tree}`])).trim()
+  const extra = (await G.git(tpl.repo_path, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', tree, '-p', cur.branch, '-m', 'left on a PC'])).trim()
+  const left = await SE.leftover(tpl, cur, extra, { user: ks.id, where: '김서연의 PC' })
+  assert.ok(left.source.template && left.branch.startsWith('var/t/'), left.branch)
+  assert.equal(String(left.holder_id), ks.id)
+  assert.ok(!(await S.variations(tpl)).some((v) => v.id === left.id), '목록에 없음')
+  await assert.rejects(S.variationFor(tpl, left.id, ha), status(404))
+  assert.ok(!(await S.commitVisible(tpl, extra, pd)) && await S.commitVisible(tpl, extra, ks))
 })

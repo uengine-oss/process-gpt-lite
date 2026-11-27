@@ -37,10 +37,11 @@ cd server && node --test test/templateFolders.test.js
 - **TF-U-23 내 PC 에이전트의 일:** 작업 공간 프로젝트의 일이 밀어 넣은 실행 가지를 `reply` 가 작업 공간에 넣은 뒤 지운다. 변경 카드 없음, 파일 카드는 비공개 서명 주소.
 - **TF-U-24 가져오기 · 이름 바꾸기 · 작업실:** 관리형 폴더 가져오기 400. 연결형에서는 `pgpt-agent/ok` 만(`^0` · `var/t/…` · 다른 이름 · `..` · `:/a` · 없는 가지는 안 가져옴). 라벨 없는 작업 공간의 이름 바꾸기는 템플릿 표시를 지우지 않음. 템플릿 꺼낸 곳이 있는 대화 방은 `holdsWorkspace` 참(관리자도 못 엶).
 - **TF-U-25 보내는 파일:** 이름에 `:(icase)` · `*` 가 든 템플릿 파일도 그 파일로 보냄(`--literal-pathspecs`). 작업 공간이 실행 권한을 켠 파일은 main 과 합친 결과에도 100755. PATCH 와 `setTemplate` 이 같은 `templateSettings` 규칙(이미 지정된 표시 유지 · 작업 폴더 · 연결형 400).
+- **TF-U-26 작업본 자리(#86 과 함께):** 김서연이 작업 공간을 서버 작업실에서 열면 자리는 김서연의 것. 정하윤(소유자)에게 보이는 자리에는 「돌려 달라고 하기」 · 가져오기가 없고(돌려 달라고 한 지 이틀이 지나도), `recall` · `take` 는 404. 템플릿의 「작업실」 목록에 작업 공간 없음. 자리를 잃은 곳에 남은 변경(`leftover`)은 `var/t/…` 가지 · 템플릿 표시 · 김서연 보유로 남아 목록에 없고 정하윤에게 404, 그 판은 박도윤이 못 읽는다. TF-U-05 의 작업실 방은 서버가 만든 방 그대로 김서연만 연다(정하윤 · 박도윤 거절).
 - **TF-U-14 에 더함:** 보는 사람이 볼 수 없는 멘션은 `name` · `path` · `state` 만 남는다(폴더 id · 판 · 블롭 · 변형 없음).
 - **TF-U-08 에 더함:** 반영 요청 변형의 `source.request` 에는 `note` · `paths` 만 있고 작업 공간 id · 프로젝트 id 가 없다.
 
-함께 돌린 기존 시험: `test/threadFolders.test.js`(7) · `test/folderRefs.test.js`(37) · `test/fileMention.test.js`(11) · `test/fileMention.integration.test.js`(12) · `test/folderGitRemote.test.js`(13) · `test/championFolders.test.js`(18) · `test/localAgents.test.js`(33) · `test/chatAgents.test.js`(8) · `test/craftWork.test.js`(8) · `test/folderLink.test.js`(4) · `test/capture-fixes.test.js`(9) · `test/live-links.test.js`(5) · `test/turnPlan.test.js`(22) · `test/mailWork.integration.test.js`(10) · `test/i18n-dictionary.test.js`(3) — 모두 통과.
+함께 돌린 기존 시험: `test/threadFolders.test.js`(7) · `test/folderRefs.test.js`(37) · `test/fileMention.test.js`(11) · `test/fileMention.integration.test.js`(12) · `test/folderGitRemote.test.js`(13) · `test/championFolders.test.js`(18) · `test/localAgents.test.js`(33) · `test/chatAgents.test.js`(8) · `test/craftWork.test.js`(8) · `test/folderLink.test.js`(4) · `test/capture-fixes.test.js`(9) · `test/live-links.test.js`(5) · `test/turnPlan.test.js`(22) · `test/mailWork.integration.test.js`(10) · `test/i18n-dictionary.test.js`(3) · `test/variationSeats*.test.js`(9개 파일, 80) — 모두 통과.
 
 ## 화면 · HTTP (Playwright)
 
@@ -56,6 +57,6 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/templ
 | F-TF-04 | 「원본에 반영 요청」 시트(템플릿 파일 「제안서 양식.md」 체크 · 초안은 「보내지 않아요」) → 「1개 보내기」 → 「주인에게 반영 요청을 보냈어요」, 결과물 경로는 400, 정하윤의 알림 → 그 변형(바뀐 파일 양식 하나) → 「이 변형 반영」 · 「반영 시작」 → main 양식이 새 주소, `산출물/` 없음 | `results/f-tf-04-sheet.png` · `results/f-tf-04-owner.png` |
 | F-TF-05 | 박도윤의 「새 프로젝트」 › 「폴더 고르기」에 「템플릿」 표시 → 칩 「· 템플릿으로 시작」 → 프로젝트 막대, 작업 공간의 양식은 새 주소 · 결과물 없음, 김서연의 작업 공간은 404 | `results/f-tf-05-new-project.png` · `results/f-tf-05-next.png` |
 | F-TF-06 | 390px 밝은 · 어두운 테마: 막대와 시트가 화면 안, 옆으로 밀리지 않음 | `results/f-tf-06-phone-bar-{light,dark}.png` · `results/f-tf-06-phone-sheet-{light,dark}.png` |
-| F-TF-07 | 관리형 폴더의 가져오기 400. 박도윤이 김서연의 작업 공간 id 를 새 변형의 기준으로 주면 404, 김서연 자신은 409, 가지 이름 · `refs/heads/…` · `:/제안서` · `main~1` · `HEAD` 는 400, 작업 공간의 판도 404, `main` 은 200. 그 판으로 raw · publish · tree 는 박도윤 · 정하윤 404, 김서연 200. 정하윤이 받은 반영 요청에 작업 공간 id · 프로젝트 id 없음. 김서연의 PATCH 템플릿 403, 작업 폴더 지정 400, 보기 권한자의 「템플릿으로 시작」 403(프로젝트 안 생김) | — |
+| F-TF-07 | 정하윤의 작업 공간 자리 보기 · 돌려 달라고 하기 · 가져오기 · 자리 열기 · checkout 404, 김서연의 템플릿 「작업실」 목록에 작업 공간 없음. 관리형 폴더의 가져오기 400. 박도윤이 김서연의 작업 공간 id 를 새 변형의 기준으로 주면 404, 김서연 자신은 409, 가지 이름 · `refs/heads/…` · `:/제안서` · `main~1` · `HEAD` 는 400, 작업 공간의 판도 404, `main` 은 200. 그 판으로 raw · publish · tree 는 박도윤 · 정하윤 404, 김서연 200. 정하윤이 받은 반영 요청에 작업 공간 id · 프로젝트 id 없음. 김서연의 PATCH 템플릿 403, 작업 폴더 지정 400, 보기 권한자의 「템플릿으로 시작」 403(프로젝트 안 생김) | — |
 
 첫 실행에서 F-TF-04 가 찾은 결함: 프로젝트 막대 안에 둔 시트가 유리 막대(`backdrop-filter`)를 기준으로 그려져 대화 줄 아래에 갇히고 「보내기」를 누를 수 없었다 → 시트를 `Teleport to="body"` 로 옮김(막대 · 작업 공간 화면 둘 다). 두 번째 실행 6/6 통과(46.7초).
