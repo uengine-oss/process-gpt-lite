@@ -446,7 +446,7 @@ const ix = computed(() => folder.value?.index_state || {})
       </div>
       <div v-if="pcKept.length" class="pcbar glass stop" data-test="folder-pc-kept" role="status">
         <FIcon name="pc" :size="17" />
-        <span class="pt"><b>{{ `서버에 올라가지 않은 커밋 ${pcKept.length}개를 이 PC에 30일 동안 보관해요.` }}</b><small>이 폴더의 작업본 터미널에서 git log refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.</small></span>
+        <span class="pt"><b>{{ `서버에 올라가지 않은 커밋 ${pcKept.length}개를 이 PC에 30일 동안 보관해요.` }}</b><small>이 폴더의 작업본 터미널에서 git log --glob=refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.</small></span>
       </div>
       <div v-if="isSkill && skill?.visibility === 'private' && skill?.mine" class="banner ask glass">
         <FIcon name="people" :size="18" />

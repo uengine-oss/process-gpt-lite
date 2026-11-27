@@ -3,8 +3,8 @@
 // it in their own terminal and runs Claude Code · Codex · an editor there: some files make those programs run commands by themselves —
 // Claude Code's settings (.claude/settings*.json — `hooks`; and commands it runs, permissions, plugins, marketplaces or variables it gives
 // ahead: statusLine · fileSuggestion · apiKeyHelper · awsAuthRefresh · awsCredentialExport · otelHeadersHelper · env · permissions.allow ·
-// defaultMode · enableAllProjectMcpServers · enabledPlugins · extraKnownMarketplaces), hooks in a skill's or an agent's front matter
-// (.claude/skills/**/SKILL.md · .claude/agents/**.md), MCP servers (.mcp.json · .vscode/mcp.json), Codex's project settings
+// defaultMode · enableAllProjectMcpServers · enabledPlugins · extraKnownMarketplaces), hooks and other run keys in a skill's, an agent's or a
+// command's front matter (.claude/skills/**/SKILL.md · .claude/agents/**.md · .claude/commands/**.md — frontRisk), MCP servers (.mcp.json · .vscode/mcp.json), Codex's project settings
 // (.codex/config.toml), direnv (.envrc), VS Code's tasks, launch configurations, settings and workspaces (.vscode/tasks.json · launch.json ·
 // settings.json · *.code-workspace), tool versions mise · asdf install or run (mise.toml · .tool-versions), Windows shell files that point
 // elsewhere or change what Explorer does (.url · .lnk · .library-ms · .scf · .searchConnector-ms · desktop.ini), and programs at the
@@ -26,7 +26,7 @@ export function reasonOf(p) {
   const low = String(p).toLowerCase()
   const base = low.split('/').pop()
   if (/(^|\/)\.claude\/settings[^/]*\.json$/.test(low)) return 'settings'
-  if (/(^|\/)\.claude\/skills\/(.+\/)?skill\.md$/.test(low) || /(^|\/)\.claude\/agents\/(.+\/)?[^/]+\.md$/.test(low)) return 'front'
+  if (/(^|\/)\.claude\/skills\/(.+\/)?skill\.md$/.test(low) || /(^|\/)\.claude\/(agents|commands)\/(.+\/)?[^/]+\.md$/.test(low)) return 'front'
   if (base === '.mcp.json' || /(^|\/)\.vscode\/mcp\.json$/.test(low)) return 'mcp'
   if (/(^|\/)\.codex\/config\.toml$/.test(low)) return 'codex'
   if (base === '.envrc') return 'envrc'
@@ -55,27 +55,23 @@ export function settingsRisk(buf) {
     || ['env', 'enabledPlugins', 'extraKnownMarketplaces'].some((k) => j[k] != null && filled(j[k]))) return 'claude'
   return null
 }
-// A skill's (SKILL.md) or an agent's (.claude/agents/*.md) front matter — the block between a first line `---` and the next — read as a
-// mapping: its top-level keys are the lines that start at the first column with `key:` (a key may be quoted); a top-level `hooks` with
-// anything under it or after it makes 'hooks'. A file with no front matter (or one never closed — Claude Code reads none then) is nothing.
-// → 'hooks' | null
+// A skill's (SKILL.md), an agent's (.claude/agents/**.md) or a command's (.claude/commands/**.md) front matter, taken out the way Claude Code
+// takes it out — a byte-order mark dropped, then everything from a first `---` to the first `---` after it, wherever on a line that is
+// (/^---\s*\n([\s\S]*?)---\s*\n?/) — and then not parsed here: YAML has too many ways to spell a key (quoted, escaped, tagged, a flow
+// mapping, an indented mapping, a merge key, an alias, a key said twice). So the block is looked at as text, on the safe side: a run key
+// anywhere in it, in any case, with `-` · `_` or nothing between its words (FRONT_RUN_KEYS — the one list of them here), or a backslash
+// (an escape can spell any key) makes it listed. Words like these in a description are listed too — a false alarm rather than a miss.
+// → 'hooks' (hooks, or a backslash) · 'claude' (another run key) · null (no front matter, or none of these)
+export const FRONT_RUN_KEYS = ['hooks', 'allowed-tools', 'mcpServers', 'shell', 'lspServers', 'permissionMode']
+const FRONT = /^---\s*\n([\s\S]*?)---\s*\n?/
+const keyPattern = (k) => new RegExp(k.replace(/([a-z])([A-Z])/g, '$1-$2').split(/[-_]/).map((w) => w.replace(/[^A-Za-z0-9]/g, '')).join('[-_]?'), 'i')
+const RUN_KEYS = FRONT_RUN_KEYS.map((k) => [k, keyPattern(k)])
 export function frontRisk(buf) {
-  const lines = buf.toString('utf8').replace(/^\uFEFF/, '').split(/\r?\n/)
-  if (lines[0]?.trim() !== '---') return null
-  const close = lines.findIndex((l, i) => i > 0 && /^(---|\.\.\.)\s*$/.test(l))
-  if (close < 0) return null
-  const block = lines.slice(1, close)
-  for (let i = 0; i < block.length; i++) {
-    const m = /^(?:"([^"]*)"|'([^']*)'|([^\s#:'"][^:]*?))\s*:(?:\s+(.*)|$)/.exec(block[i])
-    if (!m) continue
-    if ((m[1] ?? m[2] ?? m[3]) !== 'hooks') continue
-    const inline = String(m[4] || '').replace(/\s+#.*$/, '').trim()
-    if (inline && !['~', 'null', '{}', '[]', "''", '""'].includes(inline.toLowerCase())) return 'hooks'
-    // (its value on the lines under it: anything indented before the next top-level key)
-    for (let k = i + 1; k < block.length && !/^\S/.test(block[k]); k++) if (block[k].trim() && !block[k].trim().startsWith('#')) return 'hooks'
-    return null
-  }
-  return null
+  const m = FRONT.exec(buf.toString('utf8').replace(/^﻿/, ''))
+  if (!m) return null
+  const block = m[1]
+  if (block.includes('\\') || RUN_KEYS[0][1].test(block)) return 'hooks'
+  return RUN_KEYS.slice(1).some(([, re]) => re.test(block)) ? 'claude' : null
 }
 
 // The files of a tree that run things by themselves, listed strictly: git that could not list the tree (an error, out of time) throws — a 503
@@ -118,7 +114,12 @@ export async function trustAt(folder, head) {
 // …of the variation's branch now. head: the commit looked at (「이 PC 에서 작업」 sends it back — the server refuses when the variation moved
 // since: what comes to the PC is what was shown)
 export async function trustOf(folder, v) {
-  return trustAt(folder, await G.head(folder.repo_path, `refs/heads/${v.branch}`))
+  // (read strictly: a branch git could not read is not taken for an empty one)
+  let head
+  try { head = (await G.git(folder.repo_path, ['rev-parse', '--verify', `refs/heads/${v.branch}^{commit}`], { timeout: LIST_MS })).trim() } catch (e) {
+    throw Object.assign(new Error(L('이 변형의 파일을 확인하지 못했어요. 잠시 뒤에 다시 시도해 주세요.', "Couldn't check this variation's files. Try again in a moment.")), { status: 503, why: 'unchecked', cause: e })
+  }
+  return trustAt(folder, head)
 }
 // what of `now` the person was not shown at `was` (a file, or a reason a file has, that is new) → [{path, reason}]
 export async function trustAdded(folder, was, now) {

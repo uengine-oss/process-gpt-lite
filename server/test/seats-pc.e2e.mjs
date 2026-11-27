@@ -1,5 +1,5 @@
 // 작업본은 한 곳에 P1 — a variation's working copy on its person's PC, over the real wire (spec openspec/specs/variation-seats): a real Lite
-// BFF, a stand-in for the desktop app (0.2.6) that opens the real link (WebSocket /api/local-agents/link with its device token and caps.seats)
+// BFF, a stand-in for the desktop app (0.2.7) that opens the real link (WebSocket /api/local-agents/link with its device token and caps.seats)
 // and speaks the seat messages, and real `git` over the public path /api/local-git with the tokens the server sends. Fictional people:
 // 한소유 (the folder's owner, whose variation it is) and 김동료 (an editor of the folder).
 //   1. 「이 PC 에서 작업」: POST …/seat {to:'device'} → seat:prepare (a token of that variation, that PC, that epoch) → fetch → seat:ready →
@@ -101,7 +101,7 @@ function openLink(deviceToken, name, { seats = true } = {}) {
       next(types, since = L.got.length, ms = 20000) { const want = [].concat(types); return waitFor(() => L.got.slice(since).find((m) => want.includes(m.type)), ms, `${want.join('|')} on ${name}`) },
       async ask(msg, types) { const at = L.got.length; L.send(msg); return L.next(types, at) },
       close: () => new Promise((r) => { if (L.closed != null) return r(); ws.once('close', () => r()); ws.close() }) }
-    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', token: deviceToken, device: { name, appVersion: '0.2.6-e2e' }, caps: { clis: {}, ...(seats ? { seats: true } : {}) }, prefs: { enabled: false }, active: [] })))
+    ws.on('open', () => ws.send(JSON.stringify({ type: 'hello', token: deviceToken, device: { name, appVersion: '0.2.7-e2e' }, caps: { clis: {}, ...(seats ? { seats: true } : {}) }, prefs: { enabled: false }, active: [] })))
     ws.on('message', (d) => {
       const m = JSON.parse(String(d))
       if (m.type === 'ping') return ws.send(JSON.stringify({ type: 'pong' }))
@@ -142,11 +142,11 @@ await step('SP-E-02 「이 PC 에서 작업」: POST …/seat {to:device} → se
   await api(OWN.token, `/folders/${folder.slug}/files?path=${encodeURIComponent('안내문.md')}`, { method: 'POST', raw: Buffer.from(NOTICE), type: 'text/markdown' })
   await api(OWN.token, `/folders/${folder.slug}/members`, { method: 'POST', body: { type: 'user', id: KIM.id, role: 'editor' } })
   v = await api(OWN.token, `/folders/${folder.slug}/variations`, { method: 'POST', body: { title: '마감일 추가' } })
-  dev = await api(OWN.token, '/local-agents/devices', { method: 'POST', body: { name: '한소유의 맥북', platform: 'darwin', appVersion: '0.2.6' } })
+  dev = await api(OWN.token, '/local-agents/devices', { method: 'POST', body: { name: '한소유의 맥북', platform: 'darwin', appVersion: '0.2.7' } })
   // the PC is off: refused, and no seat
   const off = await fails(OWN.token, `/folders/${folder.slug}/variations/${v.id}/seat`, { method: 'POST', body: { to: 'device', deviceId: dev.device.id } })
   assert.deepEqual([off.status, off.body.why], [409, 'offline'], JSON.stringify(off))
-  // an app before 0.2.6 (no caps.seats): told to update
+  // an app before 0.2.7 (no caps.seats): told to update
   const old = await openLink(dev.token, '한소유의 맥북', { seats: false })
   const o = await fails(OWN.token, `/folders/${folder.slug}/variations/${v.id}/seat`, { method: 'POST', body: { to: 'device', deviceId: dev.device.id } })
   assert.deepEqual([o.status, o.body.why], [409, 'old_app'])
@@ -155,14 +155,14 @@ await step('SP-E-02 「이 PC 에서 작업」: POST …/seat {to:device} → se
   pc = await openLink(dev.token, '한소유의 맥북')
   const list = await pc.next('seat:list', 0)
   assert.deepEqual(list.seats, [])
-  // the 「작업실」 sheet's one answer: my computers — this one on, keeping working copies (desktop 0.2.6)
+  // the 「작업실」 sheet's one answer: my computers — this one on, keeping working copies (desktop 0.2.7)
   const choices = await api(OWN.token, `/folders/${folder.slug}/workroom`)
   assert.deepEqual(choices.devices.map((x) => [x.name, x.online, x.seats]), [['한소유의 맥북', true, true]])
   // (by name only: the desktop app names its own device from its pairing — no id of a computer in a view)
   assert.ok(choices.devices.every((x) => !('id' in x)))
   assert.deepEqual(choices.mine.map((x) => x.title), ['마감일 추가'])
   // someone else's PC id, someone else's variation
-  const kimDev = await api(KIM.token, '/local-agents/devices', { method: 'POST', body: { name: '김동료의 PC', platform: 'win32', appVersion: '0.2.6' } })
+  const kimDev = await api(KIM.token, '/local-agents/devices', { method: 'POST', body: { name: '김동료의 PC', platform: 'win32', appVersion: '0.2.7' } })
   assert.equal((await fails(OWN.token, `/folders/${folder.slug}/variations/${v.id}/seat`, { method: 'POST', body: { to: 'device', deviceId: kimDev.device.id } })).status, 404)
   const kimTry = await fails(KIM.token, `/folders/${folder.slug}/variations/${v.id}/seat`, { method: 'POST', body: { to: 'device', deviceId: kimDev.device.id } })
   assert.equal(kimTry.status, 409, JSON.stringify(kimTry))
@@ -369,7 +369,7 @@ await step('SP-E-06 내 PC 가 켜져 있으면 「여기로 가져오기」는 
   assert.equal((await pc.ask({ type: 'seat:release', variation: v2.id, epoch: p.epoch }, ['seat:released', 'seat:refused'])).type, 'seat:released')
   assert.equal((await api(OWN.token, `/folders/${folder.slug}/variations/${v2.id}/seat`)).place, null)
   // 김동료's link: it never had this variation — no token, no ready, no release
-  const kimDev = await api(KIM.token, '/local-agents/devices', { method: 'POST', body: { name: '김동료의 노트북', platform: 'darwin', appVersion: '0.2.6' } })
+  const kimDev = await api(KIM.token, '/local-agents/devices', { method: 'POST', body: { name: '김동료의 노트북', platform: 'darwin', appVersion: '0.2.7' } })
   const kim = await openLink(kimDev.token, '김동료의 노트북')
   await api(OWN.token, `/folders/${folder.slug}/variations/${v2.id}/seat`, { method: 'POST', body: { to: 'device', deviceId: dev.device.id } })
   const p3 = await pc.next('seat:prepare', at)

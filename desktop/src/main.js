@@ -723,7 +723,7 @@ function seatNotice(n) {
   } else if (n.kind === 'kept') {
     // (a commit only this PC had, of a working copy that went: kept in the app's repository — said once, listed with the folder)
     title = ko ? `「${t}」 — 서버에 올라가지 않은 커밋을 이 PC에 보관했어요` : `"${t}" — a commit that never reached the server is kept on this PC`
-    body = ko ? '30일 동안 보관해요. 이 폴더의 작업본을 다시 열고 터미널에서 git log refs/kept/ 명령어로 확인할 수 있어요.' : 'It is kept for 30 days. Open the folder\'s working copy again and see it in its terminal with git log refs/kept/.'
+    body = ko ? '30일 동안 보관해요. 이 폴더의 작업본을 다시 열고 터미널에서 git log --glob=refs/kept/ 명령어로 확인할 수 있어요.' : 'It is kept for 30 days. Open the folder\'s working copy again and see it in its terminal with git log --glob=refs/kept/.'
   } else if (n.kind === 'trash-full') {
     // (nothing in the trash goes before its 30 days — what is there is what only this PC had)
     const gb = (Number(n.bytes) || 0) / 1024 ** 3

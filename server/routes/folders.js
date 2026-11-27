@@ -426,7 +426,7 @@ export function folderRoutes(auth) {
     if ((req.body?.to || 'server') === 'server') return openHere(req)
     return openOnDevice(req)
   }))
-  // 「이 PC 에서 작업」 (desktop 0.2.6 — lib/folders/seatLink.js): the seat moves to one of my linked computers (my server workroom is
+  // 「이 PC 에서 작업」 (desktop 0.2.7 — lib/folders/seatLink.js): the seat moves to one of my linked computers (my server workroom is
   // committed as it is and closed first) and that computer is told to make the working copy; it is held there once the computer says
   // ready (seat:ready — the page watches the seat). Only the variation's own person, only a computer of theirs that is on and new enough.
   const seatErr = (status, message, why) => Object.assign(new Error(message), { status, why, seat: null })
@@ -442,7 +442,7 @@ export function folderRoutes(auth) {
     const H = await import('../lib/localAgents/hub.js')
     const link = H.linkOf(config.tenantId, String(d.id))
     if (!link) throw seatErr(409, L(`${iga(d.name)} 꺼져 있거나 서버에 이어져 있지 않아요.`, `${d.name} is off or not connected to the server.`), 'offline')
-    if (!link.caps?.seats) throw seatErr(409, L('데스크톱 앱을 새 판(0.2.6)으로 바꿔 주세요 — 이 PC 에서 작업본을 열 수 있어요.', 'Update the desktop app (0.2.6) to open working copies on this PC.'), 'old_app')
+    if (!link.caps?.seats) throw seatErr(409, L('데스크톱 앱을 새 판(0.2.7)으로 바꿔 주세요 — 이 PC 에서 작업본을 열 수 있어요.', 'Update the desktop app (0.2.7) to open working copies on this PC.'), 'old_app')
     // (head: the commit the sheet showed the run-by-itself files of — …/trust: the variation moved since, so the sheet looks again first)
     const asked = /^[0-9a-f]{40}$/.test(String(req.body?.head || '')) ? String(req.body.head) : null
     if (asked && asked !== await G.head(folder.repo_path, `refs/heads/${v.branch}`)) {

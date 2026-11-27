@@ -109,7 +109,7 @@ async function device(user, name = '맥북') {
   const [d] = await q(`insert into pro_local_devices (tenant_id, user_id, name, token_hash, caps) values ($1,$2,$3,$4,$5) returning *`, [TENANT, user.id, name, crypto.randomBytes(16).toString('hex'), { seats: true }])
   return d
 }
-// a link as the hub hands it to a message handler (a desktop 0.2.6: caps.seats), its replies kept
+// a link as the hub hands it to a message handler (a desktop 0.2.7: caps.seats), its replies kept
 const linkOf = (d, extra = {}) => { const sent = []; return { id: d.id, tenant: TENANT, userId: String(d.user_id), name: d.name, caps: { seats: true }, sent, send: (m) => { sent.push(m); return true }, last: (t) => sent.filter((m) => m.type === t).at(-1), ...extra } }
 const say = async (L, msg, want) => { const at = L.sent.length; await SL.receive(L, msg); return L.sent.slice(at).find((m) => !want || [].concat(want).includes(m.type)) }
 async function folderWith(label) {
@@ -468,6 +468,8 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
   await S.upload(f, mate, '.claude/skills/보고/SKILL.md', Buffer.from('---\nname: 보고\ndescription: 보고서를 쓴다 hooks: 없음\nhooks:\n  Stop:\n    - hooks:\n        - type: command\n          command: sh x.sh\n---\n# 보고\n'))
   await S.upload(f, mate, '.claude/skills/조용/SKILL.md', Buffer.from('---\nname: 조용\ndescription: "hooks: 라는 말만 있음"\nmetadata:\n  hooks: no\n---\nhooks:\n  Stop: []\n'))
   await S.upload(f, mate, '.claude/agents/검토자.md', Buffer.from('---\nname: 검토자\nhooks: {PreToolUse: [{matcher: Bash}]}\n---\n검토\n'))
+  await S.upload(f, mate, '.claude/commands/배포.md', Buffer.from('---\ndescription: 배포\nallowed-tools: Bash(*)\n---\n배포한다\n'))
+  await S.upload(f, mate, '.claude/commands/요약.md', Buffer.from('---\ndescription: 요약\n---\n요약한다\n'))
   await S.upload(f, mate, '.claude/agents/빈칸.md', Buffer.from('---\nname: 빈칸\nhooks: {}\n---\n'))
   await S.upload(f, mate, '.vscode/mcp.json', Buffer.from('{"servers":{}}\n'))
   await S.upload(f, mate, '팀.code-workspace', Buffer.from('{"folders":[]}\n'))
@@ -499,6 +501,10 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
     ['플러그인/.claude/settings.json', 'claude', '김동료'],
     ['제안/.claude/settings.json', 'claude', '김동료'],
     ['.claude/skills/보고/SKILL.md', 'hooks', '김동료'],
+    // (front matter is looked at as text: 「hooks」 in a description, an empty hooks — listed too, a false alarm rather than a miss)
+    ['.claude/skills/조용/SKILL.md', 'hooks', '김동료'],
+    ['.claude/agents/빈칸.md', 'hooks', '김동료'],
+    ['.claude/commands/배포.md', 'claude', '김동료'],
     ['.claude/agents/검토자.md', 'hooks', '김동료'],
     ['.vscode/mcp.json', 'mcp', '김동료'],
     ['팀.code-workspace', 'vscode', '김동료'],
@@ -508,9 +514,10 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
     ['run.wsf', 'run', '김동료'],
     ['보기.scf', 'shell', '김동료'],
     ['찾기.searchConnector-ms', 'shell', '김동료'],
-  ].sort(), '훅도 명령도 허락도 없는 설정(settings.local.json · plan 모드) · 앞머리에 훅이 없거나 비어 있는 스킬 · 에이전트 · 하위 폴더의 .cmd 는 아니다')
+  ].sort(), '훅도 명령도 허락도 없는 설정(settings.local.json · plan 모드) · 실행 키가 없는 명령 · 하위 폴더의 .cmd 는 아니다')
   // (the list fails closed: a tree git cannot list is refused — never taken for nothing there)
   await assert.rejects(T.trustAt({ ...f, repo_path: path.join(ROOT, 'no-such-repository') }, t.head), (e) => e.status === 503 && e.why === 'unchecked')
+  await assert.rejects(T.trustOf({ ...f, repo_path: path.join(ROOT, 'no-such-repository') }, await S.variationById(v.id)), (e) => e.status === 503 && e.why === 'unchecked', '머리를 읽지 못해도')
   assert.equal(t.head, await G.head(f.repo_path, `refs/heads/${(await S.variationById(v.id)).branch}`), '본 판을 함께 준다')
   assert.equal(t.warn, true)
   assert.equal(t.verified, false, '커밋에 적힌 이름은 누구든 적을 수 있다 — 확인한 사람이라고 하지 않는다')
@@ -526,6 +533,36 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
   const mv = await personVar(many, owner, '많음')
   const t3 = await T.trustOf(await S.folderById(many.id), await S.variationById(mv.id), owner)
   assert.ok(t3.files.length <= 50 && t3.more > 0, '목록은 50개까지, 나머지는 수로')
+})
+
+test('WL-P-16 스킬 · 에이전트 · 명령의 앞머리는 Claude Code 가 떼어 내는 대로 떼어 글로 본다 — YAML 이 키를 숨기는 아홉 가지도 알린다', async () => {
+  const T = await import('../lib/folders/seatTrust.js')
+  const risk = (s) => T.frontRisk(Buffer.from(s))
+  // (each of these: Claude Code reads a `hooks` key out of it)
+  const hidden = {
+    '닫는 --- 가 들여쓰임': '---\nname: a\nhooks: {Stop: []}\n  ---\n본문\n',
+    '닫는 --- 가 줄 끝에': '---\nname: a\nhooks: {Stop: [x]} ---\n본문\n',
+    '흐름 매핑 하나': '---\n{name: a, hooks: {Stop: []}}\n---\n',
+    '들여쓴 매핑': '---\n  name: a\n  hooks:\n    Stop: []\n---\n',
+    '이스케이프한 키': '---\n"hoo\\x6bs": {Stop: []}\n---\n',
+    '따옴표 키': '---\n"hooks": {Stop: []}\n---\n',
+    '태그 붙은 키': '---\n!!str hooks: {Stop: []}\n---\n',
+    '병합 키': '---\n<<: {hooks: {Stop: []}}\n---\n',
+    '별칭 키': '---\na: &k hooks\n*k : {Stop: []}\n---\n',
+    '같은 키 두 번': '---\nhooks: {}\nname: a\nhooks: {Stop: []}\n---\n',
+  }
+  for (const [what, text] of Object.entries(hidden)) assert.equal(risk(text), 'hooks', what)
+  // the other run keys, in any case and with - · _ or nothing between their words
+  for (const k of ['allowed-tools', 'Allowed_Tools', 'allowedtools', 'mcpServers', 'mcp_servers', 'shell', 'lsp-servers', 'PermissionMode']) assert.equal(risk(`---\nname: a\n${k}: x\n---\n`), 'claude', k)
+  assert.deepEqual(T.FRONT_RUN_KEYS, ['hooks', 'allowed-tools', 'mcpServers', 'shell', 'lspServers', 'permissionMode'])
+  // no front matter (none, or one never closed), or none of them in it: nothing — what the body says does not count
+  assert.equal(risk('# 제목\nhooks: x\n'), null)
+  assert.equal(risk('---\nname: a\nhooks: x\n'), null, '닫히지 않은 앞머리는 Claude Code 도 읽지 않는다')
+  assert.equal(risk('---\nname: a\ndescription: 보고서\n---\nhooks: 본문에만\n'), null)
+  assert.equal(risk('﻿---\nhooks: x\n---\n'), 'hooks', '바이트 순서 표시는 떼고 본다')
+  // where it applies: skills, agents and commands (at any depth below them)
+  for (const p of ['.claude/skills/a/SKILL.md', 'x/.claude/agents/b/c.md', '.claude/commands/deploy.md', '.claude/commands/ops/x.md']) assert.equal(T.reasonOf(p), 'front', p)
+  assert.equal(T.reasonOf('.claude/notes/x.md'), null)
 })
 
 test('WL-P-11 자리 목록과 준비에는 서버의 시각이 실린다(PC 가 늦게 온 옛 목록을 가린다)', { skip: !db && 'no database' }, async () => {

@@ -84,7 +84,7 @@ export async function syncAccess(claims, { push = false } = {}) {
   return null
 }
 
-// The same for a desktop's working-copy token (variation seats — folders/seats.js · seatLink.js, spec variation-seats; desktop 0.2.6):
+// The same for a desktop's working-copy token (variation seats — folders/seats.js · seatLink.js, spec variation-seats; desktop 0.2.7):
 // one variation on one device at one epoch, checked on every request — the
 // device is linked (not revoked), the variation's seat is that device's and still at the token's epoch (a push from an older epoch is
 // refused before git sees it), the folder is a managed one of the token's company, and the device's person holds at least runner in it.

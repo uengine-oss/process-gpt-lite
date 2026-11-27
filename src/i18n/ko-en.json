@@ -3520,7 +3520,7 @@
   "이 PC의 작업본 폴더가 없어져서 이 변형을 보관 중 상태로 바꿨어요. 다시 「이 PC 에서 작업」을 누르면 새로 받아요.": "The working copy's folder on this PC is gone, so this variation is put away. Press \"Work on this PC\" again to fetch it anew.",
   "그사이 이 변형이 바뀌었어요. 다시 확인한 뒤에 받아요.": "The variation changed meanwhile. It is checked again before it comes here.",
   "Claude Code 설정 — 명령 실행 · 환경 변수 · 플러그인 · 권한 · MCP 서버를 미리 설정해요": "Claude Code settings — set commands, environment variables, plugins, permissions and MCP servers in advance",
-  "이 폴더의 작업본 터미널에서 git log refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.": "See them with git log refs/kept/ in a terminal of this folder's working copy, and bring back what you need with git cherry-pick."
+  "이 폴더의 작업본 터미널에서 git log --glob=refs/kept/ 명령어로 확인하고, 필요한 커밋은 git cherry-pick 명령어로 가져올 수 있어요.": "See them with git log --glob=refs/kept/ in a terminal of this folder's working copy, and bring back what you need with git cherry-pick."
  },
  "patterns": [
   [

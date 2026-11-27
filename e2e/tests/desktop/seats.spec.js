@@ -1,4 +1,4 @@
-// 작업본은 한 곳에 P1 — 「이 PC 에서 작업」 in the desktop app (desktop/, Electron 0.2.6) driven by Playwright's _electron, spec
+// 작업본은 한 곳에 P1 — 「이 PC 에서 작업」 in the desktop app (desktop/, Electron 0.2.7) driven by Playwright's _electron, spec
 // openspec/specs/variation-seats. The user (2026-11-26): 「폴더내 작업실을 누르면 일렉트론에 연결된 모바일이나 일렉트론내 해당 워크트리를 클론하여
 // 작업할 수 있고 로컬 폴더 작업 결과를 서버로 동기화 할 수 있다. 작업본이 여러군데 흩어져서는 안되니 잘 설계해」.
 // 김작업 signs in in the app (it pairs itself), opens her variation's 「작업실」, and the sheet's default 「이 PC 에서 작업」 makes its working
