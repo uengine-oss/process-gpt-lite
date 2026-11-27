@@ -56,6 +56,17 @@ async function deleteOutside(dir, w = null, vid = null) {
   if (process.platform === 'win32' && w && vid) { w.unwatchOne(vid); await settled(w, vid) }
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
 }
+// A working copy deleted outside the app, the way it can happen on this computer. On Windows the app keeps a folder it watches and runs
+// git in (Explorer says it is in use — accepted: the app protects it), so there the app is stopped first, the folder deleted, and the app
+// started again on the same records: the next start finds the folder gone, and the same 「없어졌어요」 path runs from there. Elsewhere the
+// folder goes while the app watches it. → the engine to go on with
+async function deletedOutside(dir, w, vid) {
+  if (process.platform !== 'win32') { fs.rmSync(dir, { recursive: true, force: true }); return w }
+  w.stop()
+  await settled(w, vid)
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 })
+  return make()
+}
 // a file rewritten in place (on Windows the .git file of a worktree is hidden, and a write that replaces a hidden file is refused)
 function rewrite(file, text) {
   const fd = fs.openSync(file, 'r+')
@@ -1371,12 +1382,12 @@ test('5차 검토 1 — 끝나지 않은 병합 · cherry-pick · rebase 는 커
 })
 
 test('5차 검토 2 — 앱 밖에서 지운 작업본: 다음 「이 PC 에서 작업」이 막히지 않고, 그 가지에만 있던 안 올린 커밋은 앱 저장소(refs/kept)에 남는다', async () => {
-  const w = wc || make()
+  let w = wc || make()
   const v = variation('밖에서 지움')
   const e = await prepared(w, v)
   put(e.dir, '메모.md', '안 올린 메모\n'); git(e.dir, 'add', '-A'); git(e.dir, 'commit', '-qm', '안 올림')
   const unsent = git(e.dir, 'rev-parse', 'HEAD').trim()
-  await deleteOutside(e.dir, w, v)
+  w = await deletedOutside(e.dir, w, v)
   // the server lists it held: this PC says it is missing (보관 중 there), git here forgets the working copy
   w.handle({ type: 'seat:list', seats: heldNow(w) })
   await waitFor(() => !w.get(v), 6000, 'forgotten')
@@ -1388,7 +1399,7 @@ test('5차 검토 2 — 앱 밖에서 지운 작업본: 다음 「이 PC 에서 
   const e2 = await prepared(w, v)
   assert.ok(fs.existsSync(path.join(e2.dir, 'README.md')))
   // deleted again, and the next prepare comes straight away (no list in between): it works too
-  await deleteOutside(e2.dir, w, v)
+  w = await deletedOutside(e2.dir, w, v)
   sv.epoch = 3; sv.state = 'moving'
   w.handle(prepareMsg(v))
   const e3 = await waitFor(() => Number(w.get(v)?.epoch) === 3 && w.get(v).state === 'held' && w.get(v), 15000, 'held at epoch 3')
@@ -1492,10 +1503,10 @@ test('6차 검토 A5 — 보관하지 못하면 그 가지를 지우지 않고, 
 })
 
 test('6차 검토 A3 — 앱이 켜진 채 폴더를 지우면: 「지금 올리기」 · 「여기로 가져오기」가 바로 「없어졌어요」로 답하고, 다시 이어지지 않아도 다시 받는다', async () => {
-  const w = wc || make()
+  let w = wc || make()
   const v = variation('켜진 채 지움')
   const e = await prepared(w, v)
-  await deleteOutside(e.dir, w, v)
+  w = await deletedOutside(e.dir, w, v)
   assert.deepEqual(await w.saveNow(v), { ok: false, why: 'missing' })
   assert.equal(sentOf('seat:failed', v).at(-1)?.why, 'missing')
   assert.equal(w.get(v), null)
@@ -1504,7 +1515,7 @@ test('6차 검토 A3 — 앱이 켜진 채 폴더를 지우면: 「지금 올리
   w.handle(prepareMsg(v))
   const e2 = await waitFor(() => Number(w.get(v)?.epoch) === 2 && w.get(v).state === 'held' && w.get(v), 15000, 'held at 2')
   // 「여기로 가져오기」 from elsewhere with the folder gone: said back at once — as the recall's answer, or already by the app's own look at it
-  await deleteOutside(e2.dir, w, v)
+  w = await deletedOutside(e2.dir, w, v)
   w.handle({ type: 'seat:recall', variation: v, epoch: 2, auto: true })
   await waitFor(() => sentOf('seat:refused', v).some((m) => m.re === 'seat:recall' && m.why === 'missing') || sentOf('seat:failed', v).some((m) => m.epoch === 2 && m.why === 'missing'), 6000, 'said back')
   await settled(w, v)
