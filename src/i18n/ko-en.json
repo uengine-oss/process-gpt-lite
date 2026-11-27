@@ -8273,6 +8273,14 @@
   [
    "이 대화는 프로젝트 「{0}」으로 옮겼어요 · 보낸 말은 입력창에 다시 넣었어요",
    "This conversation moved to the project \"{0}\" · what you sent is back in the box"
+  ],
+  [
+   "이 대화는 프로젝트 「{0}」로 옮겼어요 · 그 대화를 열면 보낸 말이 입력창에 다시 들어가요",
+   "This conversation moved to the project \"{0}\" · open it and what you sent will be back in the box"
+  ],
+  [
+   "이 대화는 프로젝트 「{0}」으로 옮겼어요 · 그 대화를 열면 보낸 말이 입력창에 다시 들어가요",
+   "This conversation moved to the project \"{0}\" · open it and what you sent will be back in the box"
   ]
  ],
  "context": [

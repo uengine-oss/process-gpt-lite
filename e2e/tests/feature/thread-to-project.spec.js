@@ -10,7 +10,8 @@
 //   F-TM-05 휴대폰 390(밝은 · 어두운) · 1280: 긴 대화를 걸러 보고 맨 아래(최신)로 내려가도 대화 막대가 위에 붙어 있음 — 휴대폰은 한 줄, 글을 쓰는 동안
 //           (키보드)은 이름 · 「다른 대화 ▾」만; 전체 채팅의 막대(알약)는 그대로 흘러감
 //   F-TM-06 휴대폰 390(밝은): 실시간 이벤트를 받지 못한 옛 화면에서 옮긴 대화에 말을 보내면 → 보내기 실패가 아니라 프로젝트의 그 주제로 가고 말은 입력창에
-//           (PR #125 검토 10)
+//           (PR #125 검토 10) — 줄 서 있던 말까지 함께
+//   F-TM-07 1280: 그 사이 다른 화면으로 가 있었으면 끌고 가지 않고 알림만, 나중에 그 대화를 열면 말이 입력창에 (PR #125 마지막 확인 2)
 // 자기 스택(lib/localStack.js: 회사 thread-move-ui 의 BFF + Vite, 8994 · 5394)을 띄우고 지운다. 가짜 모델 · 가짜 deepagents 는 이 파일이 빈 포트에
 // 띄운다 — 실제 모델 · 에이전트 · 판정 서버는 부르지 않는다. 사람 · 회사는 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js
@@ -461,17 +462,50 @@ test('F-TM-06 옛 화면에서 옮긴 대화에 보낸 말은 프로젝트의 �
   const moved = await S.api(HY.token, `/conversations/${CONV.B}/move`, { method: 'POST', body: { project: P1.id } })
   expect(moved.moved).toBe(2)
   await expect(p).toHaveURL(new RegExp(`/chat/c/${CONV.B}$`))
+  // two messages: the first held on its way a moment, the second waits behind it — both come back (PR #125 final check 2)
+  await p.route(`**/api/threads/${MAIN.id}/messages`, async (r) => { await new Promise((ok) => setTimeout(ok, 1200)); await r.continue() })
   const words = '회의록에 참석자 명단도 넣어 줘'
+  const more = '결정 사항은 굵게 표시해 줘'
   await composer(p).fill(words)
+  await composer(p).press('Enter')
+  await composer(p).fill(more)
   await composer(p).press('Enter')
   await expect(p).toHaveURL(new RegExp(`/projects/${P1.id}/t/${CONV.B}$`), { timeout: 20000 })
   await expect(p.getByTestId('chat-notice')).toHaveText('이 대화는 프로젝트 「가나정밀 1차 교육」으로 옮겼어요 · 보낸 말은 입력창에 다시 넣었어요')
-  await expect(composer(p)).toHaveValue(words)
+  await expect(composer(p)).toHaveValue(`${words}\n${more}`)
   // not kept as a failed send in the chat
   await expect(p.locator('[data-test="send-issue"]')).toHaveCount(0)
-  expect((await S.q(`select count(*)::int as n from pro_messages where thread_id=$1 and content->>'text'=$2`, [MAIN.id, words]))[0].n).toBe(0)
+  expect((await S.q(`select count(*)::int as n from pro_messages where thread_id=$1 and content->>'text' = any($2)`, [MAIN.id, [words, more]]))[0].n).toBe(0)
   await noSideScroll(p)
   await shot(p, 'f-tm-06-followed')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-TM-07 1280: 그 사이 다른 화면으로 갔으면 끌고 가지 않고 알림만 — 나중에 그 대화를 열면 말이 입력창에', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const p = await open(browser, HY, DESK)
+  await p.context().route('**/api/events**', (r) => r.abort())
+  await toConversation(p, 'L')
+  // moved elsewhere (another screen); this page has not heard, and its message is slow on the way
+  await S.api(HY.token, `/conversations/${CONV.L}/move`, { method: 'POST', body: { project: P4.id } })
+  await p.route(`**/api/threads/${MAIN.id}/messages`, async (r) => { await new Promise((ok) => setTimeout(ok, 1500)); await r.continue() })
+  const words = '13일차 일정도 정리해 줘'
+  await composer(p).fill(words)
+  await composer(p).press('Enter')
+  // meanwhile the person went to 「프로젝트」
+  await p.locator('.seg button').filter({ hasText: /^(프로젝트|Projects)$/ }).click()
+  await expect(p).toHaveURL(/\/projects$/)
+  await expect(p.getByTestId('chat-notice')).toHaveText('이 대화는 프로젝트 「견적 모음」으로 옮겼어요 · 그 대화를 열면 보낸 말이 입력창에 다시 들어가요', { timeout: 20000 })
+  await expect(p).toHaveURL(/\/projects$/)
+  await shot(p, 'f-tm-07-told')
+  // later: the project, then that conversation — the words are back in its composer
+  await p.locator(`.item[data-project="${P4.id}"]`).click()
+  await p.locator(`[data-testid="project-topic"][data-conv="${CONV.L}"]`).click()
+  await expect(p).toHaveURL(new RegExp(`/projects/${P4.id}/t/${CONV.L}$`))
+  await expect(composer(p)).toHaveValue(words)
+  await expect(p.getByTestId('chat-notice')).toHaveText('이 대화는 프로젝트 「견적 모음」으로 옮겼어요 · 보낸 말은 입력창에 다시 넣었어요')
+  await shot(p, 'f-tm-07-refilled')
   expect(p.errors).toEqual([])
   await p.context().close()
 })

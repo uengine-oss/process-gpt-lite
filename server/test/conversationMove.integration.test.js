@@ -23,6 +23,7 @@
 //   TM-I-16 빠진 폴더의 구성원 이름은 보이지 않음
 //   TM-I-17 열린 「새 프로젝트로」 카드는 다른 길로 옮기면 닫히고, 「만들고 옮기기」는 빈 프로젝트를 만들지 않음
 //   TM-I-18 말로: 걸러 본 화면에서 한 말 뒤에 전체 채팅에서 한 말은 지금 대화의 카드(남아 있던 고정 대화가 아니라)
+//   TM-I-19 (마지막 확인 1) 두 화면이 거의 동시에 되돌려도 대화의 행은 사라지지 않음(40번, 0–15 ms 차이) — 하나는 되돌리고, 다른 하나는 「이미 됨」 또는 404
 // Run: node --test --test-concurrency=1 test/conversationMove.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -526,7 +527,8 @@ test('TM-I-11 대화를 아직 모르는 턴이 있으면 옮기기 · 되돌리
   const t = turns.enqueue({ userId: me.id, threadId: chat.id, conv: null })
   t.started = true
   try {
-    await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.status === 409 && e.code === 'busy')
+    // (a turn of the chat not yet told its conversation: said as the chat's, not as this conversation's — PR #125 final check 3)
+    await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.status === 409 && e.code === 'busy' && e.message === '채팅에서 아직 답을 쓰고 있어요. 답이 끝나면 다시 옮겨 주세요.')
     const tg = await CM.targets(me, X)
     assert.equal(tg.conversation.movable, false)
     assert.equal(tg.conversation.code, 'busy')
@@ -534,6 +536,10 @@ test('TM-I-11 대화를 아직 모르는 턴이 있으면 옮기기 · 되돌리
   // a turn waiting its place, not knowing its conversation yet: the same
   const w = turns.enqueue({ userId: me.id, threadId: chat.id, conv: null })
   try { await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.code === 'busy') } finally { w.finish() }
+  // a turn on this very conversation: said as this conversation's
+  const own = turns.enqueue({ userId: me.id, threadId: chat.id, conv: X })
+  own.started = true
+  try { await assert.rejects(CM.move(me, X, { project: P1.id }), (e) => e.message === '이 대화에서 아직 답을 쓰고 있어요. 답이 완성된 뒤에 옮겨 주세요.') } finally { own.finish() }
   // a turn of another conversation it already knows: not this one's
   const o = turns.enqueue({ userId: me.id, threadId: chat.id, conv: 'some-other-conv' })
   o.started = true
@@ -547,7 +553,7 @@ test('TM-I-11 대화를 아직 모르는 턴이 있으면 옮기기 · 되돌리
   assert.ok(await rowOf(PT.scopeKey(me.id, P1.id), X))
   // undo while a turn of the project does not know its sub-topic yet (PT.routeProject may still pick it): busy
   const pt = turns.enqueue({ userId: me.id, threadId: P1.id, conv: null })
-  try { await assert.rejects(CM.undo(me, X, { project: P1.id }), (e) => e.status === 409 && e.code === 'busy') } finally { pt.finish() }
+  try { await assert.rejects(CM.undo(me, X, { project: P1.id }), (e) => e.status === 409 && e.code === 'busy' && e.message === '프로젝트에서 아직 답을 쓰고 있어요. 답이 끝나면 다시 되돌려 주세요.') } finally { pt.finish() }
   assert.equal((await CM.undo(me, X, { project: P1.id })).back, 2)
 })
 
@@ -668,4 +674,25 @@ test('TM-I-18 말로: 걸러 본 화면에서 한 말 뒤에 전체 채팅에서
   const c2 = (await msgs(chat.id)).filter((m) => m.kind === 'conv_move').at(-1)
   assert.notEqual(c2.id, c1.id)
   assert.equal(c2.content.moveOf.id, R.X, '지금 대화(남아 있던 고정 대화가 아니라)')
+})
+
+test('TM-I-19 두 화면이 거의 동시에 되돌려도 대화의 행은 사라지지 않음', async () => {
+  const { me, chat, P1 } = await setup()
+  const outcomes = {}
+  for (let i = 0; i < 40; i++) {
+    const { X } = await convIn(chat.id, me, `동시 되돌리기 ${i}`)
+    assert.equal((await CM.move(me, X, { project: P1.id })).moved, 2)
+    const d = i % 16
+    const res = await Promise.allSettled([CM.undo(me, X, { project: P1.id }), new Promise((ok) => setTimeout(ok, d)).then(() => CM.undo(me, X, { project: P1.id }))])
+    for (const r of res) {
+      const k = r.status === 'fulfilled' ? (r.value.already ? 'already' : 'back') : `${r.reason.status}/${r.reason.code || ''}`
+      outcomes[k] = (outcomes[k] || 0) + 1
+    }
+    assert.equal(res.filter((r) => r.status === 'fulfilled' && !r.value.already).length, 1, `되돌린 것은 하나 (${i})`)
+    for (const r of res) if (r.status === 'rejected') assert.equal(r.reason.status, 404, `${i}: ${r.reason.message}`)
+    const rows = await q('select user_id, title from context_threads where tenant_id=$1 and conversation_id=$2', [TENANT, X])
+    assert.deepEqual(rows.map((x) => [x.user_id, x.title]), [[me.id, `동시 되돌리기 ${i}`]], `행 하나, 사람 열쇠 (${i})`)
+    assert.equal((await q(`select count(*)::int as n from pro_messages where thread_id=$1 and content->'context'->>'conversationId'=$2`, [chat.id, X]))[0].n, 2, '두 줄 모두 채팅에')
+  }
+  console.log('[TM-I-19] outcomes', outcomes)
 })

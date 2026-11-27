@@ -201,20 +201,29 @@ watch(() => app.moved?.at, () => {
     app.notice = { text: backNotice(), tone: 'ok' }
   }
 })
-// a message sent from a page still on a conversation that moved meanwhile (app.followMoved): the project's conversation, the words back in
-// its composer once that room is on screen
+// a message sent from a page still on a conversation that moved meanwhile (app.followMoved): the page goes to the project's conversation —
+// only while the person is still on that conversation (somewhere else by now: they are told instead, not taken away); the words and files
+// go back into the composer once that conversation's view is on screen, now or whenever they open it (PR #125 final check 2)
 watch(() => app.followPlace?.at, async () => {
   const f = app.followPlace
   if (!f) return
   app.followPlace = null
   const pid = f.place.project.id
-  await router.replace(topicPath(pid, f.place.topic))
-  let done = false
-  const stop = watch(() => app.activeId, (id) => {
-    if (done || id !== pid) return
-    done = true
-    nextTick(() => { app.prefill = f.text; app.notice = { text: `${followedNotice(f.place.project.title)} · 보낸 말은 입력창에 다시 넣었어요`, tone: 'ok' }; stop() })
-  }, { immediate: true })
+  const topic = f.place.topic
+  app.refill = { pid, topic, text: f.text, chips: f.chips || [], refs: f.refs || [], title: f.place.project.title }
+  if (app.mode === 'chat' && app.convFilter === topic) await router.replace(topicPath(pid, topic))
+  else app.notice = { text: `${followedNotice(f.place.project.title)} · 그 대화를 열면 보낸 말이 입력창에 다시 들어가요`, tone: 'ok' }
+})
+watch(() => [app.refill, app.activeId, app.topicFilter], () => {
+  const r = app.refill
+  if (!r || app.activeId !== r.pid || app.topicFilter !== r.topic) return
+  app.refill = null
+  nextTick(() => {
+    app.prefill = r.text
+    if (r.chips.length) app.attachments = [...r.chips, ...app.attachments.filter((a) => !r.chips.some((c) => c.id === a.id))]
+    if (r.refs.length) app.addFileRefs(r.refs)
+    app.notice = { text: `${followedNotice(r.title)} · 보낸 말은 입력창에 다시 넣었어요`, tone: 'ok' }
+  })
 })
 // 닫기 on an instance page: back where it was opened from (Home, a chat card, the list), else the list
 function closeInstance() {

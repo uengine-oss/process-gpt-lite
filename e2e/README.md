@@ -2030,8 +2030,8 @@ cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.
 
 ```bash
 cd server && node --test test/convMove.test.js test/conversations.test.js   # TM-U-01~04 · 서버 = 화면 규칙
-cd server && node --test --test-concurrency=1 test/conversationMove.integration.test.js   # TM-I-01~18 · 실제 DB · 실제 라우트 · 실제 공유 폴더 권한 · 실제 턴(가짜 deepagents)
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js   # F-TM-01~06 (공용 잠금 rec.lock)
+cd server && node --test --test-concurrency=1 test/conversationMove.integration.test.js   # TM-I-01~19 · 실제 DB · 실제 라우트 · 실제 공유 폴더 권한 · 실제 턴(가짜 deepagents)
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js   # F-TM-01~07 (공용 잠금 rec.lock)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2064,6 +2064,9 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/threa
 | (검토 8) 빠진 폴더의 구성원 이름은 보이지 않음 | PR #125 검토 | TM-I-16 | DB | ✅ |
 | (검토 9) 다른 길로 옮긴 대화의 열린 「새 프로젝트로」 카드는 닫히고, 「만들고 옮기기」는 빈 프로젝트를 만들지 않음(409) | PR #125 검토 | TM-I-17 | DB | ✅ |
 | (검토 10) 옛 화면(실시간 이벤트를 못 받음)에서 보낸 말은 409 `moved` → 프로젝트의 그 주제로, 말은 입력창에 다시, 시트도 `moved` 를 따라감 | PR #125 검토 | F-TM-06 | feature | ✅ |
+| (마지막 확인 1) 두 화면이 거의 동시에 되돌려도 행이 사라지지 않음 — 다시 생긴 행 합치기는 프로젝트 행을 잠근 채로만, 늦은 쪽은 `already` · 404 | PR #125 마지막 확인 | TM-I-19 | DB | ✅ |
+| (마지막 확인 2) 줄 서 있던 말까지 함께 입력창에(파일 · 끌어 놓은 파일도), 다른 화면으로 가 있었으면 끌고 가지 않고 알림만 · 그 대화를 열면 입력창에 | PR #125 마지막 확인 | F-TM-06 · F-TM-07 | feature | ✅ |
+| (마지막 확인 3) 바쁜 까닭: 그 대화의 턴이면 「이 대화에서 …」, 대화를 아직 모르는 채팅의 턴이면 「채팅에서 …」, 프로젝트의 턴이면 「프로젝트에서 …」 | PR #125 마지막 확인 | TM-I-11 | DB | ✅ |
 | 실제 사내 모델이 그 말에 `move_to_project` 를 고르는지 · 실제 판정 모델이 말한 프로젝트를 맞히는지 | — | — (가짜 모델) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

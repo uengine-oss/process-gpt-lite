@@ -97,7 +97,8 @@ export const useApp = defineStore('app', {
     notice: null,              // a short line over the composer: {text, tone?} (새 프로젝트 could not be made, the text is back in the box; tone 'ok': a done move)
     moved: null,               // the last move of a conversation into a project or back (server lib/conversationMove.js): MainView follows it
     moveSheet: null,           // 「프로젝트로 옮기기」 open for a conversation of the chat: {conv, title, count} (components/ConversationMoveSheet.vue)
-    followPlace: null,         // a message sent to a conversation that moved into a project meanwhile: {place, text, at} — MainView goes there
+    followPlace: null,         // a message sent to a conversation that moved into a project meanwhile: {place, text, chips, refs, at} — MainView goes there
+    refill: null,              // …its words and files, waiting for that conversation's view to be on screen: {pid, topic, text, chips, refs, title}
     // Home's dock (the left column on a wide screen, the 홈 tab on a phone) — closed at start when the chat's thread list was left open
     dockOpen: !readListOpen(),
     // the chat's thread list (components/ThreadList.vue): the left column in place of Home on a wide screen, a sheet on a phone; opened
@@ -596,11 +597,23 @@ export const useApp = defineStore('app', {
     // Sent from a page still open on a conversation that has since moved into a project (409 moved — server lib/conversationMove.js): not a
     // failure to keep here — the page goes to the project's conversation with the words back in its composer (MainView, this.followPlace)
     // (PR #125 review 10)
+    // Every message kept for that conversation goes along — the words joined in the order they were sent, their files and dragged files back
+    // as chips (as a 새 프로젝트 that could not be made gives them back) — not only the one the server answered (PR #125 final check 2)
     followMoved(u, error) {
       if (error?.code !== 'moved' || !error.place?.project?.id) return false
-      this.dropUnsent(u.id)
-      tookChips.delete(u.id)
-      this.followPlace = { place: error.place, text: u.text, at: Date.now() }
+      const list = this.unsent.filter((x) => x.threadId === u.threadId && x.key === u.key)
+      if (!list.some((x) => x.id === u.id)) list.unshift(u)
+      const chips = []
+      const refs = []
+      for (const x of list) {
+        chips.push(...(tookChips.get(x.id) || (x.files || []).map((f) => ({ id: newId(), name: f.name || '파일', size: f.size || 0, state: 'ready', result: f, error: '', job: Promise.resolve(f) }))))
+        refs.push(...(x.refs || []))
+        tookChips.delete(x.id)
+      }
+      const gone = new Set(list.map((x) => x.id))
+      this.unsent = this.unsent.filter((x) => !gone.has(x.id))
+      this.saveUnsent()
+      this.followPlace = { place: error.place, text: list.map((x) => x.text).filter(Boolean).join('\n'), chips, refs, at: Date.now() }
       return true
     },
     keepUnsent(u) { this.unsent = [...this.unsent.filter((x) => x.id !== u.id), u]; this.saveUnsent() },

@@ -166,11 +166,14 @@ function refusal(c, user) {
       ? L('예약 작업의 대화는 옮길 수 없어요. 실행 결과가 계속 채팅으로 와요.', "A scheduled task's conversation can't be moved — its runs keep coming to the chat.")
       : L('브리프 대화는 옮길 수 없어요. 새 브리프가 계속 채팅으로 와요.', "The briefs' conversation can't be moved — new briefs keep coming to the chat."), 'standing')
   }
-  if (busyTurn(turns.unsettled({ userId: user.id, threadId: c.main.id }), c.convId)) return BUSY()
+  const live = turns.unsettled({ userId: user.id, threadId: c.main.id })
+  if (busyTurn(live, c.convId)) return live.some((x) => !x.finished && String(x.conv) === String(c.convId)) ? BUSY() : BUSY_CHAT()
   if (busyTask(c.rows, c.ids)) return TASK()
   return null
 }
 const BUSY = () => fail(409, L('이 대화에서 아직 답을 쓰고 있어요. 답이 완성된 뒤에 옮겨 주세요.', 'An answer is still being written in this conversation. Move it once it is done.'), 'busy')
+// (a turn of the chat not yet told which conversation it is: maybe this one — not said as this conversation's — PR #125 final check 3)
+const BUSY_CHAT = () => fail(409, L('채팅에서 아직 답을 쓰고 있어요. 답이 끝나면 다시 옮겨 주세요.', 'An answer is still being written in the chat. Move it again once it is done.'), 'busy')
 const TASK = () => fail(409, L('이 대화에서 브라우저 작업이 아직 진행 중이에요. 작업이 끝난 뒤에 옮겨 주세요.', 'A browser task is still at work in this conversation. Move it once it is done.'), 'busy_task')
 
 // ---------- move ----------
@@ -308,11 +311,23 @@ export async function undo(user, cid, { project } = {}) {
   const notes = rows.filter((r) => r.content?.moved?.note && r.content.moved.conv === conv)
   // what came from the chat: the chip, else (a chip that never got written) the moved lines themselves (PR #125 review 5)
   const moved = rows.filter((r) => r.content?.moved?.conv === conv)
+  // (another screen brought it back just now — its lines are no longer here: it is in the chat, nothing more to do)
+  const main0 = await mainThread(user.id)
+  const backAlready = async () => (!(await placeOf(user, conv)) ? { already: true, back: 0, topic: conv, to: main0.id, project: { id: p.id, title: p.title }, ids: [], notes: [] } : null)
   // (a sub-topic the project started itself never was in the chat: nothing to take back)
-  if (!moved.length) throw fail(409, L('이 프로젝트에서 시작한 주제라 채팅으로 되돌릴 수 없어요.', 'This topic started in the project, so it cannot go back to the chat.'), 'not_moved')
+  if (!moved.length) {
+    const done = await backAlready()
+    if (done) return done
+    throw fail(409, L('이 프로젝트에서 시작한 주제라 채팅으로 되돌릴 수 없어요.', 'This topic started in the project, so it cannot go back to the chat.'), 'not_moved')
+  }
   if (!(notes.length ? notes : moved).some((n) => String(n.content.moved.by) === String(user.id))) throw fail(403, L('대화를 옮긴 사람만 되돌릴 수 있어요.', 'Only the person who moved it can move it back.'), 'not_mover')
   // (a turn of the project not finished — on this sub-topic, or not yet told which one: PT.routeProject may still pick it — PR #125 review 1)
-  if (busyTurn(turns.unsettled({ userId: user.id, threadId: p.id }), conv)) throw fail(409, L('이 대화에서 아직 답을 쓰고 있어요. 답이 끝난 뒤에 되돌려 주세요.', 'An answer is still being written here. Move it back once it is done.'), 'busy')
+  const live = turns.unsettled({ userId: user.id, threadId: p.id })
+  if (busyTurn(live, conv)) {
+    throw fail(409, live.some((x) => !x.finished && String(x.conv) === String(conv))
+      ? L('이 대화에서 아직 답을 쓰고 있어요. 답이 끝난 뒤에 되돌려 주세요.', 'An answer is still being written here. Move it back once it is done.')
+      : L('프로젝트에서 아직 답을 쓰고 있어요. 답이 끝나면 다시 되돌려 주세요.', 'An answer is still being written in the project. Move it back again once it is done.'), 'busy')
+  }
   const of = CV.topicOf(rows)
   const noteIds = new Set(notes.map((n) => n.id))
   // (the project's own lines are never its: a change of the project's plan stays with the project — PR #125 review 6)
@@ -322,7 +337,10 @@ export async function undo(user, cid, { project } = {}) {
   const scope = PT.scopeKey(user.id, p.id)
   // A row for it under the person's own key — written meanwhile by a late answer of the chat (PR #125 review 2) — would collide with the row
   // going back: it is folded into the project's row first (the larger turn count, the later time), and once more if one comes in between
-  const fold = () => q(`with stray as (delete from context_threads where tenant_id=$1 and user_id=$2 and conversation_id=$3 returning turns, updated_at)
+  // (only while the project's row is still there, locked: a second undo a moment later — another screen — must not take the row the first
+  // one just brought back for a stray one — PR #125 final check 1)
+  const fold = () => q(`with scope_row as (select 1 from context_threads where tenant_id=$1 and user_id=$4 and conversation_id=$3 for update),
+    stray as (delete from context_threads where tenant_id=$1 and user_id=$2 and conversation_id=$3 and exists (select 1 from scope_row) returning turns, updated_at)
     update context_threads c set turns = greatest(c.turns, coalesce((select max(turns) from stray), 0)), updated_at = greatest(c.updated_at, coalesce((select max(updated_at) from stray), c.updated_at))
     where c.tenant_id=$1 and c.user_id=$4 and c.conversation_id=$3`, [T(), String(user.id), conv, scope])
   let r = null
@@ -334,7 +352,12 @@ export async function undo(user, cid, { project } = {}) {
       if (e.code !== '23505' || i === 2) throw e
     }
   }
-  if (!r.claimed) throw fail(409, L('다른 곳에서 이 대화를 옮기는 중이에요. 잠시 후 다시 해 주세요.', 'This conversation is being moved elsewhere. Try again in a moment.'), 'moving')
+  if (!r.claimed) {
+    // (another screen brought it back a moment ago: it is in the chat — nothing more to do)
+    const done = await backAlready()
+    if (done) return done
+    throw fail(409, L('다른 곳에서 이 대화를 옮기는 중이에요. 잠시 후 다시 해 주세요.', 'This conversation is being moved elsewhere. Try again in a moment.'), 'moving')
+  }
   // the project no longer stands in it
   await q('update pro_threads set conversation_id=null where id=$1 and conversation_id=$2', [p.id, conv]).catch(() => {})
   await q('update pro_threads set updated_at=now() where id=$1', [main.id]).catch(() => {})
