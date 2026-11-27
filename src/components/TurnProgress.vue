@@ -1,6 +1,7 @@
 <script setup>
 // The progress panel the pill opens (design turnplan §3.3, server lib/turnPlan.js): 지금 · 할 일 · 한 일 · 메모 of the turn on screen,
-// and 멈추기. Beside the composer on a wide screen (anchored above the pill, 420 px, up to 60 % of the height); at 760 px and below a
+// and 멈추기. Beside the composer on a wide screen (anchored above the pill's row, and above a notice there — ChatColumn --notice-room —
+// 420 px, up to 60 % of the height); at 760 px and below a
 // bottom sheet (85 %), closed by pulling it down, by its ✕ or by the pill.
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
@@ -77,7 +78,7 @@ function up() { if (!from) return; from = null; if (pull.value > 90) emit('close
 </template>
 
 <style scoped>
-.turn-panel { position: absolute; left: 4px; bottom: calc(100% + 10px); width: 420px; max-width: calc(100vw - 32px); max-height: 60vh; z-index: 30; display: flex; flex-direction: column;
+.turn-panel { position: absolute; left: 4px; bottom: calc(100% + 10px + var(--notice-room, 0px)); width: 420px; max-width: calc(100vw - 32px); max-height: 60vh; z-index: 30; display: flex; flex-direction: column;
   border-radius: 22px; border: 1px solid var(--hairline); box-shadow: var(--shadow-card); background: var(--regular-solid-bg); animation: pop-in .3s var(--spring) both; overflow: hidden; }
 .turn-panel.sheet { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-width: none; max-height: 85vh; z-index: 90; border-radius: 22px 22px 0 0; border-bottom: 0;
   padding-bottom: env(safe-area-inset-bottom, 0); transition: transform .2s; }

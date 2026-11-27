@@ -3,10 +3,15 @@
 // 사용자(2026-11-27 휴대폰 녹화): 「이 공간 지금 여기 너무 많이 잡아먹고 있어요 좀 줄일 방법이 없나 … 단순화 시키든 공간을 내가 타이핑하는
 // 동안에도 이게 그대로 있잖아」.
 //   F-CC-01 390px · 일하는 동안: 진행 알약과 「기본」 칩이 입력창 위 한 줄, 「멈추기」는 입력창 안 ■ — 아래 부분의 높이(전 166px)를 잰다
-//   F-CC-02 390px · 글을 치는 동안(입력창에 포커스): 위 줄이 접혀 입력창만, ■ 는 그대로 — 포커스가 빠지면 다시 한 줄
-//   F-CC-03 390px · 손이 닿는 것: 알약 → 진행 상황 시트, 칩 → 에이전트 목록, 📎 → 파일 첨부 · 폴더 붙이기, 🎤, Tab 으로 ■(답 멈추기) → 멈춤 · ＋ 가 돌아옴
-//   F-CC-04 1280px: 알약만 입력창 위, 칩 · ■ 는 입력창 안, 패널은 그 줄 위에 — 마우스 화면은 포커스가 있어도 접지 않음
+//   F-CC-02 390px · 글을 치는 동안(포커스 + 화면 자판): 위 줄이 접혀 입력창만, ■ 는 그대로 — 자판을 내리면(포커스는 그대로) 다시 한 줄
+//   F-CC-03 390px · 손이 닿는 것: 알약 → 진행 상황 시트, 칩 → 에이전트 목록, 📎 → 파일 첨부 · 폴더 붙이기, 🎤, Tab 으로 ■(답 멈추기) → 멈춤 ·
+//           포커스는 입력창으로 · ＋ 는 잠시 뒤에 돌아옴
+//   F-CC-04 1280px: 알약만 입력창 위, 칩 · ■ 는 입력창 안, 패널은 그 줄 위에(알림이 오면 알림 위에) — 마우스 화면은 포커스가 있어도 접지 않음
 //   F-CC-05 390px 프로젝트 방 · 휴대폰 홈 입력창도 같은 모양, 마지막 메시지(계획 카드)가 입력창 아래에 가리지 않음
+//   F-CC-06 자판으로 접기: 터치 태블릿 820px 은 포커스만으로 접지 않음(하드웨어 키보드 · 자판 없음), 가로 휴대폰 844×390 은 자판이 오르면 접음
+//   F-CC-07 360px · 브라우저 작업 독이 있는 채로 일하는 동안 글을 친다 — 독 · 입력창 · 단추가 겹치지 않고 화면 안
+//   F-CC-08 위로 올려 읽던 사람의 자리는 줄이 접히고 펴져도 그대로
+//   F-CC-09 받아쓰기가 없는 브라우저: 글을 쳐도 ■ 는 제자리(보내기는 ■ 오른쪽)
 // 자기 스택(lib/localStack.js: 회사 compact-ui 의 BFF + Vite, 8998 · 5398 부터 빈 포트 — RT_API_FROM · RT_WEB_FROM)을 띄우고 지운다.
 // 가짜 모델(8996)과 가짜 deepagents(8997 — 할 일을 쓰고 오래 조용함: 「멈추기」 전까지 턴이 이어짐)는 이 파일이 띄운다. 실제 모델 · 에이전트는 부르지 않는다.
 //   cd e2e && npx playwright test --project=feature tests/feature/compact-composer.spec.js
@@ -15,6 +20,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { startStack, REPO } from '../../lib/localStack.js'
+import { PNG } from '../../lib/seed.js'
 
 test.describe.configure({ mode: 'serial' })
 const SHOTS = path.join(REPO, 'openspec/specs/turn-plan/e2e/results')
@@ -116,8 +122,9 @@ test.afterAll(async () => {
   }
 })
 
-async function open(browser, opts, { theme = 'light', to = '/chat', tab = '채팅' } = {}) {
+async function open(browser, opts, { theme = 'light', to = '/chat', tab = '채팅', init = null } = {}) {
   const ctx = await browser.newContext({ ...opts, baseURL: S.web })
+  if (init) await ctx.addInitScript(init)
   await ctx.addInitScript(([s, th]) => {
     if (window.top !== window) return
     localStorage.setItem('pgpt-pro-session', s)
@@ -129,7 +136,7 @@ async function open(browser, opts, { theme = 'light', to = '/chat', tab = '채�
   p.on('pageerror', (e) => p.errors.push(String(e?.message || e)))
   await p.goto(to)
   // (a phone opens on 홈: the chat is its own tab)
-  if (opts === PHONE && tab) await p.locator('.seg button').filter({ hasText: tab }).click()
+  if (tab && opts.viewport.width <= 760) await p.locator('.seg button').filter({ hasText: tab }).click()
   await composer(p).locator('textarea').waitFor()
   return p
 }
@@ -179,6 +186,15 @@ const bb = async (loc) => { const b = await loc.boundingBox(); expect(b, 'on scr
 const overlaps = (a, b) => a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5
 const inScreen = (b, p) => { const v = p.viewportSize(); expect(b.x).toBeGreaterThanOrEqual(-0.5); expect(b.x + b.width).toBeLessThanOrEqual(v.width + 0.5); expect(b.y + b.height).toBeLessThanOrEqual(v.height + 0.5) }
 const noSideScroll = async (p) => expect(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+// A phone's on-screen keyboard (Playwright has none): what is visible gets shorter by the keyboard's height (as in the Android app's
+// WebView and iOS; Android Chrome shrinks only the visual viewport — src/viewport.js reads that one) — and taller again when it goes
+async function keyboard(p, up) {
+  const v = p.viewportSize()
+  if (up && !p.kbFrom) { p.kbFrom = v; await p.setViewportSize({ width: v.width, height: v.height - Math.min(324, Math.round(v.height / 2)) }) }
+  if (!up && p.kbFrom) { await p.setViewportSize(p.kbFrom); p.kbFrom = null }
+}
+const plus = (p) => composer(p).getByRole('button', { name: '새 패널 만들기' })
+const NO_SPEECH = () => { for (const k of ['SpeechRecognition', 'webkitSpeechRecognition', 'AudioContext', 'webkitAudioContext']) try { delete window[k] } catch { /* */ } }
 
 test('F-CC-01 390px · 처리 중 진행 알약과 「기본」 칩은 입력창 위 한 줄, 「멈추기」는 입력창 안의 ■ — 아래 영역 축소', async ({ browser }) => {
   for (const theme of ['light', 'dark']) {
@@ -219,7 +235,7 @@ test('F-CC-01 390px · 처리 중 진행 알약과 「기본」 칩은 입력창
   }
 })
 
-test('F-CC-02 390px · 글을 쓰는 동안 위 줄을 접고 입력창만 표시 — ■는 그대로 유지, 포커스가 벗어나면 다시 한 줄 표시', async ({ browser }) => {
+test('F-CC-02 390px · 글을 쓰는 동안 위 줄을 접고 입력창만 표시 — ■ 위치 유지, 자판을 내리면 포커스가 남아 있어도 위 줄 다시 표시', async ({ browser }) => {
   for (const theme of ['light', 'dark']) {
     await seed(await clearMain())
     const p = await open(browser, PHONE, { theme })
@@ -228,35 +244,38 @@ test('F-CC-02 390px · 글을 쓰는 동안 위 줄을 접고 입력창만 표�
     await ta.blur()
     await expect(pill(p)).toBeVisible()
     await calm(p)
-    const box0 = await bb(composer(p).locator('.box'))
-    // typing: the keyboard up
+    // (the chip is the same element after a fold — v-show, not made again: it does not ask for the agents again)
+    await chip(p).evaluate((el) => { el.dataset.kept = 'yes' })
+    // the box focused, the keyboard not up yet (a hardware keyboard): nothing folds
     await ta.tap()
     await ta.pressSequentially('3일 과정으로', { delay: 15 })
+    await expect(composer(p)).toHaveAttribute('data-folded', 'no')
+    await expect(pill(p)).toBeVisible()
+    // typing: the keyboard up
+    await keyboard(p, true)
     await expect(composer(p)).toHaveAttribute('data-folded', 'yes')
-    await expect(row(p)).toHaveCount(0)
-    await expect(pill(p)).toHaveCount(0)
-    await expect(chip(p)).toHaveCount(0)
+    await expect(row(p)).toBeHidden()
+    await expect(pill(p)).toBeHidden()
+    await expect(chip(p)).toBeHidden()
     await expect(stopBtn(p)).toBeVisible()
     await expect(stopBtn(p)).toHaveClass(/\bbusy\b/)
     // the send button comes in left of ■; ■ and the mic keep their places
     const send = composer(p).getByRole('button', { name: '보내기' })
     await expect(send).toBeVisible()
     expect((await bb(send)).x + (await bb(send)).width).toBeLessThanOrEqual((await bb(stopBtn(p))).x + 0.5)
-    // the box itself does not move
-    const box1 = await bb(composer(p).locator('.box'))
-    expect(Math.abs(box1.y + box1.height - (box0.y + box0.height))).toBeLessThanOrEqual(1)
     const { area, top } = await bottomArea(p)
     console.log(`[F-CC-02] ${theme}: the bottom part while typing ${area}px (before ${BEFORE_PX}px) — its top: ${top}`)
     expect(area).toBeLessThanOrEqual(90)
     // what the keyboard leaves of a phone's screen (844 → 520): the conversation keeps most of it
-    await p.setViewportSize({ width: 390, height: 520 })
     await calm(p)
     await shot(p, `cc-typing-phone-${theme}`)
-    // the keyboard goes: the row comes back, the words stay
-    await ta.blur()
+    // the keyboard put away with Back (Android) — the box keeps its focus, no blur: the row comes back all the same, the words stay
+    await keyboard(p, false)
+    await expect(ta).toBeFocused()
     await expect(composer(p)).toHaveAttribute('data-folded', 'no')
     await expect(pill(p)).toBeVisible()
     await expect(chip(p)).toBeVisible()
+    await expect(chip(p)).toHaveAttribute('data-kept', 'yes')
     await expect(ta).toHaveValue('3일 과정으로')
     await ta.fill('')
     expect(p.errors).toEqual([])
@@ -302,13 +321,21 @@ test('F-CC-03 390px · 기능 접근: 알약 → 진행 상황, 칩 → 에이�
     reached = await p.evaluate(() => document.activeElement?.getAttribute('aria-label') === '답 멈추기')
   }
   expect(reached, 'Tab reaches 답 멈추기').toBe(true)
+  // (what ■ is called from here on: 「멈추는 중」 while it stops)
+  await stopBtn(p).evaluate((el) => { window.__names = []; new MutationObserver(() => window.__names.push(el.getAttribute('aria-label'))).observe(el, { attributes: true, attributeFilter: ['aria-label'] }) })
   const [res] = await Promise.all([p.waitForResponse((r) => r.url().includes(`/api/threads/${th}/stop`)), p.keyboard.press('Enter')])
   expect(res.status()).toBe(200)
+  // the focus goes back to the box, not lost with the button
+  await expect(composer(p).locator('textarea')).toBeFocused()
   await expect(p.locator('.row.r-agent .bubble.agent').last()).toContainText('멈췄어요', { timeout: 10_000 })
   await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
+  expect(await p.evaluate(() => window.__names)).toContain('멈추는 중')
   await expect(pill(p)).toHaveCount(0)
-  // the turn over: 새 패널 ＋ is back in ■'s place
-  await expect(composer(p).getByRole('button', { name: '새 패널 만들기' })).toBeVisible()
+  // the turn over: ＋ (새 패널) does not come at once where ■ was — a while later
+  expect(await plus(p).count()).toBe(0)
+  await p.waitForTimeout(500)
+  expect(await plus(p).count()).toBe(0)
+  await expect(plus(p)).toBeVisible({ timeout: 4000 })
   expect(p.errors).toEqual([])
   await p.context().close()
 })
@@ -341,6 +368,18 @@ test('F-CC-04 1280px · 알약만 입력창 위, 칩 · ■는 입력창 안, �
     expect(qb.y + qb.height).toBeLessThanOrEqual(pb.y + 0.5)
     expect(Math.round(qb.width)).toBe(420)
     if (theme === 'light') await shot(p, 'cc-panel-desktop-light')
+    // a notice over the composer while the panel is open: the panel moves up, the notice stays readable (two lines too)
+    for (const text of ['파일을 올렸어요.', '가나정밀 견적서를 받았어요. 담당자가 검토를 마치면 이 대화에 결과를 알려 드릴게요. 그동안 다른 일을 맡겨도 돼요.']) {
+      await p.evaluate((t) => { document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').notice = { text: t } }, text)
+      const notice = p.getByTestId('chat-notice')
+      await expect(notice).toHaveText(text)
+      await calm(p)
+      const nb = await bb(notice), q2 = await bb(panel)
+      expect(overlaps(nb, q2)).toBe(false)
+      expect(q2.y + q2.height).toBeLessThanOrEqual(nb.y + 0.5)
+    }
+    if (theme === 'light') await shot(p, 'cc-panel-notice-desktop-light')
+    await p.evaluate(() => { document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('app').notice = null })
     await panel.getByTestId('turn-panel-close').click()
     // a narrow box with a mouse (a docked messenger squeezes it — F-CA-09): the chip goes over the box, focus folds nothing
     await p.addStyleTag({ content: '[data-test=chat-composer]{ width: 420px !important; }' })
@@ -375,9 +414,12 @@ test('F-CC-05 390px · 프로젝트 방과 휴대폰 홈 입력창도 같은 모
   await shot(p, 'cc-work-project-phone-light')
   // typing folds here too
   await composer(p).locator('textarea').tap()
+  await keyboard(p, true)
   await expect(composer(p)).toHaveAttribute('data-folded', 'yes')
-  await expect(pill(p)).toHaveCount(0)
+  await expect(pill(p)).toBeHidden()
   await expect(stopBtn(p)).toBeVisible()
+  await keyboard(p, false)
+  await expect(pill(p)).toBeVisible()
   await composer(p).locator('textarea').blur()
   await stopBtn(p).tap()
   await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
@@ -395,10 +437,147 @@ test('F-CC-05 390px · 프로젝트 방과 휴대폰 홈 입력창도 같은 모
   await expect(home).toBeVisible({ timeout: 20_000 })
   await expect(home.locator('.agentrow [data-test="chat-agent"]')).toBeVisible()
   await home.locator('textarea').tap()
+  await keyboard(hp, true)
   await expect(home).toHaveAttribute('data-folded', 'yes')
-  await expect(home.locator('.agentrow')).toHaveCount(0)
-  await home.locator('textarea').blur()
+  await expect(home.locator('.agentrow')).toBeHidden()
+  await keyboard(hp, false)
+  await expect(home).toHaveAttribute('data-folded', 'no')
   await expect(home.locator('.agentrow [data-test="chat-agent"]')).toBeVisible()
   expect(hp.errors).toEqual([])
   await h.close()
+})
+
+test('F-CC-06 자판이 올라올 때만 접기 — 터치 태블릿 820px에서는 포커스만으로 접지 않음, 가로로 든 휴대폰 844×390에서는 자판이 올라오면 접음', async ({ browser }) => {
+  // a touch tablet (820 × 1180): the box focused, no on-screen keyboard (a keyboard case, a hardware keyboard) — the row stays
+  await seed(await clearMain())
+  const tab = await open(browser, { viewport: { width: 820, height: 1180 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ko-KR' })
+  await run(tab)
+  await composer(tab).locator('textarea').tap()
+  await tab.waitForTimeout(300)
+  await expect(composer(tab)).toHaveAttribute('data-folded', 'no')
+  await expect(pill(tab)).toBeVisible()
+  // … with its on-screen keyboard up it folds like a phone, and comes back when the keyboard goes
+  await keyboard(tab, true)
+  await expect(composer(tab)).toHaveAttribute('data-folded', 'yes')
+  await keyboard(tab, false)
+  await expect(composer(tab)).toHaveAttribute('data-folded', 'no')
+  await stopBtn(tab).tap()
+  await expect(stopBtn(tab)).toHaveCount(0, { timeout: 10_000 })
+  expect(tab.errors).toEqual([])
+  await tab.context().close()
+  // a phone held sideways (844 × 390 — wider than a phone's layout): the keyboard up folds the row too
+  await seed(await clearMain())
+  const side = await open(browser, { viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ko-KR' })
+  await run(side)
+  await composer(side).locator('textarea').tap()
+  await expect(composer(side)).toHaveAttribute('data-folded', 'no')
+  await keyboard(side, true)
+  await expect(composer(side)).toHaveAttribute('data-folded', 'yes')
+  await expect(pill(side)).toBeHidden()
+  await expect(stopBtn(side)).toBeVisible()
+  await calm(side)
+  await shot(side, 'cc-typing-landscape-light')
+  await keyboard(side, false)
+  await expect(composer(side)).toHaveAttribute('data-folded', 'no')
+  await expect(pill(side)).toBeVisible()
+  await stopBtn(side).tap()
+  await expect(stopBtn(side)).toHaveCount(0, { timeout: 10_000 })
+  expect(side.errors).toEqual([])
+  await side.context().close()
+})
+
+test('F-CC-07 360px · 브라우저 작업 독이 떠 있고 턴이 처리되는 동안 글 입력 — 독 · 입력창 · 단추가 겹치지 않고 화면 안에 표시', async ({ browser }) => {
+  const th = await clearMain()
+  await seed(th)
+  // a browser task at work (its live screen on the dock left of the composer — browser-dock F-BD-01)
+  await S.q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','task',$2)`, [th, { title: '교육 신청 페이지 확인', goal: 'g',
+    steps: [{ text: '페이지 열기', done: true }, { text: '신청 양식 읽기', done: false }], state: 'running', shot: PNG(320, 200, [40, 120, 200]).toString('base64') }])
+  const p = await open(browser, { viewport: { width: 360, height: 780 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'ko-KR' })
+  await expect(p.locator('.foot .dock')).toBeVisible({ timeout: 20_000 })
+  await run(p)
+  const ta = composer(p).locator('textarea')
+  await ta.tap()
+  await ta.pressSequentially('신청 마감일도 알려 줘', { delay: 15 })
+  await keyboard(p, true)
+  await expect(composer(p)).toHaveAttribute('data-folded', 'yes')
+  await calm(p)
+  const dock = await bb(p.locator('.foot .dock')), box = await bb(composer(p).locator('.box'))
+  const parts = { clip: await bb(composer(p).getByTestId('composer-clip')), send: await bb(composer(p).getByRole('button', { name: '보내기' })),
+    stop: await bb(stopBtn(p)), mic: await bb(composer(p).getByTestId('composer-mic')), ta: await bb(ta) }
+  expect(overlaps(dock, box)).toBe(false)
+  for (const [k, b] of Object.entries(parts)) {
+    inScreen(b, p)
+    expect(b.x, `${k} in the box`).toBeGreaterThanOrEqual(box.x - 1)
+    expect(b.x + b.width, `${k} in the box`).toBeLessThanOrEqual(box.x + box.width + 1)
+  }
+  for (const [a, b] of [['clip', 'send'], ['send', 'stop'], ['stop', 'mic']]) expect(overlaps(parts[a], parts[b]), `${a} · ${b}`).toBe(false)
+  expect(parts.ta.width).toBeGreaterThanOrEqual(90)
+  inScreen(dock, p)
+  await noSideScroll(p)
+  await shot(p, 'cc-typing-dock-360-light')
+  await keyboard(p, false)
+  await ta.fill('')
+  await ta.blur()
+  await stopBtn(p).tap()
+  await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CC-08 위로 올려 읽는 중 위 줄이 접히고 펼쳐져도 스크롤 위치 유지', async ({ browser }) => {
+  const th = await clearMain()
+  const rows = []
+  for (let i = 1; i <= 14; i++) rows.push(['user', { text: `${i}일차 일정을 정리해 줘` }], ['agent', { text: `${i}일차는 오전에 이론, 오후에 실습을 해요.\n- 준비물: 노트북\n- 장소: 3층 교육실` }])
+  for (const [role, content] of rows) await S.q(`insert into pro_messages(thread_id,role,kind,content) values ($1,$2,'text',$3)`, [th, role, content])
+  const p = await open(browser, PHONE)
+  await run(p)
+  const ta = composer(p).locator('textarea')
+  await ta.blur()
+  await calm(p)
+  // the person scrolls up to read an earlier day
+  const list = p.locator('.col > .msgs')
+  await list.evaluate((el) => { el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 900) })
+  await p.waitForTimeout(400)
+  const at = await list.evaluate((el) => el.scrollTop)
+  expect(at).toBeGreaterThan(0)
+  // the row folds (typing with the keyboard up) and comes back (keyboard down, then the box let go): the list stays where it was
+  await ta.tap()
+  await keyboard(p, true)
+  await expect(composer(p)).toHaveAttribute('data-folded', 'yes')
+  await p.waitForTimeout(300)
+  expect(Math.abs((await list.evaluate((el) => el.scrollTop)) - at)).toBeLessThanOrEqual(2)
+  await keyboard(p, false)
+  await expect(composer(p)).toHaveAttribute('data-folded', 'no')
+  await ta.blur()
+  await p.waitForTimeout(300)
+  expect(Math.abs((await list.evaluate((el) => el.scrollTop)) - at)).toBeLessThanOrEqual(2)
+  await stopBtn(p).tap()
+  await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CC-09 받아쓰기가 없는 브라우저 — 글을 입력해도 ■ 위치 유지, 보내기는 ■ 오른쪽에 표시', async ({ browser }) => {
+  await seed(await clearMain())
+  const p = await open(browser, PHONE, { init: NO_SPEECH })
+  await run(p)
+  const ta = composer(p).locator('textarea')
+  await ta.blur()
+  await calm(p)
+  const s0 = await bb(stopBtn(p))
+  await expect(composer(p).getByTestId('composer-mic')).toBeVisible()
+  await ta.fill('3일 과정으로')
+  // the mic goes (no speech recognition), ■ stays, the send button comes in right of it
+  await expect(composer(p).getByTestId('composer-mic')).toHaveCount(0)
+  const send = composer(p).getByRole('button', { name: '보내기' })
+  await expect(send).toBeVisible()
+  await calm(p)
+  const s1 = await bb(stopBtn(p))
+  expect(Math.abs(s1.x - s0.x)).toBeLessThanOrEqual(1)
+  expect((await bb(send)).x).toBeGreaterThanOrEqual(s1.x + s1.width - 0.5)
+  await ta.fill('')
+  await stopBtn(p).tap()
+  await expect(stopBtn(p)).toHaveCount(0, { timeout: 10_000 })
+  expect(p.errors).toEqual([])
+  await p.context().close()
 })

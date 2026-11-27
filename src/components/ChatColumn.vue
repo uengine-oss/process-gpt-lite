@@ -66,9 +66,13 @@ function toPending(task) {
   const el = (task === true && scroller.value?.querySelector('.k-task.needs')) || scroller.value?.querySelector('.k-vault, .k-choice, .needs')
   el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
-// a notice over the composer goes by itself after a while
+// a notice over the composer goes by itself after a while (its height is measured: an open progress panel and the files' pile keep clear)
 let noticeTimer
-watch(() => app.notice, (v) => { clearTimeout(noticeTimer); if (v) noticeTimer = setTimeout(() => { if (app.notice === v) app.notice = null }, 9000) })
+watch(() => app.notice, (v) => {
+  clearTimeout(noticeTimer)
+  if (v) noticeTimer = setTimeout(() => { if (app.notice === v) app.notice = null }, 9000)
+  nextTick(measureFoot)
+})
 
 let stick = !props.keepTop
 // kept at the bottom until the person scrolls up: the list growing under it (it moves the bottom away, not the scroll) does not let go
@@ -109,20 +113,24 @@ onMounted(() => {
 })
 onBeforeUnmount(() => grown?.disconnect())
 // Where the composer is (the files' pile in the #aside slot keeps clear of it — src/artifactScope.js pilePlace): how far its top is
-// from the column's bottom (it grows with what is typed) and how much room is right of it
+// from the column's bottom (it grows with what is typed, and with the row over its box), how far its box's top is (without that row),
+// how much room is right of it, and how tall a notice over it is (0 when there is none)
 const colEl = ref(null)
 const footEl = ref(null)
-const foot = ref({ top: 84, gutter: 0 })
+const noticeEl = ref(null)
+const foot = ref({ top: 84, box: 84, gutter: 0, notice: 0 })
 let footObs
 let colH = 0
 function measureFoot() {
   const c = colEl.value?.getBoundingClientRect(), f = footEl.value?.getBoundingClientRect()
   if (!c || !f || !c.width) return
-  const next = { top: Math.round(c.bottom - f.top), gutter: Math.round(c.right - f.right) }
+  const b = footEl.value.querySelector('.composer > .box')?.getBoundingClientRect()
+  const next = { top: Math.round(c.bottom - f.top), box: Math.round(c.bottom - (b?.top ?? f.top)), gutter: Math.round(c.right - f.right),
+    notice: app.notice && noticeEl.value ? noticeEl.value.offsetHeight : 0 }
   const resized = colH && Math.round(c.height) !== colH
   colH = Math.round(c.height)
   const moved = next.top !== foot.value.top
-  if (moved || next.gutter !== foot.value.gutter) foot.value = next
+  if (moved || ['box', 'gutter', 'notice'].some((k) => next[k] !== foot.value[k])) foot.value = next
   // the list ends above the composer (its padding follows the foot — --foot-top): a list kept at the bottom stays there when the row over
   // the box comes, goes or folds for typing, and when a phone's keyboard makes the page shorter
   if (moved || resized) nextTick(() => { const el = scroller.value; if (el && stick && Date.now() - smoothAt >= 600) el.scrollTop = el.scrollHeight })
@@ -155,7 +163,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
 </script>
 
 <template>
-  <section ref="colEl" class="col" :style="{ '--foot-top': `${foot.top}px` }">
+  <section ref="colEl" class="col" :style="{ '--foot-top': `${foot.top}px`, '--notice-room': `${foot.notice ? foot.notice + 12 : 0}px` }">
     <EdgeBlur side="top" />
     <div ref="scroller" class="scroll msgs" :class="{ dim: app.panelMode }" @scroll="onScroll">
       <div ref="inner" class="inner">
@@ -178,7 +186,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
     <div ref="footEl" class="foot">
       <!-- a notice over the composer (it stands in for the progress pill while it shows) -->
       <Transition name="pill">
-        <div v-if="app.notice" key="notice" class="notice" role="alert" data-testid="chat-notice">{{ app.notice.text }}</div>
+        <div v-if="app.notice" ref="noticeEl" key="notice" class="notice" role="alert" data-testid="chat-notice">{{ app.notice.text }}</div>
       </Transition>
       <TurnProgress v-if="panelTurn" :turn="panelTurn" :now="now" :stopping="stopping" @close="app.turnPanel = null" @stop="stop" />
       <button v-if="needsInput && !browsing" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
