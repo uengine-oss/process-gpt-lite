@@ -136,7 +136,36 @@ test('DT-01 어느 폴더: ~ · 작업 폴더 기준 상대 경로(밖으로 못
     } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
     fs.mkdirSync(path.join(HOME, 'snap', 'firefox', 'common', '.mozilla'), { recursive: true })
     assert.equal((await check(path.join(HOME, 'snap', 'firefox', 'common', '.mozilla'))).error, 'system_folder', '~/snap')
+    // /var's system places, not /var as a whole: a home under it (Fedora Silverblue's /var/home) and a site's folder (/var/www/…) are a
+    // person's own; /run/user (each person's runtime files)
+    const VAR = process.platform === 'darwin' ? '/private/var' : '/var'
+    const vh = path.join(VAR, 'home', 'hy')
+    for (const [p, sys] of [[path.join(vh, 'proj'), false], [path.join(VAR, 'www', 'site'), false], [path.join(VAR, 'log', 'x'), true], [path.join(VAR, 'lib', 'containers'), true],
+      [path.join(VAR, 'folders', 'ab', 'cd', 'T', 'x'), true], [path.join(VAR, 'cache', 'x'), true], [VAR, true], ['/run/user/1000/x', true]]) {
+      assert.equal(TL.systemFolderOf(p, vh, ENV), sys, p)
+    }
+    // (a real one: a home made under /var — macOS's own temporary folder is there — its folders are the person's)
+    if (process.platform === 'darwin') {
+      const tmpHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-varhome-')))
+      try {
+        fs.mkdirSync(path.join(tmpHome, 'proj'), { recursive: true })
+        assert.equal((await TL.checkFolder(path.join(tmpHome, 'proj'), { home: tmpHome, env: ENV, dataDir: DATA })).real, path.join(tmpHome, 'proj'), 'a home under /var')
+        assert.equal((await TL.checkFolder(path.dirname(tmpHome), { home: tmpHome, env: ENV, dataDir: DATA })).error, 'home_folder', 'its way there')
+      } finally { fs.rmSync(tmpHome, { recursive: true, force: true }) }
+    }
+    // a cloud drive's folders under ~/Library (Dropbox · OneDrive · Google Drive · iCloud Drive) are a person's work — not the place itself,
+    // not a drive's top, not the rest of ~/Library
+    for (const [rel, ok] of [[['CloudStorage', 'Dropbox', '영업'], true], [['Mobile Documents', 'iCloud~md~obsidian', 'Documents', '금고'], true],
+      [['Mobile Documents', 'com~apple~CloudDocs', '자료'], true], [['CloudStorage'], false], [['CloudStorage', 'Dropbox'], false], [['Mobile Documents'], false],
+      [['Mobile Documents', 'com~apple~CloudDocs'], false], [['Application Support', 'x'], false]]) {
+      const d = path.join(HOME, 'Library', ...rel)
+      fs.mkdirSync(d, { recursive: true })
+      const c = await check(d)
+      if (ok) assert.equal(c.real, d, d)
+      else assert.equal(c.error, 'system_folder', d)
+    }
     // a volume's top (not what is in it)
+    assert.equal(TL.volumeTop('/run/media/hy'), true)
     assert.equal(TL.volumeTop('/Volumes/USB'), true)
     assert.equal(TL.volumeTop('/Volumes/USB/proj'), false)
     assert.equal(TL.volumeTop('/media/hy/USB'), true)
@@ -429,6 +458,12 @@ test('DT-06 · DT-10 lite_propose_folder: 챔피언 폴더의 pick · 미리 보
   fs.renameSync(path.join(kit, '다.md'), path.join(kit, '나.md'))
   a = await press(p1)
   assert.equal(a.why, 'changed', 'the same names and sizes, other files')
+  // a permission or an attribute changed, the bytes the same (a Finder tag, a cloud app's own marks): the same file — it goes
+  p1 = await proposeAgain()
+  fs.chmodSync(path.join(kit, 'README.md'), 0o600)
+  if (process.platform === 'darwin') require('node:child_process').execFileSync('xattr', ['-w', 'com.example.tag', '빨강', path.join(kit, 'README.md')])
+  a = await press(p1)
+  assert.equal(a.ok, true, 'not another file')
   // the folder replaced by a link to another one (its real path is no longer the one looked at)
   p1 = await proposeAgain()
   const n = binds.length

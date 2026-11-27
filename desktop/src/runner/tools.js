@@ -18,15 +18,15 @@
 //                         this way.
 // Which folders: one the person or the list named, as an absolute path, ~/…, or relative to the CLI's work folder (never escaping it). Never
 // a link (the named folder itself — the folder it points to may be named instead), the disk's or a volume's top, the home folder or above
-// it, the system's folders (~/Library, /System, /usr, /var — its temporary and cache folders too —, /opt/homebrew, ~/snap, C:\Windows,
-// AppData …), anything in the CLIs' own homes (~/.claude, ~/.codex,
+// it, the system's folders (~/Library — a cloud drive's folders in it aside —, /System, /usr, /var's system places — its temporary and
+// cache folders too —, /opt/homebrew, ~/snap, /run/user, C:\Windows, AppData …), anything in the CLIs' own homes (~/.claude, ~/.codex,
 // ~/.agents — only their skills folders may be named), any hidden folder right under the home folder (~/.ssh, ~/.kube, ~/.docker, ~/.config,
 // keyrings, browser profiles …) and what is in it, a folder of the champion folders' secret or personal groups anywhere on its path (.ssh,
 // .aws, .gnupg, .claude/projects, .codex/sessions, .vscode …), or this app's data.
 // A folder proposed from a chat goes up only as it was shown: the card's 「올리기」 makes the upload look at it again (checked again, its real
-// path unchanged), and when what would go up is not what the proposal's first look found (each path with its size, inode and times),
-// nothing goes up — the card says the folder changed; the upload's own round holds to the same files once more, before and after it reads
-// them (FolderSync.round).
+// path unchanged), and when what would go up is not what the proposal's first look found (each path with its size, inode and
+// modification time), nothing goes up — the card says the folder changed; the upload's own round holds to the same files once more,
+// before and after it reads them (FolderSync.round — strict).
 // The channel: one local socket of this app — a unix socket in a temporary folder only this user can open (0700), a named pipe on
 // Windows (which any local program may open: there the boundary is the key). Each chat run has its own key, 32 random bytes, in the MCP
 // server's config file (0600, in the run's own state folder) — a call without it gets nothing — and the run's token for the server stays in
@@ -76,24 +76,52 @@ function resolvePath(input, { cwd, home = os.homedir() } = {}) {
 }
 
 // the system's own folders: never one of them, never inside one (exact: only that folder itself — a person's folder may be below it).
-// /var (macOS: /private/var) as a whole — the system's state, logs and databases, and each user's own caches and temporary files
-// (/var/folders/…/C · T); a volume's top (/Volumes/<name>, /media/<user>/<name> …) — volumeTop
+// /var (macOS: /private/var): its system places, not the folder as a whole — the system's state, logs, databases, caches and each user's
+// own temporary files (/var/folders/…/C · T) are refused; a home under it (Fedora Silverblue's /var/home) and a site's folder
+// (/var/www/…) are a person's own. A volume's top (/Volumes/<name>, /media/<user>/<name> …) — volumeTop
+const VAR_SYSTEM = ['folders', 'db', 'log', 'logs', 'lib', 'cache', 'spool', 'tmp', 'run', 'lock', 'root', 'roothome', 'mail', 'backups', 'crash', 'empty',
+  'audit', 'vm', 'agentx', 'at', 'install', 'jabberd', 'ma', 'mobile', 'msgs', 'netboot', 'networkd', 'protected', 'rpc', 'select', 'sntpd', 'yp',
+  'containers', 'dirs_cleaner', 'MobileAsset', 'MobileSoftwareUpdate', 'hardware', 'rapid', 'OSAnalytics', 'personalized_factory', 'adm',
+  'account', 'kerberos', 'nis', 'preserve', 'lost+found', 'local', 'usrlocal', 'opt', 'snap', 'games']
 function systemFolders(home = os.homedir(), env = process.env) {
   if (WIN) {
     const e = (k) => env[k] || ''
     return { inside: [e('SystemRoot') || 'C:\\Windows', e('ProgramFiles'), e('ProgramFiles(x86)'), e('ProgramData'), e('APPDATA'), e('LOCALAPPDATA'), path.join(home, 'AppData')].filter(Boolean),
       exact: [path.join(path.parse(home).root, 'Users')] }
   }
-  return { inside: ['/System', '/Library', '/usr', '/bin', '/sbin', '/etc', '/private/etc', '/dev', '/proc', '/sys', '/boot', '/root', '/Applications', '/var', '/private/var',
-    '/opt/homebrew', '/snap', path.join(home, 'Library'), path.join(home, 'snap')],
-    exact: ['/Users', '/home', '/Volumes', '/private', '/tmp', '/private/tmp', '/opt', '/mnt', '/media', '/run', '/run/media'] }
+  return { inside: ['/System', '/Library', '/usr', '/bin', '/sbin', '/etc', '/private/etc', '/dev', '/proc', '/sys', '/boot', '/root', '/Applications',
+    ...VAR_SYSTEM.flatMap((n) => [`/var/${n}`, `/private/var/${n}`]), '/opt/homebrew', '/snap', '/run/user', path.join(home, 'Library'), path.join(home, 'snap')],
+    exact: ['/Users', '/home', '/Volumes', '/private', '/var', '/private/var', '/tmp', '/private/tmp', '/opt', '/mnt', '/media', '/run', '/run/media'] }
 }
-// the top of a mounted volume: /Volumes/<name> (macOS), /mnt/<name> · /media/<name> · /media/<user>/<name> · /run/media/<user>/<name> (Linux)
+// the top of a mounted volume: /Volumes/<name> (macOS), /mnt/<name> · /media/<name> · /media/<user>/<name> · /run/media/<user> and
+// /run/media/<user>/<name> (Linux)
 function volumeTop(real) {
   if (WIN) return false
   const up = path.dirname(real)
   const up2 = path.dirname(up)
-  return ['/Volumes', '/mnt', '/media'].some((d) => same(up, d)) || ['/media', '/run/media'].some((d) => same(up2, d))
+  return ['/Volumes', '/mnt', '/media', '/run/media'].some((d) => same(up, d)) || ['/media', '/run/media'].some((d) => same(up2, d))
+}
+// a folder of a cloud drive's app (~/Library/CloudStorage/<Dropbox · OneDrive · Google Drive …>/… · ~/Library/Mobile Documents/<iCloud
+// Drive · an app's iCloud folder>/…): a person's own work, although ~/Library is the system's — never the place itself or a drive's top
+function inCloudDrive(real, home) {
+  const r = path.relative(path.join(home, 'Library'), real)
+  if (!r || r.startsWith('..') || path.isAbsolute(r)) return false
+  const seg = r.split(path.sep)
+  return ['CloudStorage', 'Mobile Documents'].includes(seg[0]) && seg.length >= 3
+}
+// the system folders rule for one real path (home: its real path) → true when it is one of them, in one, or a volume's top. A system
+// folder that holds the home folder (the home's own way there is refused as above the home) leaves what is under it to the other rules
+function systemFolderOf(real, h, env = process.env) {
+  const sys = systemFolders(h, env)
+  const cloud = !WIN && inCloudDrive(real, h)
+  for (const d of sys.inside) {
+    const r = realOr(d)
+    if (isInside(h, r)) continue
+    if (cloud && same(r, realOr(path.join(h, 'Library')))) continue
+    if (same(real, r) || isInside(real, r)) return true
+  }
+  for (const d of sys.exact) if (same(real, realOr(d))) return true
+  return volumeTop(real)
 }
 
 // why this folder is not one to send, or null → {error} | {real}
@@ -107,10 +135,7 @@ async function checkFolder(abs, { home = os.homedir(), env = process.env, dataDi
   if (path.parse(real).root === real || (CASELESS && path.parse(real).root.toLowerCase() === real.toLowerCase())) return { error: 'system_folder' }
   const h = realOr(home)
   if (same(real, h) || isInside(h, real)) return { error: 'home_folder' }
-  const sys = systemFolders(home, env)
-  for (const d of sys.inside) { const r = realOr(d); if (same(real, r) || isInside(real, r)) return { error: 'system_folder' } }
-  for (const d of sys.exact) if (same(real, realOr(d))) return { error: 'system_folder' }
-  if (volumeTop(real)) return { error: 'system_folder' }
+  if (systemFolderOf(real, h, env)) return { error: 'system_folder' }
   // the CLIs' own homes (their sign-ins, settings, histories, sessions): nothing in them but their skills folders
   const homes = cliHomes(home, env).map(realOr)
   const inSkills = homes.some((d) => isInside(real, path.join(d, 'skills')))
@@ -488,14 +513,14 @@ class ToolDesk extends EventEmitter {
     if (again.error || real !== pick.dir || again.real !== pick.dir || (mine.dir && mine.dir !== pick.dir)) return gone('changed')
     this.emit('notice', { kind: 'pc-upload', folderName: String(msg.folderName || '').slice(0, 120) })
     // the champion folders' own first upload — the person's yes was the card's 「올리기」, for what the card showed: the upload's own look must
-    // find the same files (each path with its size) as the proposal's, or nothing goes up
+    // find the same files (each path with its size, inode and modification time) as the proposal's, or nothing goes up
     let changed = false
     const yes = async (now) => {
       const seen = mine.seen
       if (!seen || now?.fingerprint !== seen.fingerprint || now?.files !== seen.files || now?.bytes !== seen.bytes) { changed = true; return false }
       return true
     }
-    const r = await this.folders.bind({ pickId, folderId: String(msg.folderId || ''), folderName: String(msg.folderName || '').slice(0, 120) }, { confirm: yes })
+    const r = await this.folders.bind({ pickId, folderId: String(msg.folderId || ''), folderName: String(msg.folderName || '').slice(0, 120) }, { confirm: yes, strict: true })
       .catch((e) => ({ ok: false, why: 'failed', error: e.message }))
     // (changed before the yes — or after it: the upload's own round found other files, or the folder elsewhere — FolderSync.round)
     if (!r.ok && (changed || r.why === 'changed')) return gone('changed')
@@ -513,4 +538,4 @@ function mcpProgram(configFile) {
   return { command: process.execPath, args: [script, '--config', configFile], env: {} }
 }
 
-module.exports = { ToolDesk, resolvePath, checkFolder, skillRoots, skillsIn, packSkill, mcpProgram, systemFolders, volumeTop, SKILL_MAX_FILES, SKILL_MAX_BYTES, WHY }
+module.exports = { ToolDesk, resolvePath, checkFolder, skillRoots, skillsIn, packSkill, mcpProgram, systemFolders, systemFolderOf, volumeTop, inCloudDrive, SKILL_MAX_FILES, SKILL_MAX_BYTES, WHY }

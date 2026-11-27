@@ -1982,7 +1982,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 
 ```bash
 cd server && node --test --test-concurrency=1 test/pcProposals.test.js && node test/pcProposals.e2e.mjs   # :8999
-cd desktop && node --test test/tools.test.js test/sync.test.js   # DT-01 ~ DT-10 · 「동의한 뒤 바뀐 폴더」
+cd desktop && node --test test/tools.test.js test/sync.test.js   # DT-01 ~ DT-10 · 「동의한 뒤 바뀐 폴더」 · 「시스템 창 길」
 cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.js                        # :8999 · :5399
 ```
 
@@ -1999,7 +1999,7 @@ cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.
 | 카드는 그 사람만(404) · 보인 그대로의 확인(409 stale) · 한 번만(409) · 한 시간 뒤 만료 · 「그만두기」 | 스펙 「채팅에서 내 PC의 스킬 · 폴더 등록 제안」 | PT-05 · PT-07 · F-PCP-04 | DB · feature | ✅ |
 | 휴대폰 390: 카드가 화면 안, 옆 넘침 없음, 밝은 · 어두운 | 스펙 LA-PP-05 | F-PCP-04 | feature | ✅ |
 | 옛 데스크톱(0.2.7): 토큰 없음 · 첫 메시지에 업데이트 안내 · 고르기에 「0.2.8 이상으로 업데이트하면 …」 | 스펙 LA-PP-06 | PT-02 | DB | ✅ |
-| 어느 폴더: `~` · 작업 폴더 기준 상대(탈출 거절) · 링크 · 디스크 맨 위 · 홈과 그 위 · `~/Library` · 시스템 · CLI 의 집과 그 안(스킬 폴더만 예외) · 홈 바로 아래 숨은 폴더(`~/.kube` · `~/.docker` · `~/.config/gh` …) · 경로에 비밀 · 개인 폴더(`.ssh` · `.claude/projects` · `.codex/sessions` · `.vscode`) · `/var` · `/private/var` 안쪽(macOS 의 사람마다 임시 · 캐시 `/var/folders/…/T` · `C` 도) · `/opt/homebrew` · `~/snap` · 볼륨 맨 위(`/Volumes/<이름>` · `/media/<사람>/<이름>` · `/mnt/<이름>`) · `CLAUDE_CONFIG_DIR` 를 다른 대소문자로 적어도 그 집 · 앱 데이터 거절 | 스펙 「허용하는 폴더 경로」 · LA-PP-08 · PR #120 검토 3 | DT-01 · DT-05 | 단위 | ✅ |
+| 어느 폴더: `~` · 작업 폴더 기준 상대(탈출 거절) · 링크 · 디스크 맨 위 · 홈과 그 위 · `~/Library` · 시스템 · CLI 의 집과 그 안(스킬 폴더만 예외) · 홈 바로 아래 숨은 폴더(`~/.kube` · `~/.docker` · `~/.config/gh` …) · 경로에 비밀 · 개인 폴더(`.ssh` · `.claude/projects` · `.codex/sessions` · `.vscode`) · `/var` 의 시스템 자리(macOS 의 사람마다 임시 · 캐시 `/var/folders/…/T` · `C` 도 — `/var` 아래의 홈(Silverblue) · `/var/www/<사이트>` 는 허용) · `/opt/homebrew` · `~/snap` · `/run/user` · 볼륨 맨 위(`/Volumes/<이름>` · `/media/<사람>/<이름>` · `/mnt/<이름>` · `/run/media/<사람>`) · `~/Library` 는 거절하되 그 안의 클라우드 드라이브 폴더(`CloudStorage/<드라이브>/…` · `Mobile Documents/<…>/…`)는 허용 · `CLAUDE_CONFIG_DIR` 를 다른 대소문자로 적어도 그 집 · 앱 데이터 거절 | 스펙 「허용하는 폴더 경로」 · LA-PP-08 · PR #120 검토 3 | DT-01 · DT-05 | 단위 | ✅ |
 | PC 의 스킬 목록(Claude Code · Codex · 작업 폴더 · 말한 폴더, 링크는 가리키는 곳만) · 앱이 읽는 스킬(챔피언 검사, `.mcp.json` 은 확인할 파일로 빠짐) | 스펙 「파일은 앱이 읽는다」 | DT-02 · DT-03 | 단위 | ✅ |
 | stdio MCP 서버(initialize · tools/list · tools/call · ping), 설정 파일에 서버 토큰 없음(0600), 닫힌 실행 · 틀린 열쇠는 아무것도 못 함 | 스펙 「도구는 데스크톱 앱이 제공한다」 | DT-04 | 단위 | ✅ |
 | Claude Code `--mcp-config`(내 MCP 옆에) + 도구 허용 · Codex `-c mcp_servers.…` · 앱은 liteTools · liteFolders 를 알림 · 묶은 앱은 자기 실행 파일을 node 로(RunAsNode 퓨즈 그대로) | 스펙 「도구는 데스크톱 앱이 제공한다」 | DT-07 · DT-08 · e2e 2 · 7단계(Codex) | 단위 · HTTP | ✅ |
@@ -2007,7 +2007,8 @@ cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.
 | 서버는 제안의 pick 만 말할 수 있음(페이지의 pick · 다른 제안 · 이미 올린 pick 은 `no_pick`), 경로는 서버에 가지 않음 | 스펙 CF-PCP-02 | DT-06 · PT-08 | 단위 · DB | ✅ |
 | 올라가지 않으면 빈 폴더를 지우고 다시 누를 수 있음, 남의 PC 의 답은 무시, pick 을 잃으면 실패로 끝, PC 꺼짐 409 | 스펙 CF-PCP-03 | PT-08 | DB | ✅ |
 | 카드에 보인 뒤 폴더가 바뀌면(파일 더함 · 크기 바뀜 · 같은 크기로 고침 · 같은 이름끼리 바꿔치기 · 링크로 바뀜) 올리기 직전 다시 검사 · 다시 훑어 아무것도 올리지 않음 → 「폴더를 올리지 못했어요 · 미리 보여 드린 뒤 폴더가 바뀌었어요 …」, 만든 빈 폴더는 지움 | 스펙 CF-PCP-04 · PR #120 검토 1 · 재검토 6 | F-PCP-05 · DT-10(DT-06 안) · PT-11 | feature · 단위 · DB | ✅ |
-| 「예」 뒤에도 그대로만: 동의한 뒤 첫 올리기 전에 더한 파일 · 같은 크기로 고친 파일 · 링크로 바뀐 위 폴더 · 스냅숏이 읽는 동안 고친 파일 → 아무것도 밀어 넣지 않고 원본 행을 되돌림(`changed`) — 카드의 길과 페이지의 시스템 창 길 모두 | 스펙 챔피언 「동의한 뒤 바뀐 폴더는 올라가지 않는다」 · PR #120 재검토 1 | `desktop/test/sync.test.js` 「동의한 뒤 바뀐 폴더」 | 단위 | ✅ |
+| 카드의 길(`strict`) — 「예」 뒤에도 그대로만: 동의한 뒤 첫 올리기 전에 더한 파일 · 같은 크기로 고친 파일 · 링크로 바뀐 위 폴더 · 스냅숏이 읽는 동안 고친 파일 · 읽는 동안 바꿨다 되돌린 위 폴더(그림자 index 의 stat) → 아무것도 밀어 넣지 않고 원본 행을 되돌림(`changed`), pick 은 남음; 권한 · 속성만 바뀐 파일은 같은 파일 | 스펙 챔피언 「동의한 뒤 바뀐 폴더는 올라가지 않는다」 · PR #120 재검토 1 · 3차 2 · 6 | `desktop/test/sync.test.js` 「동의한 뒤 바뀐 폴더」 · DT-10 | 단위 | ✅ |
+| 시스템 창의 길(페이지의 「내 PC 폴더 올리기」) — 「예」는 그 파일 목록에: 그사이 저장한 파일 · 권한 · 속성(xattr)만 바뀐 파일은 올라감, 파일이 더해지면 `changed` 이고 같은 시트(같은 pick)에서 다시 누를 수 있음 · 「지금 올리기」에서 링크 너머로 옮겨진 폴더는 `moved`(「폴더가 다른 곳으로 옮겨졌어요 …」) | 스펙 챔피언 「동의한 뒤 저장한 파일은 그대로 올라간다」 · PR #120 3차 2 · 4 | `desktop/test/sync.test.js` 「시스템 창 길」 | 단위 | ✅ |
 | 회귀: 채팅 에이전트 · 챔피언 폴더 · 데스크톱 전체 | — | `chatAgents.test.js` · `chatAgents.e2e.mjs` · `championFolders.test.js` · `champion-sync.e2e.mjs` · desktop `test/*.test.js` · F-CA-* · F-CF-* | DB · HTTP · 단위 · feature | ✅ |
 | 실제 Claude Code 2.1.332(회사 게이트웨이 · 임시 설정 · 임시 홈): 「내 PC 의 견적-규칙 스킬을 Process GPT 에 등록해 줘」 → 도구 설명만 보고 `lite_list_pc_skills` → `lite_propose_skill`, `.env` 빠짐, 카드를 확인해 달라며 멈춤 (게이트웨이 때문에 `ENABLE_TOOL_SEARCH=false`) | 스펙 「요청의 의미는 CLI가 해석한다」 | `desktop/test/realClaudeTools.test.js`(사람이 켤 때만) | 실제 CLI | ✅ 1회 |
 | MCP 서버를 앱 플래그(`--pgl-mcp`)로: 재 본 결과(프로세스 3개 · 약 215 MB · LaunchServices 등록 vs 노드 모드 1개 · 약 56 MB)로 노드 모드를 둠 — Developer ID · hardened runtime 으로 옮길 때 앱 플래그로 바꿈 | PR #120 검토 12 · 재검토 8 · 설계 §13.4 | 측정(시험 아님) | — | — |
