@@ -277,26 +277,37 @@ export function folderRoutes(auth) {
   }))
   // a folder from the person's computer (dropped on the page, or 「폴더 올리기」 — src/folderDrop.js): its files a request at a time, each one
   // commit (S.uploadMany). The person and their right in the folder are known before the body is read; the body is read as it comes,
-  // within the limits (lib/folders/batchBody.js); one request at a time per person and folder. The index follows a moment later.
-  // (any refusal ends the connection: the rest of a body is not read)
+  // within the limits (lib/folders/batchBody.js); one request at a time per person and folder, and at most SENDING_PER_PERSON for a person
+  // in all. The index follows a moment later. (any refusal ends the connection: the rest of a body is not read)
+  const SENDING_PER_PERSON = 2
   const sending = new Set()
+  const sendingOf = new Map() // tenant:person → requests on their way
   r.post('/folders/:slug/files/batch', auth, async (req, res) => {
-    const end = (status, body) => { if (res.headersSent) return; res.status(status).set('Connection', 'close').json(body); res.on('finish', () => req.destroy()) }
-    let key = null
+    const end = (status, body) => { if (res.headersSent || res.destroyed) return; res.status(status).set('Connection', 'close').json(body); res.on('finish', () => req.destroy()) }
+    let key = null, who = null
     try {
       const { folder } = await S.access(req.params.slug, req.user, 'editor')
       if (folder.kind !== 'managed') return end(400, { error: L('이 폴더에는 폴더째 올릴 수 없어요.', "A folder can't be uploaded into this folder.") })
-      key = `${config.tenantId}:${req.user.id}:${folder.id}`
-      if (sending.has(key)) { key = null; return end(429, { error: L('이 폴더에 올리는 중이에요 — 끝난 뒤에 다시 해 주세요.', 'An upload to this folder is under way — try again when it is done.') }) }
-      sending.add(key)
+      const person = `${config.tenantId}:${req.user.id}`
+      if (sending.has(`${person}:${folder.id}`) || (sendingOf.get(person) || 0) >= SENDING_PER_PERSON) {
+        return end(429, { error: L('올리는 중인 것이 있어요 — 끝난 뒤에 다시 해 주세요.', 'An upload is under way — try again when it is done.'), code: 'busy' })
+      }
+      key = `${person}:${folder.id}`; who = person
+      sending.add(key); sendingOf.set(who, (sendingOf.get(who) || 0) + 1)
       const { meta, items } = await readBatch(req, SECRETS.BATCH)
       const out = await S.uploadMany(folder, user(req), items, { label: meta.label, part: meta.part, parts: meta.parts, session: meta.session })
       if (out.commit) reindexSoon(folder)
       res.json({ ok: true, ...out })
     } catch (e) {
-      if (!e.status) console.warn('[folders] batch', req.params.slug, e.message)
-      end(e.status || 500, { error: e.message, ...(e.code ? { code: e.code } : {}), ...(e.limit ? { limit: e.limit } : {}) })
-    } finally { if (key) sending.delete(key) }
+      const status = e.status || 500
+      // (the page went away mid-way — a stopped upload, a closed tab: nothing to say, nobody to say it to)
+      const gone = req.destroyed || res.destroyed || ['ERR_STREAM_PREMATURE_CLOSE', 'ECONNRESET', 'ECONNABORTED'].includes(e.code)
+      if (status >= 500 && !gone) console.warn('[folders]', req.method, req.path, e.message)
+      end(status, { error: status >= 500 ? hidePaths(e.message) : e.message, ...(e.code && status < 500 ? { code: e.code } : {}), ...(e.limit ? { limit: e.limit } : {}) })
+    } finally {
+      if (key) sending.delete(key)
+      if (who) { const n = (sendingOf.get(who) || 1) - 1; if (n > 0) sendingOf.set(who, n); else sendingOf.delete(who) }
+    }
   })
   r.delete('/folders/:slug/files', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')

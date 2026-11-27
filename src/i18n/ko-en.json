@@ -3264,7 +3264,10 @@
   "그만뒀어요": "Stopped",
   "경로가 너무 긴 파일": "Files whose path is too long",
   "git 제어 파일(.gitmodules · .lfsconfig · .gitattributes)": "git control files (.gitmodules · .lfsconfig · .gitattributes)",
-  "그만뒀어요 — 올라간 것은 없어요.": "Stopped — nothing went up."
+  "그만뒀어요 — 올라간 것은 없어요.": "Stopped — nothing went up.",
+  "그만두는 중…": "Stopping…",
+  "git 제어 파일(.gitmodules · .lfsconfig · .gitattributes · .gitignore)": "git control files (.gitmodules · .lfsconfig · .gitattributes · .gitignore)",
+  "서버가 이 요청을 받지 않고 연결을 끊었어요 — 올리는 중인 것이 끝난 뒤, 한도 안에서 다시 해 주세요.": "The server closed the connection without taking this request — try again within the limits once the upload under way is done."
  },
  "patterns": [
   [

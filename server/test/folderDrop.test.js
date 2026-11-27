@@ -86,6 +86,7 @@ test('folders the walk never goes into: git data, and the rules\' folders', () =
   assert.equal(structureOf('a/.LFSCONFIG'), 'structure')
   assert.equal(structureOf('a/gitmodules.md'), null)
   assert.equal(structureOf('a/.gitattributes'), 'structure')
+  assert.equal(structureOf('a/.gitignore'), 'structure')
   assert.equal(structureOf('.GitAttributes'), 'structure')
 })
 
@@ -205,12 +206,22 @@ test('a large folder goes in several requests (files · bytes), all of one uploa
   // a failure part way: what went up before it comes with the failure
   await assert.rejects(sendPlan({ up }, { limits: { batchFiles: 2 }, send: async (b, m) => { if (m.part === 2) throw new Error('끊김'); return { written: b.map((u) => u.path) } } }),
     (e) => e.message === '끊김' && e.written === 2)
-  // stopped: no request after the stop
+  // closed or left: stopped at once, no request after it
   const stop = new AbortController()
   let sent = 0
   await assert.rejects(sendPlan({ up }, { limits: { batchFiles: 2 }, signal: stop.signal, send: async (b) => { sent++; stop.abort(); return { written: b.map((u) => u.path) } } }),
     (e) => e.name === 'AbortError' && e.written === 2)
   assert.equal(sent, 1)
+  // 「그만두기」: the request on its way finishes and is counted, no next one goes
+  let asked = false
+  sent = 0
+  await assert.rejects(sendPlan({ up }, { limits: { batchFiles: 2 }, stopAfter: () => asked, send: async (b) => { sent++; asked = true; await new Promise((ok) => setTimeout(ok, 20)); return { written: b.map((u) => u.path) } } }),
+    (e) => e.name === 'AbortError' && e.written === 2)
+  assert.equal(sent, 1)
+  // …and pressed during the last request: all of it went up
+  asked = false
+  const all = await sendPlan({ up: up.slice(0, 2) }, { limits: { batchFiles: 2 }, stopAfter: () => asked, send: async (b) => { asked = true; return { written: b.map((u) => u.path) } } })
+  assert.equal(all.written, 2)
 })
 
 test('the folder\'s own .gitignore: what it leaves out stays here, a left-out folder is not walked, a deeper file and a later line win', async () => {
@@ -220,14 +231,16 @@ test('the folder\'s own .gitignore: what it leaves out stays here, a left-out fo
     ['k/docs/draft.md', false, true], ['k/#hash', false, true], ['other/x.log', false, false]]) assert.equal(ignoredBy(st, p, d), want, `${p} ${d}`)
   const scan = await walk([tree('키트', { '.gitignore': 'dist/\n*.log\n', 'README.md': '#', 'dist': { 'a.js': '1' }, 'app.log': 'x', 'sub': { '.gitignore': '!app.log\n*.tmp\n', 'app.log': 'y', 'b.tmp': 'z', 'c.md': 'c' } })], rules)
   const plan = planOf(scan, rules)
-  assert.deepEqual(plan.up.map((u) => u.path).sort(), ['키트/.gitignore', '키트/README.md', '키트/sub/.gitignore', '키트/sub/app.log', '키트/sub/c.md'])
+  // (the .gitignore files themselves stay here too — read and applied, never uploaded)
+  assert.deepEqual(plan.up.map((u) => u.path).sort(), ['키트/README.md', '키트/sub/app.log', '키트/sub/c.md'])
   assert.deepEqual(plan.places.gitignore, ['키트/dist/'])
   assert.deepEqual(plan.left.gitignore.sort(), ['키트/app.log', '키트/sub/b.tmp'])
+  assert.deepEqual(plan.left.structure.sort(), ['키트/.gitignore', '키트/sub/.gitignore'])
   // 「폴더 올리기」 reads them the same way
   const at = (rel, text = 'x') => Object.assign(fileLike(text), { name: rel.split('/').pop(), webkitRelativePath: rel })
   const picked = await fromPicked([at('키트/.gitignore', 'dist/\n*.log\n'), at('키트/README.md'), at('키트/dist/a.js'), at('키트/app.log'), at('키트/sub/.gitignore', '!app.log\n'), at('키트/sub/app.log')], rules)
   const p2 = planOf(picked, rules)
-  assert.deepEqual(p2.up.map((u) => u.path).sort(), ['키트/.gitignore', '키트/README.md', '키트/sub/.gitignore', '키트/sub/app.log'])
+  assert.deepEqual(p2.up.map((u) => u.path).sort(), ['키트/README.md', '키트/sub/app.log'])
   assert.deepEqual(p2.places.gitignore, ['키트/dist/'])
   assert.deepEqual(p2.left.gitignore, ['키트/app.log'])
 })
@@ -269,6 +282,10 @@ test('one request\'s body is read as it comes and within its limits', async () =
   await assert.rejects(readBatch(Readable.from([whole.subarray(0, whole.length - 2)]), L), (e) => e.status === 400)
   const bigMeta = Buffer.alloc(10); Buffer.from('PGLB1\n').copy(bigMeta); bigMeta.writeUInt32BE(BATCH.metaBytes + 1, 6)
   await assert.rejects(readBatch(never(bigMeta), L), (e) => e.status === 413)
+  // a body that stops coming is given up after the idle time (408)
+  const t1 = Date.now()
+  await assert.rejects(readBatch(never(head({ count: 1 })), { ...L, idleMs: 150 }), (e) => e.status === 408 && e.code === 'idle')
+  assert.ok(Date.now() - t1 < 1000)
 })
 
 test('the server looks again at each uploaded file: a secret\'s name, git\'s control files, a large file, a key of a sure shape', () => {
@@ -276,6 +293,7 @@ test('the server looks again at each uploaded file: a secret\'s name, git\'s con
   assert.deepEqual(refusalOf('kit/.gitmodules', Buffer.from('')), { reason: 'gitmodules', line: null })
   assert.deepEqual(refusalOf('kit/.gitattributes', Buffer.from('* filter=x')), { reason: 'gitattributes', line: null })
   assert.deepEqual(refusalOf('.GITATTRIBUTES', Buffer.from('')), { reason: 'gitattributes', line: null })
+  assert.deepEqual(refusalOf('a/.gitignore', Buffer.from('*')), { reason: 'gitignore', line: null })
   assert.deepEqual(refusalOf('kit/a.txt', Buffer.from(`ok\n${PEM}\n`)), { line: 2, reason: 'private_key' })
   assert.equal(refusalOf('kit/.env.example', Buffer.from('A=')), null)
   assert.equal(refusalOf('kit/readme.md', Buffer.from('# hi')), null)

@@ -36,6 +36,7 @@ const description = ref(String(props.description || '').slice(0, 200))
 const way = ref('once')              // new, in the app with the bridge: 'once' | 'pc'
 const busy = ref('')                 // 'upload'
 const progress = ref({ done: 0, total: 0 })
+const stopping = ref(false)          // 「그만두기」 pressed: the request on its way finishes, no next one
 const err = ref('')
 const open = ref(new Set())
 // 「그만두기」 · the sheet closed · the page left: the look for keys and the upload stop where they are
@@ -59,7 +60,7 @@ const WORDS = {
   personal: GROUP.personal,
   rebuildable: GROUP.rebuildable,
   gitignore: GROUP.gitignore,
-  structure: 'git 제어 파일(.gitmodules · .lfsconfig · .gitattributes)',
+  structure: 'git 제어 파일(.gitmodules · .lfsconfig · .gitattributes · .gitignore)',
   large: `큰 파일 — ${fmtBytes(props.rules.limits.largeFileBytes)} 넘는 파일은 올리지 않아요`,
   shape: '열쇠 · 토큰처럼 생긴 글이 든 파일',
   long: '경로가 너무 긴 파일',
@@ -101,6 +102,7 @@ async function go() {
   if (way.value === 'pc') { emit('champion'); return }
   err.value = ''
   busy.value = 'upload'
+  stopping.value = false
   stopper = new AbortController()
   let slug = props.folder?.slug || ''
   let made = null
@@ -108,7 +110,7 @@ async function go() {
   try {
     if (isNew.value) { made = await F.create({ name: fname.value.trim(), description: description.value.trim() }); slug = made.slug }
     const label = isNew.value ? made.name : base.value || `${plan.value.files}개`
-    const r = await sendPlan(plan.value, { label, signal: stopper.signal, limits: props.rules.limits,
+    const r = await sendPlan(plan.value, { label, signal: stopper.signal, stopAfter: () => stopping.value, limits: props.rules.limits,
       send: (batch, meta, signal) => F.uploadBatch(slug, batch, meta, signal), onProgress: (done, total) => { progress.value = { done, total } } })
     emit('done', { slug, folder: made, written: r.written, refused: r.refused, left: leftN.value })
   } catch (e) {
@@ -119,8 +121,8 @@ async function go() {
     else err.value = stopped ? '그만뒀어요 — 올라간 것은 없어요.' : e.message
   } finally { busy.value = '' }
 }
-// 「그만두기」 while uploading: the request on its way is stopped (what went up before it stays)
-function stop() { stopper.abort() }
+// 「그만두기」 while uploading: the request on its way finishes (and is counted), no next one goes
+function stop() { stopping.value = true }
 function close() { if (busy.value) return stop(); emit('close') }
 </script>
 
@@ -200,7 +202,7 @@ function close() { if (busy.value) return stop(); emit('close') }
         <small v-else-if="way === 'pc'">이어서 「내 PC 폴더 올리기」와 같은 미리 보기를 확인해요</small>
         <small v-else>한 번 올리고 끝나요 — 내 PC 의 폴더는 그대로예요</small>
         <span class="sp" />
-        <button class="pill-btn" data-test="drop-cancel" @click="close()">{{ busy ? '그만두기' : '취소' }}</button>
+        <button class="pill-btn" data-test="drop-cancel" :disabled="stopping && !!busy" @click="close()">{{ busy ? (stopping ? '그만두는 중…' : '그만두기') : '취소' }}</button>
         <button class="dark-btn" data-test="drop-go" :disabled="!canGo" @click="go">{{ busy ? '올리는 중…' : way === 'pc' ? '시스템 창에서 고르기' : isNew ? '만들고 올리기' : '올리기' }}</button>
       </footer>
     </div>

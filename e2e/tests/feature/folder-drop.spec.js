@@ -12,7 +12,8 @@
 //           다리가 없는 0.2.3 은 한 줄 안내
 //   F-DR-08 서버가 다시 본다: 비밀 이름 · git 제어 파일 · 열쇠 모양 · .git 경로 · 폴더를 벗어난 경로는 파일마다 까닭과 함께 거절,
 //           보기 권한은 403
-//   F-DR-12 「그만두기」: 폴더를 살피는 중에 멈추면 시트가 뜨지 않고, 올리는 중에 멈추면 그 요청은 가지 않으며 그렇다고 말한다
+//   F-DR-12 「그만두기」: 폴더를 살피는 중에 멈추면 시트가 뜨지 않고, 올리는 중에 누르면 가던 요청은 마치고(센다) 다음 요청은 가지 않으며,
+//           시트를 닫거나 화면을 떠나면 가던 요청도 멈춘다
 //   F-DR-09 작업실: 이 서버(여러 회사 · 터미널 열쇠 없음)가 터미널을 열지 않는 까닭을 보이고, 데스크톱 앱에서는 머리줄이 창의 단추를
 //           피하며, 앞 화면 없이 열었어도 폴더로 돌아간다 · 없는 폴더는 폴더의 말로
 // 디렉터리 놓기는 webkitGetAsEntry 를 흉내 낸 drop 이벤트로 한다(페이지 안에서 만든 FileSystemEntry 나무 — 브라우저가 주는 모양 그대로).
@@ -57,9 +58,9 @@ const KIT = {
   'debug.log': 'x',
   '.gitattributes': '* filter=lfs\n',
 }
-const UP_KIT = ['README.md', '견적/양식.md', '견적/단가표.csv', 'docs/쓰는 법.md', 'src/app.js', '.env.example', '.claude/skills/견적-정리/SKILL.md', '.gitignore']
+const UP_KIT = ['README.md', '견적/양식.md', '견적/단가표.csv', 'docs/쓰는 법.md', 'src/app.js', '.env.example', '.claude/skills/견적-정리/SKILL.md']
 const NOT_UP = ['.git/config', '.git/HEAD', 'node_modules/pkg/index.js', '.env', '.claude/settings.local.json', '.gitmodules', 'deploy_key.pem', '녹화.mov', 'src/deploy.js',
-  'out/bundle.js', 'debug.log', '.gitattributes']
+  'out/bundle.js', 'debug.log', '.gitattributes', '.gitignore']
 
 // in the page: a FileSystemEntry tree as the browser hands a dropped folder over, and the drag events a drop of it makes
 const FAKE_DROP = `(() => {
@@ -388,12 +389,19 @@ test('F-DR-08 서버가 다시 본다 — 파일마다 까닭과 함께 거절, 
   const r2 = await send(OWNER, { '키트/README.md/x.md': 'x', '키트/b.md': 'b', '키트/B.md': 'B' })
   expect(r2.body.written).toEqual(['키트/b.md'])
   expect(why(r2.body)).toEqual({ '키트/README.md/x.md': 'conflict', '키트/B.md': 'clash' })
-  // the folder's own .gitignore (one that came up with a drop): what it names is not kept, and a later single upload says so
-  const r3 = await send(OWNER, { '.gitignore': '*.log\n', 'a.log': 'x', 'c.md': 'c' })
+  // a .gitignore does not come up (batch · single); the folder's own one (written in its workroom) is followed: what it names is not
+  // kept, and a single upload of such a name says so
+  const single = (name) => fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${f.slug}/files?path=${encodeURIComponent(name)}`, { method: 'POST', body: 'x', headers: { Authorization: `Bearer ${OWNER.token}`, 'Content-Type': 'application/octet-stream' } })
+  expect(why((await send(OWNER, { '.gitignore': '*.log\n', 'd.md': 'd' })).body)).toEqual({ '.gitignore': 'gitignore' })
+  expect((await single('.gitignore')).status).toBe(400)
+  await S.api(OWNER.token, `/workroom/folder/${f.slug}/file`, { method: 'PUT', body: { path: '.gitignore', content: '*.log\n' } })
+  const r3 = await send(OWNER, { 'a.log': 'x', 'c.md': 'c' })
   expect(why(r3.body)).toEqual({ 'a.log': 'ignored' })
-  const single = await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${f.slug}/files?path=${encodeURIComponent('later.log')}`, { method: 'POST', body: 'x', headers: { Authorization: `Bearer ${OWNER.token}`, 'Content-Type': 'application/octet-stream' } })
-  expect(single.status).toBe(409)
+  expect((await single('later.log')).status).toBe(409)
   expect((await mainFiles(f.slug)).some((p) => p.endsWith('.log'))).toBe(false)
+  // a name that differs only in case from one already there: refused, the file there stays as it was
+  expect(why((await send(OWNER, { '키트/readme.md': '덮어쓰기' })).body)).toEqual({ '키트/readme.md': 'clash' })
+  expect((await single('키트/Readme.MD')).status).toBe(409)
   // the rules the page reads
   const rules = await S.api(OWNER.token, '/folders/upload-rules')
   expect(rules.limits).toEqual({ largeFileBytes: 52428800, pushMaxBytes: 209715200, headMaxFiles: 20000, textMaxBytes: 1048576, batchFiles: 1000, batchBytes: 52428800, pathBytes: 1024 })
@@ -430,13 +438,18 @@ test('F-DR-08 서버가 다시 본다 — 파일마다 까닭과 함께 거절, 
   const fh = Buffer.alloc(2 + 5 + 4); fh.writeUInt16BE(5, 0); fh.write('a.bin', 2); fh.writeUInt32BE(60 * 1024 * 1024, 7)
   const big = await early(URL_, { Authorization: `Bearer ${OWNER.token}` }, Buffer.concat([head({ count: 1, session: sessionId() }), fh]))
   expect(big.status).toBe(413)
-  // one request at a time per person and folder: a second while the first is on its way is 429
-  const slow = http.request(URL_, { method: 'POST', headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${OWNER.token}` } })
-  slow.on('error', () => {})
-  slow.write(head({ count: 1, session: sessionId() }))
+  // one request at a time per person and folder, two for a person in all: a request beyond them while those are on their way is 429
+  const opened = (target) => { const r = http.request(target, { method: 'POST', headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${OWNER.token}` } }); r.on('error', () => {}); r.write(head({ count: 1, session: sessionId() })); return r }
+  const slow = opened(URL_)
   await new Promise((ok) => setTimeout(ok, 400))
   expect((await send(OWNER, { 'z.md': 'z' })).status).toBe(429)
-  slow.destroy()
+  const f2 = await folder('두 번째'), f3 = await folder('세 번째')
+  const slow2 = opened(`http://127.0.0.1:${S.apiPort}/api/folders/${f2.slug}/files/batch`)
+  await new Promise((ok) => setTimeout(ok, 400))
+  const third = await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${f3.slug}/files/batch`, { method: 'POST', headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${OWNER.token}` },
+    body: batchBody([{ path: 'a.md', file: new Blob(['a']), size: 1 }], { session: sessionId() }) })
+  expect(third.status).toBe(429)
+  slow.destroy(); slow2.destroy()
   await expect.poll(async () => (await send(OWNER, { 'z.md': 'z' })).status, { timeout: 5000 }).toBe(200)
 })
 
@@ -462,9 +475,11 @@ test('F-DR-09 작업실: 이 서버가 터미널을 열지 않는 까닭을 보�
   await p.context().close()
 })
 
-test('F-DR-12 「그만두기」 — 살피는 중에 멈추면 시트가 뜨지 않고, 올리는 중에 멈추면 아무것도 올라가지 않았다고 말한다', async ({ browser }) => {
+test('F-DR-12 「그만두기」 — 살피는 중에 멈추면 시트가 뜨지 않고, 올리는 중에 누르면 가던 요청은 마치고 다음 요청은 가지 않는다', async ({ browser }) => {
   const f = await folder('그만두기')
   const p = await open(browser, DESK)
+  // (one file a request here, so an upload of two is two requests)
+  await p.route('**/api/folders/upload-rules', async (route) => { const r = await route.fetch(); const j = await r.json(); j.limits.batchFiles = 1; await route.fulfill({ response: r, json: j }) })
   await p.goto(`/folders/${f.slug}`)
   // a folder that takes long to read: stopped while it is looked through
   await dropOn(p, '[data-test="folder-detail"] .files', '큰 폴더', { 'a.md': 'a', '깊은 곳': { __slow: 4000, 'b.md': 'b' } })
@@ -473,17 +488,27 @@ test('F-DR-12 「그만두기」 — 살피는 중에 멈추면 시트가 뜨지
   await expect(p.locator('[data-test="folder-scanning"]')).toHaveCount(0)
   await p.waitForTimeout(4500)
   await expect(p.locator('[data-test="drop-sheet"]')).toHaveCount(0)
-  // an upload stopped on its way (the request is held back here so it is still going)
-  await p.route('**/files/batch', async (route) => { await new Promise((ok) => setTimeout(ok, 4000)); await route.continue().catch(() => {}) })
-  await dropOn(p, '[data-test="folder-detail"] .files', '작은 폴더', { 'a.md': 'a' })
+  // an upload stopped on its way: the first request is held back here, so 「그만두기」 comes while it is going
+  let calls = 0
+  await p.route('**/files/batch', async (route) => { calls++; if (calls === 1) await new Promise((ok) => setTimeout(ok, 3000)); await route.continue() })
+  await dropOn(p, '[data-test="folder-detail"] .files', '작은 폴더', { 'a.md': 'a', 'b.md': 'b' })
   await expect(p.locator('[data-test="drop-sheet"]')).toBeVisible()
   await p.locator('[data-test="drop-go"]').click()
   await expect(p.locator('[data-test="drop-cancel"]')).toHaveText('그만두기')
   await p.locator('[data-test="drop-cancel"]').click()
-  await expect(p.locator('[data-test="drop-error"]')).toHaveText('그만뒀어요 — 올라간 것은 없어요.')
+  await expect(p.locator('[data-test="drop-cancel"]')).toHaveText('그만두는 중…')
+  // the request on its way finished and is counted; the second never went
+  await expect(p.locator('[data-test="folder-toast"]')).toHaveText('그만뒀어요 — 파일 1개는 올라갔어요', { timeout: 15_000 })
+  expect(calls).toBe(1)
+  expect((await mainFiles(f.slug)).filter((x) => x !== '.gitattributes')).toEqual(['작은 폴더/a.md'])
+  // closed while a request is on its way: that request is stopped at once — nothing of it goes up
   await p.unroute('**/files/batch')
-  await p.waitForTimeout(4500)
-  expect((await mainFiles(f.slug)).filter((x) => x !== '.gitattributes')).toEqual([])
+  await p.route('**/files/batch', async (route) => { await new Promise((ok) => setTimeout(ok, 3000)); await route.continue().catch(() => {}) })
+  await dropOn(p, '[data-test="folder-detail"] .files', '닫을 폴더', { 'c.md': 'c' })
+  await p.locator('[data-test="drop-go"]').click()
+  await p.goto('/folders')
+  await p.waitForTimeout(3500)
+  expect((await mainFiles(f.slug)).some((x) => x.startsWith('닫을 폴더/'))).toBe(false)
   expect(p.errors).toEqual([])
   await p.context().close()
 })

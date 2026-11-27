@@ -108,15 +108,18 @@ export function pageRules() {
     block: (SHAPES.shapes || []).filter((s) => s.level === 'block' && s.pattern).map((s) => ({ id: s.id, pattern: s.pattern, flags: s.flags || '' })),
   }
 }
-// Why one uploaded file is not kept, or null: a secret's file name, git's control files (.gitmodules · .lfsconfig · .gitattributes), a
-// file over the size limit, or a key of a sure shape in its text → {reason, line} (reason: 'name' · structureOf's · 'gitattributes' ·
-// 'large' · the shape id). A folder's git attributes are the server's own: what a page uploads does not change how its files are kept.
+// Why one uploaded file is not kept, or null: a secret's file name, git's control files (.gitmodules · .lfsconfig · .gitattributes ·
+// .gitignore), a file over the size limit, or a key of a sure shape in its text → {reason, line} (reason: 'name' · structureOf's ·
+// 'gitattributes' · 'gitignore' · 'large' · the shape id). A folder's git attributes are the server's own, and what goes into a folder
+// is decided by whoever writes to it: an upload changes neither.
 export function refusalOf(rel, buf) {
   if (groupOf(rel) === 'secret') return { reason: 'name', line: null }
-  const s = structureOf({ path: rel }) || attributesOf(rel)
+  const s = structureOf({ path: rel }) || attributesOf(rel) || ignoreFileOf(rel)
   if (s) return { reason: s, line: null }
   if (buf.length > LIMITS.largeFileBytes) return { reason: 'large', line: null }
   return blockIn(buf)
 }
 // a .gitattributes anywhere (case as a Mac or Windows reads it) → 'gitattributes' | null
 export const attributesOf = (rel) => (String(rel).split('/').pop().trim().toLowerCase() === '.gitattributes' ? 'gitattributes' : null)
+// a .gitignore anywhere → 'gitignore' | null (the page applies a dropped folder's own .gitignore before anything goes up)
+export const ignoreFileOf = (rel) => (String(rel).split('/').pop().trim().toLowerCase() === '.gitignore' ? 'gitignore' : null)

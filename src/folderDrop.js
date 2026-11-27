@@ -58,9 +58,9 @@ export function dirGroupOf(relDir, rules) {
   // (a name no rule has, inside it: what the folder itself makes every file of it)
   return groupOf(`${relDir}/\u0000`, rules)
 }
-// git's control files and its attributes: never a file of a folder that goes up from here (the server refuses them too — secrets.js
-// refusalOf; a folder's attributes are the server's own)
-const STRUCTURE = new Set(['.gitmodules', '.lfsconfig', '.gitattributes'])
+// git's control files, its attributes and ignore files: never a file of a folder that goes up from here (the server refuses them too —
+// secrets.js refusalOf). A dropped folder's own .gitignore is read and applied here (below), then stays here itself.
+const STRUCTURE = new Set(['.gitmodules', '.lfsconfig', '.gitattributes', '.gitignore'])
 export const structureOf = (rel) => (STRUCTURE.has(String(rel).split('/').pop().trim().toLowerCase()) ? 'structure' : null)
 
 // ---------- the folder's own .gitignore ----------
@@ -373,20 +373,23 @@ export function sessionId() {
 }
 // The plan's files to the folder, request by request (each one commit) → {written, refused: [{path, reason, line}]}. A failure or a stop
 // part way throws with what went up before it (err.written · err.refused).
-// send(batch, meta, signal): the folders API (foldersApi.js uploadBatch) · onProgress(done, total) · limits: rules.limits
-export async function sendPlan(plan, { label, send, onProgress, signal, limits = {} } = {}) {
+// send(batch, meta, signal): the folders API (foldersApi.js uploadBatch) · onProgress(done, total) · limits: rules.limits ·
+// signal: stops at once (the request on its way too — the sheet closed, the page left) · stopAfter(): true when the person pressed
+// 「그만두기」 — the request on its way finishes and is counted, no next one goes
+export async function sendPlan(plan, { label, send, onProgress, signal, stopAfter, limits = {} } = {}) {
   const parts = batchesOf(plan.up, { files: limits.batchFiles, bytes: limits.batchBytes })
   const session = sessionId()
   let written = 0
   const refused = []
   for (let i = 0; i < parts.length; i++) {
     try {
-      if (signal?.aborted) throw abortError()
+      if (signal?.aborted || (i > 0 && stopAfter?.())) throw abortError()
       const r = await send(parts[i], { label, part: i + 1, parts: parts.length, session }, signal)
       written += (r?.written || []).length
       refused.push(...(r?.refused || []))
     } catch (e) { throw Object.assign(signal?.aborted ? abortError() : e, { written, refused }) }
     onProgress?.(parts.slice(0, i + 1).reduce((a, b) => a + b.length, 0), plan.up.length)
   }
+  // (stopped while the last request was on its way: everything went up — said as done)
   return { written, refused }
 }

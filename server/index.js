@@ -1355,6 +1355,9 @@ const server = app.listen(config.port, async () => {
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
   startStepRetry()
 })
+// how long one request may take to arrive whole (Node's own default is five minutes): an upload of 200 MB on a slow line takes longer.
+// A folder going up request by request gives up on its own when a body stops coming (lib/folders/batchBody.js, 30 s).
+server.requestTimeout = 15 * 60 * 1000
 
 // terminals in the agent workroom (websocket upgrade on /api/workroom/term)
 workroom.attachTerminal(server)

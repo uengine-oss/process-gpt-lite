@@ -2,7 +2,8 @@
 // arrives, every limit checked before more is read, so nothing is held that is not allowed.
 //   "PGLB1\n" · u32 meta length · meta (JSON: {count, label, part, parts, session}) · count × (u16 path length · path (UTF-8) · u32 size · bytes)
 // limits (secrets.js BATCH): count ≤ files, meta ≤ metaBytes, a path ≤ pathBytes, a file ≤ largeFileBytes, the files together ≤ bytes;
-// nothing after the last file. → {meta, items: [{path, buf}]} · throws an error with status 400 (not this shape) or 413 (over a limit)
+// nothing after the last file; no pause longer than limits.idleMs (30 s). → {meta, items: [{path, buf}]} · throws an error with status 400
+// (not this shape), 408 (it stopped coming) or 413 (over a limit)
 export const MAGIC = Buffer.from('PGLB1\n')
 
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code })
@@ -11,10 +12,15 @@ export async function readBatch(stream, limits) {
   const it = stream[Symbol.asyncIterator]()
   let left = Buffer.alloc(0) // what came in and is not read yet
   let ended = false
-  // the next chunk, or null at the end
+  // the next chunk, or null at the end; a body that stops coming for limits.idleMs is given up (408)
+  const idleMs = limits.idleMs || 30_000
   const pull = async () => {
     if (ended) return null
-    const r = await it.next()
+    let timer
+    const next = it.next()
+    next.catch(() => {}) // (a body given up: its stream's end is nobody's business)
+    const r = await Promise.race([next, new Promise((_, no) => { timer = setTimeout(() => no(fail(408, 'idle', 'the upload stopped coming')), idleMs) })])
+      .finally(() => clearTimeout(timer))
     if (r.done) { ended = true; return null }
     return Buffer.isBuffer(r.value) ? r.value : Buffer.from(r.value)
   }
