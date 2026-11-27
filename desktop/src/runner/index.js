@@ -29,7 +29,9 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
       // (0.2.3: browser tasks may run in this PC's browser — the server's 「브라우저 작업은 내 PC에서」 · 0.2.5: folders of this PC kept
       // as Lite folders — 「내 PC 폴더 올리기」 · 0.2.6: that browser keeps off the Lite app and marks its requests to it — the server
       // sends browser tasks only to a desktop that says so)
-      browser: !!browser, browserGuard: !!browser, folders: !!folderStore },
+      browser: !!browser, browserGuard: !!browser, folders: !!folderStore,
+      // (a folder's own run settings — hooks · permissions · MCP servers — left off for a person who may not edit it: runSettings.js)
+      leaveOffSettings: true },
     prefs: prefs(),
     active: runner.activeIds(),
   })

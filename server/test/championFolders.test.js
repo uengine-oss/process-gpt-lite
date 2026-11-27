@@ -65,7 +65,10 @@ test('CH-U-02 자산 자리: 플랫폼마다 정해진 자리의 파일만, 이�
   assert.equal(at('openspec/changes/add-x/proposal.md'), 'spec:change')
   assert.equal(at('openspec/changes/archive/2026-01-01-x/proposal.md'), null)
   assert.equal(at('specs/login/spec.md'), 'spec:spec')
-  for (const p of ['README.md', 'docs/skills/SKILL.md', '.claude/settings.local.json', 'src/agents.md', '.claude/skills/SKILL.md']) assert.equal(at(p), null, p)
+  for (const p of ['README.md', 'docs/skills/SKILL.md', '.claude/settings.local.json', 'src/agent.md', '.claude/skills/SKILL.md']) assert.equal(at(p), null, p)
+  // (names in any case: on macOS and Windows a CLI that opens AGENTS.md · .claude/agents finds agents.md · .Claude/Agents)
+  assert.equal(at('src/agents.md'), 'codex:instructions')
+  assert.equal(at('.Claude/Agents/reviewer.md'), 'claude:agent')
   const it = (p, text) => KIT.itemOf(KIT.placeOf(p), p, text)
   assert.equal(it('.claude/skills/견적-규칙/SKILL.md').name, '견적-규칙')
   // a command as Claude Code calls it (/opsx:apply)
@@ -160,6 +163,35 @@ test('CH-U-08 데이터 파일 두 개는 고쳐 쓸 수 있는 JSON 이고, 데
     if (theirs != null) assert.deepEqual(JSON.parse(theirs), JSON.parse(ours), `desktop/src/runner/${f}`)
   }
   for (const s of SEC.SHAPES.shapes) if (s.pattern) new RegExp(s.pattern) // every shape compiles in JavaScript
+})
+
+test('CH-U-20 자산의 「실행」 표시: 스킬 · 명령 · 에이전트의 머리말에 실행 키(훅 · 허용 도구 · 셸 · MCP · LSP 서버 · 권한 모드)가 있으면', () => {
+  const item = (p, text) => KIT.itemOf(KIT.placeOf(p), p, text)
+  assert.equal(item('.claude/skills/x/SKILL.md', '---\nname: x\ndescription: d\nhooks:\n  PreToolUse: []\n---\n본문\n').runs, true)
+  assert.equal(item('.claude/skills/x/SKILL.md', '---\nname: x\ndescription: d\n---\nhooks: 본문에만\n').runs, false)
+  assert.equal(item('.claude/commands/deploy.md', '---\ndescription: d\nallowed-tools: Bash(git push:*)\n---\n').runs, true)
+  assert.equal(item('.claude/agents/reviewer.md', '---\nname: r\ndescription: d\npermissionMode: bypassPermissions\n---\n').runs, true)
+  assert.equal(item('.claude/agents/reviewer.md', '---\n{name: r, mcpServers: [{probe: {command: sh}}]}\n---\n').runs, true, '흐름 표기도')
+  assert.equal(item('CLAUDE.md', '---\nhooks: {}\n---\n').runs, false, '지침 파일은 머리말을 보지 않음')
+  // names in any case (macOS and Windows: what the CLI finds as .claude/agents · .claude/skills · .claude/commands)
+  assert.equal(KIT.placeOf('.Claude/Agents/evil.md')?.type, 'agent')
+  assert.equal(item('.Claude/Agents/evil.md', '---\nname: e\nhooks: {}\n---\n').runs, true)
+  assert.equal(KIT.placeOf('.CLAUDE/skills/x/skill.md')?.type, 'skill')
+  assert.equal(item('.claude/COMMANDS/배포/올리기.md', '---\ndescription: d\nallowed-tools: Bash\n---\n').name, '배포:올리기')
+  assert.equal(item('.claude/COMMANDS/배포/올리기.md', '---\ndescription: d\nallowed-tools: Bash\n---\n').runs, true)
+  assert.equal(KIT.placeOf('docs/agents/x.md'), null)
+  assert.deepEqual(KIT.frontRuns('---\r\nshell: /bin/zsh\r\nlspServers: {}\r\n---\r\n'), ['shell', 'lspServers'])
+  // found as Claude Code finds it: an indented '...' (or one space, or in a folded value) does not end it; a '---' inside a line does
+  assert.deepEqual(KIT.frontRuns('---\nname: a\ndescription: b\n  ...\nhooks: {}\n---\n'), ['hooks'])
+  assert.deepEqual(KIT.frontRuns('---\nname: a\ndescription: >\n  b\n ...\nallowed-tools: Bash\n---\n'), ['allowed-tools'])
+  assert.deepEqual(KIT.frontRuns('---\nname: a---b\nhooks: {}\n---\n'), [])
+  // any spelling the CLI might take · a JSON-style key · an explicit key
+  assert.deepEqual(KIT.frontRuns('---\nHooks: {}\nallowed_tools: Bash\nPermission-Mode: plan\n---\n'), ['hooks', 'allowed-tools', 'permissionMode'])
+  assert.deepEqual(KIT.frontRuns('---\n{"name": "x", "mcpServers":{}}\n---\n'), ['mcpServers'])
+  assert.deepEqual(KIT.frontRuns('---\n? shell\n: /bin/zsh\n---\n'), ['shell'])
+  // only a file's head read: a front matter that does not end there counts
+  assert.deepEqual(KIT.frontRuns('---\nname: x\ndescription: 길다', { truncated: true }), KIT.PLACES.frontMatterRuns)
+  assert.deepEqual(KIT.PLACES.frontMatterRuns, ['hooks', 'allowed-tools', 'shell', 'mcpServers', 'lspServers', 'permissionMode'])
 })
 
 // ---------- with the database ----------
@@ -619,3 +651,45 @@ test('CH-U-18 다른 토큰에는 동기화 가지가 보이지 않고 닿지 �
 })
 const L_TOKEN = (u) => mintToken({ tenant: TENANT, folderId: u.f.id, push: SRC.prefixOf(u.d.id), scope: 'sync', device: u.d.id, hours: 1 })
 
+
+test('CH-U-19a git 의 확인 요청: 빈 flush 하나만 — 그 밖의 몸통은 아니다', async () => {
+  const H = await import('../lib/folders/gitHttp.js')
+  assert.equal(H.isProbe(Buffer.from('0000')), true)
+  assert.equal(H.isProbe(Buffer.from('00000000')), false)
+  assert.equal(H.isProbe(Buffer.from('0004')), false)
+  assert.equal(H.isProbe(Buffer.from('')), false)
+  assert.equal(H.isProbe('0000'), false, '버퍼만')
+})
+
+test('CH-U-19 1 MB 넘는 올리기: git 이 먼저 보내는 확인 요청(빈 flush 하나)은 밀어 넣을 수 있는 토큰에만 통과시키고, 이어지는 실제 올리기가 들어간다', { skip: !db && 'no database' }, async () => {
+  const H = await import('../lib/folders/gitHttp.js')
+  const u = await uploaded('큰 자산')
+  const express = (await import('express')).default
+  const app = express()
+  app.use('/api/local-git', H.gitRoutes({ device: true, check: (cl, o) => D.gitAccess(cl, o), after: SRC.afterPush }))
+  app.use('/api/git', H.gitRoutes())
+  const server = await new Promise((r) => { const sv = app.listen(0, '127.0.0.1', () => r(sv)) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const url = `${base}/api/local-git/${u.f.id}.git`
+  try {
+    // the probe on its own: OK for a token that may push, refused for one that only reads
+    const probe = (token) => fetch(`${base}/api/git/${u.f.id}.git/git-receive-pack`, { method: 'POST', body: '0000',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-git-receive-pack-request' } }).then((r) => r.status)
+    assert.equal(await probe(mintToken({ tenant: TENANT, folderId: u.f.id })), 200)
+    assert.equal(await probe(mintToken({ tenant: TENANT, folderId: u.f.id, push: '' })), 403, 'a read-only token (the skills a desktop job gets)')
+    // the desktop's snapshot with a skill's picture (1.5 MB — over git's http.postBuffer, pinned to its 1 MB default, so git probes first)
+    const dir = await fs.mkdtemp(path.join(ROOT, 'big-'))
+    await gitc(dir, ['init', '-q', '-b', 'work'])
+    await gitc(dir, ['fetch', '-q', u.f.repo_path, `+refs/heads/*:refs/remotes/origin/*`])
+    await gitc(dir, ['reset', '-q', '--hard', `origin/${u.branch}`])
+    await fs.mkdir(path.join(dir, '.claude/skills/x/assets'), { recursive: true })
+    await fs.writeFile(path.join(dir, '.claude/skills/x/assets/cover.png'), crypto.randomBytes(1536 * 1024))
+    await gitc(dir, ['add', '-A'])
+    await gitc(dir, ['commit', '-q', '-m', '동기화 · 맥북 큰 그림'])
+    const head = await gitc(dir, ['rev-parse', 'HEAD'])
+    const pushed = await new Promise((resolve) => execFile('git', ['-c', 'credential.helper=', '-c', 'http.postBuffer=1048576', '-c', `http.extraHeader=Authorization: Bearer ${L_TOKEN(u)}`, 'push', url, `HEAD:refs/heads/${u.branch}`],
+      { cwd: dir, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (e, out, errOut) => resolve({ code: e ? 1 : 0, err: String(errOut) })))
+    assert.equal(pushed.code, 0, pushed.err)
+    assert.equal(await G.head(u.f.repo_path, `refs/heads/${u.branch}`), head)
+  } finally { server.close() }
+})

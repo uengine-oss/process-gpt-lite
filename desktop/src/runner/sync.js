@@ -26,6 +26,7 @@ const { EventEmitter } = require('node:events')
 const G = require('./git')
 const SHAPES = require('./secret-shapes.json')
 const PLACES = require('./kit-places.json')
+const RS = require('./runSettings')
 
 const GROUPS = ['gitignore', 'secret', 'personal', 'rebuildable', 'large', 'structure']
 const LOCAL_MS = 120_000
@@ -179,9 +180,16 @@ function assignmentHit(line, s) {
   const m = ASSIGN.exec(line)
   if (!m) return false
   let v = m[1].trim()
+  // (a string literal with a prefix — Python's b'…' · r'…' · f'…' — is a quoted value too)
+  const pre = /^[bBrRuUfF]{1,2}(?=['"])/.exec(v)
+  if (pre) v = v.slice(pre[0].length)
   const q = v[0]
   if ((q === '"' || q === "'") && v.lastIndexOf(q) > 0) v = v.slice(1, v.lastIndexOf(q))
-  else { const hash = v.indexOf(' #'); if (hash >= 0) v = v.slice(0, hash).trim() }
+  else {
+    const hash = v.indexOf(' #'); if (hash >= 0) v = v.slice(0, hash).trim()
+    // (a line of code — a call or an index: `mar = OxmlElement('w:tcMar')` in a script — is not a value)
+    if (/^[A-Za-z_][\w.]*\s*[([]/.test(v)) return false
+  }
   if (v.length < (s.minLength || 20) || /\s/.test(v)) return false
   if ('/.~$%<{'.includes(v[0]) || v.includes('://') || v.includes('${')) return false
   const classes = [/[a-z]/, /[A-Z]/, /[0-9]/].filter((r) => r.test(v)).length
@@ -203,7 +211,8 @@ function shapeHits(rules, text) {
 const looksBinary = (buf) => buf.subarray(0, 8000).includes(0)
 
 // ---------- agent assets (kit-places.json) ----------
-// glob: '/'-separated, '*' inside one name, '**' any number of folders
+// glob: '/'-separated, '*' inside one name, '**' any number of folders; a path's names in any case, without the dots and spaces Windows
+// drops from a name's end (macOS and Windows: `.Claude/Skills` is .claude/skills — runSettings.js fold, the server's kit.js matchGlob)
 function segMatch(pat, s) {
   if (!pat.includes('*')) return pat === s
   const parts = pat.split('*')
@@ -214,8 +223,8 @@ function segMatch(pat, s) {
   return s.length - last.length >= at && s.endsWith(last)
 }
 function globMatch(glob, rel) {
-  const g = String(glob).split('/')
-  const p = String(rel).split('/')
+  const g = String(glob).toLowerCase().split('/')
+  const p = String(rel).split('/').map((n) => n.toLowerCase().replace(/[. ]+$/, ''))
   const m = (gi, pi) => {
     if (gi === g.length) return pi === p.length
     if (g[gi] === '**') { for (let k = pi; k <= p.length; k++) if (m(gi + 1, k)) return true; return false }
@@ -248,7 +257,7 @@ function kitName(place, rel) {
   const segs = rel.split('/')
   if (place.name === 'dir') return segs[segs.length - 2] || segs[segs.length - 1]
   if (place.name === 'command') {
-    const under = place.base && rel.startsWith(`${place.base}/`) ? rel.slice(place.base.length + 1) : segs[segs.length - 1]
+    const under = place.base && rel.toLowerCase().startsWith(`${place.base.toLowerCase()}/`) ? rel.slice(place.base.length + 1) : segs[segs.length - 1]
     return under.replace(/\.[^./]+$/, '').split('/').join(':')
   }
   return segs[segs.length - 1]
@@ -256,6 +265,18 @@ function kitName(place, rel) {
 // a JSON settings file runs something only when one of runsKeys (dotted) is there and not empty (kit-places.json); unreadable: as the place says
 const filled = (v) => v != null && v !== '' && v !== false && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)
 async function runsOf(root, rel, place) {
+  // (a skill · command · agent whose front matter names a key that runs things — runSettings.js frontRuns, the server's badge too)
+  // (its head, as the run reads it: a front matter that does not end there counts)
+  if (place.frontRuns) {
+    let fh
+    try {
+      fh = await fsp.open(path.join(root, ...rel.split('/')), 'r')
+      const { size } = await fh.stat()
+      const buf = Buffer.alloc(Math.min(size, RS.HEAD_MAX))
+      const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
+      if (RS.frontRuns(buf.subarray(0, bytesRead).toString('utf8'), { truncated: size > bytesRead }).length) return true
+    } catch { /* unreadable: as the place says */ } finally { await fh?.close().catch(() => {}) }
+  }
   if (!place.runs || !Array.isArray(place.runsKeys)) return !!place.runs
   try {
     const st = await fsp.stat(path.join(root, ...rel.split('/')))

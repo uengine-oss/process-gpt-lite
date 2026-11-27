@@ -136,8 +136,12 @@ export async function personalFolder(user) {
   }
   return making.get(k)
 }
-// where a chat's runs work: {folder, mode: 'project' | 'personal', line (the branch its runs start from and come back to), variation}
+// where a chat's runs work: {folder, mode: 'project' | 'personal', line (the branch its runs start from and come back to), variation,
+// template (a project started from a template: {name, outputs} — its runs work in the person's own workspace)}
 // A project folder needs edit rights (a viewer or a runner of it is refused — 403); a linked folder is not served over git (409).
+// A project started from a template works in its person's own workspace (folders/templates.js): the right that started it — runner, the
+// same a server agent's turn there needs — is enough (it is never merged into the template; its files reach the template only by
+// 「원본에 반영 요청」, which its owner reviews).
 export async function folderFor(user, thread) {
   const S = await import('../folders/service.js')
   if (thread.kind === 'project') {
@@ -147,14 +151,22 @@ export async function folderFor(user, thread) {
       const folder = await S.folderById(link.folder_id)
       if (!folder) throw err(404, L('이 프로젝트의 폴더를 찾지 못했어요.', "I couldn't find this project's folder."))
       if (folder.kind === 'linked') throw err(409, L('연결형 폴더에서 일하는 프로젝트는 내 PC 에이전트로 보낼 수 없어요 — 기본으로 보내 주세요.', 'A project in a linked folder cannot go to an agent on your PC — send it to Default.'))
+      const TPL = await import('../folders/templates.js')
+      const cur = link.variation_id ? await S.variationById(link.variation_id) : null
+      // (the same choice ensureProjectVariation makes: the project's workspace, or a new one from the template's main)
+      const workspace = TPL.isWorkspace(cur) ? TPL.mayView(cur, user) : !cur && TPL.isTemplate(folder)
       const role = await S.roleOf(folder, user)
-      if (!role || S.RANK[role] < S.RANK.editor) throw err(403, L(`이 프로젝트의 폴더 「${folder.name}」를 고칠 수 있는 사람(편집자 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may edit this project's folder "${folder.name}" (editor or above) can send to an agent on their PC.`))
+      if (workspace) {
+        if (!role || S.RANK[role] < S.RANK.runner) throw err(403, L(`이 프로젝트의 템플릿 ${eulReul(`「${folder.name}」`)} 쓸 수 있는 사람(실행 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may use this project's template "${folder.name}" (runner or above) can send to an agent on their PC.`))
+      } else if (!role || S.RANK[role] < S.RANK.editor) throw err(403, L(`이 프로젝트의 폴더 「${folder.name}」를 고칠 수 있는 사람(편집자 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may edit this project's folder "${folder.name}" (editor or above) can send to an agent on their PC.`))
       const { v } = await TF.ensureProjectVariation(user, thread, link)
-      return { folder, mode: 'project', line: v.branch, variation: v.id }
+      const tpl = TPL.isWorkspace(v) ? { name: v.source.template.name || folder.name, outputs: TPL.outputsOf(v.source.template.outputs) } : null
+      // (below editor: the run leaves the folder's own run settings off — prepare; only a desktop that can goes — jobs.js freeLinks)
+      return { folder, mode: 'project', line: v.branch, variation: v.id, template: tpl, projectSettings: S.RANK[role] >= S.RANK.editor }
     }
   }
   const folder = await personalFolder(user)
-  return { folder, mode: 'personal', line: folder.default_branch, variation: null }
+  return { folder, mode: 'personal', line: folder.default_branch, variation: null, projectSettings: true }
 }
 
 // ---------- sending ----------
@@ -187,13 +199,17 @@ async function recapOf(thread, conv, beforeId) {
   }
   return out.length ? `${L(`[이 대화의 앞부분 — 최근 ${out.length}개]`, `[Earlier in this chat — the last ${out.length}]`)}\n${out.join('\n')}\n\n` : ''
 }
-async function promptFor({ person, folder, mode, recap, message }) {
+// (template: a project started from a template — its own workspace, told as the server agent's turns there are: threadFolders.workspaceNote)
+async function promptFor({ person, folder, mode, recap, message, template = null }) {
   let tpl = ''
   try { tpl = await (await import('../ontology/discovery.js')).prompt('local-chat') } catch { /* the bundled skill has it */ }
   const fill = (s, v) => String(s || '').replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '')
+  const where = template
+    ? L(` — 템플릿 「${template.name}」에서 시작한 이 프로젝트 전용 작업 공간이에요(여기서 바꾼 것은 이 프로젝트에만 남고 템플릿 원본은 바뀌지 않아요). 결과물은 '${template.outputs}/' 아래에 새 파일로 두고, 템플릿의 안내(TEMPLATE.md) · 양식 · 스킬(.claude/skills)을 따라 일하세요. 템플릿 파일 자체(양식 · 스킬)를 고쳐야 하면 작업 공간의 그 파일을 고치고, ${person.name || '사용자'} 님이 프로젝트 위의 「원본에 반영 요청」으로 그 파일만 보낼 수 있다고 알려 주세요`,
+      ` — this project's own workspace, started from the template "${template.name}" (what changes here stays in this project; the template's original does not change). Put outputs as new files under '${template.outputs}/' and follow the template's notes (TEMPLATE.md), forms and skills (.claude/skills). If a template file itself (a form, a skill) needs fixing, fix it in the workspace and tell ${person.name || 'the user'} they can send just that file with 「원본에 반영 요청」 above the project`)
+    : mode === 'project' ? L(' — 이 프로젝트의 변형이에요(원본은 사람이 「반영」으로 바꿔요)', " — this project's variation (a person merges it into the original)") : ''
   const text = fill(tpl || '{recap}[{person} 님의 메시지]\n{message}', {
-    recap, folder: folder.name, person: person.name || L('사용자', 'the user'), message,
-    where: mode === 'project' ? L(' — 이 프로젝트의 변형이에요(원본은 사람이 「반영」으로 바꿔요)', " — this project's variation (a person merges it into the original)") : '',
+    recap, folder: folder.name, person: person.name || L('사용자', 'the user'), message, where,
   })
   return `${text.trim()}${langInstruction()}`
 }
@@ -247,11 +263,12 @@ export async function send({ user, thread, text, agent, conversation = null, fil
   const person = await personOf(user.id)
   const lang = await langOf(user.id).catch(() => 'ko')
   const recap = await recapOf(thread, conv, msg.id)
-  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap, message: words }))
+  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap, message: words, template: where.template }))
   const resumeOf = await lastSession(user, thread.id, key, agent)
   const title = (conv && convTitle) || thread.title || L('채팅', 'Chat')
   const chat = { key, threadId: String(thread.id), conv, convTitle, title, mode: where.mode, folderId: where.folder.id, folderName: where.folder.name, folderSlug: where.folder.slug,
-    line: where.line, variation: where.variation, message: words, messages: [said], replies: [], carded: [], ...(resumeOf ? { resumeOf } : {}) }
+    line: where.line, variation: where.variation, message: words, messages: [said], replies: [], carded: [], ...(resumeOf ? { resumeOf } : {}),
+    ...(where.projectSettings === false ? { leaveOff: true } : {}) }
   let j
   try {
     ;[j] = await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, kind, thread_id, activity_name, agent, mode, offline, server_agent, person_name, chat, prompt, folder_id, line)
@@ -270,6 +287,57 @@ export async function send({ user, thread, text, agent, conversation = null, fil
 }
 
 // ---------- what the desktop gets ----------
+// a folder's files that make a CLI run things on the PC by themselves (hooks · permissions · MCP servers · helpers): left off for a person
+// who may not edit the folder (the desktop's runSettings.js — the same list)
+export const RUN_SETTINGS = ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json', '.codex/config.toml']
+// a desktop too old to leave them off (no leaveOffSettings in its caps) does not get such a run
+export const OUTDATED = () => L('이 PC 앱은 템플릿의 실행 설정을 끄고 실행할 수 없어요 — PC 앱을 새 버전으로 올려 주세요.', "This desktop app can't leave a template's run settings off — please update the desktop app.")
+// said once in the chat (the first run that left them off)
+// a path's names as a file system that ignores case (macOS, Windows) takes them — `.Claude/Agents/x.md` is where the CLI finds
+// .claude/agents: case folded, the dots and spaces Windows drops from a name's end dropped (the desktop's runSettings.js fold)
+const fold = (rel) => String(rel).split('/').map((n) => n.toLowerCase().replace(/[. ]+$/, ''))
+// a file the CLI reads front matter from — any SKILL.md, a .md under a .claude/agents or .claude/commands folder, nested too, names in any
+// case (the desktop's runSettings.js isFrontFile)
+export function isFrontFile(rel) {
+  const segs = fold(rel)
+  const base = segs[segs.length - 1] || ''
+  if (base === 'skill.md') return true
+  if (!base.endsWith('.md')) return false
+  for (let i = 0; i < segs.length - 2; i++) if (segs[i] === '.claude' && (segs[i + 1] === 'agents' || segs[i + 1] === 'commands')) return true
+  return false
+}
+// what of the folder's line at `ref` the run leaves off: its settings files, and the skills · commands · agents whose front matter names
+// run keys (lib/folders/kit.js frontRuns — read as the badge reads it)
+async function runSettingsAt(folder, ref) {
+  const G = await import('../folders/git.js')
+  const { frontRuns } = await import('../folders/kit.js')
+  const tree = await G.lsTree(folder.repo_path, ref)
+  const files = tree.map((f) => f.path).filter((p) => RUN_SETTINGS.includes(fold(p).join('/')))
+  const front = []
+  // (a file's head, as the desktop reads it — HEAD_MAX there; one too long to read here counts)
+  for (const f of tree.filter((x) => isFrontFile(x.path)).slice(0, 500)) {
+    if (Number(f.size) > 8 * 1024 * 1024) { front.push(f.path); continue }
+    const buf = await G.git(folder.repo_path, ['cat-file', 'blob', f.sha], { buffer: true }).catch(() => null)
+    const head = buf?.subarray(0, 1024 * 1024)
+    if (head && frontRuns(head.toString('utf8'), { truncated: buf.length > head.length }).length) front.push(f.path)
+  }
+  return { files, front }
+}
+async function settingsNote(job, folder, { files, front }) {
+  const [seen] = await q(`select 1 from pro_messages where thread_id=$1 and content->>'settingsOff' = 'true' limit 1`, [job.thread_id])
+  if (seen) return
+  const c = job.chat || {}
+  await withLang(await langOf(String(job.user_id)).catch(() => 'ko'), () => {
+    const what = [...(files.length ? [files.join(', ')] : []),
+      ...(front.length ? [L(`스킬 · 명령 · 에이전트 ${front.length}개의 머리말(훅 · 허용 도구 등)`, `the front matter of ${front.length} skill(s), command(s) or agent(s) (hooks, allowed tools, …)`)] : [])]
+    return addMessage(String(job.user_id), job.thread_id, 'agent', 'text', {
+      text: L(SETTINGS_OFF_KO, SETTINGS_OFF_EN).replace('{folder}', folder.name).replace('{what}', what.join(' · ')),
+      note: true, settingsOff: true, settingsOffFiles: [...files, ...front], ...(c.conv ? { conv: c.conv } : {}),
+    })
+  })
+}
+const SETTINGS_OFF_KO = '이번 실행에서는 템플릿 「{folder}」의 실행 설정({what})을 켜지 않았어요. 실행 설정은 템플릿을 고칠 수 있는 사람(편집자 이상)의 PC에서만 켜져요. 스킬의 내용과 CLAUDE.md는 그대로 사용하지만, 도구를 쓸 때 PC가 허용 여부를 물어볼 수 있어요.'
+const SETTINGS_OFF_EN = 'This run left the run settings of the template "{folder}" ({what}) off. Run settings turn on only on the PCs of people who can edit the template (editors and above). The skills\' content and CLAUDE.md are used as usual, but your PC may ask before a tool is used.'
 const gitPublic = () => String(process.env.PRO_GIT_PUBLIC_URL || '').trim().replace(/\/+$/, '')
 export async function prepare(job, link = null) {
   const c = job.chat || {}
@@ -303,6 +371,17 @@ export async function prepare(job, link = null) {
     }
   }
   const base = await G.branchExists(folder.repo_path, line) ? line : folder.default_branch
+  // The folder's own run settings (Claude Code's project hooks · permissions · MCP servers · status line · helpers, Codex's project config)
+  // run on the PC only for someone who may edit the folder — who could put them there anyway. A template's runner works in their own
+  // workspace (folderFor): the desktop leaves those files off for the run (job.projectSettings false — skills and CLAUDE.md stay), says so
+  // once in the chat, and never sends them back changed. A desktop too old to leave them off does not get the run.
+  const role = await S.roleOf(folder, { id: String(job.user_id) }).catch(() => null)
+  const projectSettings = c.mode !== 'project' || (!!role && S.RANK[role] >= S.RANK.editor)
+  if (!projectSettings) {
+    if (link && !link.caps?.leaveOffSettings) throw new Error(OUTDATED())
+    const off = await runSettingsAt(folder, base).catch((e) => { console.warn('[local-agents] chat run settings', e.message); return { files: [], front: [] } })
+    if (off.files.length || off.front.length) await settingsNote(job, folder, off).catch((e) => console.warn('[local-agents] chat settings note', e.message))
+  }
   const person = await personOf(job.user_id)
   const lang = await langOf(job.user_id).catch(() => 'ko')
   // this run's own session when it was running before (its desktop app restarted), else the chat's last session — the desktop resumes it
@@ -314,7 +393,7 @@ export async function prepare(job, link = null) {
   const branch = runBranchFor(job, own ? job.run_branch : null)
   return {
     kind: KIND, todoId: String(job.todo_id), instId: null, instName: c.title || '', activity: c.title || L('채팅', 'Chat'), agent: job.agent, label: A.LABEL[job.agent] || job.agent,
-    mode: 'complete', prompt: job.prompt, message: c.message || '', person, lang, skills: [],
+    mode: 'complete', prompt: job.prompt, message: c.message || '', person, lang, skills: [], projectSettings,
     chat: { key: c.key, threadId: String(job.thread_id), title: c.title || '' },
     git: {
       path: `/api/local-git/${folder.id}.git`, url: gitPublic() ? `${gitPublic()}/api/local-git/${folder.id}.git` : null,
@@ -493,8 +572,9 @@ async function carryOver(job) {
   if (!where) return
   const person = await personOf(job.user_id)
   const lang = await langOf(job.user_id).catch(() => 'ko')
-  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap: '', message: words }))
+  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap: '', message: words, template: where.template }))
   const chat = { ...c, message: words, messages: lost.map((s) => ({ text: s.text, at: s.at })), replies: [], carded: [], line: where.line, variation: where.variation, folderId: where.folder.id,
+    leaveOff: where.projectSettings === false || undefined,
     resumeOf: job.session_id || c.resumeOf || null }
   let [j] = await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, kind, thread_id, activity_name, agent, mode, offline, server_agent, person_name, chat, prompt, folder_id, line)
                      values ($1,$2,$3,'chat',$4,$5,$6,'complete','wait','onto',$7,$8,$9,$10,$11) returning *`,
@@ -552,10 +632,16 @@ export function cardOf(job, { worker = false } = {}) {
   }
 }
 // who may see a chat run: its sender; and, for a project's folder, its members (they watch — they never type)
+// (a project's workspace made from a template is its person's alone — folders/templates.js: nobody else sees its runs either)
 export async function canSee(user, job) {
   if (String(job.user_id) === String(user.id)) return true
   if (job.chat?.mode !== 'project' || !job.folder_id) return false
   const S = await import('../folders/service.js')
+  if (job.chat?.variation) {
+    const TPL = await import('../folders/templates.js')
+    const v = await S.variationById(job.chat.variation).catch(() => null)
+    if (!v || TPL.isWorkspace(v)) return false
+  }
   return !!(await S.roleOf(await S.folderById(job.folder_id), user).catch(() => null))
 }
 export async function cardFor(user, job) { return cardOf(job, { worker: String(job.user_id) === String(user.id) }) }
