@@ -198,4 +198,23 @@ test('템플릿을 고칠 수 없는 사람의 실행(projectSettings false): �
   for (const [k, v] of Object.entries(RUN)) assert.equal(fs.readFileSync(path.join(r.dirFor(e), k), 'utf8'), v, `editor: ${k}`)
   await r.handle({ type: 'finish', jobId: e.id })
   await waitFor(() => of(e.id, 'done')[0])
+  // the runner's next turn in that work folder, where something left a link under .claude to a folder elsewhere (the CLI's .claude/ is
+  // kept between turns): what it holds cannot be checked — the run is refused with the reason, the CLI never started
+  if (process.platform !== 'win32') {
+    const away = fs.mkdtempSync(path.join(ROOT, 'away-'))
+    fs.mkdirSync(path.join(away, '밖'), { recursive: true })
+    fs.writeFileSync(path.join(away, '밖', 'SKILL.md'), '---\nname: 밖\nhooks: {}\n---\n')
+    fs.symlinkSync(path.join(away, '밖'), path.join(dir, '.claude', 'skills', '밖'))
+    // (the server took the two runs: they leave this runner's list)
+    for (const x of [j, e]) await r.handle({ type: 'finished', jobId: x.id, state: 'done' })
+    const started = fakeLog().length
+    const k = chatJob('claude-code', 'WRITE 산출물/다시.md :: z', { projectSettings: false, chat: { key: `${THREAD}:tpl`, threadId: THREAD, title: '템플릿 프로젝트' } })
+    k.git = { ...k.git, line: 'tpl', base: 'tpl' }
+    r.handle({ type: 'job', job: k })
+    const failed = await waitFor(() => of(k.id, 'failed')[0] || of(k.id, 'reply')[0])
+    assert.equal(failed.type, 'failed', JSON.stringify(failed))
+    assert.match(failed.error, /실행 설정을 모두 찾아 끌 수 있는지 확인하지 못해 실행하지 않았어요 — \.claude\/skills\/밖이\(가\) 다른 폴더로 연결되어/)
+    assert.equal(fakeLog().length, started, 'the CLI did not start')
+    assert.equal(fs.readFileSync(path.join(away, '밖', 'SKILL.md'), 'utf8'), '---\nname: 밖\nhooks: {}\n---\n')
+  }
 })

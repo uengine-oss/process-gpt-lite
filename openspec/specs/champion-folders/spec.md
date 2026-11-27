@@ -102,6 +102,7 @@
 #### Scenario: F-CH-14 머리말에 실행 키가 있는 스킬 · 명령 · 에이전트는 「실행」으로 표시된다
 - **WHEN** 폴더에 머리말에 `hooks` 가 있는 스킬, `allowed-tools` 가 있는 명령, `permissionMode` 가 있는 에이전트, 본문에만 「hooks:」가 있는 스킬이 있다
 - **THEN** 앞의 셋은 미리 보기와 「에이전트 자산」 탭에서 실행되는 것으로 표시되고, 마지막 스킬은 아니다(`CH-U-20`, 데스크톱 `sync.test.js`)
+- **AND** 들여쓴 `...` 행 뒤에 있거나 `Allowed_Tools`처럼 다르게 표기된 실행 키도 실행되는 것으로 표시된다(`CH-U-20`)
 
 #### Scenario: F-CH-09 확인 창은 확인이 필요한 파일 중 제외하는 수와 함께 올리는 수를 말한다
 - **WHEN** 박챔피언이 확인이 필요한 파일 네 개 중 `config/settings.sh` 하나만 「그래도 올리기」로 고르고(나머지 셋은 시트가 「뺄 것」으로 전달함) 올리기를 누른다
@@ -229,7 +230,7 @@ main이 이동하면 폴더의 파일 목록과 에이전트 자산이 곧바로
 `GET /api/folders/:slug/kit`은 보기 이상의 권한이 있는 사람에게 `[{platform, type, path, name, description, runs}]`를 제공한다. 챔피언 폴더이거나 자산이 하나라도 있으면 폴더 화면에 「에이전트 자산」 탭(자산 수)이 생긴다. 탭에는 다음이 보인다.
 - 플랫폼별 묶음과 각 묶음 상단의 한 줄 안내(「이 폴더에서 일하면 Claude Code 가 저절로 읽어요」), 종류별 수
 - 항목별 종류 · 이름 · 설명 · 경로. 누르면 해당 파일이 폴더의 다른 파일처럼 열린다.
-- 실행되는 설정이 있으면 맨 위에 「이 폴더에는 실행되는 설정이 있어요: <파일> — …」. 설정 파일(`.claude/settings.json` 의 훅 · 허용 · MCP 등, `.mcp.json`, `.codex/config.toml`)뿐 아니라, 머리말에 실행 키(`hooks` · `allowed-tools` · `shell` · `mcpServers` · `lspServers` · `permissionMode` — `kit-places.json` `frontMatterRuns`)가 있는 Claude Code 스킬 · 명령 · 에이전트도 실행되는 것으로 표시한다(그 이름의 키가 머리말 어디에든 있으면 — 경고 표시라 넉넉히 읽는다).
+- 실행되는 설정이 있으면 맨 위에 「이 폴더에는 실행되는 설정이 있어요: <파일> — …」. 설정 파일(`.claude/settings.json` 의 훅 · 허용 · MCP 등, `.mcp.json`, `.codex/config.toml`)뿐 아니라, 머리말에 실행 키(`hooks` · `allowed-tools` · `shell` · `mcpServers` · `lspServers` · `permissionMode` — `kit-places.json` `frontMatterRuns`)가 있는 Claude Code 스킬 · 명령 · 에이전트도 실행되는 것으로 표시한다(머리말은 CLI와 같은 방식으로 찾는다. 경고 표시를 위한 판단이므로, 해당 키 이름이 머리말 어디에든 어떤 표기로든 있으면 실행되는 것으로 본다. 앞부분만 읽는 긴 파일에서 머리말의 끝을 확인할 수 없어도 실행되는 것으로 본다).
 
 탭은 밝은 테마와 어두운 테마 모두에서 읽을 수 있고, 390px 휴대폰에서 옆으로 넘치지 않으며, 묶음은 접을 수 있다.
 

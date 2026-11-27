@@ -55,12 +55,12 @@ const NO_GIT = process.platform === 'win32'
   : 'git is not installed on this computer — install it (macOS: xcode-select --install) and run the step again'
 
 // git in `dir`; a token (for `url` — the folder's address) never shows up in what is thrown
-function git(dir, args, { token = '', url = '', timeout = TIMEOUT, check = true } = {}) {
+function git(dir, args, { token = '', url = '', timeout = TIMEOUT, check = true, maxBuffer = 16 * 1024 * 1024 } = {}) {
   const env = {}
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_CONFIG_') && k !== 'GIT_DIR' && k !== 'GIT_WORK_TREE') env[k] = v
   Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C' }, authEnv(token, [['core.symlinks', 'false']], url))
   return new Promise((resolve, reject) => {
-    execFile(gitPath(), args, { cwd: dir, env, timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+    execFile(gitPath(), args, { cwd: dir, env, timeout, maxBuffer, windowsHide: true }, (err, stdout, stderr) => {
       if (err && err.code === 'ENOENT' && !fs.existsSync(dir)) return check ? reject(new GitError(`git ${args.slice(0, 2).join(' ')} failed: no folder ${dir}`)) : resolve('')
       if (err && err.code === 'ENOENT') return check ? reject(new GitError(NO_GIT)) : resolve('')
       if (err && check) {

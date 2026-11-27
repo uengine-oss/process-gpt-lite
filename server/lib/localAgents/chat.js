@@ -311,9 +311,12 @@ async function runSettingsAt(folder, ref) {
   const tree = await G.lsTree(folder.repo_path, ref)
   const files = tree.map((f) => f.path).filter((p) => RUN_SETTINGS.includes(p))
   const front = []
-  for (const f of tree.filter((x) => isFrontFile(x.path) && x.size <= 256 * 1024).slice(0, 500)) {
+  // (a file's head, as the desktop reads it — HEAD_MAX there; one too long to read here counts)
+  for (const f of tree.filter((x) => isFrontFile(x.path)).slice(0, 500)) {
+    if (Number(f.size) > 8 * 1024 * 1024) { front.push(f.path); continue }
     const buf = await G.git(folder.repo_path, ['cat-file', 'blob', f.sha], { buffer: true }).catch(() => null)
-    if (buf && frontRuns(buf.toString('utf8')).length) front.push(f.path)
+    const head = buf?.subarray(0, 1024 * 1024)
+    if (head && frontRuns(head.toString('utf8'), { truncated: buf.length > head.length }).length) front.push(f.path)
   }
   return { files, front }
 }

@@ -16,6 +16,9 @@ const PLATFORM_ORDER = new Map(Object.keys(PLACES.platforms || {}).map((p, i) =>
 const TYPE_ORDER = new Map(['skill', 'command', 'agent', 'prompt', 'rules', 'instructions', 'settings', 'mcp', 'spec', 'change'].map((t, i) => [t, i]))
 const READ_MAX = 256 * 1024
 const LIMIT = 500
+// blob ids of skills · commands · agents read for their run keys in this process (discover)
+const FRONT_READ = new Set()
+const FRONT_READ_MAX = 50_000
 
 // ---------- the path patterns (kit-places.json) ----------
 // '/'-separated; '**' = zero or more whole folders; in any other part '*' = any run of characters but '/' (a pattern starts at the
@@ -68,18 +71,26 @@ function hasKey(obj, dotted) {
   if (typeof v === 'object') return Object.keys(v).length > 0
   return true
 }
-// a skill · command · agent's front matter (YAML between the first two '---' lines): which of the keys that make it run things by itself
-// (kit-places.json frontMatterRuns — hooks, allowed-tools, …) it names. Read conservatively for a badge: a key of that name anywhere in the
-// front matter, at any depth or in a flow mapping, counts (the desktop, which leaves them off, reads the front matter as YAML —
-// desktop/src/runner/runSettings.js).
-export function frontRuns(text) {
-  const md = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
-  if (!md.startsWith('---\n')) return []
-  const end = md.slice(4).search(/^(---|\.\.\.)[ \t]*$/m)
-  const block = end < 0 ? md.slice(4) : md.slice(4, 4 + end)
-  const keys = new Set()
-  for (const m of block.matchAll(/(?:^|[\s{,])["']?([A-Za-z][\w-]*)["']?[ \t]*:(?=\s|$)/gm)) keys.add(m[1])
-  return (PLACES.frontMatterRuns || []).filter((k) => keys.has(k))
+// a skill · command · agent's front matter, found as Claude Code 2.1.332 finds it (as read from its binary — the desktop's
+// runSettings.js cliBlock): a BOM dropped; none unless another '---' comes after the first three characters; from a first line '---' to
+// the next '---' anywhere, even inside a line ('...' does not end it). Which of the keys that make it run things by itself (kit-places.json
+// frontMatterRuns — hooks, allowed-tools, …) it names. Read conservatively for a badge: a key of that name anywhere in the front matter,
+// at any depth, in a flow mapping or as an explicit key ('? hooks'), in any spelling the CLI might take for it (Hooks, allowed_tools,
+// allowedTools) counts (the desktop, which leaves them off, reads the front matter as YAML and fails closed on what this finds —
+// desktop/src/runner/runSettings.js). truncated: `text` is only the file's head — a front matter that opens there and does not end there
+// counts as naming them all.
+const CLI_FRONT = /^(---\s*\n)([\s\S]*?)(---\s*\n?)/
+const KEY = /(?:^|[\s{,[])["']?([A-Za-z][\w-]*)["']?[ \t]*:(?=[\s{}[\],"']|$)/gm
+const EXPLICIT = /^[ \t-]*\?[ \t]+["']?([A-Za-z][\w-]*)/gm
+const norm = (k) => String(k).toLowerCase().replace(/[-_]/g, '')
+export function frontRuns(text, { truncated = false } = {}) {
+  const src = String(text ?? '')
+  const t = src.charCodeAt(0) === 0xfeff ? src.slice(1) : src
+  const m = t.indexOf('---', 3) < 0 ? null : CLI_FRONT.exec(t)
+  if (!m) return truncated && /^---\s*\n/.test(t) ? [...(PLACES.frontMatterRuns || [])] : []
+  const seen = new Set()
+  for (const re of [KEY, EXPLICIT]) for (const k of m[2].matchAll(re)) seen.add(norm(k[1]))
+  return (PLACES.frontMatterRuns || []).filter((k) => seen.has(norm(k)))
 }
 // runs: the place says so; for a JSON settings file with runsKeys, only when one of those keys is there and not empty; for a skill ·
 // command · agent (frontRuns), when its front matter names a key that runs things
@@ -129,14 +140,18 @@ export async function discover(folder, files = null) {
   for (const { f, place } of found) {
     keep.add(f.path)
     const was = old.get(f.path)
-    // (a skill · command · agent kept as not running is read again: rows from before its front matter was read for run keys — frontRuns)
-    if (was && was.sha === f.sha && was.platform === place.platform && was.type === place.type && (!place.frontRuns || was.runs)) { out.push({ ...was, path: f.path }); continue }
+    // (a skill · command · agent kept as not running is read again once in this process — rows from before its front matter was read
+    // for run keys as frontRuns reads them now; FRONT_READ: the blobs read so)
+    if (was && was.sha === f.sha && was.platform === place.platform && was.type === place.type && (!place.frontRuns || was.runs || FRONT_READ.has(f.sha))) { out.push({ ...was, path: f.path }); continue }
     let text = null
     if ((place.frontMatter || place.runsKeys || ['instructions', 'rules', 'spec', 'change', 'prompt', 'command', 'agent'].includes(place.type)) && Number(f.size) <= READ_MAX) {
       const buf = await G.git(folder.repo_path, ['cat-file', 'blob', f.sha], { buffer: true }).catch(() => null)
       if (buf && isText(buf)) text = buf.toString('utf8')
     }
     const item = itemOf(place, f.path, text)
+    // (too long to read for a badge: a skill · command · agent counts as running — the desktop reads its head when it runs)
+    if (place.frontRuns && text == null && Number(f.size) > READ_MAX) item.runs = true
+    if (place.frontRuns) { if (FRONT_READ.size >= FRONT_READ_MAX) FRONT_READ.clear(); FRONT_READ.add(f.sha) }
     await q(`insert into pro_folder_kit (folder_id, path, platform, type, name, description, sha, runs, updated_at) values ($1,$2,$3,$4,$5,$6,$7,$8,now())
              on conflict (folder_id, path) do update set platform=$3, type=$4, name=$5, description=$6, sha=$7, runs=$8, updated_at=now()`,
     [folder.id, f.path, item.platform, item.type, item.name, item.description, f.sha, item.runs])

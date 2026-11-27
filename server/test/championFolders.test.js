@@ -171,6 +171,16 @@ test('CH-U-20 자산의 「실행」 표시: 스킬 · 명령 · 에이전트의
   assert.equal(item('.claude/agents/reviewer.md', '---\n{name: r, mcpServers: [{probe: {command: sh}}]}\n---\n').runs, true, '흐름 표기도')
   assert.equal(item('CLAUDE.md', '---\nhooks: {}\n---\n').runs, false, '지침 파일은 머리말을 보지 않음')
   assert.deepEqual(KIT.frontRuns('---\r\nshell: /bin/zsh\r\nlspServers: {}\r\n---\r\n'), ['shell', 'lspServers'])
+  // found as Claude Code finds it: an indented '...' (or one space, or in a folded value) does not end it; a '---' inside a line does
+  assert.deepEqual(KIT.frontRuns('---\nname: a\ndescription: b\n  ...\nhooks: {}\n---\n'), ['hooks'])
+  assert.deepEqual(KIT.frontRuns('---\nname: a\ndescription: >\n  b\n ...\nallowed-tools: Bash\n---\n'), ['allowed-tools'])
+  assert.deepEqual(KIT.frontRuns('---\nname: a---b\nhooks: {}\n---\n'), [])
+  // any spelling the CLI might take · a JSON-style key · an explicit key
+  assert.deepEqual(KIT.frontRuns('---\nHooks: {}\nallowed_tools: Bash\nPermission-Mode: plan\n---\n'), ['hooks', 'allowed-tools', 'permissionMode'])
+  assert.deepEqual(KIT.frontRuns('---\n{"name": "x", "mcpServers":{}}\n---\n'), ['mcpServers'])
+  assert.deepEqual(KIT.frontRuns('---\n? shell\n: /bin/zsh\n---\n'), ['shell'])
+  // only a file's head read: a front matter that does not end there counts
+  assert.deepEqual(KIT.frontRuns('---\nname: x\ndescription: 길다', { truncated: true }), KIT.PLACES.frontMatterRuns)
   assert.deepEqual(KIT.PLACES.frontMatterRuns, ['hooks', 'allowed-tools', 'shell', 'mcpServers', 'lspServers', 'permissionMode'])
 })
 

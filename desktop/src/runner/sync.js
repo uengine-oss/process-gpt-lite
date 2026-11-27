@@ -265,11 +265,16 @@ function kitName(place, rel) {
 const filled = (v) => v != null && v !== '' && v !== false && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)
 async function runsOf(root, rel, place) {
   // (a skill · command · agent whose front matter names a key that runs things — runSettings.js frontRuns, the server's badge too)
+  // (its head, as the run reads it: a front matter that does not end there counts)
   if (place.frontRuns) {
+    let fh
     try {
-      const f = path.join(root, ...rel.split('/'))
-      if ((await fsp.stat(f)).size <= 262144 && RS.frontRuns(await fsp.readFile(f, 'utf8')).length) return true
-    } catch { /* unreadable: as the place says */ }
+      fh = await fsp.open(path.join(root, ...rel.split('/')), 'r')
+      const { size } = await fh.stat()
+      const buf = Buffer.alloc(Math.min(size, RS.HEAD_MAX))
+      const { bytesRead } = await fh.read(buf, 0, buf.length, 0)
+      if (RS.frontRuns(buf.subarray(0, bytesRead).toString('utf8'), { truncated: size > bytesRead }).length) return true
+    } catch { /* unreadable: as the place says */ } finally { await fh?.close().catch(() => {}) }
   }
   if (!place.runs || !Array.isArray(place.runsKeys)) return !!place.runs
   try {

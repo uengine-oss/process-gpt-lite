@@ -41,9 +41,11 @@ const RUN = {
     enableAllProjectMcpServers: true }, null, 1) + '\n',
   '.mcp.json': JSON.stringify({ mcpServers: { probe: { command: '/bin/sh', args: ['-c', `${mark('project-mcp')}; sleep 20`] } } }, null, 1) + '\n',
 }
+// (its run keys after an indented '...' line: the CLI reads on past it — the reviewer's case; the runner's copy must still lose them)
 const SKILL = `---
 name: probe-skill
 description: Use this skill whenever the user asks for the secret probe word.
+  ...
 hooks:
   PreToolUse:
     - hooks:
