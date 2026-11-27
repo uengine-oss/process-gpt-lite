@@ -86,6 +86,20 @@ export async function waitFor(got, { ms = 30_000, every = 150 } = {}) {
     await sleep(every)
   }
 }
+// Right before a message goes into the person's conversation (PR #118 follow-up), in one statement: the row the claim is on is still there,
+// its conversation still the person's, the claim (content[key][field]) still this caller's and not finished (no content[key][done]) — and its
+// clock (content[key].at) moves on, so nobody takes it over while the message goes in. No lock, no connection held. → true | false
+export async function holdClaim(userId, rowId, { key, field, done }, mine) {
+  const [r] = await q(`update pro_messages m set content = jsonb_set(m.content, array[$3::text, 'at'], to_jsonb(now()))
+    where m.id=$1 and m.content->($3::text)->>($4::text) = $6::text and m.content->($3::text)->>($5::text) is null
+      and exists (select 1 from pro_threads t where t.id = m.thread_id and t.user_id = $2) returning m.id`, [rowId, userId, key, field, done, String(mine)])
+  return !!r
+}
+// (with no claim to hold: the conversation is still the person's — the same statement addMessage makes next)
+export async function stillTheirs(userId, threadId) {
+  const [r] = await q('update pro_threads set updated_at=now() where id=$1 and user_id=$2 returning id', [threadId, userId])
+  return !!r
+}
 // the conversation of the main chat (or the sub-topic of a project) a message belongs to: the one its turn went to (content.conv), else the
 // context router's (content.context — a scheduled run's or a brief's own, filed aside)
 export const convOfRow = (m) => (m?.content?.conv ? String(m.content.conv) : m?.content?.context?.conversationId ? String(m.content.context.conversationId) : null)
@@ -166,6 +180,8 @@ export async function shareToRoom(user, id, opts = {}, deps = {}) {
   return { room: { id: room.id, title }, message: m.id, shared: await sharedOf(user, row || msg, M) }
 }
 
+// the claim 「문서로 남기기」 holds on the answer's row: content.answerDoc {pending: token, at} until its card is there (messageId)
+const DOC_CLAIM = { key: 'answerDoc', field: 'pending', done: 'messageId' }
 // POST /messages/:id/share/doc → {message (the file card), existing}
 // publish: the bytes into storage → {name, url} (lib/office.js publishBuffer; a test passes its own)
 export async function saveDoc(user, id, deps = {}) {
@@ -190,23 +206,32 @@ export async function saveDoc(user, id, deps = {}) {
       if (got && got !== 'free') return { message: got, existing: true }
       continue
     }
+    const release = () => q(`update pro_messages set content = content - 'answerDoc' where id=$1 and content->'answerDoc'->>'pending' = $2`, [msg.id, mine]).catch(() => {})
+    let card = null
     try {
       // (the upload runs with no connection held — outside any transaction)
       const publish = deps.publish || (await import('./office.js')).publishBuffer
       const name = docName(msg)
       const pub = await publish(user.id, name, Buffer.from(docBody(msg), 'utf8'))
-      // (the card goes where the answer is: its conversation of the main chat too — aside, so it never moves the one the chat is in)
-      const conv = convOfRow(msg)
-      const card = await addMessage(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
-        ...(conv ? { context: { conversationId: conv, action: 'aside' } } : {}) })
-      const [row] = await q(`update pro_messages set content = jsonb_set(content, '{answerDoc}', $3::jsonb) where id=$1 and content->'answerDoc'->>'pending' = $2 returning *`,
-        [msg.id, mine, JSON.stringify({ messageId: card.id, name: card.content.name, at: new Date().toISOString() })])
-      if (row) emit(user.id, 'message', row)
-      return { message: card, existing: false }
+      // (right before the card goes in: the answer's conversation still mine, the claim still this caller's — PR #118 follow-up)
+      if (await holdClaim(user.id, msg.id, DOC_CLAIM, mine)) {
+        // (the card goes where the answer is: its conversation of the main chat too — aside, so it never moves the one the chat is in)
+        const conv = convOfRow(msg)
+        card = await addMessage(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
+          ...(conv ? { context: { conversationId: conv, action: 'aside' } } : {}) })
+        const [row] = await q(`update pro_messages set content = jsonb_set(content, '{answerDoc}', $3::jsonb) where id=$1 and content->'answerDoc'->>'pending' = $2 returning *`,
+          [msg.id, mine, JSON.stringify({ messageId: card.id, name: card.content.name, at: new Date().toISOString() })])
+        if (row) emit(user.id, 'message', row)
+      }
     } catch (e) {
-      await q(`update pro_messages set content = content - 'answerDoc' where id=$1 and content->'answerDoc'->>'pending' = $2`, [msg.id, mine]).catch(() => {})
+      await release()
       throw e
     }
+    if (card) return { message: card, existing: false }
+    // no card from this caller: the answer or its conversation is no longer mine (404 — and the claim let go), or another caller took the claim
+    // over meanwhile (its card: the next round)
+    await release()
+    await answerOf(user, id)
   }
   throw fail(409, L('문서를 남기고 있어요. 잠시 후 다시 해 주세요.', "It's being saved. Please try again in a moment."), 'busy')
 }

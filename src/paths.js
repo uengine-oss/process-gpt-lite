@@ -8,8 +8,9 @@ const folderWord = () => (isEnglish ? 'the output folder' : '산출물 폴더')
 
 // ---- the path rules: the same text in src/paths.js and server/lib/hidePaths.js (server/test/hidePaths.test.js holds them to the same answers)
 const B = '`'
-// where the agents' files live: the sandbox (/workspace), the host (/Users/…, /home/…, /private/…, /tmp/…)
-const ROOT = String.raw`(?:/workspace|/Users/[^/\s` + B + String.raw`'"<>()]+|/home/[^/\s` + B + String.raw`'"<>()]+|/private/(?:tmp|var)|/tmp)(?=/|\b)`
+// where the agents' files live: the sandbox (/workspace), the host (/Users/…, /home/…, /private/…, /tmp/…, a temporary folder — macOS's
+// /var/folders/… (os.tmpdir()), /var/tmp/…)
+const ROOT = String.raw`(?:/workspace|/Users/[^/\s` + B + String.raw`'"<>()]+|/home/[^/\s` + B + String.raw`'"<>()]+|/private/(?:tmp|var)|/tmp|/var/(?:folders|tmp))(?=/|\b)`
 // a Windows path: a drive (C:\… or C:/…) or a share (\\server\share\…) — what is not a word or a slash before it (not a URL's scheme)
 const WIN = String.raw`(?:(?<![\w\\/])[A-Za-z]:[\\/](?![\\/])|(?<![\w\\])\\\\[\w.$-]+\\)`
 const WIN_REST = String.raw`[^\s` + B + String.raw`'"<>()|*?]*`
@@ -30,7 +31,7 @@ const trailOf = (m) => /[.:!?]+$/.exec(m)?.[0] || ''
 
 export function hidePaths(text) {
   let t = String(text ?? '')
-  if (!/\/(workspace|Users|home|private|tmp)\b|[A-Za-z]:[\\/]|\\\\[\w.$-]+\\/.test(t)) return t
+  if (!/\/(workspace|Users|home|private|tmp|var)\b|[A-Za-z]:[\\/]|\\\\[\w.$-]+\\/.test(t)) return t
   // (a file address of this computer: file://localhost/… is file:///…, and a drive's file:///C:/… is the drive's path)
   t = t.replace(/file:\/\/localhost(?=\/)/gi, 'file://').replace(/file:\/\/\/?(?=[A-Za-z]:[\\/])/gi, '')
   return t
