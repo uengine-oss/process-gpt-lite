@@ -139,9 +139,10 @@ function stripFront(text) {
   return { text: `${c.bom}${c.open}${kept.replace(/\n/g, nl)}${c.close}${rest}`, removed }
 }
 
-// a file put in place of `abs` (rename: a link or a hard link there is replaced, never written through), `parts` (Buffers, or
-// [fd, from]: the rest of an open file from that byte) in it
-function replace(abs, mode, parts) {
+// a new file next to `abs` with `parts` (Buffers, or [fd, from]: the rest of an open file from that byte) in it → its path. putInPlace
+// then renames it over `abs` (a link or a hard link there is replaced, never written through) — after the source is closed: Windows
+// refuses to rename over a file that is still open
+function writeTemp(abs, mode, parts) {
   const tmp = path.join(path.dirname(abs), `.pgl-${crypto.randomBytes(6).toString('hex')}.tmp`)
   const out = fs.openSync(tmp, 'wx', mode & 0o777)
   try {
@@ -156,7 +157,11 @@ function replace(abs, mode, parts) {
         at += n
       }
     }
-  } finally { fs.closeSync(out) }
+  } catch (e) { fs.closeSync(out); fs.rmSync(tmp, { force: true }); throw e }
+  fs.closeSync(out)
+  return tmp
+}
+function putInPlace(tmp, abs) {
   try { fs.renameSync(tmp, abs) } catch (e) { fs.rmSync(tmp, { force: true }); throw e }
 }
 
@@ -165,6 +170,8 @@ function neutralize(abs) {
   const st = fs.statSync(abs)
   if (!st.isFile()) return null
   const fd = fs.openSync(abs, 'r')
+  let tmp = null
+  let removed = null
   try {
     const head = Buffer.alloc(Math.min(st.size, HEAD_MAX))
     const n = fs.readSync(fd, head, 0, head.length, 0)
@@ -173,15 +180,21 @@ function neutralize(abs) {
     if (c) {
       const r = stripFront(text.slice(0, c.end))
       if (!r) return null
-      replace(abs, st.mode, [Buffer.from(r.text, 'utf8'), [fd, Buffer.byteLength(text.slice(0, c.end), 'utf8')]])
-      return r.removed
+      tmp = writeTemp(abs, st.mode, [Buffer.from(r.text, 'utf8'), [fd, Buffer.byteLength(text.slice(0, c.end), 'utf8')]])
+      removed = r.removed
+    } else {
+      const o = st.size > n && OPENS.exec(text)
+      if (!o) return null
+      // (a front matter that does not end in the head: left off whole — an empty one in its place, the rest as it is)
+      tmp = writeTemp(abs, st.mode, [Buffer.from(`${o[0]}---\n`, 'utf8'), [fd, Buffer.byteLength(o[0], 'utf8')]])
+      removed = ['(front matter)']
     }
-    const o = st.size > n && OPENS.exec(text)
-    if (!o) return null
-    // (a front matter that does not end in the head: left off whole — an empty one in its place, the rest as it is)
-    replace(abs, st.mode, [Buffer.from(`${o[0]}---\n`, 'utf8'), [fd, Buffer.byteLength(o[0], 'utf8')]])
-    return ['(front matter)']
+  } catch (e) {
+    if (tmp) fs.rmSync(tmp, { force: true })
+    throw e
   } finally { fs.closeSync(fd) }
+  putInPlace(tmp, abs)
+  return removed
 }
 
 // the files of a repository inside the work folder, from the disk (its own git is never run: its config is not the app's) → rel paths,

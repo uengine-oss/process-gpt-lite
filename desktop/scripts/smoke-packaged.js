@@ -112,8 +112,8 @@ const R = ${JSON.stringify(path.join(resources, 'app.asar', 'src', 'runner'))}
 const P = require(path.join(R, 'pty.js')); const C = require(path.join(R, 'clis.js'))
 // (runSettings.js — js-yaml packed with it: a template's run settings left off for a person who may not edit the folder)
 const RS = require(path.join(R, 'runSettings.js'))
-const left = RS.stripFront('---\nname: x\nhooks: {}\n---\nbody\n')
-if (!left || left.text !== '---\nname: x\n---\nbody\n') { console.error('runSettings.js: ' + JSON.stringify(left)); process.exit(8) }
+const left = RS.stripFront('---\\nname: x\\nhooks: {}\\n---\\nbody\\n')
+if (!left || left.text !== '---\\nname: x\\n---\\nbody\\n') { console.error('runSettings.js: ' + JSON.stringify(left)); process.exit(8) }
 const pty = P.load()
 if (!pty) { console.error('node-pty did not load: ' + P.why()); process.exit(3) }
 if (process.platform === 'win32' && !P.where().includes('app.asar.unpacked')) { console.error('node-pty not from app.asar.unpacked: ' + P.where()); process.exit(4) }
