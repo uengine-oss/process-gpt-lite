@@ -50,7 +50,12 @@ export const doneUrlOf = (base, { error, lang } = {}) => {
   return `${base}/api/auth/google/done${String(p) ? `?${p}` : ''}`
 }
 
-const states = new Map() // state -> { at, ms, mode, userId, tenant, verifier, base, redirectUri, lang, taskId }
+// The installed sign-in comes back to the page that started it: <base>/auth/done?n=<the page's value>#<the session> — the page takes
+// only a sign-in it started itself (src/signInNonce.js). n: what /api/auth/google/start was given (hex, as the page makes it), else ''.
+export const signInValue = (v) => (typeof v === 'string' && /^[0-9a-f]{32,128}$/.test(v) ? v : '')
+export const loginDoneUrlOf = (base, login, n = '') => `${base}/auth/done${signInValue(n) ? `?n=${n}` : ''}#${encodeURIComponent(JSON.stringify(login))}`
+
+const states = new Map() // state -> { at, ms, mode, userId, tenant, verifier, base, redirectUri, lang, taskId, signIn }
 function sweep() {
   for (const [k, v] of states) if (Date.now() - v.at > v.ms) states.delete(k)
 }

@@ -23,5 +23,7 @@ e2e 는 끝에서 `process.exit` 를 하므로 성패는 출력의 ✔/✖ 줄�
 | Google 이 오류 화면으로 답한다 | `google-connect.e2e.mjs` 「Google 이 오류 화면(400)으로 답하면」, `browserWalls.test.js` 「사이트 오류 화면」, 실제 판정 모델 `results/live-wall-judge.txt` |
 | 허용하지 않는다 · 바쁘다 · 시간이 지난다 | `google-connect.e2e.mjs` 「허용하지 않으면」 |
 | 설치형 로그인은 그대로 | `google-connect.e2e.mjs` 「설치형 「Google로 계속하기」」 |
+| 다른 곳에서 만든 링크 / 이미 로그인한 사람 | `e2e/tests/feature/auth-done.spec.js` F-AD-01~04, `server/test/urlTokens.test.js` BT-A-01 · 02 · 04, `google-connect.test.js` BT-A-03 — `results/auth-done-1127.txt` |
+| 서버 브라우저로는 이 앱에 로그인하지 않는다 | `server/test/browserSignInGuard.test.js` BT-E-05 · BT-E-08 — `../../browser-handoff/e2e/results/sign-in-guard-url-mask-1127.txt` |
 
 결과(`results/`): 단위 8/8, 설치형 e2e 10/10, 게이트웨이 e2e 3/3. 시험에서는 실제 Google 에 로그인하지 않았다. 운영(11-22) 첫 시도에서 Google 이 서버 브라우저에 400 오류 화면을 냈고, 배포 뒤 다시 열자 비밀번호 화면까지 정상으로 열렸다(원인 미확인) — 결정 D-1122-02.

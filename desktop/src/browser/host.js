@@ -38,6 +38,9 @@ const KEYS = {
   Home: [36, ''], End: [35, ''], PageUp: [33, ''], PageDown: [34, ''], ' ': [32, ' '], Space: [32, ' '],
 }
 const MAC = process.platform === 'darwin'
+// (page addresses leave this PC with sign-in tokens and signatures masked — the live view, every answer's page, a look; the tabs
+// themselves go to them as they are, and an answer carries the address itself too (raw), for the server to go back there: urlTokens.js)
+const { maskUrl, maskTitle } = require('./urlTokens')
 const webAddress = (u) => /^(https?:|about:blank$)/i.test(String(u || ''))
 // An address on this PC or its own network, by its name or number (server lib/browserRemote.js privateAddress — the same rules):
 // localhost (and *.localhost), a name of one label (intranet — the network's own search domain), *.local · *.lan · *.internal ·
@@ -416,7 +419,7 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
       if (!f || f.sent || state.active !== t || !state.busy) return
       f.sent = true
       lastSent = Date.now()
-      host.emit({ type: 'browser-frame', data: smaller(f.data), url: t.wc.getURL() })
+      host.emit({ type: 'browser-frame', data: smaller(f.data), url: maskUrl(t.wc.getURL()) })
     }
     const onFrame = (method, p) => {
       if (method !== 'Page.screencastFrame') return
@@ -479,7 +482,8 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
   function at() {
     const t = state.active
     if (!t || t.win.isDestroyed()) return null
-    return { url: t.wc.getURL(), title: t.wc.getTitle(), vp: viewport(), tab: t.id, tabs: state.tabs.length }
+    const u = t.wc.getURL()
+    return { url: maskUrl(u), raw: u, title: maskTitle(t.wc.getTitle(), u), vp: viewport(), tab: t.id, tabs: state.tabs.length }
   }
   // element i of the last look: its frame, its box on the tab's screen (scrolled into view first) and whether a press lands on it
   async function element(i, { scroll = true } = {}) {
@@ -763,6 +767,7 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
       const left = () => state.step.snapMs - (Date.now() - t0)
       const main = await t.cdp.call(t.cdp.main, P.SNAPSHOT_JS, [{ maxEls, maxText, budgetMs }], { ms: state.step.snapMs })
       if (!main) return null
+      main.url = maskUrl(main.url)
       const frameOf = new Map()
       let n = main.els.length
       const extra = []

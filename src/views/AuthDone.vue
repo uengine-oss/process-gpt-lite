@@ -1,17 +1,24 @@
 <script setup>
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { auth } from '../api.js'
+import { auth, sessionUser } from '../api.js'
 import { BASE } from '../base.js'
 import { sessionFromFragment } from '../authFragment.js'
+import { takeSignIn, doneStep, fromSupabase } from '../signInNonce.js'
 
 const router = useRouter()
 const fail = (why) => { auth.clear(); router.replace('/login?error=' + encodeURIComponent(why)) }
 onMounted(async () => {
-  // Lite's own Google sign-in (#<JSON>) or ProcessGPT's Supabase one behind the gateway (#access_token=…)
+  // Lite's own Google sign-in (#<JSON>) or ProcessGPT's Supabase one behind the gateway (#access_token=…) — taken only when it is the
+  // sign-in this tab started (src/signInNonce.js: Lite's own by its ?n=…, ProcessGPT's by the sign-in this tab has under way), and
+  // never over the session of someone signed in here (doneStep)
   const got = sessionFromFragment(location.hash)
+  const mine = takeSignIn(location.search, undefined, undefined, { sso: fromSupabase(location.hash) })
   history.replaceState(null, '', BASE + '/auth/done')
-  if (!got?.session) return fail(got?.error ? `Google 로그인에 실패했어요: ${got.error}` : '로그인에 실패했어요')
+  const step = doneStep({ mine, got, here: auth.get()?.session || null, who: sessionUser() })
+  if (step === 'stay') return router.replace('/chat')
+  if (step === 'refuse') return router.replace('/login?error=' + encodeURIComponent('이 창에서 시작한 로그인만 완료할 수 있어요. 다시 로그인해 주세요.'))
+  if (step === 'fail') return fail(got?.error ? `Google 로그인에 실패했어요: ${got.error}` : '로그인에 실패했어요')
   auth.set(got)
   try {
     const r = await fetch(BASE + '/api/me', { headers: { Authorization: `Bearer ${got.session.access_token}` } })

@@ -9,6 +9,8 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
+// (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 // a scripted OpenAI-compatible server for llm.js (set before config.js reads the environment)
 const seen = []

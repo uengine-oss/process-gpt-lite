@@ -22,6 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { STEP, pause } from './browserSteps.js'
 import { LIVE, VIEW, SNAP_OPTS, blankOf, hostOf } from './browserServer.js'
+import { maskUrl } from './urlTokens.js'
 import * as BL from './localAgents/browserLink.js'
 import * as H from './localAgents/hub.js'
 import { liteOwnPage } from './liteOwn.js'
@@ -129,10 +130,13 @@ export class RemoteDriver {
   url() { return this.cur.url }
   viewport() { return this.cur.vp }
   async title() { return this.cur.title || '' }
-  // where the page is now (every answer carries it; one from a browser with no tab — closing, an app going down — says nothing)
+  // where the page is now (every answer carries it; one from a browser with no tab — closing, an app going down — says nothing). The
+  // address itself (raw — from a desktop that masks url: lib/urlTokens.js) is kept for going back there; lib/browser.js masks
+  // whatever it shows of it
   at(a = {}) {
     if (!a || !a.tab) return
-    if (typeof a.url === 'string') this.cur.url = a.url
+    if (typeof a.raw === 'string') this.cur.url = a.raw
+    else if (typeof a.url === 'string') this.cur.url = a.url
     if (typeof a.title === 'string') this.cur.title = a.title
     if (a.vp?.width > 0 && a.vp?.height > 0) this.cur.vp = { width: a.vp.width | 0, height: a.vp.height | 0 }
     if (Number.isFinite(a.tab)) this.cur.tab = a.tab
@@ -151,7 +155,8 @@ export class RemoteDriver {
   quiet(op, args, opts, fallback) { return this.call(op, args, opts).catch((e) => { if (e.lost) this.lost = true; return fallback }) }
 
   // ---- from the link ----
-  onFrame(data, url) { if (url) this.cur.url = url; this.on.frame?.(this, data, url) }
+  // (a frame's address is masked: it stands for the page only until the next answer says where it is — not when it is the same page)
+  onFrame(data, url) { if (url && url !== maskUrl(this.cur.url)) this.cur.url = url; this.on.frame?.(this, data, url) }
   async onEvent(ev) {
     if (ev.kind === 'download') {
       if (!this.on.wantsDownload?.(this)) return

@@ -18,6 +18,8 @@ import os from 'node:os'
 import http from 'node:http'
 import path from 'node:path'
 import { startWalls, routeApp, startJudge, dropFiles, SPOTS, TITLES } from './fixtures/walls.mjs'
+// (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 // ---- 대본 모델: 계획, 그리고 목표마다 차례대로 한 수 ----
 const scripts = {}
