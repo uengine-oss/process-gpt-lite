@@ -144,6 +144,15 @@ test('DT-01 어느 폴더: ~ · 작업 폴더 기준 상대 경로(밖으로 못
       [path.join(VAR, 'folders', 'ab', 'cd', 'T', 'x'), true], [path.join(VAR, 'cache', 'x'), true], [VAR, true], ['/run/user/1000/x', true]]) {
       assert.equal(TL.systemFolderOf(p, vh, ENV), sys, p)
     }
+    // (all of /var is the system's but a person's places — a /var child no list names is refused too; a site's data under /var/srv is not)
+    for (const [p, sys] of [[path.join(VAR, 'setup', 'x'), true], [path.join(VAR, 'boot', 'x'), true], [path.join(VAR, 'srv', 'data'), false]]) {
+      assert.equal(TL.systemFolderOf(p, vh, ENV), sys, p)
+    }
+    // (a home set inside a system folder opens the home only, never its neighbours)
+    if (process.platform !== 'win32') {
+      assert.equal(TL.systemFolderOf('/usr/bin', '/usr/local/x', ENV), true, 'a home under /usr: /usr/bin stays the system\'s')
+      assert.equal(TL.systemFolderOf('/usr/local/x/proj', '/usr/local/x', ENV), false, 'what is in that home is the person\'s')
+    }
     // (a real one: a home made under /var — macOS's own temporary folder is there — its folders are the person's)
     if (process.platform === 'darwin') {
       const tmpHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-varhome-')))
@@ -157,7 +166,11 @@ test('DT-01 어느 폴더: ~ · 작업 폴더 기준 상대 경로(밖으로 못
     // not a drive's top, not the rest of ~/Library
     for (const [rel, ok] of [[['CloudStorage', 'Dropbox', '영업'], true], [['Mobile Documents', 'iCloud~md~obsidian', 'Documents', '금고'], true],
       [['Mobile Documents', 'com~apple~CloudDocs', '자료'], true], [['CloudStorage'], false], [['CloudStorage', 'Dropbox'], false], [['Mobile Documents'], false],
-      [['Mobile Documents', 'com~apple~CloudDocs'], false], [['Application Support', 'x'], false]]) {
+      [['Mobile Documents', 'com~apple~CloudDocs'], false], [['Application Support', 'x'], false],
+      // (an app's own iCloud data — mail, text replacements — and its Documents folder's top; a drive's hidden cache or trash)
+      [['Mobile Documents', 'com~apple~mail', 'x'], false], [['Mobile Documents', 'com~apple~TextInput', 'x'], false],
+      [['Mobile Documents', 'iCloud~md~obsidian', 'Documents'], false], [['CloudStorage', 'Dropbox', '.dropbox.cache'], false],
+      [['Mobile Documents', 'com~apple~CloudDocs', '.Trash', 'x'], false]]) {
       const d = path.join(HOME, 'Library', ...rel)
       fs.mkdirSync(d, { recursive: true })
       const c = await check(d)

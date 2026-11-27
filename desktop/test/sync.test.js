@@ -697,3 +697,19 @@ test('시스템 창 길(페이지의 「내 PC 폴더 올리기」): 「예」�
   await f.unbind(id2)
   rmQuiet(path.join(ROOT, 'people3'))
 })
+
+// the shadow index's record of a file against a scan's lstat (indexMatches, the chat card's check after a snapshot)
+test('sameIndexed: size · 32-bit inode · whole second — an inode past 2^53 is not compared, a time rounded up to the next second is the same', () => {
+  const st = { size: 120, ino: 4294967296 * 3 + 777, mtimeMs: 1764300000123.4 }
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764300000' }, st), true)
+  assert.equal(S.sameIndexed({ size: '121', ino: '777', mtime: '1764300000' }, st), false, 'size')
+  assert.equal(S.sameIndexed({ size: '120', ino: '778', mtime: '1764300000' }, st), false, 'another file')
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764300001' }, st), false, 'another second')
+  assert.equal(S.sameIndexed({ size: '120', ino: '0', mtime: '1764300000' }, st), true, 'Windows: git keeps no inode')
+  // (2^60 + 12345 as a Number has lost its low bits: git's 12345 is not compared with it)
+  assert.equal(S.sameIndexed({ size: '120', ino: '12345', mtime: '1764300000' }, { ...st, ino: 2 ** 60 + 12345 }), true)
+  // (…999.9999 ms rounds up to the next whole second as a Number: git's floor is the second before)
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764300000' }, { ...st, mtimeMs: 1764300001000 }), true)
+  assert.equal(S.sameIndexed({ size: '120', ino: '777', mtime: '1764299999' }, { ...st, mtimeMs: 1764300001000 }), false)
+})
+

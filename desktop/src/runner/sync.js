@@ -387,12 +387,18 @@ async function indexMatches(gitDir, rels, stats) {
   for (const rel of rels) {
     const x = seen.get(rel)
     const st = stats.get(rel)
-    if (!x || !st) return false
-    if (Number(x.size) !== st.size % 4294967296) return false
-    if (x.ino !== '0' && Number(x.ino) !== st.ino % 4294967296) return false
-    if (Number(x.mtime) !== Math.floor(st.mtimeMs / 1000)) return false
+    if (!x || !st || !sameIndexed(x, st)) return false
   }
   return true
+}
+// one file as the shadow index recorded it ({size, ino, mtime} as git prints them) against a scan's lstat ({size, ino, mtimeMs})
+function sameIndexed(x, st) {
+  if (Number(x.size) !== st.size % 4294967296) return false
+  // (an inode past 2^53 has lost its low bits as a Number — FUSE mounts, overlayfs: git's is not compared with it then)
+  if (x.ino !== '0' && st.ino <= Number.MAX_SAFE_INTEGER && Number(x.ino) !== st.ino % 4294967296) return false
+  // (whole seconds; a time a hair before the next second can round up to it as milliseconds)
+  const sec = Math.floor(st.mtimeMs / 1000)
+  return Number(x.mtime) === sec || (Number(x.mtime) === sec - 1 && st.mtimeMs % 1000 === 0)
 }
 
 // the files under a folder the person brought back in (one the folder's .gitignore or the app's rebuildable group had left out as a whole)
@@ -894,5 +900,5 @@ class FolderSync extends Uploader {
   }
 }
 
-module.exports = { FolderSync, scan, snapshot, fetchServer, pushHead, ensureShadow, shadowGit, compileRules, groupOf, shapeHits, assignmentHit, frontMatter, globMatch, kitOf, uploadQuestion,
+module.exports = { FolderSync, sameIndexed, scan, snapshot, fetchServer, pushHead, ensureShadow, shadowGit, compileRules, groupOf, shapeHits, assignmentHit, frontMatter, globMatch, kitOf, uploadQuestion,
   patternsOf, serverKey, personKey, looksBinary, setTap, ALLOWED, GROUPS }

@@ -76,13 +76,10 @@ function resolvePath(input, { cwd, home = os.homedir() } = {}) {
 }
 
 // the system's own folders: never one of them, never inside one (exact: only that folder itself — a person's folder may be below it).
-// /var (macOS: /private/var): its system places, not the folder as a whole — the system's state, logs, databases, caches and each user's
-// own temporary files (/var/folders/…/C · T) are refused; a home under it (Fedora Silverblue's /var/home) and a site's folder
-// (/var/www/…) are a person's own. A volume's top (/Volumes/<name>, /media/<user>/<name> …) — volumeTop
-const VAR_SYSTEM = ['folders', 'db', 'log', 'logs', 'lib', 'cache', 'spool', 'tmp', 'run', 'lock', 'root', 'roothome', 'mail', 'backups', 'crash', 'empty',
-  'audit', 'vm', 'agentx', 'at', 'install', 'jabberd', 'ma', 'mobile', 'msgs', 'netboot', 'networkd', 'protected', 'rpc', 'select', 'sntpd', 'yp',
-  'containers', 'dirs_cleaner', 'MobileAsset', 'MobileSoftwareUpdate', 'hardware', 'rapid', 'OSAnalytics', 'personalized_factory', 'adm',
-  'account', 'kerberos', 'nis', 'preserve', 'lost+found', 'local', 'usrlocal', 'opt', 'snap', 'games']
+// /var (macOS: /private/var) is the system's as a whole — its state, logs, databases, caches and each user's own temporary files — but for
+// a person's places under it: a home there (Fedora Silverblue's /var/home), a site's folder (/var/www/…), a service's data (/var/srv/…) —
+// varOwn. A volume's top (/Volumes/<name>, /media/<user>/<name> …) — volumeTop
+const VAR_OWN = ['home', 'www', 'srv']
 function systemFolders(home = os.homedir(), env = process.env) {
   if (WIN) {
     const e = (k) => env[k] || ''
@@ -90,7 +87,7 @@ function systemFolders(home = os.homedir(), env = process.env) {
       exact: [path.join(path.parse(home).root, 'Users')] }
   }
   return { inside: ['/System', '/Library', '/usr', '/bin', '/sbin', '/etc', '/private/etc', '/dev', '/proc', '/sys', '/boot', '/root', '/Applications',
-    ...VAR_SYSTEM.flatMap((n) => [`/var/${n}`, `/private/var/${n}`]), '/opt/homebrew', '/snap', '/run/user', path.join(home, 'Library'), path.join(home, 'snap')],
+    '/opt/homebrew', '/snap', '/run/user', path.join(home, 'Library'), path.join(home, 'snap')],
     exact: ['/Users', '/home', '/Volumes', '/private', '/var', '/private/var', '/tmp', '/private/tmp', '/opt', '/mnt', '/media', '/run', '/run/media'] }
 }
 // the top of a mounted volume: /Volumes/<name> (macOS), /mnt/<name> · /media/<name> · /media/<user>/<name> · /run/media/<user> and
@@ -101,26 +98,39 @@ function volumeTop(real) {
   const up2 = path.dirname(up)
   return ['/Volumes', '/mnt', '/media', '/run/media'].some((d) => same(up, d)) || ['/media', '/run/media'].some((d) => same(up2, d))
 }
-// a folder of a cloud drive's app (~/Library/CloudStorage/<Dropbox · OneDrive · Google Drive …>/… · ~/Library/Mobile Documents/<iCloud
-// Drive · an app's iCloud folder>/…): a person's own work, although ~/Library is the system's — never the place itself or a drive's top
+// a folder of a cloud drive's app: a person's own work, although ~/Library is the system's — ~/Library/CloudStorage/<Dropbox · OneDrive ·
+// Google Drive …>/<folder>…, iCloud Drive (~/Library/Mobile Documents/com~apple~CloudDocs/<folder>…) and an app's iCloud documents
+// (~/Library/Mobile Documents/<app>/Documents/<folder>…). Never the place itself or a drive's top, never an app's own iCloud data (mail,
+// text replacements, settings), never a hidden folder in a drive (its cache, its trash)
 function inCloudDrive(real, home) {
   const r = path.relative(path.join(home, 'Library'), real)
   if (!r || r.startsWith('..') || path.isAbsolute(r)) return false
   const seg = r.split(path.sep)
-  return ['CloudStorage', 'Mobile Documents'].includes(seg[0]) && seg.length >= 3
+  if (seg.slice(1).some((x) => x.startsWith('.'))) return false
+  if (seg[0] === 'CloudStorage') return seg.length >= 3
+  if (seg[0] !== 'Mobile Documents') return false
+  if (seg[1] === 'com~apple~CloudDocs') return seg.length >= 3
+  return seg[2] === 'Documents' && seg.length >= 4
 }
 // the system folders rule for one real path (home: its real path) → true when it is one of them, in one, or a volume's top. A system
-// folder that holds the home folder (the home's own way there is refused as above the home) leaves what is under it to the other rules
+// folder that holds the home folder (the home's own way there is refused as above the home) leaves what is in the home to the other rules
 function systemFolderOf(real, h, env = process.env) {
   const sys = systemFolders(h, env)
   const cloud = !WIN && inCloudDrive(real, h)
+  const inHome = isInside(real, h)
   for (const d of sys.inside) {
     const r = realOr(d)
-    if (isInside(h, r)) continue
+    if (inHome && isInside(h, r)) continue
     if (cloud && same(r, realOr(path.join(h, 'Library')))) continue
     if (same(real, r) || isInside(real, r)) return true
   }
   for (const d of sys.exact) if (same(real, realOr(d))) return true
+  if (!WIN && !inHome) {
+    for (const v of ['/var', '/private/var']) {
+      const rv = realOr(v)
+      if (isInside(real, rv) && !VAR_OWN.includes(path.relative(rv, real).split(path.sep)[0])) return true
+    }
+  }
   return volumeTop(real)
 }
 
