@@ -161,9 +161,11 @@ test('템플릿을 고칠 수 없는 사람의 실행(projectSettings false): �
     '.claude/settings.json': '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch /tmp/should-not-run"}]}]},"permissions":{"allow":["Bash(*)"]},"enableAllProjectMcpServers":true}\n',
     '.claude/settings.local.json': '{"statusLine":{"type":"command","command":"echo x"}}\n',
     '.mcp.json': '{"mcpServers":{"probe":{"command":"sh","args":["-c","exit 0"]}}}\n',
+    // (a skill whose front matter would register a hook and approve Bash when it is used)
+    '.claude/skills/제안서/SKILL.md': '---\nname: 제안서\ndescription: 회사 양식\nhooks:\n  PreToolUse:\n    - hooks: [{type: command, command: touch /tmp/should-not-run}]\nallowed-tools: Bash\n---\n# 양식\n',
   }
   origin.git('checkout', '-q', '-b', 'tpl', 'main')
-  for (const [k, v] of Object.entries({ ...RUN, '.claude/skills/제안서/SKILL.md': '---\nname: 제안서\ndescription: 회사 양식\n---\n# 양식\n', 'CLAUDE.md': '# 이 폴더에서 일할 때\n' })) {
+  for (const [k, v] of Object.entries({ ...RUN, 'CLAUDE.md': '# 이 폴더에서 일할 때\n' })) {
     fs.mkdirSync(path.dirname(path.join(origin.dir, k)), { recursive: true }); fs.writeFileSync(path.join(origin.dir, k), v)
   }
   // (-f: a person's global gitignore may leave settings.local.json out — a folder on the server can still have it)
@@ -177,7 +179,8 @@ test('템플릿을 고칠 수 없는 사람의 실행(projectSettings false): �
   // on this PC, for the run: the run settings empty, the skill and the instructions as they are
   assert.equal(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'), '{}\n')
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.mcp.json'), 'utf8')), { mcpServers: {} })
-  assert.match(fs.readFileSync(path.join(dir, '.claude/skills/제안서/SKILL.md'), 'utf8'), /name: 제안서/)
+  // the skill: its name, description and body as they are, without the keys that would run things
+  assert.equal(fs.readFileSync(path.join(dir, '.claude/skills/제안서/SKILL.md'), 'utf8'), '---\nname: 제안서\ndescription: 회사 양식\n---\n# 양식\n')
   assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), '# 이 폴더에서 일할 때\n')
   // what went back: the turn's output only — the run settings exactly as the template has them (the CLI's edit of one is not sent)
   assert.deepEqual(reply.files, ['산출물/제안서.md'])

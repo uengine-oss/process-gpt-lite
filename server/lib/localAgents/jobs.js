@@ -53,13 +53,18 @@ async function set(job, patch) {
 }
 
 // the desktops of the job's person that can take it now (capable, local runs on, room for one more), the newest link first
+// outdated: those of them that could take it but for a capability the run needs (a chat run that leaves the folder's own run settings off —
+// chat.js — needs leaveOffSettings)
 export async function freeLinks(job) {
   // (a chat message goes only to a desktop that runs them — 0.2.2; an older one would take it for a step)
-  const links = H.linksOf(T(), job.user_id).filter((l) => canRun(l, job.agent) && (job.kind !== 'chat' || l.caps?.chat)).sort((a, b) => b.since - a.since)
-  if (!links.length) return { capable: [], free: [] }
+  const able = H.linksOf(T(), job.user_id).filter((l) => canRun(l, job.agent) && (job.kind !== 'chat' || l.caps?.chat)).sort((a, b) => b.since - a.since)
+  const needs = (l) => !(job.kind === 'chat' && job.chat?.leaveOff) || !!l.caps?.leaveOffSettings
+  const links = able.filter(needs)
+  const outdated = able.filter((l) => !needs(l))
+  if (!links.length) return { capable: [], free: [], outdated }
   const busy = new Map((await q(`select device_id::text as d, count(*)::int as n from pro_local_jobs where tenant_id=$1 and state in ('offered','running') and device_id = any($2) group by 1`,
     [T(), links.map((l) => l.id)])).map((r) => [r.d, r.n]))
-  return { capable: links, free: links.filter((l) => (busy.get(l.id) || 0) < (l.caps.maxJobs || 2)) }
+  return { capable: links, free: links.filter((l) => (busy.get(l.id) || 0) < (l.caps.maxJobs || 2)), outdated }
 }
 
 // A step for a local agent: its job (one per work item), then where it goes now. The work item claimed again after its job ended —
@@ -92,9 +97,11 @@ export async function enqueue(spec) {
 // the activity's choice (server: delegated now · wait: queued, until its wait time if it has one)
 export async function route(job) {
   if (job.state !== 'queued') return job
-  const { capable, free } = await freeLinks(job)
+  const { capable, free, outdated } = await freeLinks(job)
   if (free.length) return offer(job, free[0])
   if (capable.length) { if (job.why !== 'busy') { job = await set(job, { why: 'busy' }); await hk(job).note(job, 'busy') } return job }
+  // (only desktops too old for this run are on: not offered to them — said why, as an offer they could not prepare would)
+  if (outdated?.length) return delegate(job, 'unprepared', (await import('./chat.js')).OUTDATED())
   if (job.offline === 'server') return delegate(job, H.linksOf(T(), job.user_id).length ? 'unable' : 'offline')
   if (job.why !== 'waiting') { job = await set(job, { why: 'waiting' }); await hk(job).note(job, 'waiting') }
   return job

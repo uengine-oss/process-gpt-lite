@@ -26,6 +26,7 @@ const { EventEmitter } = require('node:events')
 const G = require('./git')
 const SHAPES = require('./secret-shapes.json')
 const PLACES = require('./kit-places.json')
+const RS = require('./runSettings')
 
 const GROUPS = ['gitignore', 'secret', 'personal', 'rebuildable', 'large', 'structure']
 const LOCAL_MS = 120_000
@@ -263,6 +264,13 @@ function kitName(place, rel) {
 // a JSON settings file runs something only when one of runsKeys (dotted) is there and not empty (kit-places.json); unreadable: as the place says
 const filled = (v) => v != null && v !== '' && v !== false && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length)
 async function runsOf(root, rel, place) {
+  // (a skill · command · agent whose front matter names a key that runs things — runSettings.js frontRuns, the server's badge too)
+  if (place.frontRuns) {
+    try {
+      const f = path.join(root, ...rel.split('/'))
+      if ((await fsp.stat(f)).size <= 262144 && RS.frontRuns(await fsp.readFile(f, 'utf8')).length) return true
+    } catch { /* unreadable: as the place says */ }
+  }
   if (!place.runs || !Array.isArray(place.runsKeys)) return !!place.runs
   try {
     const st = await fsp.stat(path.join(root, ...rel.split('/')))

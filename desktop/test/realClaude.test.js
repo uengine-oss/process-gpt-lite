@@ -1,10 +1,12 @@
 'use strict'
-// The run settings of a folder the person may not edit, with this computer's real interactive `claude` (opt-in — a real model call):
-// the desktop's own runner (a terminal, node-pty) runs a chat job on a template's line that has a skill, CLAUDE.md and run settings —
-// a project SessionStart · UserPromptSubmit hook and an MCP server (.mcp.json, enableAllProjectMcpServers) that each leave a mark.
-//   · projectSettings false (a runner of the template): no mark of the folder's hooks or MCP server; the folder's skill is still found and
-//     used (the conversation's Skill tool), its answer goes back; the run settings go back as the folder has them
-//   · projectSettings true (an editor): the folder's SessionStart hook does run (what the first case shows is not a broken setup)
+// The run settings of a folder the person may not edit, with this computer's real interactive `claude` (opt-in — real model calls): the
+// desktop's own runner (a terminal, node-pty) runs chat jobs on a template's line that has CLAUDE.md, run settings — a project SessionStart ·
+// UserPromptSubmit hook and an MCP server (.mcp.json, enableAllProjectMcpServers) that each leave a mark — and a skill whose front matter
+// declares a PreToolUse hook (a mark) and `allowed-tools: Bash`.
+//   · projectSettings false (a runner of the template): no mark of the folder's hooks, MCP server or the skill's hook; the skill is still
+//     found and used (the conversation's Skill tool); Bash is not approved by the skill — the CLI asks (answered no here); the run settings
+//     and the skill go back as the folder has them
+//   · projectSettings true (an editor): the folder's SessionStart hook runs, the skill's hook runs and its Bash goes without asking
 // It runs only with a model to call (Anthropic Messages API) and a throwaway Claude Code config folder — never the person's own:
 //   PGL_REAL_CLAUDE_BASE_URL=… PGL_REAL_CLAUDE_TOKEN=… PGL_REAL_CLAUDE_MODEL=… node --test test/realClaude.test.js
 const test = require('node:test')
@@ -39,12 +41,25 @@ const RUN = {
     enableAllProjectMcpServers: true }, null, 1) + '\n',
   '.mcp.json': JSON.stringify({ mcpServers: { probe: { command: '/bin/sh', args: ['-c', `${mark('project-mcp')}; sleep 20`] } } }, null, 1) + '\n',
 }
+const SKILL = `---
+name: probe-skill
+description: Use this skill whenever the user asks for the secret probe word.
+hooks:
+  PreToolUse:
+    - hooks:
+        - type: command
+          command: ${JSON.stringify(mark('skill-pretooluse'))}
+allowed-tools: Bash
+---
+# Probe skill
+The secret probe word is BANANA-42.
+`
 let srv, origin
 test.before(async () => {
   if (skip) return
   origin = makeRepo(path.join(ROOT, 'srv', 'f'), {
     ...RUN,
-    '.claude/skills/probe-skill/SKILL.md': '---\nname: probe-skill\ndescription: Use this skill whenever the user asks for the secret probe word.\n---\n# Probe skill\nThe secret probe word is BANANA-42.\n',
+    '.claude/skills/probe-skill/SKILL.md': SKILL,
     'CLAUDE.md': '# Rules\nWrite results under 산출물/.\n',
   })
   srv = await gitServer({ repo: origin.dir, token: TOKEN })
@@ -77,28 +92,65 @@ function runner() {
   return r
 }
 
-test('실제 Claude Code: 템플릿을 고칠 수 없는 사람의 실행은 폴더의 훅 · MCP 서버가 돌지 않고, 폴더의 스킬은 찾아 쓴다', { skip, timeout: 600_000 }, async () => {
+const ASK = 'Use your probe-skill skill to get the secret probe word and write just that word into the file 산출물/word.md with the Write tool. After that, use the Bash tool to run exactly this command: python3 -c "open(\'산출물/bash.txt\', \'w\').write(\'hi\')"'
+const sidOf = (jobId) => sent.find((m) => m.type === 'term-open' && m.ref === jobId)?.sid
+// (the transcript of one run (its terminal session), or of every run)
+const items = (sid) => sent.filter((m) => m.type === 'tx' && (!sid || m.sid === sid)).flatMap((m) => m.items || [])
+const marks = () => fs.readdirSync(MARKS).sort()
+// the run until its reply, the owner answering what its CLI asks (answer(ask) → 'yes' | 'no'); → {reply, asked: [{tool, answer}]}
+// (a turn the owner said no in stops without its Stop hook — the CLI waits for its person — and the run ends with what it pushed: 'done')
+async function drive(r, j, answer) {
+  const seen = new Set(); const asked = []
+  const t0 = Date.now()
+  for (;;) {
+    const reply = of(j.id, 'reply')[0] || of(j.id, 'done')[0] || of(j.id, 'failed')[0]
+    if (reply) return { reply, asked }
+    // (this run's asks only — the runs of the tests before it share `sent`)
+    const sid = sidOf(j.id)
+    for (const it of sid ? items(sid) : []) {
+      if (it.t !== 'ask' || it.ask?.kind !== 'permission' || seen.has(it.ask.id)) continue
+      seen.add(it.ask.id)
+      const a = answer(it.ask)
+      asked.push({ tool: it.ask.tool, answer: a })
+      await r.handle({ type: 'pty-answer', sid, ask: it.ask.id, answer: a, byId: USER, by: '김서연' })
+    }
+    if (Date.now() - t0 > 480_000) throw new Error(`no reply — asked ${JSON.stringify(asked)}`)
+    await new Promise((res) => setTimeout(res, 500))
+  }
+}
+
+test('실제 Claude Code: 템플릿을 고칠 수 없는 사람의 실행은 폴더의 훅 · MCP 서버와 스킬 머리말의 훅이 돌지 않고, 스킬의 허용 도구도 없다 — 스킬은 묻지 않고 찾아 쓴다', { skip, timeout: 600_000 }, async () => {
   const r = runner()
-  const j = job('Use your probe-skill skill to get the secret probe word, then write just that word into the file 산출물/word.md. Do not run any shell command.', false)
+  const j = job(ASK, false)
   r.handle({ type: 'job', job: j })
-  const reply = await waitFor(() => of(j.id, 'reply')[0] || of(j.id, 'failed')[0], 480_000)
-  assert.equal(reply.type, 'reply', JSON.stringify(reply))
+  // the owner says no to Bash (the skill's allowed-tools are left off, so the CLI asks)
+  const { reply, asked } = await drive(r, j, (a) => (/^skill/i.test(a.tool || '') ? 'yes' : 'no'))
+  assert.ok(['reply', 'done'].includes(reply.type), JSON.stringify(reply))
   await new Promise((res) => setTimeout(res, 3000))
-  assert.deepEqual(fs.readdirSync(MARKS), [], 'no hook or MCP server of the folder ran')
-  const items = sent.filter((m) => m.type === 'tx').flatMap((m) => m.items || [])
-  assert.ok(items.some((it) => it.t === 'tool' && it.name === 'Skill' && /probe-skill/.test(JSON.stringify(it.input || {}))), 'the folder\'s skill was used')
+  assert.deepEqual(marks(), [], 'no hook or MCP server of the folder or of its skill ran')
+  assert.ok(asked.some((x) => /bash/i.test(x.tool || '')), `Bash was asked about: ${JSON.stringify(asked)}`)
+  assert.ok(!asked.some((x) => /^skill/i.test(x.tool || '')), 'the skill without its run keys is used without asking')
+  assert.ok(items(sidOf(j.id)).some((it) => it.t === 'tool' && it.name === 'Skill' && /probe-skill/.test(JSON.stringify(it.input || {}))), 'the folder\'s skill was used')
   assert.match(show(j.git.branch, '산출물/word.md'), /BANANA-42/)
-  for (const [k, v] of Object.entries(RUN)) assert.equal(show(j.git.branch, k), v, `${k} went back as the folder has it`)
-  await r.handle({ type: 'finish', jobId: j.id })
+  assert.throws(() => show(j.git.branch, '산출물/bash.txt'), 'Bash did not run')
+  for (const [k, v] of Object.entries({ ...RUN, '.claude/skills/probe-skill/SKILL.md': SKILL })) assert.equal(show(j.git.branch, k), v, `${k} went back as the folder has it`)
+  if (reply.type === 'reply') await r.handle({ type: 'finish', jobId: j.id })
   await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0], 60_000)
 })
 
-test('실제 Claude Code: 편집자의 실행은 폴더의 SessionStart 훅이 돈다(위 시험이 고장 난 준비가 아님)', { skip, timeout: 600_000 }, async () => {
+test('실제 Claude Code: 편집자의 실행은 폴더의 SessionStart 훅이 돌고, 스킬은 CLI 가 묻고(예) 그 훅이 돌며 스킬이 허용한 Bash 는 묻지 않는다(위 시험이 고장 난 준비가 아님)', { skip, timeout: 600_000 }, async () => {
   const r = runner()
-  const j = job('Reply with the single word OK.', true)
+  const j = job(ASK, true)
   r.handle({ type: 'job', job: j })
-  await waitFor(() => of(j.id, 'reply')[0] || of(j.id, 'failed')[0], 480_000)
-  assert.ok(fs.existsSync(path.join(MARKS, 'project-sessionstart')), 'the editor\'s run takes the folder\'s hook')
+  const { reply, asked } = await drive(r, j, () => 'yes')
+  assert.equal(reply.type, 'reply', JSON.stringify(reply))
+  assert.ok(items(sidOf(j.id)).length > 0)
+  assert.ok(items(sidOf(j.id)).some((it) => it.t === 'tool' && it.name === 'Skill' && /probe-skill/.test(JSON.stringify(it.input || {}))), 'the folder\'s skill was used')
+  assert.ok(asked.some((x) => /^skill/i.test(x.tool || '')), `Claude Code asks before a skill with hooks · allowed-tools: ${JSON.stringify(asked)}`)
+  assert.ok(!asked.some((x) => /bash/i.test(x.tool || '')), `the skill's allowed-tools let Bash go without asking: ${JSON.stringify(asked)}`)
+  assert.ok(marks().includes('project-sessionstart'), 'the folder\'s hook')
+  assert.ok(marks().includes('skill-pretooluse'), 'the skill\'s hook')
+  assert.equal(show(j.git.branch, '산출물/bash.txt'), 'hi')
   await r.handle({ type: 'finish', jobId: j.id })
   await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0], 60_000)
 })

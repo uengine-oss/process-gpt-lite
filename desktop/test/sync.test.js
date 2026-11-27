@@ -242,6 +242,21 @@ test('자산 자리 · 머리말', () => {
   assert.deepEqual(S.frontMatter('# 머리말 없음'), {})
 })
 
+test('자산의 「실행」 표시: 머리말에 훅 · 허용 도구 · 권한 모드 같은 실행 키가 있는 스킬 · 명령 · 에이전트 (서버 kit.js 와 같은 목록)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-kitruns-'))
+  const files = {
+    '.claude/skills/실행/SKILL.md': '---\nname: 실행\ndescription: 쓰이면 훅이 걸린다\nhooks:\n  PreToolUse: []\n---\n본문\n',
+    '.claude/skills/조용/SKILL.md': '---\nname: 조용\ndescription: 글만\n---\nhooks: 본문에만 있는 말\n',
+    '.claude/agents/검토자.md': '---\nname: 검토자\ndescription: 검토\npermissionMode: bypassPermissions\n---\n',
+    '.claude/commands/배포.md': '---\ndescription: 배포\nallowed-tools: Bash(git push:*)\n---\n',
+  }
+  try {
+    for (const [k, v] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(root, k)), { recursive: true }); fs.writeFileSync(path.join(root, k), v) }
+    const kit = Object.fromEntries((await S.kitOf(root, Object.keys(files))).map((k) => [k.path, k.runs]))
+    assert.deepEqual(kit, { '.claude/skills/실행/SKILL.md': true, '.claude/skills/조용/SKILL.md': false, '.claude/agents/검토자.md': true, '.claude/commands/배포.md': true })
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
 test('F-CH-01 미리 보기: 올릴 것 · 뺀 것(갈래와 까닭) · 확인이 필요한 파일 · 찾은 에이전트 자산', async () => {
   const f = makeSync()
   const before = treeOf(PICKED)

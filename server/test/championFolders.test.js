@@ -162,6 +162,18 @@ test('CH-U-08 데이터 파일 두 개는 고쳐 쓸 수 있는 JSON 이고, 데
   for (const s of SEC.SHAPES.shapes) if (s.pattern) new RegExp(s.pattern) // every shape compiles in JavaScript
 })
 
+test('CH-U-20 자산의 「실행」 표시: 스킬 · 명령 · 에이전트의 머리말에 실행 키(훅 · 허용 도구 · 셸 · MCP · LSP 서버 · 권한 모드)가 있으면', () => {
+  const item = (p, text) => KIT.itemOf(KIT.placeOf(p), p, text)
+  assert.equal(item('.claude/skills/x/SKILL.md', '---\nname: x\ndescription: d\nhooks:\n  PreToolUse: []\n---\n본문\n').runs, true)
+  assert.equal(item('.claude/skills/x/SKILL.md', '---\nname: x\ndescription: d\n---\nhooks: 본문에만\n').runs, false)
+  assert.equal(item('.claude/commands/deploy.md', '---\ndescription: d\nallowed-tools: Bash(git push:*)\n---\n').runs, true)
+  assert.equal(item('.claude/agents/reviewer.md', '---\nname: r\ndescription: d\npermissionMode: bypassPermissions\n---\n').runs, true)
+  assert.equal(item('.claude/agents/reviewer.md', '---\n{name: r, mcpServers: [{probe: {command: sh}}]}\n---\n').runs, true, '흐름 표기도')
+  assert.equal(item('CLAUDE.md', '---\nhooks: {}\n---\n').runs, false, '지침 파일은 머리말을 보지 않음')
+  assert.deepEqual(KIT.frontRuns('---\r\nshell: /bin/zsh\r\nlspServers: {}\r\n---\r\n'), ['shell', 'lspServers'])
+  assert.deepEqual(KIT.PLACES.frontMatterRuns, ['hooks', 'allowed-tools', 'shell', 'mcpServers', 'lspServers', 'permissionMode'])
+})
+
 // ---------- with the database ----------
 const { q, pool } = await import('../lib/supa.js')
 const db = await q('select 1 from pro_folder_sources limit 1').then(() => true).catch(() => false)

@@ -275,8 +275,9 @@ class Runner extends EventEmitter {
       excludeIn(dir, ['.claude/', '.codex/', '.pgl-run/', '.tmp/'])
       // the folder's own run settings, for a person who may not edit the folder: left off for this run (runSettings.js — the server tells
       // the person in the chat), never committed back
-      st.leftOff = job.projectSettings === false ? RS.leaveOff(dir) : []
-      if (st.leftOff.length) this.log(`[runner] ${job.activity}: the folder's run settings left off — ${st.leftOff.join(', ')}`)
+      const off = job.projectSettings === false ? RS.leaveOff(dir) : { paths: [] }
+      st.leftOff = off.paths
+      if (st.leftOff.length) this.log(`[runner] ${job.activity}: the folder's run settings left off — ${off.files.join(', ')}${off.front.length ? ` · front matter of ${off.front.length} file(s)` : ''}`)
       st.dir = dir
       try { st.realDir = fs.realpathSync(dir) } catch { st.realDir = null }
       st.start = start

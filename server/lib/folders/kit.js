@@ -68,8 +68,23 @@ function hasKey(obj, dotted) {
   if (typeof v === 'object') return Object.keys(v).length > 0
   return true
 }
-// runs: the place says so; for a JSON settings file with runsKeys, only when one of those keys is there and not empty
+// a skill · command · agent's front matter (YAML between the first two '---' lines): which of the keys that make it run things by itself
+// (kit-places.json frontMatterRuns — hooks, allowed-tools, …) it names. Read conservatively for a badge: a key of that name anywhere in the
+// front matter, at any depth or in a flow mapping, counts (the desktop, which leaves them off, reads the front matter as YAML —
+// desktop/src/runner/runSettings.js).
+export function frontRuns(text) {
+  const md = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
+  if (!md.startsWith('---\n')) return []
+  const end = md.slice(4).search(/^(---|\.\.\.)[ \t]*$/m)
+  const block = end < 0 ? md.slice(4) : md.slice(4, 4 + end)
+  const keys = new Set()
+  for (const m of block.matchAll(/(?:^|[\s{,])["']?([A-Za-z][\w-]*)["']?[ \t]*:(?=\s|$)/gm)) keys.add(m[1])
+  return (PLACES.frontMatterRuns || []).filter((k) => keys.has(k))
+}
+// runs: the place says so; for a JSON settings file with runsKeys, only when one of those keys is there and not empty; for a skill ·
+// command · agent (frontRuns), when its front matter names a key that runs things
 function runsOf(place, text) {
+  if (place.frontRuns && text != null && frontRuns(text).length) return true
   if (!place.runs) return false
   if (!Array.isArray(place.runsKeys)) return true
   if (text == null) return true
@@ -114,7 +129,8 @@ export async function discover(folder, files = null) {
   for (const { f, place } of found) {
     keep.add(f.path)
     const was = old.get(f.path)
-    if (was && was.sha === f.sha && was.platform === place.platform && was.type === place.type) { out.push({ ...was, path: f.path }); continue }
+    // (a skill · command · agent kept as not running is read again: rows from before its front matter was read for run keys — frontRuns)
+    if (was && was.sha === f.sha && was.platform === place.platform && was.type === place.type && (!place.frontRuns || was.runs)) { out.push({ ...was, path: f.path }); continue }
     let text = null
     if ((place.frontMatter || place.runsKeys || ['instructions', 'rules', 'spec', 'change', 'prompt', 'command', 'agent'].includes(place.type)) && Number(f.size) <= READ_MAX) {
       const buf = await G.git(folder.repo_path, ['cat-file', 'blob', f.sha], { buffer: true }).catch(() => null)
