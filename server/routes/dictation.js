@@ -14,7 +14,7 @@ const busy = new Map()
 
 export function dictationRoutes(auth) {
   const r = express.Router()
-  r.post('/dictation', express.raw({ type: () => true, limit: '3mb' }), auth, async (req, res) => {
+  r.post('/dictation', auth, express.raw({ type: () => true, limit: '3mb' }), async (req, res) => {
     const buf = req.body
     if (!Buffer.isBuffer(buf) || buf.length < 1600) return res.status(400).json({ error: L('소리가 너무 짧아요.', 'The audio is too short.') })
     const me = req.user.id

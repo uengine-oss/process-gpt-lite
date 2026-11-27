@@ -24,6 +24,7 @@ import { leftColumnPlace, fitsBeside, leftEdge, overWidth, OVER_X, LEFT_LABEL, L
 import { instanceContext } from '../components/ontology/caseView.js'
 import { artifactLayout, sideWidth, pilePlace } from '../artifactScope.js'
 import { api } from '../api.js'
+import { setViewing } from '../browserNotify.js'
 import { useApp } from '../stores/app.js'
 import { useSky } from '../stores/sky.js'
 import { useTeam } from '../stores/team.js'
@@ -183,18 +184,26 @@ watch(() => route.fullPath, syncRoute)
 provide('closeInstance', closeInstance)
 
 // a browser notification clicked (src/browserNotify.js): the room, the instance page or the card's own place
+// (「답장」 on a room's notification: that room with its composer focused — public/sw.js; the AI's question: where it asks)
 const team = useTeam()
-function openNotification({ detail: n }) {
+async function openNotification({ detail: n }) {
   const room = /^\/chats\?id=([\w.:-]+)/.exec(String(n?.url || ''))
   const msg = /^\/pro\/team\/([0-9a-f-]{36})\/([0-9a-f-]{36})$/.exec(String(n?.url || ''))
-  if (msg) return team.openMessenger(msg[1], msg[2])
-  if (room) return team.openMessenger(room[1])
+  const reply = n?.reply ? { reply: true } : undefined
+  // (the messenger is not on 설정: out of it first — App.vue teamHere)
+  if ((msg || room) && settings.value) await router.push('/chat')
+  if (msg) return team.openMessenger(msg[1], msg[2], reply)
+  if (room) return team.openMessenger(room[1], undefined, reply)
+  if (n?.type === 'ai_ask' && /^\/(chat|projects\/|routines\/)/.test(String(n.place || ''))) { if (narrow.value) app.dockOpen = false; return router.push(n.place) }
   if (n?.type === 'workitem' && n.instId) return router.push(`/routines/${encodeURIComponent(n.instId)}`)
   if (/^\/(projects|routines|settings)\//.test(String(n?.url || ''))) return router.push(n.url)
   // a scheduled run's result: the task's own conversation (server lib/missions.js chatUrl)
   if (/^\/chat\/c\/[^/?#]+$/.test(String(n?.url || ''))) return router.push(n.url)
   app.dockOpen = true
 }
+// what this page shows in front, for a push that arrives meanwhile (public/sw.js asks): the open messenger room, the thread in the middle
+// (a phone's Home tab covers the chat: not shown then)
+setViewing(({ room, thread }) => !settings.value && (room ? team.open && team.active === room : !!thread && app.activeId === thread && !mobileHome.value))
 onMounted(async () => {
   window.addEventListener('pgl:open-notification', openNotification)
   // opened by a notification while the app was closed (public/sw.js: …/chat?notify=<the card>)
@@ -211,7 +220,7 @@ onMounted(async () => {
   }
   if (app.me.profile?.place == null && sky.place) api('/profile', { method: 'POST', body: { lat: sky.place.lat, lon: sky.place.lon, place: sky.place.place } })
 })
-onBeforeUnmount(() => { window.removeEventListener('pgl:open-notification', openNotification); clearInterval(poll) })
+onBeforeUnmount(() => { window.removeEventListener('pgl:open-notification', openNotification); clearInterval(poll); setViewing(null) })
 
 // o.refs: files dragged onto the composer for this message (Composer.vue submit — server lib/fileRefs.js)
 async function onSend(text, o = {}) {

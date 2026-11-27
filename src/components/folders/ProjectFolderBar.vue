@@ -10,6 +10,9 @@ import { useApp } from '../../stores/app.js'
 // main, in my name (server lib/fileRefs.js dropInto) — the project's own files go in with 「반영」 instead
 import { dragKind, itemsOf, zoneWords } from '../../fileDrag.js'
 import { folders as F } from '../../foldersApi.js'
+// a project started from a template (server lib/folders/templates.js): its own workspace, never merged whole — 「원본에 반영 요청」 sends
+// the template files it fixed
+import ProposeSheet from './ProposeSheet.vue'
 
 const props = defineProps({ thread: Object })
 const app = useApp()
@@ -17,7 +20,18 @@ const router = useRouter()
 const f = computed(() => props.thread?.folder)
 const v = computed(() => f.value?.variation)
 const live = computed(() => v.value && ['open', 'ready', 'conflicted'].includes(v.value.status))
+const tpl = computed(() => f.value?.template || null)
+const proposing = ref(false)
+function proposed(r) {
+  proposing.value = false
+  app.notice = { text: `템플릿 「${f.value.name}」 주인에게 반영 요청을 보냈어요 · ${r.files.map((p) => p.split('/').pop()).join(', ')} · 결과물은 이 프로젝트에만 남아요` }
+  refresh()
+}
 const state = computed(() => {
+  if (tpl.value) {
+    if (v.value?.status === 'open') return '에이전트가 작업하는 중'
+    return v.value?.ahead ? `전용 작업 공간 · 바뀐 것 ${v.value.ahead}건` : '전용 작업 공간 · 바뀐 것 없음'
+  }
   if (!v.value || !live.value) return '첫 작업 때 변형을 만들어요'
   if (v.value.status === 'open') return '에이전트가 작업하는 중'
   if (v.value.status === 'conflicted') return '반영하다 부딪친 곳이 있어요'
@@ -51,7 +65,21 @@ watch(() => props.thread?.status, (s, was) => { if (was === 'working' && !s) ref
 </script>
 
 <template>
-  <div v-if="f" class="pfb glass-thin" :class="{ over }" data-testid="project-folder-bar" @dragenter="enter" @dragover="move" @dragleave="leave" @drop="drop">
+  <div v-if="f && tpl" class="pfb glass-thin tpl" data-testid="project-folder-bar" data-test="project-workspace-bar">
+    <button class="fold press" :title="`템플릿 ${f.name} 열기`" @click="router.push(`/folders/${f.slug}`)">
+      <FIcon name="folder" :size="17" /><small class="tk">템플릿</small><b data-no-i18n>{{ f.name }}</b>
+    </button>
+    <button class="var ws press" :disabled="!v" data-test="project-workspace-open" title="이 프로젝트의 작업 공간 보기" @click="v && router.push(v.url)">
+      <FIcon name="branch" :size="15" />
+      <small :class="{ busy: v?.status === 'open' }">{{ state }}</small>
+    </button>
+    <button class="merge press" :disabled="!v || v.status === 'open'" data-test="project-propose" title="템플릿에서 온 파일 중 고친 것만 원본에 보내요" @click="proposing = true">
+      <FIcon name="merge" :size="15" />원본에 반영 요청
+    </button>
+    <!-- (on the page itself: a glass bar is a containing block for fixed children — the sheet would sit inside it) -->
+    <Teleport to="body"><ProposeSheet v-if="proposing && v" :slug="f.slug" :vid="v.id" @close="proposing = false" @done="proposed" /></Teleport>
+  </div>
+  <div v-else-if="f" class="pfb glass-thin" :class="{ over }" data-testid="project-folder-bar" @dragenter="enter" @dragover="move" @dragleave="leave" @drop="drop">
     <span v-if="over" class="dropword" data-test="project-folder-drop">{{ zoneWords('folder') }}</span>
     <button class="fold press" :title="`${f.name} 폴더 열기`" @click="router.push(`/folders/${f.slug}`)">
       <FIcon name="folder" :size="17" /><b data-no-i18n>{{ f.name }}</b>
@@ -81,6 +109,11 @@ watch(() => props.thread?.status, (s, was) => { if (was === 'working' && !s) ref
 .merge { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 17px; margin-left: auto; background: #1d1d1f; color: #fff; font-size: 13.5px; font-weight: 500; flex: none; }
 :root[data-theme="dark"] .merge { background: #f5f5f7; color: #1d1d1f; }
 .merge:disabled { opacity: .35; cursor: default; }
+.tk { flex: none; padding: 1px 7px; border-radius: 8px; font-size: 11.5px; font-weight: 600; background: rgba(124 92 214 / .15); color: #6b4fc8; }
+:root[data-theme="dark"] .tk { color: #c3b2ff; }
+.var.ws { text-align: left; border-radius: 12px; padding: 4px 6px; margin: -4px 0; overflow: hidden; }
+.var.ws small { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.var.ws:hover:not(:disabled) { background: var(--button-bg); color: var(--text-primary); }
 /* phone: the folder on its own line, the state and 반영 under it (the branch name only on wide screens) */
 @media (max-width: 560px) {
   .fold { flex-basis: 100%; }

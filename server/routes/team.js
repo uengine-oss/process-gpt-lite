@@ -5,7 +5,7 @@ import express from 'express'
 import { L } from '../lib/lang.js'
 import { getThread, mainThread, addMessage } from '../lib/store.js'
 import { runTurn } from '../lib/agent.js'
-import { TeamError, requireMember, resolveRecipients, rateLimit, isMember } from '../lib/team/access.js'
+import { TeamError, requireMember, resolveRecipients, rateLimit, notOnTeam } from '../lib/team/access.js'
 import * as S from '../lib/team/shares.js'
 import * as W from '../lib/team/worktree.js'
 // the messenger's signed media addresses (no sign-in token in an address — lib/team/mediaLink.js)
@@ -25,6 +25,8 @@ import * as MM from '../lib/mailMention.js'
 import * as MA from '../lib/mailAttachments.js'
 import * as AI from '../lib/team/aiHelp.js'
 import { named } from '../lib/people.js'
+// a request the AI sent for someone (팀원에게 물어 채우기): the asked teammate's reply in words is read as its answer (lib/askTeammate.js)
+import * as AT from '../lib/askTeammate.js'
 
 // does the deepagents this server talks to unfold a room's branch and commit its turns? (/health worktree)
 // (asked again after a minute: deepagents restarts and upgrades without this server)
@@ -49,6 +51,8 @@ export function teamRoutes(auth) {
     M.startRoomFeed()
     // team assist watches every new person-written message in a room (lib/team/assist.js)
     watchRooms()
+    // …and the answer to a request the AI sent for someone, written in Process GPT's own UI
+    AT.watchAnswers()
   }
   const h = (fn) => async (req, res) => {
     try {
@@ -57,7 +61,9 @@ export function teamRoutes(auth) {
       if (out !== undefined && !res.headersSent) res.json(out)
     } catch (e) {
       if (!(e instanceof TeamError)) console.warn('[team]', req.method, req.path, e.message)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError ? e.message : L('처리하지 못했어요.', "I couldn't do that."), ...(e.conflicts ? { conflicts: e.conflicts } : {}) })
+      if (!res.headersSent) res.status(e.status || 500).json({ error: e instanceof TeamError ? e.message : L('처리하지 못했어요.', "I couldn't do that."), ...(e.conflicts ? { conflicts: e.conflicts } : {}),
+        // (a code says which refusal it is: reactions_off — the screen offers no reactions; a 503 from anything in between does not)
+        ...(e instanceof TeamError && e.code ? { code: e.code } : {}) })
     }
   }
   const text = (v, n = 4000) => String(v ?? '').trim().slice(0, n)
@@ -110,6 +116,12 @@ export function teamRoutes(auth) {
     // streamed from storage, a part when the browser asks for one (Range): the messenger plays a sound or a video from here and
     // shows a picture (src/components/MediaPreview.vue) — a seek, and Safari at all, need 206
     const f = await S.stream(req.user, req.params.id, req.headers.range)
+    // open=1: the person opened it (the viewer, its 「새 창에서 열기」) — their open is recorded (only on their own row as its recipient;
+    // its sender opening it records nothing). The room's small preview of a picture · a video's first frame asks without it: shown, not opened.
+    // A player asks in parts (Range): only the request from the start counts — a seek or the next part is the same open. Written
+    // alongside, not before the file goes out.
+    const fromStart = !req.headers.range || /^bytes=0-/i.test(String(req.headers.range).trim())
+    if (req.query.open === '1' && f.res.ok && fromStart) S.recordOpen(req.user, [req.params.id]).catch((e) => console.warn('[team] opened', e.message))
     res.status(f.res.status)
     for (const k of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) if (f.res.headers.get(k)) res.setHeader(k, f.res.headers.get(k))
     res.setHeader('Content-Type', f.type)
@@ -131,8 +143,14 @@ export function teamRoutes(auth) {
     if (!link) throw new TeamError(503, L('지금은 주소를 만들 수 없어요.', "I can't make the address right now."))
     return { link }
   }))
-  // the file card to open in the editor: my original (sender) or my own copy (recipient)
+  // the file card to open in the editor: my original (sender) or my own copy (recipient — my open is recorded)
   r.post('/team/shares/:id/open', auth, h(async (req) => ({ message: await S.openCopy(req.user, req.params.id) })))
+  // I opened a share where this server does not see it (my copy's card in my work conversation, a sound · a video played in the room)
+  r.post('/team/shares/:id/opened', auth, h((req) => S.markOpened(req.user, req.params.id)))
+  // my share messages in a room, as their sender sees them: for each person they went to, opened or not (first · last), and what
+  // their copy changed — ?ids=<message ids> (the room's messages on my screen). Nobody else is told who opened what.
+  // (→ {receipts, asked}: asked — the ids looked at, the first 100; the screen asks for more in parts of 100)
+  r.get('/team/threads/:id/receipts', auth, h((req) => S.receipts(req.user, String(req.params.id), String(req.query.ids || '').split(',').filter(Boolean))))
   // the sender's view of the branches a share message started: what each recipient changed, when, by whom
   // (the sender, or a recipient of the same batch; anyone else gets 403)
   r.get('/team/messages/:id/branches', auth, h(async (req) => {
@@ -192,7 +210,9 @@ export function teamRoutes(auth) {
   r.post('/team/threads', auth, h(async (req) => {
     const ids = [...new Set((req.body.members || []).map(String))].filter((id) => id !== req.user.id)
     if (!ids.length) throw new TeamError(400, L('대화할 팀원을 골라 주세요.', 'Please choose the teammates to talk with.'))
-    for (const id of ids) if (!(await isMember(id))) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
+    // (no limit on a group's size — only on one request; its people are checked below in one query)
+    if (ids.length > M.PER_REQUEST) throw new TeamError(400, L(`한 번에 ${M.PER_REQUEST}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.`, `Up to ${M.PER_REQUEST} people at a time. Invite the rest once the room is made.`))
+    if ((await notOnTeam(ids)).length) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
     const t = ids.length === 1 ? await M.directThread(req.user, ids[0]) : await M.groupThread(req.user, ids, text(req.body.title, 60))
     return { id: t.id }
   }))
@@ -207,7 +227,7 @@ export function teamRoutes(auth) {
   // a file from the computer (dropped, pasted or picked in the messenger): stored and made a card of mine, then sent like any card
   // (lib/team/uploads.js). The body is the file itself; its name and type in X-File-Name / X-File-Type (the body goes as
   // application/octet-stream, so the JSON parser in front never takes a .json file)
-  r.post('/team/uploads', express.raw({ type: () => true, limit: '50mb' }), auth, h(async (req) => {
+  r.post('/team/uploads', auth, express.raw({ type: () => true, limit: '50mb' }), h(async (req) => {
     const type = String(req.headers['x-file-type'] || '').slice(0, 120)
     let name = 'file'
     try { name = decodeURIComponent(String(req.headers['x-file-name'] || 'file')) } catch { /* the raw header */ }
@@ -222,12 +242,15 @@ export function teamRoutes(auth) {
     const ai = req.body.ai === true
     if (!body && !files.length && !refs.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     rateLimit(req.user.id)
-    const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 8) : []
+    // (people named with @ — a room has no size limit, the names a message carries are bounded)
+    const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 50) : []
     // (a mail mention — lib/mailMention.js — is 'mailref' when it is all the message carries)
     const kind = files.length ? 'share' : refs.length ? (refs.every((x) => x.type === 'mail' || x.type === 'mailatt') ? 'mailref' : 'fileref') : 'text'
     const m = await M.post(req.user, req.params.id, { kind, body, refs, ai, mentions,
       attach: files.length ? (rs, mid, rid) => S.grant(req.user, rs, files, { note: body, dmMessageId: mid, roomId: rid }) : null })
     if (ai) AI.answer(req.user, req.params.id, m).catch((e) => console.warn('[ai-help]', e.message))
+    // a reply to a request the AI sent me for someone (lib/askTeammate.js): the judge reads whether it is the answer — after the send
+    else if (kind === 'text') AT.onRoomMessage(req.user, req.params.id, m).catch((e) => console.warn('[ask-teammate] reply', e.message))
     return m
   }))
   // a file mention: open it (a card of mine for the office panel, or where it is in its folder) — the newest version with latest
@@ -248,7 +271,29 @@ export function teamRoutes(auth) {
     if (!row || (!member && !ownerOff)) throw new TeamError(404, L('메시지를 찾지 못했어요.', "I couldn't find that message."))
     // (an attachment of a mail — lib/mailAttachments.js — is shared the same way, that file only)
     const updated = await (ref?.type === 'mailatt' ? MA.share : MM.share)(req.user, row, index, req.body.on !== false).catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('바꾸지 못했어요.', "I couldn't change it.")) })
-    await M.deliver(updated.uuid)
+    await M.deliver(updated.uuid, { force: true, update: true })
+    // the room's other mentions of the same mail (or the same attachment) follow at once: what each one shows is the owner's card's word
+    // for this room (2026-11-27 recording: an older mention kept 「본문 보기」 until a reload)
+    // (each one is rewritten as the card now says — a row sent before unchanged is not sent again — newest first, at most 50)
+    const same = ref?.type === 'mailatt' ? [{ type: 'mailatt', actionId: ref.actionId, i: ref.i }] : [{ type: 'mail', actionId: ref?.actionId }]
+    const on = req.body.on !== false
+    const others = await q(`select uuid, messages from chats where id=$1 and tenant_id=$2 and uuid <> $3 and messages->'pgpt'->'refs' @> $4::jsonb
+                            order by coalesce(public.pro_chat_ts(messages), now()) desc limit 50`, [row.id, config.tenantId, row.uuid, JSON.stringify(same)])
+      .catch((e) => { console.warn('[team] same mentions', e.message); return [] })
+    for (const o of others) {
+      const refs = o.messages?.pgpt?.refs || []
+      let changed = false
+      for (const [k, r] of refs.entries()) {
+        if (r?.type !== ref.type || String(r.actionId) !== String(ref.actionId) || String(r.owner) !== String(req.user.id)) continue
+        if (ref.type === 'mailatt' && Number(r.i) !== Number(ref.i)) continue
+        const ok = await q(`update chats set messages = jsonb_set(messages, $2::text[], $3::jsonb) where uuid=$1 and tenant_id=$4`,
+          [o.uuid, ['pgpt', 'refs', String(k)], JSON.stringify({ ...r, share: on ? 'room' : null, sharedAt: on ? new Date().toISOString() : null }), config.tenantId])
+          .then(() => true, (e) => { console.warn('[team] same mention', e.message); return false })
+        changed = changed || ok
+      }
+      // (sent even when the stored words did not change — what each one shows is the owner's card; an update, not news)
+      if (changed) await M.deliver(o.uuid, { force: true, update: true })
+    }
     return member ? M.message(req.user, updated.uuid) : { id: updated.uuid, refs: [], left: true }
   }))
   assistRoutes(r, auth, h)
@@ -270,6 +315,8 @@ export function teamRoutes(auth) {
       return gatherAndContinue(req, m, rows[0].source_room_id)
     }
     const mine = rows.find((x) => x.recipient_id === req.user.id)
+    // picking up what was sent is opening it: my own rows only (their sender's card says 「열어 봄」)
+    await S.recordOpen(req.user, shareIds).catch((e) => console.warn('[team] opened', e.message))
     const shown = L(`${m.sender.name}님이 보낸 일을 이어서 할게요${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`, `Continuing the work ${m.sender.name} sent${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`)
     const context = L([`(팀원 ${m.sender.name}님이 ${m.kind === 'share' ? '산출물을 공유했어요' : '이 일로 저를 언급했어요'}. 그 맥락에서 이어서 작업해 주세요.)`,
       m.context?.title ? `대화: ${m.context.title}` : '', ...(m.context?.excerpt?.length ? ['— 대화 발췌 —', ...m.context.excerpt] : []),
@@ -285,7 +332,8 @@ export function teamRoutes(auth) {
       files = await S.copiesFor(req.user, shareIds)
       threadId = (await mainThread(req.user.id)).id
     }
-    runTurn({ user: req.user, session: req.session, threadId, text: shown, context, files })
+    // (composed here from a teammate's message: the room's judge does not take it as this person's rule or plan — review PR #105 #8)
+    runTurn({ user: req.user, session: req.session, threadId, text: shown, context, files, composed: true })
       .catch((e) => console.warn('[team continue]', e.message))
     M.markRead(req.user, m.threadId).catch(() => {})
     return { threadId, files: files.length, branch: !!mine }
@@ -314,7 +362,7 @@ export function teamRoutes(auth) {
     }
     const shown = `팀원들이 돌려준 결과를 모아 이어서 할게요${m.body ? `: "${m.body.slice(0, 200)}"` : ''}`
     const files = (await agentWorktree()) ? [] : await S.branchAttachments(req.user, W.roomOf(threadId))
-    runTurn({ user: req.user, session: req.session, threadId, text: shown, context: `(모은 갈래 ${g.merged}개의 결과가 작업 폴더에 있어요.)`, files })
+    runTurn({ user: req.user, session: req.session, threadId, text: shown, context: `(모은 갈래 ${g.merged}개의 결과가 작업 폴더에 있어요.)`, files, composed: true })
       .catch((e) => console.warn('[team gather]', e.message))
     return { threadId, merged: g.merged, branch: true }
   }

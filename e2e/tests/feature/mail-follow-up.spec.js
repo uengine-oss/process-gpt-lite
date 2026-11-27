@@ -148,7 +148,7 @@ test.describe('메일에 답장만 하지 않는다 — 할 일 줄 · 이 회�
     const { page, u, a, ran } = await setup(pageAs, db, 'mf-sheet')
     const sheet = await openSheet(page, a)
     const row = sheet.locator('[data-test="follow-row"]')
-    await expect(row.locator('[data-test^="follow-"][data-do]')).toHaveText(['이 회사 알아보기', '채팅에서 이어서', '회의 잡기', '제안서 초안'])
+    await expect(row.locator('[data-test^="follow-"][data-do]')).toHaveText(['이 회사 알아보기', '대화방에 공유', '채팅에서 이어서', '회의 잡기', '제안서 초안'])
     // the reply is still the main section, under the row
     await expect(sheet.locator('[data-test="mail-body"]')).toHaveValue(DRAFT.body)
     const [rb, rr] = [await row.boundingBox(), await sheet.locator('[data-test="mail-reply"]').boundingBox()]
@@ -312,7 +312,9 @@ test.describe('메일에 답장만 하지 않는다 — 할 일 줄 · 이 회�
       await drag(page, homeCard(page, a), conv)
       const chip = page.locator('[data-test="msg-ref-chip"][data-kind="mail"]')
       await expect(chip).toContainText(MAIL.subject)
-      await expect(chip.locator('[data-test="msg-mail-body"] input')).not.toBeChecked()
+      // (on unless turned off — 2026-11-27 「메일 본문 내용 공유는 기본값임」: turned off here, so the room gets the summary only)
+      await expect(chip.locator('[data-test="msg-mail-body"] input')).toBeChecked()
+      await chip.locator('[data-test="msg-mail-body"] input').uncheck()
       await page.locator('.ms .cmp textarea').fill('하늘데이터에서 온 협업 제안이에요. 같이 봐 주세요')
       await shot(page, 'f-mf-05b-mail-chip')
       await page.locator('[data-test="msg-send"]').click()
@@ -390,32 +392,5 @@ test.describe('메일에 답장만 하지 않는다 — 할 일 줄 · 이 회�
       await cleanup(db, u)
     })
   }
-
-  test('F-MF-07 「동료에게 공유」: 메신저가 열리고 메일이 대화를 기다림 → 대화를 고르면 메일 칩', async ({ pageAs, as, db }) => {
-    const { page, u, a } = await setup(pageAs, db, 'mf-share')
-    // the judge picks 동료에게 공유 for this mail (kept on the card as the judge would)
-    await db.q(`update pro_actions set source = source || jsonb_build_object('follow', $2::jsonb) where id=$1`, [a.id, { suggest: [{ key: 'share', p: 0.6 }], atts: [], read: { by: 'logprob' } }])
-    const mate = await as('mf-mate')
-    await mate.get('/team')
-    await u.get('/team')
-    const title = `메일 공유 ${uniq('t').slice(-4)}`
-    const t = await u.post('/team/threads', { members: [mate.id], title })
-    const mineTitle = await roomTitle(u, t.body.id)
-    try {
-      const sheet = await openSheet(page, a)
-      await sheet.locator('[data-test="follow-share"]').click()
-      await expect(sheet.locator('[data-test="follow-say"]')).toContainText('동료에게는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보이고')
-      await sheet.locator('[data-test="follow-go"]').click()
-      await expect(page.locator('[data-test="msg-pending-mail"]')).toContainText(MAIL.subject)
-      await shot(page, 'f-mf-07a-share-pending')
-      await page.locator('.ms .th').filter({ hasText: mineTitle }).first().click()
-      await expect(page.locator('[data-test="msg-ref-chip"][data-kind="mail"]')).toContainText(MAIL.subject)
-      await shot(page, 'f-mf-07b-share-chip')
-      expect(page.errors).toEqual([])
-    } finally {
-      await db.q('delete from chats where id=$1', [t.body.id]).catch(() => {})
-      await db.q('delete from chat_rooms where id=$1', [t.body.id]).catch(() => {})
-      await cleanup(db, u)
-    }
-  })
+  // (F-MF-07 「동료에게 공유」 → 「대화방에 공유」: the sheet's own room picker — e2e/tests/feature/mail-room-share.spec.js F-MR-01~04)
 })

@@ -1,5 +1,7 @@
 // Thin client for the pgpt-pro server (proxied at /api by Vite).
+import { forgetAllUnsent } from './sendQueue.js'
 import { BASE } from './base.js'
+import { forgetPlaces } from './shareTarget.js'
 
 const KEY = 'pgpt-pro-session'
 
@@ -8,12 +10,16 @@ export const auth = {
   set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)) } catch { /* ignore */ } },
   clear() { try { localStorage.removeItem(KEY) } catch { /* ignore */ } },
 }
+// who is signed in here: the session token's subject (the person's id) — what a kept place, a waiting share and a messenger draft
+// belong to (src/shareTarget.js), read without asking the server
+export const sessionUser = () => sub(auth.get()?.session?.access_token || '') || null
 
 // Behind the ProcessGPT gateway (<tenant>.process-gpt.io/lite) the person is already signed in to
 // ProcessGPT, which keeps its Supabase tokens in access_token/refresh_token cookies on .process-gpt.io
 // (the same handoff the /wms app uses). Take them when there is no session here or it belongs to
 // someone else; a pair that was already refused is not taken again (no sign-in loop).
 const HOST_FAILED = 'pgpt-pro-host-session-failed'
+const storeOf = (k) => { try { return window[k] } catch { return null } }
 const cookie = (k) => decodeURIComponent((document.cookie.match(new RegExp(`(?:^|; )${k}=([^;]*)`)) || [])[1] || '')
 const sub = (jwt) => { try { return JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub } catch { return null } }
 export function adoptHostSession() {
@@ -22,6 +28,8 @@ export function adoptHostSession() {
   try { if (sessionStorage.getItem(HOST_FAILED) === refresh_token) return false } catch { /* ignore */ }
   const mine = auth.get()?.session?.access_token
   if (mine && sub(mine) === sub(access_token)) return false
+  // (another person's session from here on: this device forgets the last one's places, waiting share and unsent words)
+  if (mine) { forgetPlaces(storeOf('localStorage'), storeOf('sessionStorage')); forgetAllUnsent(storeOf('localStorage')) }
   auth.set({ session: { access_token, refresh_token }, host: true })
   return true
 }
@@ -63,9 +71,10 @@ export async function freshToken() {
 
 // A file attached in chat, sent as-is (no JSON, no base64) — the server keeps it where the agent
 // can read it and returns {name, size, type, path, url}.
-export async function uploadAttachment(file) {
+// signal: an AbortSignal — the chip taken away (a share put somewhere else) stops the upload
+export async function uploadAttachment(file, { signal } = {}) {
   const go = () => fetch(BASE + '/api/attachments', {
-    method: 'POST', body: file,
+    method: 'POST', body: file, signal,
     headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` },
   })
   let r = await go()
@@ -108,9 +117,10 @@ export function uploadTeamFile(file, onProgress = () => {}) {
 // an HTML page where an API answer was expected (the media type, or a body that is a document)
 export const htmlPage = (r, text) => /\bhtml\b/i.test(r.headers?.get?.('content-type') || '') || /^\s*<(!doctype|html)\b/i.test(String(text || ''))
 
-export async function api(path, { method = 'GET', body, raw } = {}) {
+export async function api(path, { method = 'GET', body, raw, signal } = {}) {
   const go = () => fetch(`${BASE}/api${path}`, {
     method,
+    ...(signal ? { signal } : {}),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.get()?.session?.access_token || ''}` },
     body: body ? JSON.stringify(body) : undefined,
   })
@@ -135,7 +145,7 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
   if (r.ok && r.headers.get('X-Long-Json')) {
     const j = await r.json()
     if (j && typeof j === 'object' && !Array.isArray(j) && j.error && Number(j.status) >= 400) {
-      throw Object.assign(new Error(String(j.error).slice(0, 300)), { status: Number(j.status), ...(j.conflicts ? { conflicts: j.conflicts } : {}) })
+      throw Object.assign(new Error(String(j.error).slice(0, 300)), { status: Number(j.status), ...(j.conflicts ? { conflicts: j.conflicts } : {}), ...(j.code ? { code: j.code } : {}) })
     }
     return j
   }
@@ -153,13 +163,33 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
 }
 
 // POST that streams SSE events back: onEvent(type, data)
-export async function stream(path, body, onEvent) {
-  const r = await api(path, { method: 'POST', body, raw: true })
+// POST that streams SSE events back: onEvent(type, data). A failure says whether the server took the request (accepted):
+//   false — no answer at all (no connection, aborted), an error status, or a 200 that is not an event stream (a proxy's page in front):
+//           the message was not taken and may be sent again (src/sendQueue.js)
+//   true  — the stream broke after the server took it: its answer still arrives as live events — never sent again
+// onAccepted() is called the moment the server has taken it (its event stream began), long before the answer is written.
+// Before 2026-11-27 an error status was read as an empty stream and the message vanished without a word (recording 07:03).
+export async function stream(path, body, onEvent, { onAccepted, signal } = {}) {
+  let r
+  try { r = await api(path, { method: 'POST', body, raw: true, signal }) } catch (e) {
+    throw Object.assign(e, { accepted: false, ...(e?.name === 'AbortError' ? { aborted: true } : {}), ...(e?.message === 'unauthorized' ? { unauthorized: true } : {}) })
+  }
+  const sse = /text\/event-stream/i.test(r.headers.get('content-type') || '')
+  if (!r.ok || !sse) {
+    const t = await r.text().catch(() => '')
+    let m = t
+    try { m = JSON.parse(t).error || t } catch { /* plain text */ }
+    if (m === t && (!t || htmlPage(r, t))) m = `서버가 응답하지 못했어요 (${r.status}).`
+    throw Object.assign(new Error(String(m).slice(0, 300)), { status: r.ok ? 0 : r.status, accepted: false, ...(r.ok ? { proxyPage: true } : {}) })
+  }
+  onAccepted?.()
   const reader = r.body.getReader()
   const dec = new TextDecoder()
   let buf = ''
   for (;;) {
-    const { done, value } = await reader.read()
+    let got
+    try { got = await reader.read() } catch (e) { throw Object.assign(e, { accepted: true }) }
+    const { done, value } = got
     if (done) break
     buf += dec.decode(value, { stream: true })
     const chunks = buf.split('\n\n')
@@ -174,7 +204,9 @@ export async function stream(path, body, onEvent) {
 
 const EVENT_TYPES = ['message', 'thread', 'action', 'panel', 'panel.deleted', 'panelapp', 'panelapp.rows', 'panelapp.deleted', 'panelapp.changed', 'status', 'browser.frame', 'browser.click', 'process', 'mission', 'notifications', 'team', 'meeting', 'local_presence',
   // a chat turn while it runs: its plan, stage, to-dos, steps and notes (server lib/turnPlan.js — the plan card and the progress panel)
-  'turn.start', 'turn.plan', 'turn.stage', 'turn.todos', 'turn.step', 'turn.note', 'turn.call', 'turn.end']
+  'turn.start', 'turn.plan', 'turn.stage', 'turn.todos', 'turn.step', 'turn.note', 'turn.call', 'turn.end',
+  // a project's plan changed (server lib/projectNote.js — an automatic update, 계획에 넣기, an undo): its chip and sheet load it again
+  'projectNote']
 // Live events over SSE; if the stream never says hello (a proxy in front holding it back, as
 // Cloudflare quick tunnels do), the same events come by long polling instead.
 // One stream per page, however many ask for it: the chat (app.js boot) and the team messenger (stores/team.js boot — a messenger

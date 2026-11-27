@@ -7,7 +7,8 @@
 //   - D-AT-00   the server reports agentTools (server/lib/agentTools.js); an older server is a failure, not a pass
 //   - D-AT-<app> every ArtCraft app whose web editor and CLI are installed (/api/config craft: web && cli) is wired
 //   - D-AT-office the IeumOffice editor is served (/office/sheets/ is the editor page) → its live-editing tools are wired
-//   - D-AT-folders · panelapps · improve: built in everywhere → wired
+//   - D-AT-folders · panelapps · improve · team · mail: built in everywhere → wired (team: ask_teammate, mcp/team.js; mail: 「내 계정으로 보내기」,
+//     mcp/mail.js — the production common list needs their pgpt-team · pgpt-mail lines)
 // agentToolsVia labels what made each one true (tenant · common) and what stops one: tenant-overrides-common-with-other-url (the
 // company's own entry of the built-in name points elsewhere and replaces the common one), hub-filtered (an mcp-hub that does not
 // have it; local development only) — labels only, no addresses.
@@ -68,7 +69,7 @@ test('D-AT-office 이음오피스 편집기가 열리는 설치는 그 편집 �
   expectWired('office', cfg.agentTools?.office, cfg.agentToolsVia?.office)
 })
 
-for (const name of ['folders', 'panelapps', 'improve']) {
+for (const name of ['folders', 'panelapps', 'improve', 'team', 'mail']) {
   test(`D-AT-${name} 기본 도구 ${name} 는 늘 이어져 있다`, () => {
     expectWired(name, cfg.agentTools?.[name], cfg.agentToolsVia?.[name])
   })

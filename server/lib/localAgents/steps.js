@@ -98,7 +98,7 @@ export async function prepare(job, link = null) {
   const W = await import('../mailWork.js')
   const S = await import('../folders/service.js')
   const G = await import('../folders/git.js')
-  const { mintToken } = await import('../folders/gitHttp.js')
+  const { mintToken, runBranchFor, runPushFor } = await import('../folders/gitHttp.js')
   const inst = job.proc_inst_id
   const [i] = await q('select proc_inst_name from bpm_proc_inst where proc_inst_id=$1', [inst]).catch(() => [])
   const instName = i?.proc_inst_name || inst
@@ -122,14 +122,16 @@ export async function prepare(job, link = null) {
   const prompt = await withLang(lang, () => promptFor({ job, act, instName, person, ctx, out, skills }))
   // the run was going when its desktop app went away (a restart): the same CLI session goes on, on the same run branch
   const resume = job.session_id && job.started_at && job.run_branch ? { sessionId: job.session_id } : null
+  // (this run's own branch — pgpt-agent/local/<person>/<job>-…, gitHttp.js; a resumed run keeps the one it had, an old name too)
+  const branch = runBranchFor(job, resume ? job.run_branch : null)
   return {
     todoId: String(job.todo_id), instId: inst, instName, activity: job.activity_name, agent: job.agent, label: A.LABEL[job.agent] || job.agent, mode: job.mode,
     prompt, outDir: out, resultFile: dirs.result, person, lang, skills,
     git: {
       path: `/api/local-git/${folder.id}.git`, url: gitPublic() ? `${gitPublic()}/api/local-git/${folder.id}.git` : null,
       // (pushes only to this job's own branches; read and push only while this job is this device's — devices.js gitAccess)
-      token: mintToken({ tenant: T(), folderId: folder.id, push: `pgpt-agent/local-${String(job.id).slice(0, 8)}-`, ...deviceScope(job, link) }),
-      line, base, branch: resume ? job.run_branch : `pgpt-agent/local-${String(job.id).slice(0, 8)}-${Date.now().toString(36)}`,
+      token: mintToken({ tenant: T(), folderId: folder.id, push: runPushFor(job, branch), ...deviceScope(job, link) }),
+      line, base, branch,
       folder: { id: folder.id, slug: folder.slug, name: folder.name },
     },
     ...(resume ? { resume } : {}),
@@ -202,7 +204,7 @@ export async function complete(job, result) {
   const folder = job.folder_id ? await S.folderById(job.folder_id) : null
   if (folder && result.branch && result.pushed) {
     // (only this job's own branch — what its token could push; never another run's branch the desktop names)
-    if (!result.branch.startsWith(`pgpt-agent/local-${String(job.id).slice(0, 8)}-`) || !(await G.branchExists(folder.repo_path, result.branch))) throw new Error(`the branch ${result.branch} did not arrive`)
+    if (!(await import('../folders/gitHttp.js')).isRunOf(job, result.branch) || !(await G.branchExists(folder.repo_path, result.branch))) throw new Error(`the branch ${result.branch} did not arrive`)
     const bhead = await G.head(folder.repo_path, `refs/heads/${result.branch}`)
     ;[v] = await q(`insert into pro_folder_variations (folder_id, branch, title, kind, status, base_commit, head_commit, holder_type, holder_id, holder_name, source)
                     values ($1,$2,$3,'run','ready',$4,$5,'agent',$6,$7,$8) on conflict (folder_id, branch) do update set head_commit=$5 returning *`,
@@ -417,11 +419,11 @@ export async function runningJobOf(instId) {
   const [j] = await q(`select * from pro_local_jobs where tenant_id=$1 and proc_inst_id=$2 and state in ('running','offered') order by created_at desc limit 1`, [T(), String(instId)])
   return j || null
 }
-export async function steerFromThread(user, thread, text) {
+export async function steerFromThread(user, thread, text, { clientId = null } = {}) {
   if (!thread || thread.kind !== 'process' || !thread.ref || !String(text || '').trim()) return null
   const job = await runningJobOf(thread.ref)
   if (!job || !(await maySteer(user, job))) return null
-  await addMessage(user.id, thread.id, 'user', 'text', { text: String(text).slice(0, 4000) })
+  await addMessage(user.id, thread.id, 'user', 'text', { text: String(text).slice(0, 4000), ...(clientId ? { clientId: String(clientId) } : {}) })
   const r = await J.steer(job, user, text)
   const a = LABEL(job.agent)
   await addMessage(user.id, thread.id, 'agent', 'chip', { icon: 'send', localSteer: r.steer.id,

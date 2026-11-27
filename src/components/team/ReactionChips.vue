@@ -5,6 +5,7 @@
 //   chips: [{key, count, mine, people: [{id, name}]}] · can: my reactions may change here · mine: the bubble is mine (the row sits right)
 import { ref, watch, onBeforeUnmount } from 'vue'
 import { reactionOf, whoLine } from '../../roomReactions.js'
+import Icon from '../Icon.vue'
 
 const props = defineProps({ chips: { type: Array, default: () => [] }, can: Boolean, mine: Boolean })
 const emit = defineEmits(['toggle'])
@@ -57,10 +58,10 @@ const chipOf = (key) => props.chips.find((c) => c.key === key)
       :aria-pressed="can ? c.mine : undefined" :aria-label="`반응 ${reactionOf(c.key)?.label || c.key} ${c.count}개`"
       @pointerdown="down($event, c.key)" @pointermove="move" @pointerup="(e) => e.pointerType !== 'mouse' && clear()" @pointercancel="clear" @pointerenter="enter($event, c.key)" @pointerleave="leave"
       @click="tap($event, c.key)" @contextmenu.prevent>
-      <span class="em" aria-hidden="true">{{ reactionOf(c.key)?.emoji }}</span><b>{{ c.count }}</b>
+      <span class="em" aria-hidden="true"><Icon :name="reactionOf(c.key)?.icon" :size="15" /></span><b>{{ c.count }}</b>
     </button>
     <div v-if="who && chipOf(who.key)" class="who" :class="{ below: who.below }" role="tooltip" data-test="rx-who">
-      <b><span class="em" aria-hidden="true">{{ reactionOf(who.key)?.emoji }}</span> <span>{{ reactionOf(who.key)?.label }}</span></b><span data-no-i18n>{{ whoLine(chipOf(who.key)) }}</span>
+      <b><span class="em" aria-hidden="true"><Icon :name="reactionOf(who.key)?.icon" :size="13" /></span> <span>{{ reactionOf(who.key)?.label }}</span></b><span data-no-i18n>{{ whoLine(chipOf(who.key)) }}</span>
     </div>
   </div>
 </template>
@@ -71,8 +72,9 @@ const chipOf = (key) => props.chips.find((c) => c.key === key)
 .rxc { display: inline-flex; align-items: center; gap: 3px; height: 26px; padding: 0 9px 0 7px; border-radius: 13px; font-size: 12.5px; color: var(--text-secondary);
   background: var(--regular-solid-bg); border: 1px solid rgba(127, 127, 127, .22); box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-/* (an emoji takes its text colour's alpha: drawn with an opaque one) */
-.rxc .em, .who .em { font-size: 14px; line-height: 1; color: var(--text-primary); }
+/* the app's own line icon in the chip's colour: blue when it is mine, like its count */
+.rxc .em, .who .em { display: inline-grid; place-items: center; line-height: 1; }
+.who .em { vertical-align: -2px; }
 .rxc b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .rxc.on { color: #1a56c4; background: rgba(42, 120, 214, .12); border-color: rgba(42, 120, 214, .55); }
 :root:not([data-theme="light"]) .rxc.on { color: #a1d0ff; background: rgba(42, 120, 214, .26); border-color: rgba(120, 180, 255, .55); }

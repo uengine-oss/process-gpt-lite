@@ -62,6 +62,12 @@ const how = computed(() => {
   return ''
 })
 
+// Android: an installed web app is offered in other apps' 「공유」 (the manifest's share_target — src/shareInbox.js). One line where the
+// install is explained (Home's card, settings › 앱 설치), not on the sign-in screen; iOS has no such thing (Safari has no Web Share Target).
+const shareHint = computed(() => env.value.os === 'android' && props.place !== 'login' && ['prompt', 'menu'].includes(kind.value))
+// …and the installed app gets it only when Chrome refreshes its copy (it may take a while): adding it to Home again does it at once
+const shareAgain = computed(() => shareHint.value && already.value && sheet.value)
+
 const busy = ref(false)
 async function go() {
   busy.value = true
@@ -132,6 +138,10 @@ const later = (how) => { dismiss(how) }
       </ol>
 
       <p v-if="how" class="how">{{ how }}</p>
+      <p v-if="shareHint" class="note share" data-test="install-share-hint">
+        <span class="g" aria-hidden="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="17.5" cy="5.5" r="2.5" /><circle cx="6.5" cy="12" r="2.5" /><circle cx="17.5" cy="18.5" r="2.5" /><path d="M8.7 10.8l6.6-4M8.7 13.2l6.6 4" /></svg></span>
+        <span>휴대폰 홈 화면에 추가하면 다른 앱의 「공유」에 Process GPT 가 나타나요.<template v-if="shareAgain"> 보이지 않으면 홈 화면의 아이콘을 지우고 다시 추가해 주세요.</template></span>
+      </p>
 
       <div class="row">
         <button v-if="kind === 'prompt'" class="go press" :disabled="busy" data-test="install-go" @click="go">앱 설치</button>
@@ -166,6 +176,8 @@ const later = (how) => { dismiss(how) }
 .path .g { display: grid; place-items: center; color: var(--color-info); }
 .path .sep { color: var(--text-tertiary); font-size: 14px; }
 .note { margin: -4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); word-break: keep-all; }
+.note.share { margin: 0; display: flex; align-items: flex-start; gap: 8px; }
+.note.share .g { flex: none; margin-top: 1px; color: var(--color-info); display: grid; place-items: center; }
 .how { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text-primary); word-break: keep-all; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .go { height: 36px; padding: 0 16px; border-radius: 18px; background: var(--ink); color: var(--ink-inverse); font-size: 14px; font-weight: 600;

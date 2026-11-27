@@ -1,3 +1,4 @@
+import * as SO from './lib/sendOnce.js'
 import express from 'express'
 import { apiHeaders } from './lib/apiHeaders.js'
 import nodeFs from 'node:fs'
@@ -10,6 +11,7 @@ import { subscribe, emit, poll, lastSeq } from './lib/bus.js'
 import { mainThread, getThread, addMessage, setThreadStatus } from './lib/store.js'
 import { runTurn, delegate, stopTurns, onceTurn } from './lib/agent.js'
 import { turnRoutes } from './lib/turnPlan.js'
+import { projectNoteRoutes } from './routes/projectNote.js'
 import { ruleOf, removeRule, settleRuleConfirm } from './lib/roomRules.js'
 import * as vault from './lib/vault.js'
 import * as browser from './lib/browser.js'
@@ -63,8 +65,10 @@ import { startPlanSync } from './lib/plans/apply.js'
 import { startMeter } from './lib/plans/meter.js'
 import { telegramRoutes } from './routes/telegram.js'
 import { mailReplyRoutes } from './routes/mailReply.js'
+import { mailOutRoutes } from './routes/mailOut.js'
 import { mailAttachmentRoutes } from './routes/mailAttachments.js'
 import { savePrivateCard, saveKindOf } from './lib/mailAttachments.js'
+import { keepVersion, saveCardAs, savedCopyOk } from './lib/cardCopies.js'
 import { linkPreviewRoutes } from './routes/linkPreview.js'
 import { enabledFor as linkPreviewOn } from './lib/linkPreview.js'
 import { backgroundRoutes } from './routes/background.js'
@@ -73,11 +77,16 @@ import { signedIn, forget as forgetPerson } from './lib/people.js'
 import { enabledFor as backgroundOn } from './lib/background/service.js'
 import { isReplyCard } from './lib/mailReply.js'
 import { mountImprove } from './mcp/improve.js'
+import { mountMail } from './mcp/mail.js'
 import { startConstraintSweep } from './lib/improve/service.js'
 import { startStepRetry } from './lib/stepRetry.js'
 import { openFileCard } from './lib/fileCards.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
+// ask_teammate: the person is asked whether to ask a teammate on the messenger (mcp/team.js · lib/askTeammate.js · routes/askTeammate.js)
+import { mountTeam } from './mcp/team.js'
+import { askTeammateRoutes } from './routes/askTeammate.js'
+import * as askTeammate from './lib/askTeammate.js'
 import { startFolderSteps } from './lib/folders/work.js'
 import { gitRoutes } from './lib/folders/gitHttp.js'
 import { afterPush as afterSyncPush } from './lib/folders/sources.js'
@@ -90,11 +99,14 @@ import { ensureResultLine, fireSchedule, runMission, listMissionRuns, createMiss
 import { getSkill, deleteSkill } from './lib/skills.js'
 import { startSystemRegistry, syncSystemRegistry } from './lib/systems.js'
 import * as notify from './lib/notify.js'
+// the AI waiting on the person, as a notice and a push whose buttons answer it (lib/askPerson.js)
+import * as ASK from './lib/askPerson.js'
+import { running as turnsRunning } from './lib/turns.js'
 import * as team from './lib/team.js'
 import * as workroom from './lib/workroom.js'
 import { roomSeat } from './lib/folders/rooms.js'
 import { startSeatSweep } from './lib/folders/seats.js'
-import { saveAttachment } from './lib/attachments.js'
+import { saveAttachment, pageFiles } from './lib/attachments.js'
 import { openStream } from './lib/sse.js'
 import { resolveLang, withLang, rememberLang, saveLang, L, isEn, asUser } from './lib/lang.js'
 import * as gconnect from './lib/googleConnect.js'
@@ -512,11 +524,32 @@ app.post('/api/mail/connect', auth, async (req, res) => {
   }).catch((e) => console.warn('[ontology] onboarding', e.message))
 })
 // Web Push: the server's public key, and this browser's subscription (lib/webpush.js, public/sw.js)
-app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: webpush.vapidKeys().publicKey, stats: webpush.stats }))
+// (the key alone — what push services answered stays in this server's log: review 11-26, PR #89)
+app.get('/api/push/key', auth, (req, res) => res.json({ publicKey: webpush.vapidKeys().publicKey }))
 app.post('/api/push/subscriptions', auth, async (req, res) => {
   try { res.json(await webpush.subscribe(req.user, req.body?.subscription, req.headers['user-agent'])) } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
 })
 app.delete('/api/push/subscriptions', auth, async (req, res) => res.json(await webpush.unsubscribe(req.user, req.body?.endpoint)))
+// 「시험 알림 보내기」 (Home · Settings): one push to each of my devices now — the person sees it working in seconds. devices: how many
+// subscriptions it went to (0: this browser never subscribed — the page then shows one itself)
+// (three a minute for one person)
+app.post('/api/push/test', auth, async (req, res) => {
+  if (!webpush.testSlot(req.user.id)) return res.status(429).json({ error: L('시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.', 'Up to three test notifications a minute. Try again in a moment.') })
+  const devices = await webpush.pushTo(req.user.id, { id: `test-${Date.now()}`, type: 'test', tag: 'pgl-test', renotify: true,
+    title: L('시험 알림이에요', 'This is a test notification'), body: L('이 알림이 보이면 휴대폰 알림이 켜진 거예요', 'If you can see this, notifications are on.') })
+  res.json({ devices })
+})
+// A button on a phone's notification of the AI waiting on the person (public/sw.js → lib/askPerson.js act). No sign-in: the push carried
+// a token for this one notice, signed by this server, bound to the person, the card and the answers it may give, used once, 24 hours.
+// The card must still wait (a browser task's pick-one card: lib/browser.js answerCard). A chat question is never answered here: its options
+// are the model's own text (re-review 11-26 — lib/askPerson.js act refuses it; the answerer is wired for when its marks come on a channel
+// the model cannot write: the option as the person's message, in their own session found by their account id — lib/supa.js sessionOfUser).
+const answerChat = ASK.chatAnswerer({ runTurn, busy: turnsRunning })
+app.post('/api/push/act', async (req, res) => {
+  const r = await ASK.act({ token: req.body?.token, answer: req.body?.answer }, { answerTask: browser.answerCard, answerChat })
+    .catch((e) => { console.warn('[push act]', e.message); return { status: 500, error: 'failed' } })
+  res.status(r.status).json(r.status === 200 ? { ok: true, answered: r.answered, said: r.said, place: r.place } : { error: r.error })
+})
 app.post('/api/mail/poll', auth, async (req, res) => res.json(await mail.pollUser(req.user.id, { announce: true })))
 // a demo mailbox only: a fictional message arrives (demos, tests) — never real mail
 // PRO_BACKGROUND=0: a second server for development (another port) that must not run the pollers,
@@ -577,6 +610,8 @@ app.use('/api', backofficeRoutes(auth))
 // Agentic BPM PoC (pgpt-pro/docs/agentic-bpm/plan.md): policies·decisions·approvals·strategy, then the three scenarios
 app.use('/api', agenticRoutes(auth))
 app.use('/api', followupRoutes(auth))
+// 팀원에게 물어 채우기: the card's 물어보기 · 아니요 · 다시 묻기, the teammate's form (lib/askTeammate.js)
+app.use('/api', askTeammateRoutes(auth))
 // 프로세스 온톨로지: 메일 이력 + 채팅 핸드오버 → Ontological 의 회사 프로세스 지도, 스냅샷 실행, 고정 · 노화 (lib/ontology)
 app.use('/api', ontologyRoutes(auth))
 // the ontology's agent steps (orchestration pgpt-pro-onto) and habit questions run here even with PRO_BACKGROUND=0:
@@ -594,6 +629,8 @@ if (config.scenarios) {
 app.use('/api', telegramRoutes(auth))
 // a mail's Home card: the mail as it arrived, a reply draft, the send on 보내기 (routes/mailReply.js)
 app.use('/api', mailReplyRoutes(auth))
+// a mail the agent wrote for the person: its 「보낼 메일」 card, sent from their own mailbox on 보내기 (routes/mailOut.js)
+app.use('/api', mailOutRoutes(auth))
 // a mail's attachments: opened where they belong (IeumOffice · the viewer · a download) from a private copy, never a public address
 // (routes/mailAttachments.js)
 app.use('/api', mailAttachmentRoutes(auth))
@@ -609,7 +646,9 @@ mountOffice(app)
 app.use('/api', craftLiveRoutes(auth))
 mountFolders(app)
 mountImprove(app)
+mountMail(app)
 mountPanelApps(app)
+mountTeam(app)
 mountConnectors(app)
 app.get('/api/connectors', auth, async (req, res) => {
   const list = await connectorStatus(req.user.id)
@@ -689,6 +728,8 @@ app.post('/api/threads', auth, async (req, res) => {
       // (unless it was renamed meanwhile)
       const [named] = await q(`update pro_threads set title=$2 where id=$1 and title=$3 returning *`, [row.id, title, draft])
       if (named) emit(req.user.id, 'thread', named)
+      // (the project's variation was made under the first words — a template's workspace at once: it takes the name too)
+      if (named) await TF.retitleProject(named, draft).catch((e) => console.warn('[folders] project title', e.message))
     })
     .catch((e) => console.warn('[threads] title', e.message))
 })
@@ -706,6 +747,8 @@ app.use('/api', threadFolderRoutes(auth))
 app.get('/api/threads/:id/rule', auth, async (req, res) => res.json({ rule: await ruleOf(req.user.id, req.params.id).catch(() => null) }))
 // a turn in progress, as the plan card and the progress panel show it (lib/turnPlan.js): the page opened or reloaded mid-turn
 app.use('/api', turnRoutes(auth))
+// 프로젝트 계획(lib/projectNote.js): GET · PUT /threads/:id/note, POST /threads/:id/note/undo, PUT /threads/:id/rule {skill}
+app.use('/api', projectNoteRoutes(auth))
 app.delete('/api/threads/:id/rule', auth, async (req, res) => res.json(await removeRule(req.user.id, req.params.id)))
 // 「규칙을 바꿀까요?」 card (a room that has a rule, words judged to set a new one): 「바꾸기」 (choice replace) makes that card hold the new
 // rule; 「이번 작업에만 적용」 (once) keeps the rule and gives the words to the browser task here (lib/agent.js onceTurn)
@@ -717,16 +760,22 @@ app.post('/api/threads/:id/rule/confirm', auth, async (req, res) => {
   emit(req.user.id, 'message', r.message)
   if (r.already) return res.status(409).json({ error: L('이미 고른 카드예요.', 'This card was already answered.') })
   if (choice === 'once') onceTurn({ user: req.user, session: req.session, threadId: req.params.id, text: r.said }).catch((e) => console.warn('[room rule] once', e.message))
+  // 「바꾸기」: the room's work changed — its plan is brought up to date (lib/projectNote.js, in the background; design turnplan §4.2)
+  if (choice === 'replace') {
+    import('./lib/projectNote.js').then((PN) => PN.update({ user: req.user, threadId: req.params.id, from: { messageId: r.message?.id, text: r.said }, reason: L(`사람이 이 방의 규칙(목적)을 바꿨다: 「${String(r.said).slice(0, 300)}」`, `The person changed this room's rule (its purpose): "${String(r.said).slice(0, 300)}"`) }))
+      .catch((e) => console.warn('[project-plan] rule replaced', e.message))
+  }
   res.json({ ok: true, choice })
 })
 app.get('/api/threads/:id/messages', auth, async (req, res) => {
   const t = await getThread(req.user.id, req.params.id)
   if (!t) return res.status(404).end()
-  res.json(await q('select * from pro_messages where thread_id=$1 order by created_at', [t.id]))
+  // (a project's plan is a row of its room but not a chat message: GET /api/threads/:id/note — lib/projectNote.js)
+  res.json(await q(`select * from pro_messages where thread_id=$1 and kind <> 'note' order by created_at`, [t.id]))
 })
 // A file attached in chat (raw body, name in X-File-Name): saved where the agent can read it and
 // in storage for the card and the editor.
-app.post('/api/attachments', express.raw({ type: () => true, limit: '50mb' }), auth, async (req, res) => {
+app.post('/api/attachments', auth, express.raw({ type: () => true, limit: '50mb' }), async (req, res) => {
   try {
     res.json(await saveAttachment(req.user, decodeURIComponent(req.headers['x-file-name'] || 'file'), req.headers['content-type'], req.body, { pages: true }))
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
@@ -757,11 +806,17 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
   // nothing to send: no words, no file, no dragged file (a composer that once cleared a chip still being checked sent this — PR #45 review)
   const has = (x) => Array.isArray(x) && x.length > 0
   if (!String(req.body?.text ?? '').trim() && !has(req.body?.files) && !has(req.body?.refs)) return res.status(400).json({ error: L('보낼 말이나 파일이 없어요.', 'There is nothing to send.') })
+  // the page's own id for this message (lib/sendOnce.js): a message sent again after a lost answer is taken once
+  const clientId = SO.validId(req.body?.clientId)
+  if (clientId && !(await SO.claim(t.id, clientId))) { const { send, end } = openStream(res); send('done', { duplicate: true }); return end() }
+  try { return await postMessage(req, res, t, clientId) } finally { if (clientId) SO.release(t.id, clientId) }
+})
+async function postMessage(req, res, t, clientId) {
   // the composer's picker named a CLI on the sender's own PC (lib/localAgents/chat.js): the message goes to their desktop — the server
   // agent is not called for it; a refusal (a project folder they may not edit, no desktop at all) is said in the chat under the message
   if (req.body?.agent && req.body.agent !== 'default') {
     const { send, end } = openStream(res)
-    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: req.body.files, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined })) }) } catch (e) {
+    try { send('done', { local: true, ...(await chatToLocal({ user: req.user, thread: t, text: req.body.text, agent: String(req.body.agent), conversation: req.body.conversation, files: pageFiles(req.user.id, req.body.files), refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId })) }) } catch (e) {
       if (!e.status || e.status >= 500) console.warn('[local-agents] chat send', e.message)
       await addMessage(req.user.id, t.id, 'agent', 'text', { text: L(`내 PC 에이전트로 보내지 못했어요 — ${e.message}`, `Could not send this to the agent on your PC — ${e.message}`), failed: true, localRefused: true }).catch(() => {})
       send('error', { message: e.message, status: e.status || 500 })
@@ -769,12 +824,12 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     return end()
   }
   // an instance's conversation while a local CLI agent runs one of its steps: what its person types steers that run (lib/localAgents)
-  const steered = await steerFromThread(req.user, t, req.body?.text).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
+  const steered = await steerFromThread(req.user, t, req.body?.text, { clientId }).catch((e) => { console.warn('[local-agents] steer', e.message); return null })
   if (steered) { const { send, end } = openStream(res); send('done', { steered: true, steer: steered.steer, delivered: steered.delivered }); return end() }
   // headers and a comment now, one every 20 s: a slow first word is not cut by a proxy (lib/sse.js)
   const { send, end } = openStream(res)
   try {
-    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: req.body.files, conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, onDelta: (d) => send('delta', { d }),
+    const final = await runTurn({ user: req.user, session: req.session, threadId: t.id, text: req.body.text, context: req.body.context, files: pageFiles(req.user.id, req.body.files), conversation: req.body.conversation, fresh: !!req.body.fresh, openDoc: req.body.openDoc, refs: Array.isArray(req.body.refs) ? req.body.refs.slice(0, 10) : undefined, clientId, onDelta: (d) => send('delta', { d }),
       // the draft answer turned out to be an interim text (a tool call followed it): the page clears the draft (lib/turnPlan.js)
       onRetract: () => send('retract', {}) })
     send('done', final)
@@ -793,7 +848,7 @@ app.post('/api/threads/:id/messages', auth, async (req, res) => {
     send('error', { message: e.message })
   }
   end()
-})
+}
 // 멈추기: the answer being written in this thread (deepagents /chat/stop), or its browser task.
 // Messages waiting their turn (대기) then go ahead.
 app.post('/api/threads/:id/stop', auth, async (req, res) => {
@@ -820,7 +875,8 @@ app.post('/api/actions/:id/run', auth, async (req, res) => {
   res.json(a)
   const t = await mainThread(req.user.id)
   // a card that answers a customer mail reviews that mail's drafts: never a shared-folder edit
-  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id })
+  // (source: the card — a value only a teammate knows, asked for in this turn, fills this mail's reply draft too: lib/askTeammate.js)
+  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id, composed: true, source: { actionId: a.id } })
     .then(async () => {
       const [d] = await q(`update pro_actions set status='done' where id=$1 returning *`, [a.id])
       if (a.verb === 'Review') import('./lib/mining/recorder.js').then((m) => m.recordReply(req.user, a)).catch((e) => console.warn('[mining] reply', e.message))
@@ -891,6 +947,8 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
   // gets an address — and every other card goes on as before)
   const way = saveKindOf(own, url)
   if (way === 'refuse') return res.status(400).json({ error: L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy.") })
+  // (any other card: the editor's edited copy beside the card's own file, or a file of this person's — lib/cardCopies.js)
+  if (way !== 'private' && !savedCopyOk(req.user, own, url)) return res.status(400).json({ error: L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy.") })
   if (way === 'private') {
     try {
       const pm = await savePrivateCard(req.user, own, { url, session: req.body.session })
@@ -933,6 +991,25 @@ app.post('/api/messages/:id/file', auth, async (req, res) => {
   emit(req.user.id, 'message', m)
   res.json(m)
 })
+// 「다른 이름으로 저장」 of a chat's document (lib/cardCopies.js): the card first keeps the version it stands on (the editor is about to write
+// over the copy it saved before), then the saved copy becomes a new file card with the name given, in the card's conversation
+const cardCopyFail = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : L('저장하지 못했어요.', "Couldn't save it.") })
+app.post('/api/messages/:id/keep-version', auth, async (req, res) => {
+  try {
+    const m = await keepVersion(req.user, req.params.id)
+    emit(req.user.id, 'message', m)
+    res.json(m)
+  } catch (e) { cardCopyFail(res, e) }
+})
+app.post('/api/messages/:id/save-as', auth, async (req, res) => {
+  const b = req.body || {}
+  if (b.url != null && !/^https?:\/\//.test(String(b.url))) return res.status(400).end()
+  try {
+    const m = await saveCardAs(req.user, req.params.id, { url: b.url ? String(b.url) : null, name: b.name, conversationId: b.conversationId ? String(b.conversationId).slice(0, 200) : null })
+    emit(req.user.id, 'message', m)
+    res.json(m)
+  } catch (e) { cardCopyFail(res, e) }
+})
 
 // ---------- agent workroom (files · terminal · steering) ----------
 async function room(req, res) {
@@ -961,8 +1038,8 @@ app.get('/api/workroom/:kind/:id/raw', async (req, res, next) => {
 }, auth, async (req, res) => {
   const r = await room(req, res); if (!r) return
   try {
-    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: only pictures, sound, video, PDF and
-    // plain text go without the sandbox (a PDF in it would not show)
+    // an agent-written page, SVG or any XML (.xhtml, .xsl …) must not run script on this origin: it gets the sandbox here. Plain text gets
+    // the same script-free policy from the /api rule (apiHeaders); a PDF, picture, song or video goes without one (it would not show or play)
     const passive = /\.(png|jpe?g|gif|webp|avif|bmp|ico|tiff?|mp4|m4v|mov|webm|ogv|mp3|m4a|aac|wav|ogg|oga|opus|flac|weba|pdf|txt|md|csv|json)$/i.test(String(req.query.path))
     const headers = { 'X-Content-Type-Options': 'nosniff', ...(passive ? {} : { 'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'" }) }
     const f = await workroom.rawFile(r, req.query.path)
@@ -1289,6 +1366,8 @@ const server = app.listen(config.port, async () => {
   if (background || process.env.PRO_BILLING_METER === '1') startMeter()
   // is there a transcription model behind PRO_TRANSCRIBE_*? (/api/config transcribe) — a development server checks once
   startSelfTest({ repeat: background })
+  // (a development or test server with PRO_NOTIFY_FEED=1 sends its own tenant's notices to its subscriptions — e2e push-hitl's fake push service)
+  if (!background && process.env.PRO_NOTIFY_FEED === '1') notify.startNotificationFeed()
   if (!background) return console.log('PRO_BACKGROUND=0: pollers, workers, registries and startup resets are off')
   // browser sessions live in memory; tasks that were mid-flight when the server stopped cannot resume
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"서버가 다시 시작되어 작업이 중단됐어요."}'::jsonb
@@ -1298,6 +1377,9 @@ const server = app.listen(config.port, async () => {
   await q(`update pro_messages set content = content || '{"state":"failed","summary":"The server restarted, so the task was stopped."}'::jsonb
            where kind='task' and content->>'state' in ('running','needs_input','queued')`).catch(() => {})
   await q(`update pro_messages set content = content || '{"state":"expired"}'::jsonb where kind='vault' and content->>'state'='pending'`)
+  // …and nothing waits on the person for them any more: their notices go (lib/askPerson.js — the Home lists only live ones anyway)
+  // (by the task cards' own state: a wait another server still holds keeps its notice)
+  await ASK.resetTaskAsks().catch((e) => console.warn('[ask] reset', e.message))
   await q(`update pro_threads set status=null where status is not null`)
   // turns wait their turn in memory (lib/turns.js): a message still marked 대기 will not be answered now
   await q(`update pro_messages set content = (content - 'queued') || '{"dropped":true}'::jsonb where role='user' and content ? 'queued'`)
@@ -1320,7 +1402,13 @@ const server = app.listen(config.port, async () => {
   startConstraintSweep()
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
   startStepRetry()
+  // a teammate the AI asked for someone who has not answered in a day: the person hears of it (lib/askTeammate.js)
+  // (one query for every company — lib/askTeammate.js sweep)
+  askTeammate.startSweep()
 })
+// how long one request may take to arrive whole (Node's own default is five minutes): an upload of 200 MB on a slow line takes longer.
+// A folder going up request by request gives up on its own when a body stops coming (lib/folders/batchBody.js, 30 s).
+server.requestTimeout = 15 * 60 * 1000
 
 // terminals in the agent workroom (websocket upgrade on /api/workroom/term)
 workroom.attachTerminal(server)

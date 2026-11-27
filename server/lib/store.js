@@ -32,8 +32,9 @@ export async function setThreadStatus(userId, threadId, status) {
   if (t) emit(userId, 'thread', t)
 }
 
+// (a project's plan rows are not the room's conversation: they never take a place in its windows — lib/projectNote.js)
 export async function history(threadId, limit = 30) {
   const rows = await q(
-    `select role, kind, content from pro_messages where thread_id=$1 order by created_at desc limit $2`, [threadId, limit])
+    `select role, kind, content from pro_messages where thread_id=$1 and kind <> 'note' order by created_at desc limit $2`, [threadId, limit])
   return rows.reverse()
 }

@@ -66,6 +66,9 @@ export async function removeMember(userId, by) {
   await q('delete from pro_role_assignments where tenant_id=$1 and user_id=$2', [T(), userId])
   // remembered, so their next visit does not put them back (ensureMember)
   await q(`insert into pro_team_removed(tenant_id,user_id,removed_by) values ($1,$2,$3) on conflict (tenant_id,user_id) do update set removed_by=excluded.removed_by, removed_at=now()`, [T(), userId, by || null])
+  // their phones and browsers hear nothing more from this company (lib/webpush.js — review 11-26, PR #89)
+  const { forgetDevices } = await import('./webpush.js')
+  await forgetDevices(userId, T())
 }
 
 // The signed-in user joins the team on first sight. In Lite the team is the people of this tenant:
@@ -109,23 +112,38 @@ export async function roleMap(defId) {
   return out
 }
 
-// "김민지", "minji@…", "제품 책임자" → a teammate. A role name resolves through the tenant-wide
-// assignment, so "제품 책임자에게 알려줘" reaches whoever holds that role.
-export async function resolveMember(text) {
+// "김민지", "minji@…", "제품 책임자" → every teammate the words could mean, the surest first:
+//   - an address (it has @): only the teammate with exactly that address — never a role or a name found inside it ("pmkim@customer.com"
+//     is not the role "pm"), never someone outside the team
+//   - else the exact name (the one every screen shows, or Process GPT's username): all who have it
+//   - else names that hold the words or are held in them, and the holders of a tenant-wide role it names
+// A role name resolves through the tenant-wide assignment, so "제품 책임자에게 알려줘" reaches whoever holds that role.
+export async function findMembers(text) {
   const s = String(text || '').replace(/(님|씨|에게|한테|께)$/u, '').trim()
-  if (!s) return null
+  if (!s) return []
   const team = await teamRows({ withUsername: true })
+  const bare = ({ username, ...p }) => p
+  if (s.includes('@')) return team.filter((m) => String(m.email || '').toLowerCase() === s.toLowerCase()).map((m) => ({ ...bare(m), via: 'email' }))
   // (the name every screen uses, and Process GPT's username: 「서연님」 finds the one whose username is 김서연 while Lite calls her
   // Seoyeon Kim)
+  const exact = team.filter((m) => m.name === s || m.username === s)
+  if (exact.length) return exact.map((m) => ({ ...bare(m), via: 'name' }))
   const part = (n) => !!n && n.length >= 2 && (n.includes(s) || s.includes(n))
-  const hit = team.find((m) => m.email === s.toLowerCase()) || team.find((m) => m.name === s || m.username === s) ||
-    team.find((m) => part(m.name) || part(m.username))
-  if (hit) { const { username, ...p } = hit; return { ...p, via: 'name' } }
-  const [a] = await q(`select a.role, u.id, u.email, u.username as name from pro_role_assignments a
-                       join users u on u.id=a.user_id and u.tenant_id=a.tenant_id
-                       where a.tenant_id=$1 and a.proc_def_id='*' and (lower(a.role)=lower($2) or lower($2) like '%'||lower(a.role)||'%') limit 1`, [T(), s])
-  return a ? { ...(await named([{ id: a.id, email: a.email, name: a.name }]))[0], via: 'role', role: a.role } : null
+  const out = new Map(team.filter((m) => part(m.name) || part(m.username)).map((m) => [String(m.id), { ...bare(m), via: 'name' }]))
+  const roles = await q(`select a.role, u.id, u.email, u.username as name from pro_role_assignments a
+                         join users u on u.id=a.user_id and u.tenant_id=a.tenant_id
+                         where a.tenant_id=$1 and a.proc_def_id='*' and (lower(a.role)=lower($2) or lower($2) like '%'||lower(a.role)||'%')`, [T(), s])
+  const held = await named(roles.map((r) => ({ id: r.id, email: r.email, name: r.name })))
+  held.forEach((p, i) => { if (!out.has(String(p.id))) out.set(String(p.id), { ...p, via: 'role', role: roles[i].role }) })
+  return [...out.values()]
 }
+// the one teammate the words mean, or null — none, or more than one (lib/askTeammate.js asks again with the candidates)
+export async function resolveMember(text) {
+  const list = await findMembers(text)
+  return list.length === 1 ? list[0] : null
+}
+// 「김서연(kim@…), 이서연(lee@…)」 — the candidates when the words fit several, for a message that asks which one
+export const candidateList = (list, max = 5) => list.slice(0, max).map((p) => `${p.name}${p.email ? `(${p.email})` : ''}`).join(', ') + (list.length > max ? ` …` : '')
 
 // Human roles the tenant's processes use (agents' roles excluded), with the processes they appear in.
 export async function roleCatalog() {

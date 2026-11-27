@@ -14,7 +14,7 @@ import { config } from '../../config.js'
 import { q, pool } from '../supa.js'
 import { watchedTenants, withTenant } from '../tenant.js'
 import { emit } from '../bus.js'
-import { TeamError, isMember, people } from './access.js'
+import { TeamError, isMember, notOnTeam, people } from './access.js'
 import { viewArtifacts } from './shares.js'
 import { L, langOf, withLang } from '../lang.js'
 // file mentions on a message: each person sees them with their own access (lib/fileRefs.js decorate)
@@ -25,6 +25,8 @@ import { publicAttRef } from '../mailAttachments.js'
 import { josa, ro } from '../josa.js'
 // reactions on a message (lib/team/reactions.js — their own rows; 2026-11-26)
 import * as RX from './reactions.js'
+// a request the AI sent for someone (lib/askTeammate.js — 「AI 가 대신 묻는 중」): its form for the one asked, its answer for both
+import { askView } from './askView.js'
 // who a person is on every screen: one name, one picture (lib/people.js) — not users.username, which Process GPT may hold as the
 // address's local part (2026-11-25: a room's header listed the user by their address's local part where everything else used their name).
 // Only for what the screens show: what is stored in Process GPT's rows (a room's participants, a message's mentionedUsers — its
@@ -33,7 +35,16 @@ import { people as resolvePeople } from '../people.js'
 
 const T = () => config.tenantId
 const ROOM = /^[\w.:-]{1,120}$/
-export const MAX_GROUP = 8
+// A group has no size limit (2026-11-27 사용자 「그룹대화 인원 한도 없어」 — it was 8). Only one request is bounded: making a room or inviting takes
+// at most PER_REQUEST people at a time (all checked as teammates in one query — access.js notOnTeam) — a guard on the request, not on the room.
+export const PER_REQUEST = 100
+// 「정하윤님이 김서연님, 박도윤님을 초대했어요」 — ten names at most, then 「외 N명」 (a room has no size limit: the line, and Process GPT's
+// notice titled by it, stay short)
+export function inviteLine(by, names, max = 10) {
+  const shown = names.slice(0, max), more = names.length - shown.length
+  return L(`${by}님이 ${shown.map((n) => `${n}님`).join(', ')}${more > 0 ? ` 외 ${more}명` : ''}을 초대했어요`,
+    `${by} invited ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}`)
+}
 const iso = (d = new Date()) => new Date(d).toISOString()
 const nameOf = (p) => p?.name || p?.username || p?.email?.split('@')[0] || L('팀원', 'Teammate')
 
@@ -73,7 +84,7 @@ export async function directThread(me, otherId) {
 
 export async function groupThread(me, ids, title) {
   const members = [...new Set([me.id, ...ids])]
-  if (members.length > MAX_GROUP) throw new TeamError(400, L(`그룹 대화는 ${MAX_GROUP}명까지예요.`, `A group conversation has at most ${MAX_GROUP} people.`))
+  if (members.length > PER_REQUEST + 1) throw new TeamError(400, L(`한 번에 ${PER_REQUEST}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.`, `Up to ${PER_REQUEST} people at a time. Invite the rest once the room is made.`))
   const ps = await users(members)
   const [r] = await q(`insert into chat_rooms(id, participants, message, name, primary_agent_id, tenant_id, context)
                        values ($1,$2,$3,$4,null,$5,$6) returning *`,
@@ -93,12 +104,13 @@ export async function invite(me, roomId, userIds) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   if (t.kind !== 'group') throw new TeamError(400, L('1:1 대화에는 초대할 수 없어요. 단체방을 만들어 초대해 주세요.', "You can't invite people into a one-to-one conversation. Make a group conversation for that."))
-  const want = [...new Set((Array.isArray(userIds) ? userIds : []).map(String))].filter((id) => /^[0-9a-f-]{36}$/i.test(id) && id !== me.id).slice(0, MAX_GROUP)
+  const want = [...new Set((Array.isArray(userIds) ? userIds : []).map(String))].filter((id) => /^[0-9a-f-]{36}$/i.test(id) && id !== me.id)
+  if (want.length > PER_REQUEST) throw new TeamError(400, L(`한 번에 ${PER_REQUEST}명까지 초대할 수 있어요.`, `Up to ${PER_REQUEST} people can be invited at a time.`))
   if (!want.length) throw new TeamError(400, L('초대할 팀원을 골라 주세요.', 'Please choose the teammates to invite.'))
   const inRoom = new Set(split(t.participants).humans.map((p) => String(p.id)))
   const fresh = want.filter((id) => !inRoom.has(id))
   if (!fresh.length) return { threadId: t.id, added: [], members: (await membersOf(t.id)).map(({ id, name, email }) => ({ id, name, email })) }
-  for (const id of fresh) if (!(await isMember(id))) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
+  if ((await notOnTeam(fresh)).length) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
   const rows = (await q(`select id::text as id, email, username as name, profile from users where tenant_id=$1 and id = any($2::uuid[]) and not coalesce(is_agent,false)
                          order by array_position($2::uuid[], id)`, [T(), fresh]))
   if (rows.length !== fresh.length) throw new TeamError(403, L('이 회사의 팀원만 초대할 수 있어요.', 'You can invite only teammates of this company.'))
@@ -110,7 +122,6 @@ export async function invite(me, roomId, userIds) {
     const { rows: [cur] } = await c.query('select participants from chat_rooms where id=$1 and tenant_id=$2 for update', [t.id, T()])
     const have = new Set(split(cur?.participants).humans.map((p) => String(p.id)))
     added = rows.filter((u) => !have.has(u.id))
-    if (have.size + added.length > MAX_GROUP) throw new TeamError(400, L(`그룹 대화는 ${MAX_GROUP}명까지예요.`, `A group conversation has at most ${MAX_GROUP} people.`))
     if (added.length) await c.query('update chat_rooms set participants = coalesce(participants, \'[]\'::jsonb) || $2::jsonb where id=$1', [t.id, JSON.stringify(added.map(participant))])
     await c.query('commit')
   } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
@@ -119,15 +130,16 @@ export async function invite(me, roomId, userIds) {
   const shown = (id) => members.find((m) => m.id === id)?.name || added.find((u) => u.id === id)?.name || ''
   const invited = added.map((u) => ({ id: u.id, name: shown(u.id) }))
   const uuid = crypto.randomUUID()
-  const names = invited.map((p) => p.name)
-  const content = L(`${me.name}님이 ${names.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${me.name} invited ${names.join(', ')}`)
+  const content = inviteLine(me.name, invited.map((p) => p.name))
   const msg = { uuid, clientUuid: uuid, role: 'system', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
     pgpt: { kind: 'invite', by: me.id, byName: me.name, invited } }
   const [row] = await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages', [uuid, t.id, msg, T()])
   await q('update chat_rooms set message=$2 where id=$1', [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   await pushRow(row, members)
-  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: members.map(({ id, name, email }) => ({ id, name, email })) })
+  // (the member list made once — not once per member: a room has no size limit)
+  const list = members.map(({ id, name, email }) => ({ id, name, email }))
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, members: list })
   await notifyInvited(me, t, row, added.map((u) => members.find((m) => m.id === u.id) || { id: u.id, email: u.email, name: u.name }))
   return { threadId: t.id, added: invited, members: members.map(({ id, name, email }) => ({ id, name, email })) }
 }
@@ -194,7 +206,8 @@ export async function rename(me, roomId, value) {
   } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
   const members = await membersOf(t.id)
   await pushRow(row, members)
-  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, name, members: members.map(({ id, name: n, email }) => ({ id, name: n, email })) })
+  const list = members.map(({ id, name: n, email }) => ({ id, name: n, email }))
+  for (const m of members) emit(m.id, 'team', { type: 'room', threadId: t.id, name, members: list })
   return { threadId: t.id, name, changed: true }
 }
 
@@ -246,9 +259,10 @@ export function view(viewerId, row, byEmail = {}) {
   if (g.kind === 'invite' && Array.isArray(g.invited)) {
     const by = memberOf(byEmail, g.by)?.name || g.byName || L('팀원', 'Teammate')
     const who = g.invited.map((p) => memberOf(byEmail, p.id)?.name || p.name).filter(Boolean)
+    const line = inviteLine(by, who)
     return { id: row.uuid, threadId: row.id, kind: 'invite', at: m.timeStamp ? iso(m.timeStamp) : null, mine: g.by === viewerId,
       sender: { id: g.by || null, name: by, agent: false }, invited: g.invited.map((p) => ({ id: p.id, name: memberOf(byEmail, p.id)?.name || p.name })),
-      body: L(`${by}님이 ${who.map((n) => `${n}님`).join(', ')}을 초대했어요`, `${by} invited ${who.join(', ')}`), artifacts: [], context: null }
+      body: line, artifacts: [], context: null }
   }
   // the room was named or its name taken off (rename above): said in the viewer's language, by the name every screen uses
   if (g.kind === 'rename') {
@@ -275,6 +289,10 @@ export function view(viewerId, row, byEmail = {}) {
     ...(Array.isArray(g.refs) && g.refs.length ? { refs: g.refs.map((r) => (r?.type === 'mail' ? publicMailRef(r) : r?.type === 'mailatt' ? publicAttRef(r) : { ...publicRef(r), folderId: r.folderId })) } : {}),
     // a message addressed to the AI (「@AI …」) and the AI's own answer to it
     ...(g.ai && !agent ? { toAi: true } : {}),
+    // a mail its owner's rule posted as it arrived (lib/mailRooms.js): the rule's words
+    ...(g.auto && !agent ? { auto: { by: String(g.auto.by || ''), label: String(g.auto.label || '') } } : {}),
+    // a request the AI sent for someone (lib/askTeammate.js): the form only for the one asked, while it is open
+    ...(g.kind === 'askteam' && g.ask && !agent ? { ask: askView(viewerId, g.ask) } : {}),
   }
 }
 // each viewer's copy of a row: their view, with the state of its file mentions
@@ -330,19 +348,23 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
   // screen keeps the ones it has), this one says what they are now
   const rx = await RX.forMessages(me.id, t.id, list.map((m) => m.id))
   for (const m of list) m.reactions = rx.get(m.id) || []
-  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
+  // (reactions: false — this database has no reactions yet, sql/062: the screen offers none — lib/team/reactions.js available)
+  return { thread: { id: t.id, kind: t.kind, title: t.name, assist: t.assist, reactions: await RX.available().catch(() => false), members: members.map((m) => ({ id: m.id, name: m.name, email: m.email || null, lastReadAt: m.last_read_at })) },
     messages: list }
 }
 
 // Write a message into a room I am in, as process-gpt's frontend would. Every other person must still be
 // on the team. attach(recipients, chatUuid) makes the share grants once the row's id is known.
 // refs: file mentions already checked as the sender (lib/fileRefs.js forSend); ai: addressed to the AI (「@AI …」, answered by
-// lib/team/aiHelp.js — the room's general AI 제안 leaves it alone); mentions: the people named with @ (process-gpt's mentionedUsers)
-export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [] } = {}) {
+// lib/team/aiHelp.js — the room's general AI 제안 leaves it alone); mentions: the people named with @ (process-gpt's mentionedUsers);
+// auto: a mail its owner's rule posted as it arrived ({by, label} — lib/mailRooms.js autoShare; what it says only, the owner's card decides)
+// ask: a request the AI sends for me (kind 'askteam' — lib/askTeammate.js): the card it came from, the one asked, the items, the form
+export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [], auto = null, ask = null } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const members = await membersOf(t.id)
-  for (const m of members) if (!(await isMember(m.id))) throw new TeamError(403, L(`${m.name}님은 더 이상 팀원이 아니에요.`, `${m.name} is no longer a teammate.`))
+  const off = await notOnTeam(members.map((m) => m.id))
+  if (off.length) { const m = members.find((x) => x.id === off[0]) || { name: '' }; throw new TeamError(403, L(`${m.name}님은 더 이상 팀원이 아니에요.`, `${m.name} is no longer a teammate.`)) }
   const uuid = crypto.randomUUID()
   const artifacts = attach ? await attach(members.filter((m) => m.id !== me.id), uuid, t.id) : []
   const files = artifacts.map((a) => a.name)
@@ -350,7 +372,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   // (a mail mention says its subject — the summary everyone in the room sees anyway, never its body)
   const content = String(body || '').slice(0, 8000) || (files.length || linked.length ? `${kind === 'mailref' ? '✉️' : '📎'} ${[...files, ...linked].join(', ')}` : '')
   const pgptPart = kind === 'text' && !artifacts.length && !context && !refs?.length && !ai ? undefined
-    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(agent || {}) }
+    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(auto ? { auto: { by: String(auto.by || ''), label: String(auto.label || '').slice(0, 200) } } : {}), ...(ask && kind === 'askteam' ? { ask } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
   const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
     // (Process GPT's own name: its resolveMentions matches typed mentions against it)
@@ -360,10 +382,15 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
   await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
-  await pushRow(row, members)
-  // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees)
+  // (the message is in the room from here on: delivering it and telling the members may fail — say so in the log — but the send stands,
+  // so a caller does not take it back or send it twice — lib/mailRooms.js, PR #100 review)
+  const told = async (what, fn) => { try { await fn() } catch (e) { console.warn(`[rooms] ${what}`, e.message) } }
+  await told('push', () => pushRow(row, members))
+  // (a mail's attachment mentioned alone — lib/mailAttachments.js — is said as one: its name, the summary everyone sees; a mail sent with its
+  // attachments — lib/mailRooms.js — is one mail, not one mail and N more)
   const attachment = !!refs?.length && refs.every((r) => r.type === 'mailatt')
-  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await notifyMembers(me, t, row, kind, [...files, ...linked], context, members.filter((m) => m.id !== me.id), { attachment })
+  const subjects = kind === 'mailref' && refs.some((r) => r.type === 'mail') ? refs.filter((r) => r.type === 'mail').map((r) => r.name) : [...files, ...linked]
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref' || kind === 'askteam') await told('notify', () => notifyMembers(me, t, row, kind, subjects, context, members.filter((m) => m.id !== me.id), { attachment }))
   return viewFor(me, row, by)
 }
 
@@ -388,6 +415,8 @@ async function notifyMembers(me, t, row, kind, files, context, recipients, { att
       ? (en ? `${me.name} mentioned the mail "${files[0] || ''}"${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 메일 「${files[0] || ''}」${files.length > 1 ? ` 외 ${files.length - 1}통${josa('통', '을', '를')}` : josa(`${files[0] || ''}」`, '을', '를')} 멘션했어요`)
       : kind === 'fileref'
       ? (en ? `${me.name} linked ${files[0] || 'a file'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '파일'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 링크로 멘션했어요`)
+      : kind === 'askteam'
+      ? (en ? `${me.name} asked you something (AI asking for them)` : `${me.name}님이 물어봤어요 · AI 가 대신 묻는 중`)
       : kind === 'share'
       ? (en ? `${me.name} shared ${files[0] || 'an output'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '산출물'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 공유했어요`)
       : (en ? `${me.name} mentioned you${ctx}` : `${me.name}님이 나를 언급했어요${ctx}`),
@@ -431,7 +460,7 @@ export async function inbox(me) {
   const rows = await q(`select c.uuid, c.id, c.messages, coalesce(rd.last_read_at, 'epoch'::timestamptz) as last_read_at
                         from chats c join chat_rooms r on r.id=c.id and r.tenant_id=$1 and r.participants @> $3::jsonb
                         left join pro_chat_reads rd on rd.room_id=c.id and rd.user_id=$2
-                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref') and coalesce(c.messages->>'email','') <> $4
+                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref','askteam') and coalesce(c.messages->>'email','') <> $4
                         order by coalesce(public.pro_chat_ts(c.messages), now()) desc limit 50`, [T(), me.id, JSON.stringify([{ id: me.id }]), me.email])
   const senders = await people([...new Set(rows.map((r) => r.messages.userId).filter(Boolean))])
   const by = Object.fromEntries(senders.map((p) => [p.email, p]))
@@ -453,24 +482,26 @@ export async function message(me, uuid) {
 const sentRows = new Map() // chats uuid -> the content last delivered (its messages, hashed)
 const SENT_KEEP = 2000
 const contentOf = (row) => crypto.createHash('sha1').update(JSON.stringify(row.messages ?? null)).digest('base64')
-export async function pushRow(row, people) {
+// force: send even when this content went out before (a state change the row's own content may not show — a mail mention's share,
+// lib/mailRooms.js · routes/team.js); update: an old message brought up to date — the page does not count it as news
+export async function pushRow(row, people, { force = false, update = false } = {}) {
   const c = contentOf(row)
-  if (sentRows.get(row.uuid) === c) return false
+  if (!force && sentRows.get(row.uuid) === c) return false
   sentRows.delete(row.uuid)
   sentRows.set(row.uuid, c)
   if (sentRows.size > SENT_KEEP) sentRows.delete(sentRows.keys().next().value)
   const ps = await resolved(people)
   const by = Object.fromEntries(ps.map((p) => [p.email, { id: p.id, name: p.name }]))
   // (each person's copy: their language, and the file mentions in their own access — lib/fileRefs.js decorate)
-  for (const p of ps) emit(p.id, 'team', { type: 'message', threadId: row.id, message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: p.name }, row, by)) })
+  for (const p of ps) emit(p.id, 'team', { type: 'message', threadId: row.id, ...(update ? { update: true } : {}), message: await withLang(await langOf(p.id), () => viewFor({ id: p.id, email: p.email, name: p.name }, row, by)) })
   return true
 }
 // a row this server just wrote into a room (inserted or updated), to the room's people at once — not left to the
 // room feed, which a development server (PRO_BACKGROUND=0) does not run and which can be reconnecting
-export async function deliver(uuid) {
+export async function deliver(uuid, opts = {}) {
   try {
     const [row] = await q('select c.uuid, c.id, c.messages, r.participants from chats c join chat_rooms r on r.id=c.id where c.uuid=$1', [uuid])
-    return row ? await pushRow(row, split(row.participants).humans) : false
+    return row ? await pushRow(row, split(row.participants).humans, opts) : false
   } catch (e) { console.warn('[rooms] deliver', e.message); return false }
 }
 

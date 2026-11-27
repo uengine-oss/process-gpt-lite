@@ -91,7 +91,16 @@ function moved(reason) { seatNote.value = reason; load() }
 async function load() {
   err.value = ''
   try { room.value = await api(base.value) }
-  catch (e) { err.value = e.status === 403 || /403|권한/.test(e.message) ? '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.' : '이 실행의 작업 폴더를 찾지 못했어요.'; return }
+  catch (e) {
+    // (a shared folder's room — kind folder · variation — is not a run's: its own words)
+    const shared = kind.value === 'folder' || kind.value === 'variation'
+    const denied = e.status === 403 || /403|권한/.test(e.message)
+    err.value = denied
+      ? (shared ? '이 작업실을 열 권한이 없어요 — 이 폴더의 편집 권한(변형은 실행 권한)이 필요해요.' : '이 작업실을 볼 권한이 없어요 — 이 실행의 담당자·참여자나 관리자만 열 수 있어요.')
+      : e.status === 404 ? (shared ? '이 폴더(또는 변형)의 작업실을 찾지 못했어요 — 지워졌거나 아직 작업 사본이 없어요.' : '이 실행의 작업 폴더를 찾지 못했어요.')
+        : `작업실을 열지 못했어요 — ${e.message}`
+    return
+  }
   if (!isClaude.value || termOff('claude')) tab.value = 'shell'
   opened.value[tab.value] = true
   if (route.query.open && !file.value) openFile(String(route.query.open))
@@ -153,6 +162,12 @@ async function prepareDownload() {
 }
 async function downloadSource() { await freshToken(); return { url: rawUrl(file.value.path), name: file.value.path.split('/').pop() } }
 
+// back where the person came from — or, opened without a page before it (a link, a reload; the desktop app has no back button of its
+// own), to the folder the room belongs to
+function goBack() {
+  if (window.history.state?.back) return router.back()
+  router.push(kind.value === 'folder' ? `/folders/${encodeURIComponent(id.value)}` : kind.value === 'variation' ? '/folders' : '/')
+}
 function openTab(t) { tab.value = t; opened.value[t] = true; if (file.value) closeFile() }
 const live = computed(() => termState.value[tab.value] === 'live')
 const off = computed(() => (room.value ? termOff(tab.value) : ''))
@@ -184,7 +199,7 @@ async function sendSteer() {
 <template>
   <div class="wr">
     <header class="hd" :class="{ tabs: isClaude }">
-      <button class="ib" title="뒤로" @click="router.back()"><Icon name="back" :size="17" /></button>
+      <button class="ib" title="뒤로" data-test="workroom-back" @click="goBack"><Icon name="back" :size="17" /></button>
       <span class="brand"><b>&gt;_</b> {{ !room ? '작업실' : agentLabel }}</span>
       <span v-if="room" class="chip" :title="room.branch || room.folder"><Icon name="doc" :size="13" /> {{ room.folder }}<template v-if="room.branch && room.branch !== room.folder"> · {{ room.branch }}</template></span>
       <SeatPill v-if="seat" class="seatp" :seat="seat" :here="here" dark compact />
@@ -199,7 +214,7 @@ async function sendSteer() {
       <button v-if="seat?.can.release" class="hb" data-test="wr-release" :disabled="seatBusy" title="저장 안 한 변경까지 그대로 저장하고 작업본을 보관해요" @click="seatAct('release')"><FIcon name="archive" :size="14" /> 돌려놓기</button>
       <button v-if="room" class="hb" :class="{ on: side }" @click="side = !side"><Icon name="doc" :size="14" /> 파일</button>
     </header>
-    <p v-if="err" class="err">{{ err }}</p>
+    <p v-if="err" class="err" data-test="workroom-error" role="alert">{{ err }}</p>
     <!-- read only: the variation's working copy is elsewhere (or put away) — what is shown is its branch as last saved -->
     <PcSeatBar v-if="room && (here || pcBusy)" :vid="room.variation || id" dark @busy="(b) => (pcBusy = b)" @released="released" />
     <div v-else-if="room && readonly" class="robar" data-test="wr-readonly" role="status">
@@ -253,7 +268,7 @@ async function sendSteer() {
             <span>위의 「폴더 열기」로 Finder 에서, 「터미널 열기」로 내 터미널에서 열어 Claude Code · Codex · 편집기로 고치세요.</span>
             <span class="sub">파일이 1분 동안 조용하거나 CLI 의 턴이 끝나면 있는 그대로 이 변형에 올라가요. 오른쪽 「파일」은 올라온 데까지예요.</span>
           </div>
-          <div v-else-if="off || failed" class="deny" role="alert">
+          <div v-else-if="off || failed" class="deny" role="alert" data-test="workroom-deny">
             <b>{{ off ? '이 작업실에서는 터미널을 열 수 없어요' : '터미널에 연결하지 못했어요' }}</b>
             <span>{{ off || termWhy[tab] }}</span>
             <span v-if="off" class="sub">{{ readonly ? '파일은 오른쪽 「파일」에서 읽을 수 있어요.' : '파일은 오른쪽 「파일」에서 그대로 보고 고칠 수 있어요.' }}</span>

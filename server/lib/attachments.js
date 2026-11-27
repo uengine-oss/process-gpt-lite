@@ -149,3 +149,20 @@ export function attachmentHint(files) {
       : `${f.name} — ${f.url}`) + pagesHint(f)).join(', ')
   return L(`\n\n(첨부 파일: ${list})`, `\n\n(Attached files: ${list})`)
 }
+
+// The files a page sends with a chat message are only ever this person's own uploads (POST /api/attachments: the files bucket's
+// pgpt-pro/<their id>/att/<upload>.<ext>). A card made from any other address would name someone else's object — and a mail's
+// attachments are read from the cards of the chat (lib/mailOut.js) — so other entries are dropped here, before the turn sees them.
+export function pageFiles(userId, files) {
+  const mine = (u) => {
+    try {
+      const m = /^\/storage\/v1\/object\/(?:public\/|authenticated\/)?files\/(.+)$/.exec(new URL(String(u)).pathname)
+      const key = m ? decodeURIComponent(m[1]) : ''
+      return new RegExp(`^pgpt-pro/${userId}/att/[0-9a-f-]{36}\\.[a-z0-9]+$`).test(key)
+    } catch { return false }
+  }
+  const all = Array.isArray(files) ? files : []
+  const kept = all.filter((f) => f && typeof f === 'object' && mine(f.url))
+  if (kept.length !== all.length) console.warn(`[attachments] ${all.length - kept.length} file(s) from the page were not this person's uploads — left out user=${String(userId).slice(0, 8)}`)
+  return kept
+}

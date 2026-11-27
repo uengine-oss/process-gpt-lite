@@ -38,3 +38,21 @@ test('구독: https 푸시 서비스 주소와 키가 없으면 받지 않는다
   for (const sub of [null, { endpoint: 'http://push.example/x', keys: { p256dh: 'a', auth: 'b' } }, { endpoint: 'https://push.example/x', keys: {} }])
     await assert.rejects(W.subscribe({ id: '00000000-0000-0000-0000-000000000000' }, sub), (e) => e.status === 400)
 })
+
+// 보안 검토 11-26 #6: 구독 주소는 브라우저의 푸시 서비스만(FCM · Apple · Mozilla · Windows) — 다른 주소로 서버가 요청을 보내 그 답을
+// 읽어 낼 수 없게(SSRF). 「시험 알림 보내기」는 한 사람이 1분에 세 번까지
+test('WP-S-01 구독은 푸시 서비스 주소만 받는다', async () => {
+  for (const ok of ['https://fcm.googleapis.com/fcm/send/abc', 'https://web.push.apple.com/QH5', 'https://updates.push.services.mozilla.com/wpush/v2/x', 'https://wns2-par02p.notify.windows.com/w/?token=x'])
+    assert.equal(W.pushHostAllowed(ok), true, ok)
+  for (const bad of ['https://evil.example/push', 'https://fcm.googleapis.com.evil.example/x', 'https://169.254.169.254/latest', 'http://fcm.googleapis.com/fcm/send/abc', 'https://push.apple.com.evil.example/x', 'not a url'])
+    assert.equal(W.pushHostAllowed(bad), false, bad)
+  await assert.rejects(W.subscribe({ id: '00000000-0000-0000-0000-000000000000' }, { endpoint: 'https://evil.example/push', keys: { p256dh: 'a', auth: 'b' } }), (e) => e.status === 400)
+})
+
+test('WP-S-02 「시험 알림 보내기」는 한 사람이 1분에 세 번까지', () => {
+  const t0 = 1_000_000
+  const u = `rate-${process.pid}`
+  assert.deepEqual([0, 1, 2, 3].map((i) => W.testSlot(u, t0 + i * 1000)), [true, true, true, false])
+  assert.equal(W.testSlot(`${u}-other`, t0 + 3000), true, 'another person')
+  assert.equal(W.testSlot(u, t0 + 61_000), true, 'a minute later')
+})

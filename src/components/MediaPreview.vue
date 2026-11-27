@@ -19,7 +19,8 @@ const props = defineProps({
   compact: { type: Boolean, default: false },  // a messenger bubble: smaller
   type: { type: String, default: '' },         // the stored type, when the name says nothing (a TIFF named 「download」)
 })
-const emit = defineEmits(['open', 'failed', 'loaded'])
+// play: a sound or a video started here (a file a teammate shared: its sender's card says it was opened — team/Messenger.vue)
+const emit = defineEmits(['open', 'failed', 'loaded', 'play'])
 const failed = ref(false)
 const tiff = computed(() => props.kind === 'image' && isTiff({ name: props.name, url: props.src, type: props.type }))
 const tiffBad = ref(false)
@@ -41,8 +42,8 @@ function onTiffFail(e) { if (e?.fetch) onError(); else tiffBad.value = true }
       <img :src="src" :alt="name" loading="lazy" decoding="async" data-testid="file-image" @error="onError" @load="emit('loaded')" />
     </button>
     <!-- hark: a sound the work made plays right here, on the phone too (recording 2026-11-21) -->
-    <audio v-else-if="kind === 'audio'" class="player" controls preload="none" :src="src" data-testid="file-audio" @error="onError" />
-    <video v-else class="vplayer" controls playsinline preload="metadata" :src="src" data-testid="file-video" @error="onError" @loadedmetadata="emit('loaded')" />
+    <audio v-else-if="kind === 'audio'" class="player" controls preload="none" :src="src" data-testid="file-audio" @error="onError" @play="emit('play')" />
+    <video v-else class="vplayer" controls playsinline preload="metadata" :src="src" data-testid="file-video" @error="onError" @loadedmetadata="emit('loaded')" @play="emit('play')" />
   </div>
 </template>
 

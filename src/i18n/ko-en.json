@@ -354,12 +354,12 @@
   "카드 번호": "Card number",
   "만료일(MM/YY)": "Expiry date (MM/YY)",
   "우편번호": "Postal code",
-  "자동은 해가 지면 밤 테마로 바뀌어요": "Auto switches to the night theme at sunset",
+  "자동은 해가 지면 밤 테마로 바뀌어요 · 낮이나 밤을 고르면 하늘도 그 테마에 맞춰요": "Auto switches to the night theme at sunset · choose Day or Night and the sky follows it",
   "테마": "Theme",
   "낮": "Day",
   "밤": "Night",
   "자동": "Auto",
-  "시간을 바꿔 하늘과 테마 전환을 확인해요": "Change the time to preview the sky and theme change",
+  "시간을 바꿔 자동 테마의 하늘과 테마 전환을 확인해요": "Change the time to preview the sky and theme change of the Auto theme",
   "실시간으로": "In real time",
   "메일 확인": "Check mail",
   "새 메일을 주기적으로 읽고 할 일을 제안해요": "I read new mail periodically and suggest to-dos",
@@ -1538,6 +1538,38 @@
   "회의 내용 요약하기": "Summarize the meeting",
   "제안을 찾지 못했어요.": "I couldn't find that suggestion.",
   "자료를 찾지 못했어요.": "I couldn't find the material.",
+  "볼 수 없는 자료": "Can't be read",
+  "원본에서 찾을 수 없음": "Not found in the original",
+  "접근 요청": "Request access",
+  "파일 올리기": "Upload files",
+  "참조 더하기": "Add a reference",
+  "다른 폴더 · 파일을 가리키기만 해요": "Only points at another folder or file",
+  "원본 열기": "Open original",
+  "이름 바꾸기": "Rename",
+  "참조 빼기": "Remove reference",
+  "원본은 그대로예요": "The original stays as it is",
+  "참조 메뉴": "Reference menu",
+  "자리 이름을 바꿨어요": "Renamed the slot",
+  "참조를 뺐어요 · 원본은 그대로예요": "Reference removed · the original stays as it is",
+  "원본 폴더의 주인에게 접근을 요청했어요": "Asked the original folder's owners for access",
+  "참조된 자료": "Referenced material",
+  "참조 더하기 — 원본 고르기": "Add a reference — choose the original",
+  "무엇을 가리킬까요": "What should it point at?",
+  "자리 이름": "Slot name",
+  "다른 폴더의 자료를 이 폴더 안에 참조로 두면, 내용은 원본에만 있고 이 폴더는 가리키기만 해요. 에이전트에게 이 폴더를 주면 참조된 자료까지 함께 읽어요.": "Keep another folder's material in this folder as a reference: the content stays only in the original, and this folder just points at it. Give this folder to an agent and it reads the referenced material too.",
+  "폴더 찾기": "Find a folder",
+  "참조할 수 있는 폴더가 없어요. 내가 구성원인 폴더만 보여요.": "No folder to reference. Only folders you are a member of are shown.",
+  "폴더 전체": "The whole folder",
+  "이 하위 폴더 아래의 파일을 모두 가리켜요": "Points at every file under this sub-folder",
+  "이 폴더의 파일을 모두 가리켜요": "Points at every file of this folder",
+  "이 폴더에는 아직 파일이 없어요. 폴더 전체를 가리키면 파일이 생길 때 함께 보여요.": "This folder has no files yet. Point at the whole folder and its files show here as they come.",
+  "이 폴더에서 보일 이름": "Name shown in this folder",
+  "원본의 최신(main)을 따라가요 — 원본이 바뀌면 여기서도 바뀐 내용을 읽어요.": "Follows the latest of the original (main) — when the original changes, this reads the change.",
+  "이 이름은 이 폴더의 모든 구성원에게 보여요. 내용은 원본 폴더의 구성원만 볼 수 있어요.": "Every member of this folder sees this name. Only members of the original folder see the content.",
+  "이 폴더에서는 읽기만 해요. 고치려면 원본 폴더에서 고쳐요.": "Read only in this folder. Change it in the original folder.",
+  "더하기": "Add",
+  "더하는 중…": "Adding…",
+  "다음": "Next",
   "파일을 열 수 없어요.": "I can't open the file.",
   "회의에 참여 중인 분만 띄울 수 있어요.": "Only people in the meeting can show material.",
   "받아쓰기 키가 설정되지 않았어요.": "No transcription key is set up.",
@@ -3074,6 +3106,82 @@
   "이 PC 연결하기": "Connect this PC",
   "머리말": "Front matter",
   "연결하는 중…": "Connecting…",
+  "보내기를 눌러야 보내져요.": "It's not sent until you tap Send.",
+  "다른 곳에": "Elsewhere",
+  "어디에 넣을까요?": "Where should this go?",
+  "내 채팅": "My chat",
+  "Process GPT 채팅": "Process GPT chat",
+  "AI에게 이 파일로 질문하기": "Ask the AI about this file",
+  "AI에게 이 글로 질문하기": "Ask the AI about this text",
+  "1:1 대화": "Direct message",
+  "최근에 연 폴더": "Opened recently",
+  "넣기만 하고 보내지는 않아요. 보내기는 직접 눌러 주세요.": "Nothing is sent — it's only added. Tap Send yourself.",
+  "함께 온 글은 폴더에 넣지 않아요.": "Text shared with it isn't added to the folder.",
+  "공유한 내용을 받지 못했어요. 다시 공유해 주세요.": "The shared item didn't arrive. Please share it again.",
+  "공유한 내용을 찾지 못했어요. 다시 공유해 주세요.": "Couldn't find what was shared. Please share it again.",
+  "공유한 내용이 비어 있어요.": "What was shared is empty.",
+  "이 폴더에 넣을 권한이 없어요. 넣을 곳을 골라 주세요.": "You can't add files to this folder. Choose another place.",
+  "글 · 링크": "Text · Link",
+  "휴대폰 홈 화면에 추가하면 다른 앱의 「공유」에 Process GPT 가 나타나요.": "Add it to your phone's home screen and Process GPT appears in other apps' Share menu.",
+  "보이지 않으면 홈 화면의 아이콘을 지우고 다시 추가해 주세요.": "If it doesn't show, remove the home-screen icon and add it again.",
+  "지금 열어 둔 곳": "Open right now",
+  "마지막으로 연 곳": "Last opened",
+  "공유한 파일이 너무 커요. 한 번에 200MB까지 받을 수 있어요.": "The shared files are too large. Up to 200MB can be taken at once.",
+  "안 열어 봄": "Not opened",
+  "열어 봄": "Opened",
+  "에이전트가 고침": "Changed by the agent",
+  "앱을 닫아도 팀 메시지 · AI 질문 · 내 할 일을 알려 드려요": "Even with the app closed, get team messages, AI questions and your to-dos",
+  "알림이 켜져 있어요": "Notifications are on",
+  "메시지는 방별로 묶고, AI 질문은 알림을 눌러 열어 답해요 · 간단한 확인만 바로": "Messages are grouped by room; open an AI question to answer it · only quick checks right from the notification",
+  "iPhone에서 알림 받기": "Notifications on iPhone",
+  "iOS 16.4 이상에서 Safari 공유 › 「홈 화면에 추가」로 설치한 앱을 열고 알림을 켜 주세요. Safari 탭에서는 알림을 받을 수 없어요.": "On iOS 16.4 or later, add the app with Safari Share › \"Add to Home Screen\", open it from there and turn notifications on. A Safari tab cannot receive notifications.",
+  "알림이 차단돼 있어요": "Notifications are blocked",
+  "브라우저 사이트 설정에서 알림을 허용해 주세요": "Allow notifications in the browser's site settings",
+  "이 브라우저는 알림을 지원하지 않아요": "This browser doesn't support notifications",
+  "Chrome · Edge · Safari(설치한 앱)에서 켤 수 있어요": "You can turn them on in Chrome, Edge or Safari (installed app)",
+  "이 기기의 알림 · 꺼짐": "Notifications on this device · Off",
+  "이 기기의 알림 · 켜짐": "Notifications on this device · On",
+  "이 기기의 알림 · iPhone": "Notifications on this device · iPhone",
+  "이 기기의 알림 · 차단됨": "Notifications on this device · Blocked",
+  "이 기기의 알림 · 지원 안 됨": "Notifications on this device · Not supported",
+  "알림 켜기": "Turn on notifications",
+  "시험 알림 보내기": "Send a test notification",
+  "알림이 꺼져 있어 보내지 못했어요": "Notifications are off, so nothing was sent",
+  "이 브라우저는 푸시를 받지 못해 직접 띄웠어요. 앱을 닫으면 알림이 오지 않아요.": "This browser can't receive push, so it was shown here. With the app closed, no notification will come.",
+  "시험 알림이에요": "This is a test notification",
+  "이 알림이 보이면 알림이 켜진 거예요": "If you can see this, notifications are on",
+  "답하러 가기": "Go answer",
+  "질문": "Question",
+  "시험 알림은 1분에 세 번까지 보낼 수 있어요. 잠시 뒤에 다시 눌러 주세요.": "Up to three test notifications a minute. Try again in a moment.",
+  "대화방에 공유": "Share to a room",
+  "공유한 대화방": "Rooms it's shared with",
+  "본문 공유 중": "Body shared",
+  "요약만": "Summary only",
+  "방 열기": "Open the room",
+  "알맞은 대화방을 찾는 중…": "Finding the right rooms…",
+  "대화방이나 팀원 찾기": "Find a room or teammate",
+  "팀원에게 바로": "Straight to a teammate",
+  "찾는 대화방이나 팀원이 없어요.": "No room or teammate matches.",
+  "아직 대화방이 없어요. 팀원을 골라 새 대화로 보낼 수 있어요.": "No rooms yet. Pick a teammate to send it in a new conversation.",
+  "받는 곳": "To",
+  "한마디 적기 (없어도 돼요)": "Add a note (optional)",
+  "앞으로 오는 메일도 이 방에 올리기": "Also post the mail that comes from now on to this room",
+  "어떤 메일을 올릴까요": "Which mail to post",
+  "본문 끄기": "Stop sharing the body",
+  "첨부 끄기": "Stop sharing the files",
+  "그만 올리기": "Stop posting",
+  "본문도 함께 보여요": "The body shows too",
+  "그 메일의 본문도 함께 보여요.": "Their bodies show too.",
+  "지금은 꺼 둔 약속이에요": "This rule is off now",
+  "메일 자동 공유": "Mail shared automatically",
+  "입력창에 다시 넣어 두었어요": "Put back in the box",
+  "끌어 놓은 파일은 다시 놓아 주세요": "Drop the dragged files again",
+  "앞의 메시지를 보낸 뒤 보내요": "Sends after the message before it",
+  "다시 보내기": "Send again",
+  "입력창에 넣기": "Put in the box",
+  "서버에 연결하지 못했어요": "Couldn't reach the server",
+  "서버 대신 다른 페이지가 응답했어요": "Another page answered instead of the server",
+  "로그인이 끝났어요": "Your sign-in ended",
   "보관 중": "Put away",
   "서버 에이전트가 작업 중": "A server agent is working",
   "서버 작업실에서": "In the server workroom",
@@ -3116,6 +3224,221 @@
   "작업본을 치울 때 git 이 싣지 않는 파일(.gitignore 대상 · 안쪽 저장소 · 저장하지 못한 것)을 서버에 따로 남겨 두었어요. 보관 기간이 지나면 지워져요.": "When the working copy left the disk, files git does not carry (.gitignore targets, repositories inside, what could not be saved) were kept on the server. They are removed after the retention period.",
   "그 작업본을 가졌던 사람과 폴더 소유자만 내려받아요": "Only whoever had that working copy and the folder owner can download them",
   "저장 못 함": "not saved",
+  "프로젝트 계획": "Project plan",
+  "이 프로젝트의 모든 대화가 먼저 읽어요": "Every conversation in this project reads it first",
+  "아직 비어 있어요": "Still empty",
+  "목적": "Purpose",
+  "만들 것": "Deliverables",
+  "이 방에서 늘 만드는 것": "What this room keeps making",
+  "서비스 · 사이트 · 앱과 쓰는 방법": "Services, sites and apps, and how they are used",
+  "지킬 것": "Keep to",
+  "일하는 방법 · 조건 · 예외": "Ways of working, conditions, exceptions",
+  "정한 것": "Decided",
+  "이 방에서 정한 것": "What this room has decided",
+  "고정": "Pinned",
+  "이 프로젝트에서 하는 일": "What this project does",
+  "서버 브라우저 스킬": "Server browser skill",
+  "스킬 없음": "No skill",
+  "이 방에서 쓰는 방법": "How this room uses it",
+  "고친 항목은 고정돼요. AI가 대화를 읽고 계획을 고쳐도 그대로 남아요.": "Items you edit are pinned: they stay as you wrote them when the AI reads the conversation and updates the plan.",
+  "저장 중이에요": "Saving",
+  "저장하지 못했어요": "Couldn't save",
+  "서버 브라우저:": "Server browser:",
+  "에이전트가 처리": "Handled by the agent",
+  "바꾸지 못했어요": "Couldn't change it",
+  "되돌렸어요": "Undone",
+  "계획 보기": "View plan",
+  "바뀐 기록": "History",
+  "언제 · 무엇이 · 어느 메시지에서 바뀌었는지": "When, what changed and from which message",
+  "보낸 메시지": "Message",
+  "계획을 저장했어요": "Saved the plan",
+  "고친 내용을 먼저 저장하거나 닫은 뒤에 되돌려 주세요": "Save or close your edits before undoing",
+  "되돌리지 못했어요": "Couldn't undo",
+  "이 항목과 바꾸기": "Replace this item",
+  "바꿔 넣었어요": "Replaced",
+  "그사이 바뀐 계획에 내가 고친 것만 더했어요": "Added only your edits to the plan that changed meanwhile",
+  "그사이 목적이 바뀌어서 내가 쓴 목적은 저장하지 않았어요. 다른 수정 사항은 저장했어요. 목적을 다시 고쳐 저장해 주세요.": "The purpose changed meanwhile, so the purpose you wrote wasn't saved. Your other edits were saved. Edit the purpose again and save.",
+  "지금 목적": "Purpose now",
+  "내가 쓴 목적": "What you wrote",
+  "새 폴더로 올리기": "Upload as a new folder",
+  "폴더 올리기": "Upload a folder",
+  "폴더째 — 안의 파일을 경로 그대로": "The whole folder — files keep their paths",
+  "열쇠 · 토큰처럼 생긴 글을 찾는 중…": "Looking for text shaped like keys or tokens…",
+  "git 작업 트리예요 — .git 은 빼고, 지금 있는 파일만 올려요": "It's a git work tree — .git is left out; only the files as they are now go up",
+  "git 저장소예요 — .git 과 지난 이력은 빼고, 지금 있는 파일만 올려요": "It's a git repository — .git and its past history are left out; only the files as they are now go up",
+  "빠지는 것": "Left out",
+  "직접 뺀 것": "Left out by you",
+  "git 저장소 자료(.git)": "git repository data (.git)",
+  "git 제어 파일(.gitmodules · .lfsconfig)": "git control files (.gitmodules · .lfsconfig)",
+  "열쇠 · 토큰처럼 생긴 글이 든 파일": "Files with text shaped like keys or tokens",
+  "비밀 파일 · 내 PC 에만 두는 설정 · 다시 만들 수 있는 것은 「내 PC 폴더 올리기」와 같은 규칙으로 빼요. 열쇠 값은 숨기고 몇 번째 줄에 있는지만 보여 드려요.": "Secret files, settings kept only on your PC and things that can be rebuilt are left out by the same rules as 「Upload a folder from my PC」. Key values stay hidden — only their line is shown.",
+  "설명(선택)": "Description (optional)",
+  "한 번 올리기": "Upload once",
+  "지금 있는 파일을 새 폴더에 올려요. 내 PC 의 폴더와는 연결하지 않아요.": "Uploads the files as they are now to a new folder. It isn't linked to the folder on your PC.",
+  "내 PC 폴더로 공유(계속 맞춤)": "Share as my PC folder (kept in step)",
+  "이 PC 의 폴더를 연결해 두고, 바뀐 내용은 「지금 올리기」로 올려요. 시스템 창에서 이 폴더를 한 번 더 골라 주세요.": "Links this PC's folder; upload what changed with 「Upload now」. Pick this folder once more in the system window.",
+  "데스크톱 앱을 새 판으로 바꾸면 내 PC 폴더를 그대로 공유할 수 있어요": "Update the desktop app to share a folder on your PC as it is",
+  "이 PC 를 이 서버에 연결하면 내 PC 폴더를 그대로 공유할 수 있어요": "Connect this PC to this server to share a folder on your PC as it is",
+  "이어서 「내 PC 폴더 올리기」와 같은 미리 보기를 확인해요": "Next, you review the same preview as 「Upload a folder from my PC」",
+  "한 번 올리고 끝나요 — 내 PC 의 폴더는 그대로예요": "Uploaded once — the folder on your PC stays as it is",
+  "시스템 창에서 고르기": "Pick in the system window",
+  "만들고 올리기": "Create and upload",
+  "가장 큰 것:": "Biggest:",
+  "아래 「올릴 것」에서 체크를 풀어 빼 주세요": "untick them under 「What goes up」 below",
+  "파일이나 폴더를 여기로 끌어다 놓으면 main 에 올라가요": "Drop files or folders here to upload them to main",
+  "폴더는 올릴 내용을 먼저 확인해요": "For a folder you review what goes up first",
+  "올린 사람과 시각이 이력에 남아요": "Who uploaded it and when stay in the history",
+  "파일을 대화방이나 채팅으로 끌어다 놓으면 링크로 멘션돼요(⌘/Ctrl 로 여럿 고르기)": "Drag a file to a room or a chat to mention it as a link (⌘/Ctrl to pick several)",
+  "폴더를 살피는 중…": "Looking through the folder…",
+  "여기에 놓으면 같은 이름으로 새 폴더를 만들어요": "Drop here to create a new folder with the same name",
+  "올릴 내용을 먼저 확인해요": "You review what goes up first",
+  "내 컴퓨터의 폴더를 이 창으로 끌어다 놓으면 같은 이름과 내용으로 새 폴더를 만들어요.": "Drop a folder from your computer on this window to create a new folder with its name and contents.",
+  "폴더를 놓으면 같은 이름으로 새 폴더를 만들어요 — 파일은 폴더를 열고 그 안에 놓아 주세요.": "Drop a folder to create a new folder with the same name — to add files, open a folder and drop them in it.",
+  "이 작업실을 열 권한이 없어요 — 이 폴더의 편집 권한(변형은 실행 권한)이 필요해요.": "You don't have access to this workroom — it needs edit access to the folder (run access for a variation).",
+  "이 폴더(또는 변형)의 작업실을 찾지 못했어요 — 지워졌거나 아직 작업 사본이 없어요.": "Couldn't find the workroom of this folder (or variation) — it was deleted or has no working copy yet.",
+  "이 폴더에는 올릴 수 없어요.": "You can't upload to this folder.",
+  "그만뒀어요": "Stopped",
+  "경로가 너무 긴 파일": "Files whose path is too long",
+  "git 제어 파일(.gitmodules · .lfsconfig · .gitattributes)": "git control files (.gitmodules · .lfsconfig · .gitattributes)",
+  "그만뒀어요 — 올라간 것은 없어요.": "Stopped — nothing went up.",
+  "그만두는 중…": "Stopping…",
+  "git 제어 파일(.gitmodules · .lfsconfig · .gitattributes · .gitignore)": "git control files (.gitmodules · .lfsconfig · .gitattributes · .gitignore)",
+  "서버가 이 요청을 받지 않고 연결을 끊었어요 — 올리는 중인 것이 끝난 뒤, 한도 안에서 다시 해 주세요.": "The server closed the connection without taking this request — try again within the limits once the upload under way is done.",
+  "템플릿": "Template",
+  "템플릿으로 지정": "Use as a template",
+  "지정 풀기": "Unmark",
+  "템플릿으로 시작": "Start from this template",
+  "· 템플릿으로 시작": "· start from the template",
+  "원본에 반영 요청": "Request a merge into the original",
+  "프로젝트 작업 공간": "Project workspace",
+  "템플릿 파일": "Template file",
+  "이 프로젝트 전용 작업 공간": "This project's own workspace",
+  "프로젝트를 시작할 때 쓰는 폴더예요": "A folder to start projects from",
+  "템플릿에서 온 파일 중 이 프로젝트에서 바뀐 것": "Files from the template that changed in this project",
+  "이 프로젝트에만 남는 결과물 · 보내지 않아요": "Outputs that stay in this project · not sent",
+  "요청 제목": "Request title",
+  "템플릿 주인에게 한마디 (선택)": "A note to the template's owner (optional)",
+  "고른 파일만 템플릿의 지금 main 위에 새 변형으로 올라가요. 템플릿 주인이 그 변형을 보고 반영하면 다음 프로젝트부터 고친 내용으로 시작해요.": "Only the files you pick go up, as a new variation on the template's current main. Once the template's owner reviews and merges it, the next projects start with the fix.",
+  "템플릿에서 온 파일 가운데 바뀐 것이 없어요.": "No file from the template changed here.",
+  "아직 결과물이 없어요.": "No outputs yet.",
+  "지움": "deleted",
+  "새 파일": "new file",
+  "예: 회사 주소가 옛 주소라 새 주소로 바꿨어요": "e.g. The company address was the old one, so I changed it",
+  "템플릿 지정을 풀었어요": "No longer a template",
+  "템플릿으로 지정했어요 — 이 폴더에서 프로젝트를 시작할 수 있어요": "Marked as a template — projects can start from this folder",
+  "템플릿 지정을 풀까요? 이미 시작한 프로젝트의 작업 공간은 그대로예요.": "Stop using this folder as a template? Workspaces of projects already started stay as they are.",
+  "이 폴더에서 프로젝트를 시작할 수 있게 해요": "Lets projects start from this folder",
+  "이 프로젝트의 작업 공간 보기": "See this project's workspace",
+  "템플릿에서 온 파일 중 고친 것만 원본에 보내요": "Sends only the template files you fixed to the original",
+  "프로젝트로": "To the project",
+  "새 프로젝트 이름": "New project name",
+  "전용 작업 공간 · 바뀐 것 없음": "Own workspace · nothing changed",
+  "PC에 남아 있던 변경": "Changes left on a PC",
+  "작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 볼 수 있어요.": "Changes that came up from a PC after the working copy moved somewhere else. Like this workspace, only you can see them.",
+  "저장 안 됨": "Not saved",
+  "저장 실패": "Save failed",
+  "연결 끊김": "Disconnected",
+  "연결 끊김 · 다시 열기": "Disconnected · Reopen",
+  "저장하지 못했어요 · 다시 시도": "Couldn't save · Try again",
+  "다시 열기": "Reopen",
+  "편집기가 저장 중이에요": "The editor is saving",
+  "편집기와 연결이 끊겨 지금은 저장할 수 없어요. 고친 내용을 복사해 두고 눌러서 다시 여세요.": "The editor lost its connection, so it can't save right now. Copy your edits, then click to reopen.",
+  "저장하지 못했어요 · 눌러서 다시 시도": "Couldn't save · Click to try again",
+  "고친 내용을 아직 저장하지 않았어요 — 💾 저장 또는 ⌘S": "Your edits aren't saved yet — 💾 Save or ⌘S",
+  "편집기와 연결이 끊겼어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요": "The editor lost its connection — copy your edits, then press “Reopen”",
+  "편집기와 연결이 끊겨 지금은 저장할 수 없어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요.": "The editor lost its connection, so it can't save right now — copy your edits, then press “Reopen”.",
+  "편집기와 연결이 끊겼어요 — 「다시 열기」로 다시 열어 주세요.": "The editor lost its connection — open it again with “Reopen”.",
+  "편집기가 문서를 올리지 못했어요": "The editor couldn't upload the document",
+  "채팅의 파일 카드에서 이 버전이 열려요": "The chat’s file card opens this version",
+  "이 문서는 여기서 다른 이름으로 저장할 수 없어요 — 「내려받기」로 받아 두세요.": "This document can't be saved under another name here — keep a copy with “Download”.",
+  "채팅의 파일 카드가 고친 버전으로 바뀌지 않았어요": "The chat's file card didn't switch to the edited version",
+  "편집기를 다시 열까요?": "Reopen the editor?",
+  "편집기와 연결이 끊겨 이 문서는 지금 저장할 수 없어요. 다시 열면 마지막으로 저장한 버전이 열리고, 저장하지 않은 내용은 사라져요. 필요한 부분은 먼저 복사해 두세요.": "The editor lost its connection, so this document can't be saved right now. Reopening opens the last saved version and drops anything unsaved. Copy what you need first.",
+  "저장하지 않은 내용이 있어요": "You have unsaved changes",
+  "저장하고 닫기": "Save and close",
+  "저장하지 않고 닫기": "Close without saving",
+  "다른 이름으로 저장": "Save as",
+  "지금 내용을 이 대화에 새 파일로 저장해요. 지금 파일은 마지막으로 저장한 그대로 남아요.": "Saves the current content as a new file in this conversation. This file stays as it was last saved.",
+  "파일 이름을 적어 주세요": "Enter a file name",
+  "문서를 다시 열었어요": "The document was reopened",
+  "저장한 곳을 확인하지 못했어요": "Couldn't confirm where it was saved",
+  "다른 이름으로 저장하지 못했어요": "Couldn't save under another name",
+  "다른 이름으로 저장하지 못했어요 — 편집본을 찾지 못했어요": "Couldn't save under another name — the edited copy wasn't found",
+  "팀원에게 묻기": "Ask a teammate",
+  "덧붙인 말:": "Added:",
+  "메일은 보내지 않았어요.": "No mail was sent.",
+  "초안 열기": "Open draft",
+  "메일 열기": "Open mail",
+  "직접 채우기": "Fill it in myself",
+  "하루가 지났어요. 다시 물어보거나 직접 채울 수 있어요.": "A day has passed. Ask again, or fill it in yourself.",
+  "묻는 중…": "Asking…",
+  "채울 파일": "File to fill",
+  "이대로 물어보기": "Ask like this",
+  "물어보기": "Ask",
+  "고쳐서 물어보기": "Edit and ask",
+  "아니요(직접 채울게요)": "No (I'll fill it in)",
+  "메신저에서 보기": "View in messenger",
+  "직접 채우기로 했어요.": "You'll fill it in yourself.",
+  "다시 물어봤어요.": "Asked again.",
+  "아직 답이 없어요.": "No answer yet.",
+  "아직 답이 없어요": "No answer yet",
+  "이 방에 답을 적어 주세요.": "Reply in this conversation.",
+  "보냈어요 · 고마워요": "Sent · thank you",
+  "모른다고 보냈어요": "Sent that you don't know",
+  "다시 물어본 요청으로 바뀌었어요": "Replaced by a new request",
+  "AI 가 대신 묻는 중": "AI asking for them",
+  "팀원 답": "Teammate",
+  "메일 답장 초안에서는 채울 빈칸을 찾지 못했어요.": "No blanks to fill were found in the mail reply draft.",
+  "답을 메일 카드에 남겼어요. 「답장도 쓰기」로 초안을 쓰면 이 값이 들어가요.": "The answer is kept on the mail card. Write a draft with \"Write a reply too\" and these values go in.",
+  "이 메일에는 이미 답장을 보냈어요.": "A reply to this mail was already sent.",
+  "덧붙일 말 (선택)": "Anything to add (optional)",
+  "잘 모르겠어요": "I don't know",
+  "하나 이상 채워 주세요.": "Fill in at least one item.",
+  "묻는 이유": "Why ask",
+  "물어볼 항목": "Items to ask",
+  "칸에 적어 보내거나 이 방에 답장으로 적어도 돼요.": "Fill in the form, or just reply in this conversation.",
+  "답을 기다리고 있어요": "Waiting for an answer",
+  "요청이 취소됐어요": "The request was cancelled",
+  "모르면 누가 아는지 적어 주셔도 돼요": "If you don't know, who might",
+  "문서에 채우기": "Fill the document",
+  "메일 답장 초안이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.": "The mail reply draft changed meanwhile, so it was not filled. Put the values in yourself.",
+  "값이 길어요 — 내용을 확인하고 채우세요": "A long value — check what it says before filling",
+  "보냈는지 확인하지 못했어요": "Couldn't confirm it was sent",
+  "보낸 편지함을 확인해 주세요. 다시 보내면 중복으로 갈 수 있어 「보내기」를 막아 두었어요.": "Check your Sent folder. Send is held, as sending again could deliver it twice.",
+  "보내지 못했어요": "It wasn't sent",
+  "보낸 편지함에 있어요": "It's in my Sent folder",
+  "보낸 편지함에서 확인했어요": "Confirmed in the Sent folder",
+  "받는 사람이 없어요": "No recipient",
+  "· 제목과 받는 사람으로 찾은 메일이에요": "· found by subject and recipient",
+  "답장할 메일을 내 메일함에서 찾지 못해 새 메일로 보내요": "Couldn't find the mail to reply to in your mailbox, so it goes as a new mail",
+  "답장받을 주소(Reply-To)가 보낸 사람 주소와 달라요:": "The reply address (Reply-To) differs from the sender's:",
+  "받는 사람이 이 메일을 주고받은 사람이 아니에요.": "The recipient wasn't part of this mail's conversation.",
+  "내가 올린 파일": "uploaded by me",
+  "이 메일을 위해 만든 초안": "draft made for this mail",
+  "이 메일에는 이미 답장을 보냈어요. 보낸 편지함을 확인해 주세요.": "This mail was already answered. Check your Sent folder.",
+  "받는 사람이 없어요. 「고치기」를 눌러 받는 사람을 적어 주세요.": "No recipient. Press Edit and add one.",
+  "보낼 메일": "Mail to send",
+  "「보내기」를 눌러야 나가요": "It leaves only when you press Send",
+  "「임시 보관함에 넣기」를 눌러야 나가요": "It goes in only when you press Put in Drafts",
+  "아직 보낼 수 없어요": "Can't be sent yet",
+  "연결된 내 메일이 없어요": "None of your mail is connected",
+  "에 이어서": " — continues that thread",
+  "새 메일 — 답장할 받은 메일을 찾지 못했어요": "A new mail — couldn't find the mail it replies to",
+  "· 찾지 못해서 빼고 보내요": "· not found, left out",
+  "본문 모두 보기": "Show the whole body",
+  "메일을 연결하면 내 계정으로 보낼 수 있어요.": "Connect your mail to send it from your own account.",
+  "Gmail의 메일 전송 권한이 없어요. 메일을 다시 연결하면 내 계정으로 보낼 수 있어요.": "Gmail hasn't allowed sending. Connect your mail again to send it from your own account.",
+  "데모 메일함이라 실제로 보내지 않고 기록만 해요.": "This is the demo mailbox, so it's only recorded, not sent.",
+  "이 메일함에서는 바로 보낼 수 없어서 임시 보관함에 넣어요. 메일 앱에서 보내 주세요.": "This mailbox can't send from here, so it goes in Drafts. Send it from your mail app.",
+  "초안으로 두기": "Keep as draft",
+  "다시 연결하기": "Connect again",
+  "임시 보관함에 넣었어요 · 메일 앱에서 보내 주세요": "Put in Drafts · send it from your mail app",
+  "보냈어요": "Sent",
+  "· 받은 메일의 스레드에 이어서": "· in the thread of the mail it answers",
+  "· 새 메일로": "· as a new mail",
+  "고친 초안이 아래에 있어요": "The corrected draft is below",
+  "보내지 않기로 했어요": "Dropped",
+  "초안으로 두었어요": "Kept as a draft",
   "작업실 — 어디서 열까요": "Workroom — where to open it",
   "한 변형의 작업본은 한 번에 한 곳에만 있어요. 고르는 곳으로 옮겨 가고, 다른 곳에서는 올라온 데까지 읽기만 해요.": "A variation's working copy is in one place at a time. It moves to where you choose; everywhere else reads what was last pushed.",
   "이 PC 에서 작업": "Work on this PC",
@@ -3211,8 +3534,56 @@
    "Downloaded the last saved version — your latest edits aren't in it · {0}"
   ],
   [
+   "파일 {0}개는 한 번에 받을 수 있는 200MB를 넘어서 넣지 못했어요.",
+   "{0} files went over the 200MB limit for one share and were not added."
+  ],
+  [
+   "파일은 한 번에 {0}개까지 받아요. {1}개는 넣지 못했어요.",
+   "Up to {0} files at a time. {1} were not added."
+  ],
+  [
+   "공유한 파일 {0}개와 글을 ‘{1}’ 입력창에 넣었어요.",
+   "Added {0} shared file(s) and text to the ‘{1}’ message box."
+  ],
+  [
+   "기기 {0}대에 보냈어요. 이 브라우저는 푸시를 받지 못해 직접 띄웠어요.",
+   "Sent to {0} devices. This browser can't receive push, so it was shown here."
+  ],
+  [
+   "이름에 파일 형식({0})을 붙여요 — 형식도 모든 구성원에게 보여요",
+   "Add the file type ({0}) to the name — every member sees the type too"
+  ],
+  [
+   "{0} · main 따라감 · 이 폴더의 파일 {1}개를 가림",
+   "{0} · follows main · hides {1} file(s) of this folder"
+  ],
+  [
+   "보냈어요 · 기기 {0}대. 몇 초 안에 알림이 와요.",
+   "Sent · {0} devices. The notification arrives in a few seconds."
+  ],
+  [
    "새 창에서 열었어요 — 거기서 저장하세요 · {0}",
    "Opened in a new tab — save it from there · {0}"
+  ],
+  [
+   "‘{0}’({1})는 50MB가 넘어서 넣지 못했어요.",
+   "‘{0}’ ({1}) is over 50MB and was not added."
+  ],
+  [
+   "파일 {0}개는 50MB가 넘어서 넣지 못했어요.",
+   "{0} files are over 50MB and were not added."
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’ 입력창에 넣었어요.",
+   "Added {0} shared file(s) to the ‘{1}’ message box."
+  ],
+  [
+   "‘{0}’ 파일이 비어 있어서 넣지 못했어요.",
+   "‘{0}’ is empty and was not added."
+  ],
+  [
+   "공유한 글을 ‘{0}’ 입력창에 넣었어요.",
+   "Added the shared text to the ‘{0}’ message box."
   ],
   [
    "방금 저장한 판을 내려받았어요 · {0}",
@@ -3229,6 +3600,10 @@
   [
    "지금 쓰는 PC 앱은 {0} 버전, 최신은 {1} 버전이에요",
    "This desktop app is version {0}; the latest is {1}"
+  ],
+  [
+   "… 외 {0}개 · 원본 폴더에서 보기",
+   "… {0} more · see them in the original folder"
   ],
   [
    "PC 앱 새 버전({0})이 나왔어요",
@@ -3275,6 +3650,10 @@
    "No output matches “{0}”."
   ],
   [
+   "빈 파일 {0}개는 넣지 못했어요.",
+   "{0} empty files were not added."
+  ],
+  [
    "「{0}」와 맞는 대화가 없어요.",
    "No conversation matches “{0}”."
   ],
@@ -3295,6 +3674,10 @@
    "{0} outputs of this project"
   ],
   [
+   "파일 {0}개 중 {1}개 열어 봄",
+   "Opened {1} of {0} files"
+  ],
+  [
    "‘{0}’의 시작으로 보여요",
    "Looks like the start of ‘{0}’"
   ],
@@ -3307,8 +3690,16 @@
    "Couldn't download · {0}"
   ],
   [
+   "‘{0}’를 참조로 더했어요",
+   "Added ‘{0}’ as a reference"
+  ],
+  [
    "올렸어요 — 파일 {0}개",
    "Uploaded — {0} files"
+  ],
+  [
+   "{0} · main 따라감",
+   "{0} · follows main"
   ],
   [
    "채팅의 산출물 {0}개 {1}",
@@ -3317,6 +3708,10 @@
   [
    "마지막 소식 {0}초 전",
    "last update {0} s ago"
+  ],
+  [
+   "마지막으로 연 때 {0}",
+   "Last opened {0}"
   ],
   [
    "채팅의 산출물 {0}개",
@@ -3353,6 +3748,18 @@
   [
    "진행 중 변경 {0}",
    "Changes in progress {0}"
+  ],
+  [
+   "{0} · 읽기 전용",
+   "{0} · read only"
+  ],
+  [
+   "「{0}」 폴더 전체",
+   "The whole \"{0}\" folder"
+  ],
+  [
+   "{0} · 폴더 전체",
+   "{0} · whole folder"
   ],
   [
    "{0}에 저장했어요",
@@ -3819,6 +4226,10 @@
    "MCP servers {0}"
   ],
   [
+   "단체방 · {0}명",
+   "Group · {0} people"
+  ],
+  [
    "유휴 {0} ({1})",
    "Idle {0} ({1})"
   ],
@@ -3903,6 +4314,10 @@
    "Run settings {0}"
   ],
   [
+   "· 원본: {0}",
+   "· Original: {0}"
+  ],
+  [
    "표 {0} ({1})",
    "Table {0} ({1})"
   ],
@@ -3961,6 +4376,10 @@
   [
    "프롬프트 {0}",
    "Prompts {0}"
+  ],
+  [
+   "참조 · {0}",
+   "Reference · {0}"
   ],
   [
    "{0}(소유)",
@@ -4055,6 +4474,22 @@
    "{0} files"
   ],
   [
+   "{0} 외 {1}개",
+   "{0} and {1} more"
+  ],
+  [
+   "{0}개 고침",
+   "{0} edited"
+  ],
+  [
+   "{0}개 추가",
+   "{0} added"
+  ],
+  [
+   "{0}개 지움",
+   "{0} removed"
+  ],
+  [
    "나: {0}",
    "Me: {0}"
   ],
@@ -4121,6 +4556,10 @@
   [
    "스펙 {0}",
    "Specs {0}"
+  ],
+  [
+   "참조 {0}",
+   "Reference {0}"
   ],
   [
    "시작{0}",
@@ -6519,10 +6958,6 @@
    "{0} asked: \"{1}\" · routing model {2}%"
   ],
   [
-   "그룹 대화는 {0}명까지예요.",
-   "A group conversation has at most {0} people."
-  ],
-  [
    "{0}님은 더 이상 팀원이 아니에요.",
    "{0} is no longer a teammate."
   ],
@@ -7075,6 +7510,94 @@
    "Details · {0} steps"
   ],
   [
+   "공유한 파일 {0}개를 ‘{1}’에 넣을까요?",
+   "Add {0} shared file(s) to ‘{1}’?"
+  ],
+  [
+   "공유한 파일 {0}개와 글을 ‘{1}’에 넣을까요?",
+   "Add {0} shared file(s) and text to ‘{1}’?"
+  ],
+  [
+   "공유한 글을 ‘{0}’에 넣을까요?",
+   "Add the shared text to ‘{0}’?"
+  ],
+  [
+   "공유한 파일 {0}개를 ‘{1}’ 폴더에 넣을까요?",
+   "Add {0} shared file(s) to the ‘{1}’ folder?"
+  ],
+  [
+   "첨부 {0}개 공유 중",
+   "{0} attachments shared"
+  ],
+  [
+   "첨부 파일도 공유 ({0}개)",
+   "Share the files too ({0})"
+  ],
+  [
+   "「{0}」에 공유했어요",
+   "Shared to “{0}”"
+  ],
+  [
+   "앞으로 {0}도 이 방에 올려요",
+   "From now on, {0} goes to this room too"
+  ],
+  [
+   "앞으로 {0}도 이 방에 올려요.",
+   "From now on, {0} goes to this room too."
+  ],
+  [
+   "{0}이라 저절로 올라갔어요",
+   "Posted automatically: {0}"
+  ],
+  [
+   "「{0}」에는 보낸 사람 · 제목 · 날짜 · 첨부 이름만 보여요.",
+   "“{0}” sees only the sender, subject, date and attachment names."
+  ],
+  [
+   "「{0}」에는 보낸 사람 · 제목 · 날짜와 본문이 보여요.",
+   "“{0}” sees the sender, subject, date and the body."
+  ],
+  [
+   "첨부 파일 {0}개도 열 수 있어요.",
+   "They can open the {0} attachments too."
+  ],
+  [
+   "한 번에 {0}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.",
+   "Up to {0} people at a time. Invite the rest once the room is made."
+  ],
+  [
+   "한 번에 {0}명까지 초대할 수 있어요.",
+   "Up to {0} people can be invited at a time."
+  ],
+  [
+   "서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {0}번째 · 「{1}」",
+   "The server isn't answering for a moment — sending again · try {0} · “{1}”"
+  ],
+  [
+   "보내지 못했어요 — {0}",
+   "Couldn't send — {0}"
+  ],
+  [
+   "서버가 응답하지 못했어요 ({0}).",
+   "The server didn't answer ({0})."
+  ],
+  [
+   "서버가 잠시 응답하지 않아 다시 보내는 중이에요 · {0}번째",
+   "The server isn't answering for a moment — sending again · try {0}"
+  ],
+  [
+   "{0} · 입력창에 다시 넣어 두었어요",
+   "{0} · Put back in the box"
+  ],
+  [
+   "서버가 잠시 응답하지 않았어요 ({0})",
+   "The server didn't answer for a moment ({0})"
+  ],
+  [
+   "「{0}」",
+   "“{0}”"
+  ],
+  [
    "{0}의 PC 에서",
    "On {0}'s PC"
   ],
@@ -7121,6 +7644,290 @@
   [
    "{0}일 남음",
    "{0} days left"
+  ],
+  [
+   "서버 브라우저: {0}",
+   "Server browser: {0}"
+  ],
+  [
+   "프로젝트 계획 · {0}",
+   "Project plan · {0}"
+  ],
+  [
+   "자동으로 빠지는 것 {0}개",
+   "{0} left out automatically"
+  ],
+  [
+   "직접 뺀 것 {0}개",
+   "{0} left out by you"
+  ],
+  [
+   "git 저장소예요(원격 {0}) — .git 과 지난 이력은 빼고, 지금 있는 파일만 올려요",
+   "It's a git repository (remote {0}) — .git and its past history are left out; only the files as they are now go up"
+  ],
+  [
+   "파일이 {0}개가 넘어요 — 한 번에 {1}개까지 올릴 수 있어요",
+   "More than {0} files — up to {1} can go up at once"
+  ],
+  [
+   "파일이 {0}개예요 — 한 번에 {1}개까지 올릴 수 있어요",
+   "{0} files — up to {1} can go up at once"
+  ],
+  [
+   "한 번에 올릴 수 있는 크기({0})를 넘어요 — {1}",
+   "Over the size one upload can take ({0}) — {1}"
+  ],
+  [
+   "‘{0}’ main 에 {1}/ 그대로 올라가요",
+   "Goes up to ‘{0}’ main as {1}/"
+  ],
+  [
+   "‘{0}’ main 에 그대로 올라가요",
+   "Goes up to ‘{0}’ main as it is"
+  ],
+  [
+   "폴더 {0}곳",
+   "{0} folder(s)"
+  ],
+  [
+   "읽지 못한 것 {0}개 — 올리지 않아요",
+   "{0} could not be read — they don't go up"
+  ],
+  [
+   "올리는 중… {0} / {1}",
+   "Uploading… {0} / {1}"
+  ],
+  [
+   "‘{0}’ 폴더는 만들었지만 다 올리지 못했어요 — {1}",
+   "Created ‘{0}’ but couldn't upload everything — {1}"
+  ],
+  [
+   "‘{0}’ 폴더를 만들었지만 다 올리지 못했어요 — {1}",
+   "Created ‘{0}’ but couldn't upload everything — {1}"
+  ],
+  [
+   "폴더를 살피는 중… 파일 {0}개",
+   "Looking through the folder… {0} files"
+  ],
+  [
+   "서버가 받지 않은 것 {0}개({1})",
+   "{0} not taken by the server ({1})"
+  ],
+  [
+   "서버가 받지 않은 것 {0}개",
+   "{0} not taken by the server"
+  ],
+  [
+   "파일 {0}개를 올린 뒤 멈췄어요 — {1}",
+   "Stopped after uploading {0} files — {1}"
+  ],
+  [
+   "큰 파일 — {0} 넘는 파일은 올리지 않아요",
+   "Large files — files over {0} don't go up"
+  ],
+  [
+   "작업실을 열지 못했어요 — {0}",
+   "Couldn't open the workroom — {0}"
+  ],
+  [
+   "그만뒀어요 — 파일 {0}개는 올라갔어요",
+   "Stopped — {0} files went up"
+  ],
+  [
+   "‘{0}’ 폴더를 만들고 그만뒀어요 — 파일 {1}개는 올라갔어요",
+   "Created ‘{0}’ and stopped — {1} files went up"
+  ],
+  [
+   "원본에 반영 요청 — 템플릿 「{0}」",
+   "Request a merge into the original — template “{0}”"
+  ],
+  [
+   "{0}개 보내기",
+   "Send {0}"
+  ],
+  [
+   "전용 작업 공간 · 바뀐 것 {0}건",
+   "Own workspace · {0} changed"
+  ],
+  [
+   "프로젝트마다 전용 작업 공간이 생기고, 결과물은 그 프로젝트의 「{0}/」에만 남아요 · 이 폴더는 그대로예요",
+   "Each project gets its own workspace; its outputs stay only in that project’s “{0}/” · this folder stays as it is"
+  ],
+  [
+   "— 템플릿 「{0}」의 {1} 에서 시작했어요. 결과물은 「{2}/」에만 남고 템플릿에는 통째로 반영하지 않아요. 고친 템플릿 파일만 「원본에 반영 요청」으로 보내요.",
+   "— started from {1} of the template “{0}”. Outputs stay only in “{2}/” and are never merged into the template whole. Send only the template files you fixed with “Request a merge into the original”."
+  ],
+  [
+   " · 보낸 요청 {0}건",
+   " · {0} requests sent"
+  ],
+  [
+   "템플릿 「{0}」 주인에게 반영 요청을 보냈어요 · {1} · 결과물은 이 프로젝트에만 남아요",
+   "Merge request sent to the owner of the template “{0}” · {1} · the outputs stay in this project"
+  ],
+  [
+   "템플릿 주인에게 반영 요청을 보냈어요 · {0}개 파일",
+   "Merge request sent to the template's owner · {0} files"
+  ],
+  [
+   "템플릿 {0} 열기",
+   "Open the template {0}"
+  ],
+  [
+   "저장했어요 · {0}",
+   "Saved · {0}"
+  ],
+  [
+   "저장됨 {0}",
+   "Saved {0}"
+  ],
+  [
+   "저장했어요 — {0}",
+   "Saved — {0}"
+  ],
+  [
+   "저장하지 못했어요 — {0} · 눌러서 다시 시도",
+   "Couldn't save — {0} · Click to try again"
+  ],
+  [
+   "저장하지 못했어요 — {0}",
+   "Couldn't save — {0}"
+  ],
+  [
+   "편집기가 {0}초 안에 저장을 마치지 못했어요",
+   "The editor didn't finish saving within {0} seconds"
+  ],
+  [
+   "편집기가 문서를 올리지 못했어요 ({0})",
+   "The editor couldn't upload the document ({0})"
+  ],
+  [
+   "닫기 전에 「{0}」의 고친 내용을 저장할까요? 저장하지 않고 닫으면 고친 내용이 사라져요.",
+   "Save your edits to “{0}” before closing? Closing without saving drops them."
+  ],
+  [
+   "편집기와 연결이 끊겨 「{0}」의 고친 내용을 지금은 저장할 수 없어요. 닫으면 저장하지 않은 내용이 사라져요 — 필요한 부분은 먼저 복사해 두세요.",
+   "The editor lost its connection, so your edits to “{0}” can't be saved right now. Closing drops anything unsaved — copy what you need first."
+  ],
+  [
+   "「{0}」 이름으로 저장 중…",
+   "Saving as “{0}”…"
+  ],
+  [
+   "「{0}」 이름으로 저장했어요 · 이 대화에 새 파일로 남았어요",
+   "Saved as “{0}” · it’s a new file in this conversation"
+  ],
+  [
+   "다른 이름으로 저장하지 못했어요: {0}",
+   "Couldn't save under another name: {0}"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요: {1}",
+   "Couldn't apply it to the '{0}' panel: {1}"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요 ({1})",
+   "Couldn't apply it to the '{0}' panel ({1})"
+  ],
+  [
+   "'{0}' 패널에 반영하지 못했어요",
+   "Couldn't apply it to the '{0}' panel"
+  ],
+  [
+   "저장하지 못했어요 — {0}. 한 번 더 닫으면 저장하지 않고 닫아요.",
+   "Couldn't save — {0}. Close again to close without saving."
+  ],
+  [
+   "다른 이름으로 저장하지 못했어요 — {0}",
+   "Couldn't save under another name — {0}"
+  ],
+  [
+   "{0}님께 보낼 메시지",
+   "Message to {0}"
+  ],
+  [
+   "물어보기를 누르기 전에는 아무에게도 보내지 않아요. {0}님과의 1:1 대화방에 내 이름으로 보내요.",
+   "Nothing is sent until you press Ask. It goes to your one-to-one conversation with {0}, in your name."
+  ],
+  [
+   "항목 {0}",
+   "Item {0}"
+  ],
+  [
+   "「{0}」의 빈칸 {1}곳을 채워 새 판으로 저장했어요.",
+   "Filled {1} blanks in \"{0}\" and saved it as a new version."
+  ],
+  [
+   "「{0}」의 빈칸 {1}곳을 채워 새 판으로 저장했어요. 채우지 못한 항목: {2}",
+   "Filled {1} blanks in \"{0}\" and saved it as a new version. Not filled: {2}"
+  ],
+  [
+   "「{0}」에서 채울 빈칸을 찾지 못했어요. 값을 직접 넣어 주세요.",
+   "No blanks to fill were found in \"{0}\". Put the values in yourself."
+  ],
+  [
+   "「{0}」은 직접 채워 주세요.",
+   "Please fill in \"{0}\" yourself."
+  ],
+  [
+   "메일 답장 초안의 빈칸 {0}곳도 채웠어요. 직접 보내 주세요.",
+   "Also filled {0} blanks in the mail reply draft. Send it yourself."
+  ],
+  [
+   "{0}님께 메신저로 물어볼까요?",
+   "Ask {0} on the messenger?"
+  ],
+  [
+   "{0}님께 메신저로 물어봤어요. 답을 기다리고 있어요.",
+   "Asked {0} on the messenger. Waiting for the answer."
+  ],
+  [
+   "{0}님이 답했어요.",
+   "{0} answered."
+  ],
+  [
+   "{0}님이 답했어요",
+   "{0} answered"
+  ],
+  [
+   "{0}님이 모른다고 했어요.",
+   "{0} doesn't know."
+  ],
+  [
+   "{0}님이 모른다고 했어요",
+   "{0} doesn't know"
+  ],
+  [
+   "{0}님이 아직 답하지 않았어요",
+   "{0} hasn't answered yet"
+  ],
+  [
+   "{0}님이 물어봤어요 · AI 가 대신 묻는 중",
+   "{0} asked you something (AI asking for them)"
+  ],
+  [
+   "「{0}」은 문서라 바로 채우지 않았어요. 값을 확인하고 「문서에 채우기」를 누르면 에이전트가 이 문서만 채워요.",
+   "\"{0}\" is a document, so it was not filled right away. Check the values and press \"Fill the document\" — the agent fills only this document."
+  ],
+  [
+   "에이전트가 「{0}」을 채우고 있어요.",
+   "The agent is filling \"{0}\"."
+  ],
+  [
+   "에이전트가 「{0}」을 채웠어요. 새 판을 확인해 주세요.",
+   "The agent filled \"{0}\". Check the new version."
+  ],
+  [
+   "「{0}」을 채우지 못했어요. 값을 직접 넣어 주세요.",
+   "\"{0}\" could not be filled. Put the values in yourself."
+  ],
+  [
+   "「{0}」이 그사이 바뀌어 채우지 못했어요. 값을 직접 넣어 주세요.",
+   "\"{0}\" changed meanwhile, so it was not filled. Put the values in yourself."
+  ],
+  [
+   "· 빼고 보내요({0})",
+   "· left out ({0})"
   ],
   [
    "안 올린 저장 지점 {0}",
@@ -7400,6 +8207,16 @@
    ".dlb",
    "받는 중…",
    "Downloading…"
+  ],
+  [
+   "[data-test=\"slot-pill\"]",
+   "참조",
+   "Reference"
+  ],
+  [
+   "[data-test=\"share-put\"]",
+   "넣기",
+   "Add"
   ]
  ],
  "따로 관리되는 폴더 · 링크 · git 제어 파일": "Folders managed on their own · links · git control files",

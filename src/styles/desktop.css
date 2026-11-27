@@ -44,3 +44,9 @@ html.pgl-desktop :is(.msdock, .veil > .ms) { -webkit-app-region: no-drag; app-re
 html.pgl-desktop.pgl-os-darwin:not(.pgl-fullscreen) .msdock.d-left { top: 44px !important; }
 html.pgl-desktop:not(.pgl-os-darwin) .msdock:is(.d-right, .d-panel):not(.inpanel) { top: 44px !important; }
 
+/* the agent workroom (views/WorkroomView.vue) covers the window, top bar included: its header steps around the window's own buttons
+   (its back button sat under the macOS traffic lights, its 「파일」 under the Windows caption buttons — 2026-11-27) */
+html.pgl-desktop .wr > .hd {
+  padding-left: max(12px, calc(var(--pgl-tb-left, 0px) + 8px));
+  padding-right: max(12px, calc(var(--pgl-tb-right, 0px) + 8px));
+}

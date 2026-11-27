@@ -94,7 +94,7 @@ export function queueDefault(p) {
 const STOPPED = ['needs_review', 'failed', 'cancelled']
 export async function recentEnded(userId, threadId, { within = 30, max = 3, hours = 24, justNow = 6 } = {}) {
   const rows = await q(`select m.id, m.content, m.created_at, m.pos from (select id, kind, content, created_at, row_number() over (order by created_at desc) as pos
-      from pro_messages where thread_id=$1 order by created_at desc limit $2) m
+      from pro_messages where thread_id=$1 and kind <> 'note' order by created_at desc limit $2) m
     join pro_threads t on t.id=$1 and t.user_id=$3
     where m.kind='task' and m.created_at > now() - make_interval(hours => $4) and coalesce(m.content->>'goal', '') <> '' and coalesce(m.content->>'connect', '') = ''
       and (m.content->>'state' = any($5) or (m.content->>'state' = 'done' and m.pos <= $6))

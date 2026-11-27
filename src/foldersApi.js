@@ -2,6 +2,7 @@
 import { api, auth, freshToken, htmlPage } from './api.js'
 import { BASE } from './base.js'
 import { nameOf } from './people.js'
+import { batchBody } from './folderDrop.js'
 
 async function call(path, opts) {
   const r = await api(path, { ...opts, raw: true })
@@ -13,6 +14,7 @@ async function call(path, opts) {
   return j
 }
 const enc = encodeURIComponent
+let rulesOnce = null
 
 export const folders = {
   list: () => call('/folders'),
@@ -23,6 +25,12 @@ export const folders = {
   people: () => call('/folders/people'),
   get: (slug) => call(`/folders/${enc(slug)}`),
   update: (slug, body) => call(`/folders/${enc(slug)}`, { method: 'PATCH', body }),
+  // template folders (server lib/folders/templates.js): mark one, start a project from it (its own workspace), and from that workspace
+  // the template files to send back (「원본에 반영 요청」 → a new variation of the template that its owner merges)
+  setTemplate: (slug, on) => call(`/folders/${enc(slug)}`, { method: 'PATCH', body: { template: !!on } }),
+  startProject: (slug, title) => call(`/folders/${enc(slug)}/start-project`, { method: 'POST', body: { title } }),
+  proposal: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/proposal`),
+  propose: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/propose`, { method: 'POST', body }),
   tree: (slug, ref = 'main') => call(`/folders/${enc(slug)}/tree?ref=${enc(ref)}`),
   file: (slug, path, ref = 'main') => call(`/folders/${enc(slug)}/file?ref=${enc(ref)}&path=${enc(path)}`),
   setMember: (slug, body) => call(`/folders/${enc(slug)}/members`, { method: 'POST', body }),
@@ -68,6 +76,13 @@ export const folders = {
   discard: (slug) => call(`/folders/${enc(slug)}`, { method: 'DELETE' }),
   // files dragged on the folder (src/fileDrag.js items — server lib/fileRefs.js dropInto): each becomes a file of it, in my name
   drop: (slug, items, dir = '') => call(`/folders/${enc(slug)}/drop`, { method: 'POST', body: { items, dir } }),
+  // reference slots (server lib/folders/refs.js): the slots as this person sees them, adding · renaming · removing one, and a locked
+  // slot's 「접근 요청」 to the original's owners
+  refs: (slug) => call(`/folders/${enc(slug)}/refs`),
+  addRef: (slug, body) => call(`/folders/${enc(slug)}/refs`, { method: 'POST', body }),
+  renameRef: (slug, id, body) => call(`/folders/${enc(slug)}/refs/${enc(id)}`, { method: 'PATCH', body }),
+  removeRef: (slug, id) => call(`/folders/${enc(slug)}/refs/${enc(id)}`, { method: 'DELETE' }),
+  requestRefAccess: (slug, id) => call(`/folders/${enc(slug)}/refs/${enc(id)}/request-access`, { method: 'POST' }),
   // skills as folders
   skills: () => call('/folders/skills'),
   openSkill: async (name) => (await call(`/folders/skills/${enc(name)}/open`, { method: 'POST' })).slug,
@@ -90,6 +105,27 @@ export const folders = {
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
     return j
+  },
+  // a folder from the computer (src/folderDrop.js): what is left out before it goes up (the champion folders' rules), and its files a
+  // request at a time — one commit each (server S.uploadMany: {written, refused: [{path, reason, line}]}); signal stops it
+  uploadRules: () => (rulesOnce ||= call('/folders/upload-rules').catch((e) => { rulesOnce = null; throw e })),
+  // (a request of this person still on its way — one stopped a moment ago, the server finishing it — answers 429: this one waits its
+  // turn, a while; a refusal that ends the connection before the answer is read comes as a network error and is said as such)
+  async uploadBatch(slug, batch, meta, signal) {
+    for (let wait = 0; ; wait++) {
+      let r
+      try {
+        r = await fetch(`${BASE}/api/folders/${enc(slug)}/files/batch`, { method: 'POST', body: batchBody(batch, meta), signal,
+          headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${await freshToken()}` } })
+      } catch (e) {
+        if (e.name === 'AbortError') throw e
+        throw new Error('서버가 이 요청을 받지 않고 연결을 끊었어요 — 올리는 중인 것이 끝난 뒤, 한도 안에서 다시 해 주세요.')
+      }
+      const j = await r.json().catch(() => ({}))
+      if (r.status === 429 && wait < 20 && !signal?.aborted) { await new Promise((ok) => setTimeout(ok, 1000)); continue }
+      if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
+      return j
+    }
   },
   async text(slug, path, ref = 'main') {
     const r = await fetch(rawUrl(slug, path, ref))
