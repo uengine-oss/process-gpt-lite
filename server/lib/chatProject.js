@@ -33,7 +33,9 @@ const fail = (status, message, code) => Object.assign(new Error(message), { stat
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim()
 const clip = (s, n) => { const t = clean(s); return t.length > n ? `${t.slice(0, n - 1)}…` : t }
 const DEFAULTS = { lines: 12, lineChars: 600, answerChars: 3000, draftTimeoutMs: 20000, draftMaxTokens: 1500,
-  templates: { judge: 12, max: 3, minP: 0.3, timeoutMs: 8000, kitItems: 6 }, limits: { title: 40, intent: 200, background: 120, deliverables: 3 } }
+  templates: { judge: 12, max: 3, minP: 0.3, timeoutMs: 8000, kitItems: 6 }, limits: { title: 40, intent: 200, background: 120, deliverables: 3 },
+  // 「…프로젝트로 옮겨 줘」: the project the person named, read by the judge (lib/conversationMove.js namedProject)
+  move: { minP: 0.7, timeoutMs: 6000 } }
 export const STATES = ['offered', 'making', 'made', 'declined']
 export const RUNNERS = ['owner', 'editor', 'runner']
 
@@ -42,7 +44,7 @@ let bundled = null
 export async function projectSkill() {
   const s = await skillPack(SKILL).catch(() => ({ name: SKILL, source: 'bundled', ...(bundled ||= readSkillDir(bundledDir(SKILL)) || { rules: {}, prompts: {} }) }))
   const r = s.rules || {}
-  return { ...s, rules: { ...DEFAULTS, ...r, templates: { ...DEFAULTS.templates, ...(r.templates || {}) }, limits: { ...DEFAULTS.limits, ...(r.limits || {}) } } }
+  return { ...s, rules: { ...DEFAULTS, ...r, templates: { ...DEFAULTS.templates, ...(r.templates || {}) }, limits: { ...DEFAULTS.limits, ...(r.limits || {}) }, move: { ...DEFAULTS.move, ...(r.move || {}) } } }
 }
 const promptOf = (sk, name) => (isEn() && sk.prompts?.[`${name}-en`]) || sk.prompts?.[name] || ''
 
@@ -159,10 +161,17 @@ function offerBudget(userId, n = Number(process.env.PRO_PROJECT_OFFERS_PER_MIN) 
   list.push(now)
   offered.set(userId, list)
 }
+// the 「새 프로젝트로」 옮기기 card still open for this conversation (one per conversation), and the ones being written now (this server)
+const moveOffering = new Map()
+async function openMoveOffer(threadId, conv) {
+  const [m] = await q(`select * from pro_messages where thread_id=$1 and kind='project_offer' and content->'move'->>'conversationId' = $2
+    and content->>'state' in ('offered','making') order by created_at desc limit 1`, [threadId, String(conv)])
+  return m || null
+}
 // the card still open for this answer (one per answer: 「프로젝트로 시작」 twice, the words after the button — the same card)
 async function openOfferFor(threadId, answerId) {
   const [m] = await q(`select * from pro_messages where thread_id=$1 and kind='project_offer' and content->'source'->'answer'->>'messageId' = $2
-    and content->>'state' in ('offered','making') order by created_at desc limit 1`, [threadId, String(answerId)])
+    and not (content ? 'move') and content->>'state' in ('offered','making') order by created_at desc limit 1`, [threadId, String(answerId)])
   return m || null
 }
 // → the card (a message of the chat). messageId: the answer picked (a button on it); said: what the person said (the words that asked for it);
@@ -170,7 +179,10 @@ async function openOfferFor(threadId, answerId) {
 // acknowledgement; conversationId: the conversation the turn was pinned to (words); deps: {call, odds, json, templates} for tests
 // The card is filed where the answer's conversation is (a button: aside, it never moves the one the chat is in — src/convOf.js), or where the
 // turn's acknowledgement is (words: no tag of its own, as the acknowledgement has none).
-export async function offer(user, { threadId, messageId = null, said = '', title = '', via = 'button', before = null, conversationId = null } = {}, deps = {}) {
+// move: {conversationId, count, title, lastId} — 「새 프로젝트로」 옮기기 (lib/conversationMove.js offerNew): the card is about that whole conversation
+// of the main chat (read up to its last message), it names no first document (the conversation itself goes into the project), and
+// 「만들기」 moves the conversation there once the project is made. One open card per conversation.
+export async function offer(user, { threadId, messageId = null, said = '', title = '', via = 'button', before = null, conversationId = null, move = null } = {}, deps = {}) {
   const t = await getThread(user.id, threadId)
   if (!t) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const sk = deps.skill || await projectSkill()
@@ -180,12 +192,27 @@ export async function offer(user, { threadId, messageId = null, said = '', title
     pressed = await AS.answerOf(user, messageId)
     if (pressed.thread_id !== t.id) throw fail(404, L('답을 찾지 못했어요.', "I couldn't find that answer."))
   }
-  const list = await windowOf(t.id, pressed ? { upTo: pressed.id, inclusive: true } : { upTo: before, inclusive: false })
+  const moving = move?.conversationId ? { conversationId: String(move.conversationId), count: Number(move.count) || 0, title: clip(move.title, 120) } : null
+  const list = await windowOf(t.id, pressed ? { upTo: pressed.id, inclusive: true } : moving ? { upTo: move.lastId || null, inclusive: true } : { upTo: before, inclusive: false })
   const project = t.kind === 'project'
-  const { answer, rows, conv: target } = pickFrom(list, { pressed, conversationId: conversationId ? String(conversationId) : null, lines: R.lines, project })
+  const { answer, rows, conv: target } = pickFrom(list, { pressed, conversationId: moving ? moving.conversationId : conversationId ? String(conversationId) : null, lines: R.lines, project })
+  let charged = false
+  if (moving) {
+    // (one card per conversation: the one still open, or the one being written for it now — two presses, two screens)
+    const open = await openMoveOffer(t.id, moving.conversationId)
+    if (open) return open
+    const key = `${user.id}:${moving.conversationId}`
+    if (moveOffering.has(key)) return moveOffering.get(key)
+    const job = (async () => {
+      const card = await draftCard(null)
+      if (!card) throw fail(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
+      return card
+    })().finally(() => moveOffering.delete(key))
+    moveOffering.set(key, job)
+    return job
+  }
   // one card per answer: the one still open, or the one another caller is making now (a claim on the answer's row — PR #118 review 2)
   // (the budget is spent once per card asked for, however many rounds; an answer gone meanwhile is 404 at once — PR #122 review)
-  let charged = false
   const answerGone = () => fail(404, L('답을 찾지 못했어요.', "I couldn't find that answer."))
   for (let round = 0; round < 3; round++) {
     let claim = null
@@ -248,9 +275,10 @@ export async function offer(user, { threadId, messageId = null, said = '', title
     const recs = recommend(templates, { picks, why: d.why, max: T.max })
     const conv = target
     const content = {
-      text: L('이 대화로 프로젝트를 시작할까요?', 'Start a project from this conversation?'),
+      text: moving ? L('이 대화를 새 프로젝트로 옮길까요?', 'Move this conversation to a new project?') : L('이 대화로 프로젝트를 시작할까요?', 'Start a project from this conversation?'),
       title: d.title, intent: d.intent, background: d.background, deliverables: d.deliverables,
-      source: { threadId: t.id, ...(conv ? { conversationId: conv } : {}), ...(answer ? { answer: { messageId: answer.id, title: AS.titleOf(answer) } } : {}), ...(mail ? { mail } : {}) },
+      source: { threadId: t.id, ...(conv ? { conversationId: conv } : {}), ...(answer && !moving ? { answer: { messageId: answer.id, title: AS.titleOf(answer) } } : {}), ...(mail ? { mail } : {}) },
+      ...(moving ? { move: moving } : {}),
       templates: recs, hasTemplates: templates.length > 0,
       read: { by: picked ? picked.strategy : templates.length ? 'model' : 'none', model: picked?.model || null, draft: !!j, skill: sk.version || null },
       via, state: 'offered',
@@ -368,6 +396,12 @@ export async function make(user, id, body = {}, deps = {}) {
   const c = row.content || {}
   if (c.state === 'made') throw fail(409, L('이미 만든 프로젝트예요.', 'That project was already made.'), 'made')
   if (c.state === 'declined') throw fail(409, L('이미 닫은 카드예요.', 'This card was closed.'), 'declined')
+  // 「새 프로젝트로」 옮기기 whose conversation went into another project meanwhile: no empty project is made (PR #125 review 9)
+  if (c.move?.conversationId) {
+    const CM = await import('./conversationMove.js')
+    const place = await CM.placeOf(user, c.move.conversationId)
+    if (place) throw Object.assign(fail(409, L(`이 대화는 이미 프로젝트 「${clip(place.project.title, 40)}」에 있어요.`, `This conversation is already in the project "${clip(place.project.title, 40)}".`), 'moved'), { place })
+  }
   const said = confirmed(c, body)
   const name = said.title || L('새 프로젝트', 'New project')
   const template = body.template ? String(body.template) : null
@@ -428,6 +462,28 @@ export async function make(user, id, body = {}, deps = {}) {
     }
   } catch (e) { console.warn('[chat-project] plan', e.message) }
   await step()
+  // 「새 프로젝트로」 옮기기: the conversation itself goes into the project (lib/conversationMove.js) — no first document, no 「원래 대화 열기」,
+  // no line left in the chat (this card is one of the conversation's messages and goes with it)
+  if (c.move?.conversationId) {
+    const CM = await import('./conversationMove.js')
+    let moved = null
+    let moveError = null
+    try {
+      moved = await CM.move(user, c.move.conversationId, { project: project.id })
+    } catch (e) {
+      moveError = e.message
+      console.warn('[chat-project] move', e.code || '', e.message)
+    }
+    const projectName = cc.project?.title || name
+    const made = await asMaker(user.id, row.id, mine, { state: 'made', ...(cc.confirmed || said), title: projectName, project: { id: project.id, title: projectName },
+      ...(tpl ? { template: tpl } : {}), ...(moved ? { moved: { count: moved.moved, topic: moved.topic } } : {}), ...(moveError ? { moveError } : {}) }, { end: true })
+    if (!made) throw await lost(user.id, row.id)
+    const [fresh] = await q('select * from pro_threads where id=$1', [project.id])
+    const TF = await import('./folders/threadFolders.js')
+    emit(user.id, 'thread', { ...(fresh || project), folder: await TF.folderPayload(project.id).catch(() => null) })
+    console.log(`[chat-project] made thread=${String(project.id).slice(0, 8)} template=${tpl?.slug || '-'} moved=${moved ? moved.moved : 'no'}`)
+    return { project: { id: project.id, title: projectName, kind: 'project', ...(tpl ? { template: tpl } : {}) }, offer: made, ...(moved ? { moved } : {}), ...(moveError ? { moveError } : {}) }
+  }
   // where it came from: the chat (its conversation) — 「원래 대화 열기」
   if (!(await inProject(`kind='chip' and content ? 'fromChat'`, []))) {
     await addMessage(user.id, project.id, 'agent', 'chip', { icon: 'chat', text: L('채팅에서 이어 온 프로젝트예요', 'A project carried on from the chat'),

@@ -24,7 +24,7 @@ export function answerRoutes(auth) {
       if (out !== undefined && !res.headersSent) res.json(out)
     } catch (e) {
       if (!e.status) console.warn('[answers]', req.method, req.path, e.message)
-      if (!res.headersSent) res.status(e.status || 500).json({ error: e.status ? e.message : L('처리하지 못했어요.', "I couldn't do that."), ...(e.code ? { code: e.code } : {}) })
+      if (!res.headersSent) res.status(e.status || 500).json({ error: e.status ? e.message : L('처리하지 못했어요.', "I couldn't do that."), ...(e.code ? { code: e.code } : {}), ...(e.place ? { place: e.place } : {}) })
     }
   }
   const me = (req) => ({ id: req.user.id, email: req.user.email, name: req.user.name })

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { api } from '../api.js'
 import { useApp } from '../stores/app.js'
+import { topicPath } from '../projectTopics.js'
 
 const app = useApp()
 const router = useRouter()
@@ -16,9 +17,10 @@ watch(qv, (v) => {
   t = setTimeout(async () => { res.value = v.trim() ? await api(`/search?q=${encodeURIComponent(v)}`) : [] }, 200)
 })
 onMounted(() => input.value?.focus())
+// (a project's message opens its sub-topic — a conversation moved in from the chat is found there: server lib/search.js)
 function go(r) {
   app.searchOpen = false
-  router.push(r.kind === 'project' ? `/projects/${r.thread_id}` : '/chat')
+  router.push(r.kind === 'project' ? topicPath(r.thread_id, r.conv || null) : '/chat')
 }
 </script>
 

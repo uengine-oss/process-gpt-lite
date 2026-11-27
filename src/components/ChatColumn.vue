@@ -70,11 +70,12 @@ function toPending(task) {
 }
 // a notice over the composer goes by itself after a while (its height is measured: an open progress panel and the files' pile keep clear)
 let noticeTimer
+// (immediate: a notice set just before this column came — the page went to the project a conversation moved into — goes by itself too)
 watch(() => app.notice, (v) => {
   clearTimeout(noticeTimer)
   if (v) noticeTimer = setTimeout(() => { if (app.notice === v) app.notice = null }, 9000)
   nextTick(measureFoot)
-})
+}, { immediate: true })
 
 let stick = !props.keepTop
 // kept at the bottom until the person scrolls up: the list growing under it (it moves the bottom away, not the scroll) does not let go
@@ -201,7 +202,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
     <div ref="footEl" class="foot">
       <!-- a notice over the composer (it stands in for the progress pill while it shows) -->
       <Transition name="pill">
-        <div v-if="app.notice" ref="noticeEl" key="notice" class="notice" role="alert" data-testid="chat-notice">{{ app.notice.text }}</div>
+        <div v-if="app.notice" ref="noticeEl" key="notice" class="notice" :class="{ ok: app.notice.tone === 'ok' }" :role="app.notice.tone === 'ok' ? 'status' : 'alert'" data-testid="chat-notice">{{ app.notice.text }}</div>
       </Transition>
       <TurnProgress v-if="panelTurn" :turn="panelTurn" :now="now" :stopping="stopping" @close="app.turnPanel = null" @stop="stop" />
       <button v-if="needsInput && !browsing" class="attn press" aria-label="조치 필요" @click="toPending"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z" /></svg></button>
@@ -251,6 +252,8 @@ button.working { padding: 0 10px 0 14px; cursor: pointer; color: var(--text-seco
 .working .chev.open { rotate: 90deg; }
 .notice { position: absolute; left: 4px; right: 4px; bottom: calc(100% + 12px); padding: 10px 16px; border-radius: 18px; font-size: 14px; line-height: 1.45; color: #fff;
   background: var(--color-attention); box-shadow: 0 4px 16px rgba(0 0 0 / .14); word-break: keep-all; overflow-wrap: anywhere; }
+/* a done thing said (a conversation moved into a project, or back): not a warning */
+.notice.ok { background: var(--regular-solid-bg, #1d1d1f); color: var(--text-primary); border: 1px solid var(--hairline); }
 .pill-enter-active, .pill-leave-active { transition: opacity .25s, translate .25s; }
 .pill-enter-from, .pill-leave-to { opacity: 0; translate: 0 6px; }
 .foot { position: absolute; z-index: 6; left: 50%; bottom: 32px; translate: -50% 0; width: 512px; max-width: calc(100% - 32px); }

@@ -211,6 +211,22 @@ const ROUTER_TOOLS = [
   {
     type: 'function',
     function: {
+      // 대화를 통째로 프로젝트로 옮기기 (lib/conversationMove.js — 2026-11-28: 「필터링된 채팅방 자체를 프로젝트로 이관하는 기능」)
+      name: 'move_to_project',
+      description: 'The person wants THIS conversation itself — all of its messages — moved into one of their projects, so that it lives in the project from now on and leaves the chat: «이 대화 프로젝트로 옮겨 줘», «이거 가나정밀 교육 프로젝트로 옮겨», «move this thread into the onboarding project». Nothing moves yet: a card says what happens and the person picks the project and confirms. NOT for starting a new project from it while the conversation stays in the chat (start_project), and not for moving a file or an answer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          project: { type: 'string', description: 'The project name the person said, exactly as they said it — empty when they named none' },
+          ack: { type: 'string', description: '해요체 한 문장: 아래 카드에서 프로젝트를 고르고 확인하면 옮긴다고(옮겼다고 말하지 말 것)' },
+        },
+        required: ['ack'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_action',
       description: 'Save a reminder / to-do as an action button on Home.',
       parameters: {
@@ -890,7 +906,12 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (!String(args.ack || '').trim()) args.ack = L('네, 처리할게요.', 'On it.')
   // a task this message finishes first (「① … 마저 끝내고 → ② …」): the reply says the order
   if (call.function.name === 'browser_task' && store?.after) args.ack = BQ.orderText(store.after.title, args.goal || text)
-  const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack })
+  // (asked from a view narrowed to one conversation — the main chat's or a project's sub-topic: the acknowledgement is that conversation's, as
+  // an answer the agent writes there is — so the person's words and it stay together with the card the tool files there: a conversation
+  // moved into a project takes them along, spec thread-to-project)
+  const ackTag = topicConv ? { conv: topicConv } : th?.kind === 'chat' && mine
+    ? { context: { conversationId: String(conversation.id), ...(conversation.title ? { title: String(conversation.title) } : {}), action: 'continue', strategy: 'pinned', confidence: 1 } } : {}
+  const ack = await addMessage(userId, threadId, 'agent', 'text', { text: args.ack, ...ackTag })
   onDelta?.(args.ack)
 
   switch (call.function.name) {
@@ -992,9 +1013,21 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // conversation this turn is in: the one the page narrowed to (a project's sub-topic, a conversation of the main chat), else the one the
       // chat was in (lib/chatProject.js pickFrom); filed where this acknowledgement is
       await CP.offer(user, { threadId, said: text, title: String(args.title || '').trim(), via: 'words', before: said?.id || null,
-        conversationId: topicConv || pinned.get(threadId)?.conversationId || null }).catch(async (e) => {
+        conversationId: topicConv || (mine && conversation?.id ? String(conversation.id) : null) }).catch(async (e) => {
         console.warn('[chat-project] offer', e.message)
         await addMessage(userId, threadId, 'agent', 'text', { text: L('프로젝트 카드를 만들지 못했어요. 답 아래의 「프로젝트로 시작」을 눌러 다시 시도해 주세요.', "I couldn't prepare the project card. Try again with 「Start a project」 under an answer.") })
+      })
+      break
+    }
+    case 'move_to_project': {
+      // the card that opens the same picker and notice as the conversation bar's 「프로젝트로 옮기기」 (lib/conversationMove.js): about the
+      // conversation the page narrowed to, else the one the chat is in; nothing moves before the person confirms
+      const CM = await import('./conversationMove.js')
+      // (the conversation this very message was sent from — checked as the person's own (mine) — never the shared pinned map a router-tool
+      // turn leaves behind: a later message from the whole chat would card that old one — PR #125 review 7)
+      await CM.offerByWords(user, { threadId, conversationId: mine && conversation?.id ? String(conversation.id) : null, project: String(args.project || '').trim(), said: text }).catch(async (e) => {
+        console.warn('[conv-move] offer', e.message)
+        await addMessage(userId, threadId, 'agent', 'text', { text: L('옮기기 카드를 만들지 못했어요. 대화 위의 「다른 대화 ▾」에서 「프로젝트로 옮기기」를 눌러 주세요.', "I couldn't prepare the move card. Use 「Move to a project」 under 「Other conversations ▾」 above the conversation.") })
       })
       break
     }
@@ -1037,8 +1070,8 @@ export const routerStats = { calls: 0, fallbacks: 0, timeouts: 0, errors: 0, bad
 const routerCounts = () => `fallbacks ${routerStats.fallbacks} of ${routerStats.calls} (timeouts ${routerStats.timeouts}, errors ${routerStats.errors}, bad arguments ${routerStats.badArgs}; asked again ${routerStats.retried}, answered then ${routerStats.answeredOnRetry})`
 const isTimeout = (e) => /TimeoutError/.test(e?.name || '') || /timeout|timed out/i.test(String(e?.message || ''))
 export const TOOL_OPTIONS = () => [
-  { key: 'tool', label: L('지금 도구가 할 일이다: 예약 · 알림 · 팀원에게 알리기 · 사이트에서 하는 일(로그인 · 주문 · 신청) · 패널 기록 · 프로세스 시작 · 메일 보내기 · 이 대화로 프로젝트 시작',
-    'A tool must do it now: a schedule or reminder, notifying a teammate, work on a website (signing in, ordering, applying), a panel record, starting a process, sending a mail, starting a project from this conversation') },
+  { key: 'tool', label: L('지금 도구가 할 일이다: 예약 · 알림 · 팀원에게 알리기 · 사이트에서 하는 일(로그인 · 주문 · 신청) · 패널 기록 · 프로세스 시작 · 메일 보내기 · 이 대화로 프로젝트 시작 · 이 대화를 프로젝트로 옮기기',
+    'A tool must do it now: a schedule or reminder, notifying a teammate, work on a website (signing in, ordering, applying), a panel record, starting a process, sending a mail, starting a project from this conversation, moving this conversation into a project') },
   { key: 'agent', label: L('에이전트가 할 일이다: 답 · 조사 · 요약 · 문서나 파일 작성', 'Work for the agent: an answer, research, a summary, writing a document or file') },
 ]
 // does this message need one of the router's tools? → {want, via: 'odds'|'structure', p?}
@@ -1466,9 +1499,13 @@ export const fileConversation = (user, { conversationId, title, kind = 'conversa
 async function touchContext(user, routing, text, answer) {
   const prev = routing.context || {}
   const title = prev.title || text.trim().split('\n')[0].slice(0, 60)
-  await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at) values ($1,$2,$3,$4,$5,$6,$7,1,now())
+  // (not for a conversation that has since moved into one of this person's projects — lib/conversationMove.js: its row lives under the
+  // project's key now, and a row here would list it in the chat again — PR #125 review 1)
+  await q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at)
+           select $1,$2,$3,$4,$5,$6,$7,1,now()
+            where not exists (select 1 from context_threads where tenant_id=$1 and user_id like $8 and conversation_id=$3)
            on conflict (tenant_id,user_id,conversation_id) do update set title=excluded.title, summary=excluded.summary, updated_at=now()`,
-  [config.tenantId, user.id, routing.conversation_id, title.slice(0, 120), L(`최근 요청: ${text.trim().slice(0, 200)}\n최근 답: ${String(answer || '').trim().slice(0, 300)}`, `Latest request: ${text.trim().slice(0, 200)}\nLatest answer: ${String(answer || '').trim().slice(0, 300)}`).slice(0, 600), String(prev.gist || '').slice(0, 200), prev.kind || 'conversation'])
+  [config.tenantId, user.id, routing.conversation_id, title.slice(0, 120), L(`최근 요청: ${text.trim().slice(0, 200)}\n최근 답: ${String(answer || '').trim().slice(0, 300)}`, `Latest request: ${text.trim().slice(0, 200)}\nLatest answer: ${String(answer || '').trim().slice(0, 300)}`).slice(0, 600), String(prev.gist || '').slice(0, 200), prev.kind || 'conversation', PT.scopePattern(user.id)])
     .catch((e) => console.warn('[delegate] context', e.message))
 }
 
