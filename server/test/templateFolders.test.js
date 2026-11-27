@@ -574,7 +574,7 @@ test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으�
   const oid = (type, body) => crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`${type} ${body.length}\0`), body])).digest('hex')
   const commitOf = (tree, parent, msg) => { const body = Buffer.from(`tree ${tree}\nparent ${parent}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\n${msg}\n`); return { body, sha: oid('commit', body) } }
   const refused = (r, ref) => { assert.equal(r.status, 200, r.text); assert.match(r.text, new RegExp(`ng ${ref.replace(/\//g, '\\/')} `), r.text) }
-  const made = ['pgpt-agent/steal-1', 'pgpt-agent/steal-2', 'pgpt-agent/steal-3', 'pgpt-agent/steal-4', 'pgpt-agent/steal-5', 'pgpt-agent/steal-6', 'pgpt-agent/steal-7', 'pgpt-agent/fine-1', 'pgpt-agent/fine-2', 'pgpt-agent/fine-3']
+  const made = ['pgpt-agent/steal-1', 'pgpt-agent/steal-2', 'pgpt-agent/steal-3', 'pgpt-agent/steal-4', 'pgpt-agent/steal-5', 'pgpt-agent/steal-6', 'pgpt-agent/steal-7', 'pgpt-agent/steal-8', 'pgpt-agent/steal-9', 'pgpt-agent/fine-1', 'pgpt-agent/fine-2', 'pgpt-agent/fine-3']
   // a hidden run branch of someone with a file only it holds (an 8 KB file: big enough for git to make a delta of it)
   const secret = Array.from({ length: 64 }, () => crypto.randomBytes(64).toString('hex')).join('\n') + '\n'
   const hiddenRun = `pgpt-agent/local/${pd.id}/dead0000-1`
@@ -610,16 +610,29 @@ test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으�
     const hiddenHead = await G.head(ow)
     await G.git(tpl.repo_path, ['worktree', 'remove', '--force', ow])
     await G.git(tpl.repo_path, ['update-ref', `refs/heads/${hiddenRun}`, hiddenHead])
-    const thinPush = async (ref, baseBlob, baseLen, name) => {
+    const thinPush = async (ref, baseBlob, baseLen, name, { tail = null } = {}) => {
       const more = Buffer.from('\none more line\n')
       const blob = oid('blob', Buffer.concat([await G.git(tpl.repo_path, ['cat-file', 'blob', baseBlob], { buffer: true }), more]))
       const t = Buffer.concat([Buffer.from(`100644 ${name}\0`), Buffer.from(blob, 'hex')])
       const c = commitOf(oid('tree', t), await G.head(tpl.repo_path, 'main'), 'thin')
-      return { c, r: await send([{ ref, sha: c.sha }], pack([{ type: 1, body: c.body }, { type: 2, body: t }, { type: 7, base: baseBlob, body: deltaOf(baseLen, more) }])) }
+      const p = pack([{ type: 1, body: c.body }, { type: 2, body: t }, { type: 7, base: baseBlob, body: deltaOf(baseLen, more) }])
+      return { c, r: await send([{ ref, sha: c.sha }], tail ? Buffer.concat([p, tail]) : p) }
     }
     const secretBlob = (await G.git(tpl.repo_path, ['rev-parse', `${hiddenHead}:secret.md`])).trim()
     const t5 = await thinPush('refs/heads/pgpt-agent/steal-5', secretBlob, Buffer.byteLength(secret), 'stolen.md')
     refused(t5.r, 'refs/heads/pgpt-agent/steal-5')
+    // …the same with a byte after the pack's trailer (git reads only the objects the pack's header counts)
+    const t5b = await thinPush('refs/heads/pgpt-agent/steal-8', secretBlob, Buffer.byteLength(secret), 'stolen.md', { tail: Buffer.from([0]) })
+    refused(t5b.r, 'refs/heads/pgpt-agent/steal-8')
+    // …and a commit no ref reaches, on a hidden commit, riding along with a delta on that commit's draft (the tip itself stands on main)
+    const draftLen = (await G.git(tpl.repo_path, ['cat-file', 'blob', draft], { buffer: true })).length
+    const xBlob = oid('blob', Buffer.concat([await G.git(tpl.repo_path, ['cat-file', 'blob', draft], { buffer: true }), Buffer.from('\nx\n')]))
+    const tx = Buffer.concat([Buffer.from('100644 x.md\0'), Buffer.from(xBlob, 'hex')])
+    const c1 = commitOf(oid('tree', tx), await G.head(tpl.repo_path, 'main'), 'tip')
+    const aside = commitOf(tree, h, 'aside')
+    const r9 = await send([{ ref: 'refs/heads/pgpt-agent/steal-9', sha: c1.sha }],
+      pack([{ type: 1, body: c1.body }, { type: 2, body: tx }, { type: 1, body: aside.body }, { type: 7, base: draft, body: deltaOf(draftLen, Buffer.from('\nx\n')) }]))
+    refused(r9, 'refs/heads/pgpt-agent/steal-9')
     for (const b of ['steal-1', 'steal-2', 'steal-3', 'steal-4', 'steal-5']) assert.ok(!(await G.branchExists(tpl.repo_path, `pgpt-agent/${b}`)), `${b}: 가지가 생기지 않음`)
     // what those pushes brought is gone with them (git drops the quarantine)
     assert.equal((await G.git(tpl.repo_path, ['cat-file', '-t', c2.sha], { check: false })).trim(), '')
@@ -692,6 +705,13 @@ test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으�
     await new Promise((r) => server.close(r))
     for (const b of [run, hiddenRun, ...made]) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false })
   }
+  // what a push stopped half way leaves of its quarantine goes in the nightly pass (inside the folder's lock — no push is running then)
+  const GC = await import('../lib/folders/gc.js')
+  const q1 = path.join(tpl.repo_path, '.git', 'objects', 'tmp_objdir-incoming-AbC123')
+  await fs.mkdir(path.join(q1, 'pack'), { recursive: true }); await fs.writeFile(path.join(q1, 'pack', 'x.pack'), 'x')
+  const g = await GC.gcFolder(await S.folderById(tpl.id))
+  assert.equal(g.leftover, 1)
+  assert.ok(!(await fs.stat(q1).catch(() => null)), '격리 폴더를 지움')
   // the hidden-ref rule as git reads it
   assert.ok(H.hiddenBy('refs/heads/var/t/abc', ['refs/heads/var/t/']))
   assert.ok(!H.hiddenBy('refs/heads/var/t/abc', ['refs/heads/var/t/', '!refs/heads/var/t/abc']))

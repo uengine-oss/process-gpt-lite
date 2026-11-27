@@ -82,9 +82,9 @@ export function tokenOf(req) {
 
 // ---------- what a push asks for ----------
 // The receive-pack request: pkt-lines "<old> <new> <ref>[\0capabilities]" (shallow lines may come first),
-// a flush, then (push options and) the pack. → {commands: [{old, new, ref}], caps: Set, sent: where the pack's own objects end (its length
-// without the trailer; 0 without one)} or throws — also past MAX_COMMANDS refs (a desktop, a sync or a cli-agent run pushes one or two: a
-// push of thousands is no one's)
+// a flush, then (push options and) the pack. → {commands: [{old, new, ref}], caps: Set, count: the objects the pack's header says it
+// holds (0 without one) — what git reads of it, whatever bytes follow} or throws — also past MAX_COMMANDS refs (a desktop, a sync or a
+// cli-agent run pushes one or two: a push of thousands is no one's)
 export const MAX_COMMANDS = 20
 export function parseCommands(buf) {
   const commands = []
@@ -124,8 +124,8 @@ export function parseCommands(buf) {
       at += len
     }
   }
-  const sent = buf.length - at >= 32 && buf.toString('latin1', at, at + 4) === 'PACK' ? buf.length - at - 20 : 0
-  return { commands, caps, sent }
+  const count = buf.length - at >= 12 && buf.toString('latin1', at, at + 4) === 'PACK' ? buf.readUInt32BE(at + 8) : 0
+  return { commands, caps, count }
 }
 
 // null when every ref update may go through, else the reason for each refused ref
@@ -220,7 +220,7 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [], ch
       REMOTE_ADDR: String(req.socket?.remoteAddress || ''),
       GIT_CONFIG_COUNT: String(cfg.length),
       ...Object.fromEntries(cfg.flatMap(([k, v], i) => [[`GIT_CONFIG_KEY_${i}`, k], [`GIT_CONFIG_VALUE_${i}`, v]])),
-      ...(check ? { PGPT_PUSH_NODE: process.execPath, PGPT_PUSH_CHECK: CHECK_FILE, PGPT_PUSH_HIDE: check.hide, PGPT_PUSH_REASON: check.reason, PGPT_PUSH_SENT: String(check.sent),
+      ...(check ? { PGPT_PUSH_NODE: process.execPath, PGPT_PUSH_CHECK: CHECK_FILE, PGPT_PUSH_HIDE: check.hide, PGPT_PUSH_REASON: check.reason, PGPT_PUSH_COUNT: String(check.count),
         ...(process.env.PGPT_PUSH_CHECK_MS ? { PGPT_PUSH_CHECK_MS: process.env.PGPT_PUSH_CHECK_MS } : {}) } : {}),
     }
     if (body) env.CONTENT_LENGTH = String(body.length)
@@ -233,16 +233,24 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [], ch
     // tips it advertises
     // (a push runs as a process group of its own — http-backend, receive-pack, index-pack, the check — so all of it stops together)
     const child = spawn('git', ['http-backend'], { env, stdio: ['pipe', 'pipe', 'pipe'], detached: !!check })
-    const stop = () => { try { if (check) process.kill(-child.pid, 'SIGKILL'); else child.kill() } catch { try { child.kill('SIGKILL') } catch { /* gone */ } } }
+    const group = (sig) => { try { process.kill(-child.pid, sig) } catch { try { child.kill(sig) } catch { /* gone */ } } }
+    // stopping: a read at once; a push asked first (SIGTERM — git removes its lock files and what it had not finished), killed if it does not
+    let hard = null
+    const stop = () => {
+      if (!check) { try { child.kill() } catch { /* gone */ } return }
+      group('SIGTERM')
+      hard = setTimeout(() => { if (child.exitCode == null) group('SIGKILL') }, 10_000)
+      hard.unref?.()
+    }
     let head = Buffer.alloc(0)
     let started = false
     let err = ''
     // a push holds the folder's lock: one that runs out of time is stopped (git's own check refuses first — pushCheck.js CHECK_MS)
     const limit = check ? setTimeout(() => { err += 'out of time'; stop() }, PUSH_MS()) : null
-    const finish = () => { if (limit) clearTimeout(limit); if (!started) deny(res, 502, 'git did not answer'); else if (!hold) res.end(); resolve() }
+    const finish = () => { if (limit) clearTimeout(limit); if (hard) clearTimeout(hard); if (!started) deny(res, 502, 'git did not answer'); else if (!hold && !res.writableEnded) res.end(); resolve() }
     child.stderr.on('data', (d) => { if (err.length < 4000) err += d })
     child.stdout.on('data', (d) => {
-      if (started) { res.write(d); return }
+      if (started) { if (!res.destroyed && !res.writableEnded) res.write(d); return }
       head = Buffer.concat([head, d])
       const crlf = head.indexOf('\r\n\r\n')
       const lf = head.indexOf('\n\n')
@@ -258,6 +266,7 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [], ch
         if (/^status$/i.test(k)) status = parseInt(v, 10) || 200
         else res.setHeader(k, v)
       }
+      if (res.destroyed) return
       res.status(status)
       const rest = head.subarray(end)
       if (rest.length) res.write(rest)
@@ -267,8 +276,9 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [], ch
       if (code && err) console.warn(`[folders git] ${folder.id.slice(0, 8)} ${req.method} ${pathInfo}: ${err.trim().slice(0, 300)}`)
       finish()
     })
-    // a client that goes away takes git with it
-    res.on('close', () => { if (child.exitCode == null) stop() })
+    // a client that goes away takes a read with it; a push (its body all read already) finishes what it does — stopping it half way could
+    // leave its refs half updated (its time limit still holds)
+    res.on('close', () => { if (!check && child.exitCode == null) stop() })
     child.stdin.on('error', () => {})
     if (body) child.stdin.end(body)
     else req.pipe(child.stdin)
@@ -463,7 +473,7 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
         }
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pgpt-push-'))
         try {
-          const check = { hooks: await hooks(), hide: path.join(dir, 'hide.json'), reason: path.join(dir, 'reason'), sent: parsed.sent }
+          const check = { hooks: await hooks(), hide: path.join(dir, 'hide.json'), reason: path.join(dir, 'reason'), count: parsed.count }
           await S.serial(folder.id, async () => {
             // (what this token may not see, as it is now — inside the lock, where nothing moves a ref meanwhile)
             const hide = await hiddenFor(folder, claims)

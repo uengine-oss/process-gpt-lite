@@ -2,10 +2,12 @@
 // pre-receive hook, when the pushed objects are still in git's quarantine (GIT_QUARANTINE_PATH) and no ref has changed. A hook that says no
 // makes git drop what came and update nothing, so nothing unchecked is ever fetched, listed or brought in.
 // A token reads only part of a folder (gitHttp.js hidden refs: other desktops' sync and run branches, projects' workspaces). A push may
-// not use what its token cannot read. What the client sent is the start of the pack git kept (receive.unpackLimit=1: always a pack);
-// what index-pack --fix-thin added after it are the bases of a thin pack's deltas, copied in from the repository:
-//   1. every object a new tip takes in that the refs the token sees do not already hold is one the client sent
-//   2. every base git added is held by a ref the token sees: in the tree of a commit the push stands on (step 1 showed those are the
+// not use what its token cannot read. What the client sent are the first objects of the pack git kept (receive.unpackLimit=1: always a
+// pack) — as many as the pack's header says, which is what git read of it; what index-pack --fix-thin added after them are the bases of a
+// thin pack's deltas, copied in from the repository:
+//   1. every object a new tip takes in that the refs the token sees do not already hold is one the client sent, and every commit the
+//      client sent is one a new tip reaches (nothing rides along unreferenced)
+//   2. every base git added is held by a ref the token sees: in the tree of a commit the new tips stand on (step 1 showed those are the
 //      token's to see) or of a ref the token was shown
 // An object the client sent whole is its own, whatever else holds the same bytes. The checks are a fixed handful of git processes, whatever
 // the number of refs, with no walk of the folder's history (no git per command, no ref list on a command line); the hook has a time limit.
@@ -30,9 +32,14 @@ export function hiddenBy(ref, hide) {
   return hidden
 }
 
+// (the git processes running now: a check that runs out of time stops them before it goes — they would go on outside the folder's lock)
+const running = new Set()
+export const stopAll = () => { for (const c of running) { try { c.kill('SIGKILL') } catch { /* gone */ } } }
 function run(args, { cwd, env, input = '' }) {
   return new Promise((resolve, reject) => {
     const child = spawn('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
+    running.add(child)
+    child.on('exit', () => running.delete(child))
     const out = []
     let err = ''
     child.stdout.on('data', (d) => out.push(d))
@@ -49,7 +56,7 @@ const idsOf = (text, { missing = null } = {}) => text.split('\n').map((l) => l.t
 const lines = (list) => (list.length ? `${list.join('\n')}\n` : '')
 
 // The objects of the push's pack in the order git wrote them → [{id, at}] by offset, or null when that cannot be told (more than one pack,
-// objects outside it)
+// an index that does not list every object the kept pack's header counts — the same object twice)
 async function packedOf(quarantine, { cwd, env }) {
   const dir = path.join(quarantine, 'pack')
   const idx = (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((f) => f.endsWith('.idx'))
@@ -61,17 +68,22 @@ async function packedOf(quarantine, { cwd, env }) {
       const [at, id] = l.trim().split(' ')
       if (OID.test(id || '') && /^\d+$/.test(at || '')) out.push({ id, at: Number(at) })
     }
+    // (the kept pack's header: what the client sent and what git added, each object once)
+    const head = Buffer.alloc(12)
+    const fd = fs.openSync(path.join(dir, idx[0].replace(/\.idx$/, '.pack')), 'r')
+    try { fs.readSync(fd, head, 0, 12, 0) } finally { fs.closeSync(fd) }
+    if (head.toString('latin1', 0, 4) !== 'PACK' || head.readUInt32BE(8) !== out.length) return null
   }
   out.sort((a, b) => a.at - b.at)
   return out
 }
 
-// commands: [{old, new, ref}]; hide: the token's hidden-ref entries; sent: where the client's own pack data ended (its length without
-// the trailer — gitHttp.js reads it from the request); env: the hook's (quarantine included) → null, or why it may not stand
-export async function check({ commands, hide, sent, cwd = process.cwd(), env = process.env }) {
+// commands: [{old, new, ref}]; hide: the token's hidden-ref entries; count: the objects the client's pack holds (its header — gitHttp.js
+// reads it from the request); env: the hook's (quarantine included) → null, or why it may not stand
+export async function check({ commands, hide, count, cwd = process.cwd(), env = process.env }) {
   const tips = [...new Set((commands || []).filter((c) => !ZERO.test(c.new)).map((c) => c.new))]
   if (!tips.length) return null
-  if (!Number.isInteger(sent) || sent < 0) return 'the push could not be checked (no pack length)'
+  if (!Number.isInteger(count) || count < 0) return 'the push could not be checked (no object count)'
   const refs = (await run(['for-each-ref', '--format=%(refname)'], { cwd, env })).split('\n').map((x) => x.trim()).filter(Boolean)
   const seen = refs.filter((r) => !hiddenBy(r, hide))
   const quarantine = env.GIT_QUARANTINE_PATH || ''
@@ -81,21 +93,32 @@ export async function check({ commands, hide, sent, cwd = process.cwd(), env = p
   const here = { ...env }
   for (const k of ['GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_QUARANTINE_PATH']) delete here[k]
   const packed = quarantine ? await packedOf(quarantine, { cwd, env: came }) : []
-  if (!packed) return 'the push could not be checked (more than one pack)'
+  if (!packed) return 'the push could not be checked (its pack cannot be read object by object)'
   if (quarantine && idsOf(await run(['cat-file', '--batch-all-objects', '--batch-check=%(objectname)'], { cwd, env: came })).length > packed.length) {
     return 'the push could not be checked (objects outside its pack)'
   }
-  const client = new Set(packed.filter((o) => o.at < sent).map((o) => o.id))
-  const added = packed.filter((o) => o.at >= sent).map((o) => o.id)
+  // (the client's: the first `count` objects of the pack — whatever bytes came after them, git read only those; fewer is not told apart)
+  if (packed.length < count) return 'the push could not be checked (its pack holds fewer objects than it says)'
+  const client = new Set(packed.slice(0, count).map((o) => o.id))
+  const added = packed.slice(count).map((o) => o.id)
   // 1. what the new tips take in beyond what the token already sees: only what the client sent
   const taken = idsOf(await run(['rev-list', '--objects', '--stdin'], { cwd, env, input: lines([...tips, ...seen.map((r) => `^${r}`)]) }))
   const absent = taken.filter((id) => !client.has(id))
   if (absent.length) return `it names ${absent.length} object(s) that did not come with it and that this token cannot read`
+  // …and no commit of the client's that no new tip reaches (a real push never sends one)
+  const types = client.size ? (await run(['cat-file', '--batch-check=%(objectname) %(objecttype)'], { cwd, env: came, input: lines([...client]) })).split('\n') : []
+  const sentCommits = types.map((l) => l.trim().split(' ')).filter(([id, t]) => t === 'commit' && OID.test(id)).map(([id]) => id)
+  const inTaken = new Set(taken)
+  const aside = sentCommits.filter((id) => !inTaken.has(id))
+  if (aside.length) {
+    const stray = new Set(idsOf(await run(['rev-list', '--stdin'], { cwd, env, input: lines([...aside, ...tips.map((t) => `^${t}`)]) })))
+    if (aside.some((id) => stray.has(id))) return 'it carries commits none of its refs reach'
+  }
   // 2. the bases git added for a thin pack: held by a ref the token sees
   if (!added.length) return null
   const rest = new Set(added)
-  const types = (await run(['cat-file', '--batch-check=%(objectname) %(objecttype)'], { cwd, env: came, input: lines([...client]) })).split('\n')
-  const commits = types.map((l) => l.trim().split(' ')).filter(([id, t]) => t === 'commit' && OID.test(id)).map(([id]) => id)
+  // (the parents of the commits the new tips take in — never of a commit the client sent aside)
+  const commits = sentCommits.filter((id) => inTaken.has(id))
   const parents = commits.length ? (await run(['rev-list', '--parents', '--no-walk', '--stdin'], { cwd, env, input: lines(commits) })).split('\n')
     .flatMap((l) => l.trim().split(' ').slice(1)).filter((id) => OID.test(id) && !client.has(id)) : []
   // (the trees of the commits the push stands on — where git takes a thin pack's bases from — then those of the refs it was shown)
@@ -117,12 +140,12 @@ async function hook() {
   if (!commands.length) return 0
   let why
   // (a check that runs out of time refuses: the folder's lock is held while it runs)
-  const limit = setTimeout(() => refuse('the push could not be checked in time').finally(() => process.exit(1)), Number(process.env.PGPT_PUSH_CHECK_MS) || CHECK_MS)
+  const limit = setTimeout(() => { stopAll(); refuse('the push could not be checked in time').finally(() => process.exit(1)) }, Number(process.env.PGPT_PUSH_CHECK_MS) || CHECK_MS)
   limit.unref?.()
   try {
     const hide = JSON.parse(fs.readFileSync(String(process.env.PGPT_PUSH_HIDE || ''), 'utf8'))
-    const sent = /^\d+$/.test(String(process.env.PGPT_PUSH_SENT || '')) ? Number(process.env.PGPT_PUSH_SENT) : null
-    why = await check({ commands, hide: Array.isArray(hide) ? hide : [], sent })
+    const count = /^\d+$/.test(String(process.env.PGPT_PUSH_COUNT || '')) ? Number(process.env.PGPT_PUSH_COUNT) : null
+    why = await check({ commands, hide: Array.isArray(hide) ? hide : [], count })
   } catch (e) { why = `the push could not be checked (${e.message})` }
   clearTimeout(limit)
   if (!why) return 0
