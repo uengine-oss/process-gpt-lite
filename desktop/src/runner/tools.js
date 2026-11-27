@@ -18,13 +18,15 @@
 //                         this way.
 // Which folders: one the person or the list named, as an absolute path, ~/…, or relative to the CLI's work folder (never escaping it). Never
 // a link (the named folder itself — the folder it points to may be named instead), the disk's or a volume's top, the home folder or above
-// it, the system's folders (~/Library, /System, /usr, C:\Windows, AppData …), anything in the CLIs' own homes (~/.claude, ~/.codex,
+// it, the system's folders (~/Library, /System, /usr, /var — its temporary and cache folders too —, /opt/homebrew, ~/snap, C:\Windows,
+// AppData …), anything in the CLIs' own homes (~/.claude, ~/.codex,
 // ~/.agents — only their skills folders may be named), any hidden folder right under the home folder (~/.ssh, ~/.kube, ~/.docker, ~/.config,
 // keyrings, browser profiles …) and what is in it, a folder of the champion folders' secret or personal groups anywhere on its path (.ssh,
 // .aws, .gnupg, .claude/projects, .codex/sessions, .vscode …), or this app's data.
 // A folder proposed from a chat goes up only as it was shown: the card's 「올리기」 makes the upload look at it again (checked again, its real
-// path unchanged), and when what would go up is not what the proposal's first look found (each path with its size), nothing goes up —
-// the card says the folder changed.
+// path unchanged), and when what would go up is not what the proposal's first look found (each path with its size, inode and times),
+// nothing goes up — the card says the folder changed; the upload's own round holds to the same files once more, before and after it reads
+// them (FolderSync.round).
 // The channel: one local socket of this app — a unix socket in a temporary folder only this user can open (0700), a named pipe on
 // Windows (which any local program may open: there the boundary is the key). Each chat run has its own key, 32 random bytes, in the MCP
 // server's config file (0600, in the run's own state folder) — a call without it gets nothing — and the run's token for the server stays in
@@ -52,7 +54,8 @@ const T = (lang, ko, en) => (lang === 'en' ? en : ko)
 const sizeText = (b) => (b >= 100 * 1024 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((b || 0) / 1024))} KB`)
 const isInside = (child, parent) => { const r = path.relative(parent, child); return r === '' || (!!r && !r.startsWith('..') && !path.isAbsolute(r)) }
 const same = (a, b) => (CASELESS ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b))
-const realOr = (p) => { try { return fs.realpathSync(p) } catch { return path.resolve(p) } }
+// (the disk's own spelling: a CLAUDE_CONFIG_DIR written in another case than the folder's is still that folder)
+const realOr = (p) => { try { return fs.realpathSync.native(p) } catch { return path.resolve(p) } }
 
 // ---------- which folder ----------
 // the text a tool was given → an absolute path, or {error}: '~' and '~/…' are the home folder; a relative path is the work folder's and may
@@ -72,15 +75,25 @@ function resolvePath(input, { cwd, home = os.homedir() } = {}) {
   return { abs: nfc(abs) }
 }
 
-// the system's own folders: never one of them, never inside one (exact: only that folder itself — a person's folder may be below it)
+// the system's own folders: never one of them, never inside one (exact: only that folder itself — a person's folder may be below it).
+// /var (macOS: /private/var) as a whole — the system's state, logs and databases, and each user's own caches and temporary files
+// (/var/folders/…/C · T); a volume's top (/Volumes/<name>, /media/<user>/<name> …) — volumeTop
 function systemFolders(home = os.homedir(), env = process.env) {
   if (WIN) {
     const e = (k) => env[k] || ''
     return { inside: [e('SystemRoot') || 'C:\\Windows', e('ProgramFiles'), e('ProgramFiles(x86)'), e('ProgramData'), e('APPDATA'), e('LOCALAPPDATA'), path.join(home, 'AppData')].filter(Boolean),
       exact: [path.join(path.parse(home).root, 'Users')] }
   }
-  return { inside: ['/System', '/Library', '/usr', '/bin', '/sbin', '/etc', '/private/etc', '/dev', '/proc', '/sys', '/boot', '/root', '/Applications', path.join(home, 'Library')],
-    exact: ['/Users', '/home', '/Volumes', '/private', '/var', '/private/var', '/tmp', '/private/tmp', '/opt', '/mnt', '/media'] }
+  return { inside: ['/System', '/Library', '/usr', '/bin', '/sbin', '/etc', '/private/etc', '/dev', '/proc', '/sys', '/boot', '/root', '/Applications', '/var', '/private/var',
+    '/opt/homebrew', '/snap', path.join(home, 'Library'), path.join(home, 'snap')],
+    exact: ['/Users', '/home', '/Volumes', '/private', '/tmp', '/private/tmp', '/opt', '/mnt', '/media', '/run', '/run/media'] }
+}
+// the top of a mounted volume: /Volumes/<name> (macOS), /mnt/<name> · /media/<name> · /media/<user>/<name> · /run/media/<user>/<name> (Linux)
+function volumeTop(real) {
+  if (WIN) return false
+  const up = path.dirname(real)
+  const up2 = path.dirname(up)
+  return ['/Volumes', '/mnt', '/media'].some((d) => same(up, d)) || ['/media', '/run/media'].some((d) => same(up2, d))
 }
 
 // why this folder is not one to send, or null → {error} | {real}
@@ -97,6 +110,7 @@ async function checkFolder(abs, { home = os.homedir(), env = process.env, dataDi
   const sys = systemFolders(home, env)
   for (const d of sys.inside) { const r = realOr(d); if (same(real, r) || isInside(real, r)) return { error: 'system_folder' } }
   for (const d of sys.exact) if (same(real, realOr(d))) return { error: 'system_folder' }
+  if (volumeTop(real)) return { error: 'system_folder' }
   // the CLIs' own homes (their sign-ins, settings, histories, sessions): nothing in them but their skills folders
   const homes = cliHomes(home, env).map(realOr)
   const inSkills = homes.some((d) => isInside(real, path.join(d, 'skills')))
@@ -185,7 +199,8 @@ async function skillsIn(dir, where, home) {
 // git's own control files of a skill folder (its .gitignore · .gitattributes — the scan already leaves .gitmodules · .lfsconfig out): a
 // skill's folder on the server is the server's own repository, so they stay here (counted as left out)
 const CONTROL = new Set(['.gitignore', '.gitattributes', '.gitmodules', '.lfsconfig'])
-const isControl = (rel) => CONTROL.has(String(rel).split('/').pop().trim().toLowerCase())
+// (as Windows and a Mac read a name: case aside, trailing dots and spaces dropped)
+const isControl = (rel) => CONTROL.has(String(rel).split('/').pop().trim().toLowerCase().replace(/[. ]+$/, ''))
 async function packSkill(dir, { gitDir, rules = SY.compileRules(), places } = {}) {
   const s = await SY.scan(dir, { gitDir, rules, ...(places ? { places } : {}) })
   const control = s.files.filter(isControl)
@@ -468,7 +483,7 @@ class ToolDesk extends EventEmitter {
     if (!pick) return answer({ ok: false, why: 'no_pick' })
     const again = await checkFolder(pick.dir, { home: this.home, env: mine.env || process.env, dataDir: this.dataDir, rules: this.rules })
     let real = null
-    try { real = nfc(fs.realpathSync(pick.dir)) } catch { /* gone */ }
+    try { real = nfc(fs.realpathSync.native(pick.dir)) } catch { /* gone */ }
     const gone = (why) => { this.proposed.delete(pickId); this.folders.picks.delete(pickId); this.log(`[tools] upload ${proposalId.slice(0, 8)}: ${why}`); return answer({ ok: false, why }) }
     if (again.error || real !== pick.dir || again.real !== pick.dir || (mine.dir && mine.dir !== pick.dir)) return gone('changed')
     this.emit('notice', { kind: 'pc-upload', folderName: String(msg.folderName || '').slice(0, 120) })
@@ -482,7 +497,8 @@ class ToolDesk extends EventEmitter {
     }
     const r = await this.folders.bind({ pickId, folderId: String(msg.folderId || ''), folderName: String(msg.folderName || '').slice(0, 120) }, { confirm: yes })
       .catch((e) => ({ ok: false, why: 'failed', error: e.message }))
-    if (!r.ok && changed) return gone('changed')
+    // (changed before the yes — or after it: the upload's own round found other files, or the folder elsewhere — FolderSync.round)
+    if (!r.ok && (changed || r.why === 'changed')) return gone('changed')
     if (r.ok) this.proposed.delete(pickId)
     this.log(`[tools] upload ${proposalId.slice(0, 8)}: ${r.ok ? 'ok' : r.why}`)
     answer({ ok: !!r.ok, why: r.ok ? null : String(r.why || 'failed'), ...(r.pushed ? { pushed: r.pushed } : {}), ...(Array.isArray(r.paths) ? { paths: r.paths.slice(0, 20) } : {}) })
@@ -497,4 +513,4 @@ function mcpProgram(configFile) {
   return { command: process.execPath, args: [script, '--config', configFile], env: {} }
 }
 
-module.exports = { ToolDesk, resolvePath, checkFolder, skillRoots, skillsIn, packSkill, mcpProgram, systemFolders, SKILL_MAX_FILES, SKILL_MAX_BYTES, WHY }
+module.exports = { ToolDesk, resolvePath, checkFolder, skillRoots, skillsIn, packSkill, mcpProgram, systemFolders, volumeTop, SKILL_MAX_FILES, SKILL_MAX_BYTES, WHY }

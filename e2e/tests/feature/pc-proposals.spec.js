@@ -63,7 +63,7 @@ test.beforeAll(async () => {
   const parsed = real && fs.existsSync(path.join(real, '.env')) ? Object.fromEntries(fs.readFileSync(path.join(real, '.env'), 'utf8').split('\n').map((l) => /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(l)).filter(Boolean).map((m) => [m[1], m[2].replace(/^(['"])(.*)\1$/, '$2')])) : {}
   for (const [k, v] of Object.entries(parsed)) if (process.env[k] === undefined) process.env[k] = v
   S = await startStack({ tenant: 'pctools-ui', apiFrom: 8999, webFrom: 5399, env: { PGPT_ROOT: pgpt, PRO_DEEPAGENTS_URL: `http://127.0.0.1:${dagents.address().port}`, PRO_COMPLETION_URL: NOWHERE, PRO_CONTEXT_ROUTER_URL: NOWHERE } })
-  S.cleanupMore = () => fs.rmSync(pgpt, { recursive: true, force: true })
+  S.cleanupMore = () => { fs.rmSync(pgpt, { recursive: true, force: true }); if (home) fs.rmSync(home, { recursive: true, force: true }) }
   HY = await S.person('pro-rt-pctools-ui-h@uengine.org', '정하윤')
   await S.join(HY)
   await S.q(`delete from pro_messages where thread_id in (select id from pro_threads where user_id=$1)`, [HY.id])
@@ -71,7 +71,8 @@ test.beforeAll(async () => {
   ;[main] = await S.api(HY.token, '/threads')
   await S.api(HY.token, '/local-agents/chat/choice', { method: 'PUT', body: { key: main.id, agent: 'claude-code' } })
   // her PC: Claude Code's skills, a folder; the desktop app's runner with its tools and champion folders' engine
-  home = path.join(S.root, 'home')
+  // (her home on this PC: macOS's own temporary folder is under /var — a system folder the tools refuse — so /tmp there)
+  home = fs.realpathSync(fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'pgl-pctools-home-')))
   const claude = path.join(home, '.claude')
   put(path.join(claude, 'skills', '견적-규칙', 'SKILL.md'), '---\nname: 견적-규칙\ndescription: 견적서를 회사 양식으로 쓰고, 부가세는 따로 적어요\n---\n# 견적 규칙\n')
   put(path.join(claude, 'skills', '견적-규칙', 'templates', '견적서.md'), '| 품목 | 수량 | 금액 |\n')
@@ -123,7 +124,7 @@ test('F-PCP-01 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → 「스
   await expect(c.locator('[data-test=pc-proposal-scope][data-scope=mine] input')).toBeChecked()
   await expect(c.locator('[data-test=pc-proposal-scope][data-scope=company]')).toBeVisible()
   await expect(c.locator('[data-test=pc-proposal-runs]')).toHaveCount(0)
-  await expect(c.locator('[data-test=pc-proposal-staged]')).toHaveText('이 스킬의 파일은 지금 서버의 임시 공간에 있어요. 등록하지 않으면 늦어도 한 시간 뒤에 지워져요.')
+  await expect(c.locator('[data-test=pc-proposal-staged]')).toHaveText('이 스킬 파일은 지금 서버의 임시 공간에 있어요. 등록하지 않으면 한 시간이 지난 뒤 지워져요.')
   // 회사 스킬 always takes one more check, run settings or not
   await expect(c.locator('[data-test=pc-proposal-company-ok]')).toHaveCount(0)
   await c.locator('[data-test=pc-proposal-scope][data-scope=company] input').check()
@@ -254,7 +255,7 @@ test('F-PCP-05 카드를 본 뒤 PC 의 폴더가 바뀌면 「올리기」는 �
   await c.locator('[data-test=pc-proposal-go]').click()
   const failed = card(desk, 'folder', 'failed')
   await expect(failed.locator('[data-test=pc-proposal-state]')).toHaveText('폴더를 올리지 못했어요', { timeout: 60000 })
-  await expect(failed).toContainText('미리 보여 드린 뒤 폴더가 바뀌었어요(파일이 추가·삭제되거나 크기가 달라졌어요) — 아무것도 올리지 않았어요. 채팅에서 다시 제안해 달라고 요청해 주세요')
+  await expect(failed).toContainText('미리 보여 드린 뒤 폴더가 바뀌었어요(파일이 추가·삭제·수정되었거나 다른 파일로 바뀌었어요). 아무것도 올리지 않았어요. 채팅에서 다시 제안해 달라고 요청해 주세요.')
   await failed.scrollIntoViewIfNeeded()
   await shot(desk, 'pp05-folder-changed', failed)
   const row = (await proposals()).at(-1)

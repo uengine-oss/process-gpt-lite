@@ -19,8 +19,8 @@
 //   DT-07 the CLI's command line: Claude Code --mcp-config (the app's server beside the person's own) and its tools allowed; Codex -c
 //         mcp_servers.…; none without the tools
 //   DT-08 the app says it has them (caps liteTools · liteFolders); the packaged app can run the server as node (RunAsNode left as shipped)
-//   DT-10 (in DT-06) a folder changed between the proposal and 「올리기」 — a file added, a size, the folder replaced by a link — uploads
-//         nothing: 'changed' (and that pick is gone); unchanged, it goes
+//   DT-10 (in DT-06) a folder changed between the proposal and 「올리기」 — a file added, a size, an edit of the same size, two files
+//         swapped by name, the folder replaced by a link — uploads nothing: 'changed' (and that pick is gone); unchanged, it goes
 //   DT-09 a chat run's Claude Code gets ENABLE_TOOL_SEARCH=false (the tools load with the session — the company gateway cannot take
 //         Claude Code's deferred tool references); the person's own env or the runner's setting wins; not for a step, not for Codex
 //   node --test test/tools.test.js
@@ -37,7 +37,10 @@ const MT = require('../src/mcp/tools')
 const { CliSession, codexMcp } = require('../src/runner/session')
 
 const WIN = process.platform === 'win32'
-const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-tools-')))
+// (macOS's own temporary folder is under /var — a system folder the tools refuse, the person's temporary files with it: this PC's folders
+// for the test are made under /tmp there)
+const TMP = process.platform === 'darwin' ? '/tmp' : os.tmpdir()
+const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(TMP, 'pgl-tools-')))
 const HOME = path.join(ROOT, 'home')
 const DATA = path.join(ROOT, 'app', 'data')
 const WORK = path.join(ROOT, 'work')
@@ -122,6 +125,34 @@ test('DT-01 어느 폴더: ~ · 작업 폴더 기준 상대 경로(밖으로 못
   assert.equal((await check(DATA)).error, 'app_folder')
   assert.equal((await check(path.join(HOME, 'nope'))).error, 'not_found')
   assert.equal((await check(path.join(HOME, 'skills', 'a', 'SKILL.md'))).error, 'not_folder')
+  // the system's state and each person's temporary and cache folders (/var · /private/var — macOS's /var/folders/…/T · C), Homebrew's,
+  // snap's per-app homes on Linux (their own hidden folders inside — ~/snap/firefox/common/.mozilla)
+  if (!WIN) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-tools-tmp-'))
+    try {
+      for (const d of ['/var/log', '/private/var/db', process.platform === 'darwin' ? tmp : null, '/opt/homebrew/bin'].filter((x) => x && fs.existsSync(x))) {
+        assert.equal((await check(d)).error, 'system_folder', d)
+      }
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+    fs.mkdirSync(path.join(HOME, 'snap', 'firefox', 'common', '.mozilla'), { recursive: true })
+    assert.equal((await check(path.join(HOME, 'snap', 'firefox', 'common', '.mozilla'))).error, 'system_folder', '~/snap')
+    // a volume's top (not what is in it)
+    assert.equal(TL.volumeTop('/Volumes/USB'), true)
+    assert.equal(TL.volumeTop('/Volumes/USB/proj'), false)
+    assert.equal(TL.volumeTop('/media/hy/USB'), true)
+    assert.equal(TL.volumeTop('/run/media/hy/USB'), true)
+    assert.equal(TL.volumeTop('/mnt/data'), true)
+    assert.equal(TL.volumeTop('/mnt/data/proj'), false)
+  }
+  // a CLI home named in another case than the disk's (a Mac's or Windows' disk reads both as one): still that CLI's home
+  if (process.platform === 'darwin' || WIN) {
+    const conf = path.join(ROOT, 'conf', 'Claude-Config')
+    fs.mkdirSync(path.join(conf, 'projects', 'x'), { recursive: true })
+    fs.mkdirSync(path.join(conf, 'skills', 'q'), { recursive: true })
+    const other = { ...ENV, CLAUDE_CONFIG_DIR: path.join(ROOT, 'conf', 'claude-config') }
+    assert.equal((await TL.checkFolder(path.join(conf, 'projects', 'x'), { home: HOME, env: other, dataDir: DATA })).error, 'cli_home')
+    assert.equal((await TL.checkFolder(path.join(conf, 'skills', 'q'), { home: HOME, env: other, dataDir: DATA })).real, path.join(conf, 'skills', 'q'))
+  }
 })
 
 test('DT-02 이 PC 의 스킬: Claude Code · Codex · 작업 폴더 — 이름 · 설명은 SKILL.md 에서, 링크는 링크로(가리키는 곳만), under 로 사람이 말한 폴더', async () => {
@@ -166,6 +197,8 @@ function skillFolder() {
   put(path.join(SKILL_DIR, '.mcp.json'), JSON.stringify({ mcpServers: { x: { command: 'x' } } }))
   put(path.join(SKILL_DIR, '.gitignore'), 'node_modules/\n')
   put(path.join(SKILL_DIR, 'templates', '.gitattributes'), '* text=auto\n')
+  // (a name Windows and a Mac read as .lfsconfig: case aside, a trailing dot dropped)
+  if (!WIN) put(path.join(SKILL_DIR, 'docs', '.LFSCONFIG.'), '[lfs]\n\turl = https://example.test/lfs\n')
   fs.symlinkSync(path.join(HOME, 'elsewhere'), path.join(SKILL_DIR, 'out-link'), WIN ? 'junction' : 'dir')
 }
 
@@ -183,6 +216,7 @@ test('DT-03 여기서 읽는 스킬: 챔피언 폴더의 검사 그대로 — �
   assert.ok(groups.rebuildable >= 1, 'node_modules')
   assert.ok(groups.structure >= 3, 'the link, and git\'s control files (.gitignore · .gitattributes) — the server keeps a skill in its own repository')
   assert.ok(k.skill.excluded.find((g) => g.group === 'structure').samples.some((x) => x.endsWith('.gitattributes')))
+  if (!WIN) assert.ok(groups.structure >= 4, 'docs/.LFSCONFIG. is .lfsconfig')
   assert.equal(k.skill.flagged, 3, 'a sure key, a value to check and a .mcp.json (it runs things — a file to check) stay out')
   assert.deepEqual(k.skill.runs, ['hooks'])
   assert.deepEqual(k.skill.runFiles, [])
@@ -381,6 +415,20 @@ test('DT-06 · DT-10 lite_propose_folder: 챔피언 폴더의 pick · 미리 보
   put(path.join(kit, 'README.md'), '# 영업 키트 — 고친 판\n')
   a = await press(p1)
   assert.equal(a.why, 'changed')
+  // the same size, other bytes: an edit that keeps the size
+  p1 = await proposeAgain()
+  put(path.join(kit, 'README.md'), '# 영업 키트 — 고친 팬\n')
+  a = await press(p1)
+  assert.equal(a.why, 'changed', 'an edit of the same size')
+  // two files of the same size swapped by name
+  put(path.join(kit, '가.md'), 'AAAA\n')
+  put(path.join(kit, '나.md'), 'BBBB\n')
+  p1 = await proposeAgain()
+  fs.renameSync(path.join(kit, '가.md'), path.join(kit, '다.md'))
+  fs.renameSync(path.join(kit, '나.md'), path.join(kit, '가.md'))
+  fs.renameSync(path.join(kit, '다.md'), path.join(kit, '나.md'))
+  a = await press(p1)
+  assert.equal(a.why, 'changed', 'the same names and sizes, other files')
   // the folder replaced by a link to another one (its real path is no longer the one looked at)
   p1 = await proposeAgain()
   const n = binds.length

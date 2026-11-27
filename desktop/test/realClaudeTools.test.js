@@ -21,7 +21,8 @@ const { gitServer, makeRepo } = require('./helpers/gitServer')
 const BASE_URL = process.env.PGL_REAL_CLAUDE_BASE_URL
 const MODEL = process.env.PGL_REAL_CLAUDE_MODEL
 const skip = !BASE_URL || !process.env.PGL_REAL_CLAUDE_TOKEN || !MODEL || !C.which('claude') ? 'set PGL_REAL_CLAUDE_BASE_URL · _TOKEN · _MODEL (and have claude)' : false
-const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-realtools-')))
+// (macOS's own temporary folder is under /var — a system folder the tools refuse — so /tmp there)
+const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'pgl-realtools-')))
 const CONF = path.join(ROOT, 'claude')
 const HOME = path.join(ROOT, 'home')
 fs.mkdirSync(CONF, { recursive: true })

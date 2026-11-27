@@ -61,7 +61,8 @@ export function dirGroupOf(relDir, rules) {
 // git's control files, its attributes and ignore files: never a file of a folder that goes up from here (the server refuses them too —
 // secrets.js refusalOf). A dropped folder's own .gitignore is read and applied here (below), then stays here itself.
 const STRUCTURE = new Set(['.gitmodules', '.lfsconfig', '.gitattributes', '.gitignore'])
-export const structureOf = (rel) => (STRUCTURE.has(String(rel).split('/').pop().trim().toLowerCase()) ? 'structure' : null)
+// (as Windows and a Mac read a name: case aside, trailing dots and spaces dropped — the server's secrets.js reads it so)
+export const structureOf = (rel) => (STRUCTURE.has(String(rel).split('/').pop().trim().toLowerCase().replace(/[. ]+$/, '')) ? 'structure' : null)
 
 // ---------- the folder's own .gitignore ----------
 // What a folder's .gitignore files leave out, read the way git reads them (as the desktop's 「내 PC 폴더 올리기」 does with git itself):

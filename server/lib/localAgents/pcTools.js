@@ -154,6 +154,8 @@ export async function sweepAll() {
     if (p.kind === 'folder') await settleUpload(p, { ok: false, why: 'pc_offline' }).catch(() => {})
     else await setState(p, ['working'], { state: 'failed', error: 'timeout' }).catch(() => {})
   }
+  // (the entries first, then the proposals that still wait: an entry is made after its row — proposeSkill — so one seen here whose row is
+  // not waiting is one to go)
   let ids = []
   try { ids = await fs.readdir(await stageRoot()) } catch { return }
   const live = new Set((await q(`select id::text from pro_pc_proposals where tenant_id=$1 and kind='skill' and state in ('pending','working')`, [T()])).map((r) => r.id))
@@ -246,7 +248,12 @@ async function proposeSkillNow(ctx, body) {
   }
   const summary = { files: files.length, bytes, runs, runFiles, excluded, flagged: int(s.flagged, 1e6), warnings: strs(s.warnings, 8, 20).filter((w) => WARNINGS.includes(w)),
     source: { where, label: clean(body.source?.label, 120) }, list: files.slice(0, 60).map((f) => ({ path: f.path, size: f.buf.length })), more: Math.max(0, files.length - 60) }
+  // the row first, then its files: the staging place's cleanup (sweepAll) reads the folder's entries before it asks which proposals still
+  // wait — an entry it sees was made after its row, so it is never taken for one with no proposal (no card until the files are there)
   const id = crypto.randomUUID()
+  const [row] = await q(`insert into pro_pc_proposals (id, tenant_id, user_id, kind, device_id, job_id, thread_id, name, description, scope, summary, expires_at)
+                         values ($1,$2,$3,'skill',$4,$5,$6,$7,$8,$9,$10, now() + make_interval(mins => $11)) returning *`,
+  [id, T(), ctx.user.id, ctx.device.id, ctx.job.id, ctx.job.thread_id, name, clean(fm.description, 1000), body.scope === 'company' ? 'company' : 'mine', summary, PROPOSAL_MINUTES])
   const dir = await stageDir(id)
   try {
     for (const f of files) {
@@ -254,10 +261,12 @@ async function proposeSkillNow(ctx, body) {
       await fs.mkdir(path.dirname(to), { recursive: true })
       await fs.writeFile(to, f.buf)
     }
-  } catch (e) { await unstage(id); throw e }
-  const [row] = await q(`insert into pro_pc_proposals (id, tenant_id, user_id, kind, device_id, job_id, thread_id, name, description, scope, summary, expires_at)
-                         values ($1,$2,$3,'skill',$4,$5,$6,$7,$8,$9,$10, now() + make_interval(mins => $11)) returning *`,
-  [id, T(), ctx.user.id, ctx.device.id, ctx.job.id, ctx.job.thread_id, name, clean(fm.description, 1000), body.scope === 'company' ? 'company' : 'mine', summary, PROPOSAL_MINUTES])
+  } catch (e) {
+    await unstage(id)
+    await q('delete from pro_pc_proposals where id=$1', [id]).catch(() => {})
+    console.warn(`[pc-tools] skill proposal ${id.slice(0, 8)}: ${e.message}`)
+    throw err(500, L('스킬 파일을 받아 두지 못했어요. 잠시 뒤 다시 요청해 주세요.', "Couldn't keep the skill's files — ask again in a moment."), 'stage_failed')
+  }
   await card(ctx, row)
   console.log(`[pc-tools] skill proposal ${id.slice(0, 8)} '${name}' user=${ctx.user.id.slice(0, 8)} files=${files.length}${runs.length || runFiles.length ? ' runs' : ''}`)
   return { id, name, state: 'pending', expiresInMinutes: PROPOSAL_MINUTES }
@@ -416,8 +425,11 @@ export async function upload(user, id, { confirm, name = null } = {}) {
   const S = await import('../folders/service.js')
   let folder
   try { folder = await S.createFolder(user, { name: want, champion: true }) } catch (e) {
-    await setState(row, ['working'], { state: 'pending', error: clean(e.message, 300) })
-    throw e
+    // (the card keeps a code — the reason, which may name the server's paths, goes to the log)
+    console.warn(`[pc-tools] upload ${row.id.slice(0, 8)}: ${e.message}`)
+    await setState(row, ['working'], { state: 'pending', error: 'create_failed' })
+    if (e.status && e.status < 500) throw e
+    throw err(500, L('공유 폴더를 만들지 못했어요. 잠시 뒤 다시 눌러 주세요.', "Couldn't make the shared folder. Press again in a moment."), 'create_failed')
   }
   await q(`update pro_pc_proposals set result=$2 where id=$1`, [row.id, JSON.stringify({ folderId: folder.id, slug: folder.slug })])
   row = { ...row, result: { folderId: folder.id, slug: folder.slug } }

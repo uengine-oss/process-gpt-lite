@@ -61,10 +61,12 @@ export function blockIn(buf) {
 
 // What a folder's tree must not hold, whatever it says: a link (mode 120000), another repository (a gitlink, 160000), and the files that
 // make git fetch or run something else (.gitmodules, .lfsconfig) → the reason, or null
+// (a name as Windows and a Mac read it: case aside, trailing dots and spaces dropped — '.LFSCONFIG.' is .lfsconfig there)
+const baseOf = (rel) => String(rel).split('/').pop().trim().toLowerCase().replace(/[. ]+$/, '')
 export function structureOf({ path: rel, mode }) {
   if (mode === '120000') return 'symlink'
   if (mode === '160000') return 'submodule'
-  const base = String(rel).split('/').pop().toLowerCase()
+  const base = baseOf(rel)
   if (base === '.gitmodules') return 'gitmodules'
   if (base === '.lfsconfig') return 'lfsconfig'
   return null
@@ -120,6 +122,6 @@ export function refusalOf(rel, buf) {
   return blockIn(buf)
 }
 // a .gitattributes anywhere (case as a Mac or Windows reads it) → 'gitattributes' | null
-export const attributesOf = (rel) => (String(rel).split('/').pop().trim().toLowerCase() === '.gitattributes' ? 'gitattributes' : null)
+export const attributesOf = (rel) => (baseOf(rel) === '.gitattributes' ? 'gitattributes' : null)
 // a .gitignore anywhere → 'gitignore' | null (the page applies a dropped folder's own .gitignore before anything goes up)
-export const ignoreFileOf = (rel) => (String(rel).split('/').pop().trim().toLowerCase() === '.gitignore' ? 'gitignore' : null)
+export const ignoreFileOf = (rel) => (baseOf(rel) === '.gitignore' ? 'gitignore' : null)

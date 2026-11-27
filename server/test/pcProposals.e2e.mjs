@@ -32,7 +32,8 @@ const { createLocalRunner } = require(path.join(DESKTOP, 'src/runner/index.js'))
 const { fakeBin } = require(path.join(DESKTOP, 'test/helpers/fakeBin.js'))
 const PORT = Number(process.env.PT_PORT || 8999)
 const BASE = `http://127.0.0.1:${PORT}`
-const ROOT = fss.realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'pgl-pctools-e2e-')))
+// (her PC's folders: macOS's own temporary folder is under /var — a system folder the tools refuse — so /tmp there)
+const ROOT = fss.realpathSync(await fs.mkdtemp(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'pgl-pctools-e2e-')))
 const TENANT = 'pctools-e2e'
 const RESULTS = process.env.PT_RESULTS || ''
 // process-gpt's folders (where a registered skill is kept) in a temporary place; its secrets read from the real checkout's .env, as config.js would

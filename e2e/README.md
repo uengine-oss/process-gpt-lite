@@ -1982,33 +1982,35 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 
 ```bash
 cd server && node --test --test-concurrency=1 test/pcProposals.test.js && node test/pcProposals.e2e.mjs   # :8999
-cd desktop && node --test test/tools.test.js   # DT-01 ~ DT-10
+cd desktop && node --test test/tools.test.js test/sync.test.js   # DT-01 ~ DT-10 · 「동의한 뒤 바뀐 폴더」
 cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.js                        # :8999 · :5399
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
-| 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → CLI 가 도구 다섯을 보고 PC 의 스킬을 찾아 제안 → 「스킬을 등록할까요?」(파일 · 뺀 것 · 어디에 — 언제나 「내 스킬」에서 시작, 파일은 서버의 임시 공간에서 한 시간) → 「등록」 → 내 스킬 목록에 · `.env` 없음 (1280) | 스펙 LA-PP-01 | F-PCP-01 · e2e 3 · 4단계 · PT-04 · PT-05 | feature · HTTP · DB | ✅ |
+| 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → CLI 가 도구 다섯을 보고 PC 의 스킬을 찾아 제안 → 「스킬을 등록할까요?」(파일 · 뺀 것 · 어디에 — 언제나 「내 스킬」에서 시작, 「… 등록하지 않으면 한 시간이 지난 뒤 지워져요.」) → 「등록」 → 내 스킬 목록에 · `.env` 없음 (1280) | 스펙 LA-PP-01 | F-PCP-01 · e2e 3 · 4단계 · PT-04 · PT-05 | feature · HTTP · DB | ✅ |
 | 실행 설정(`hooks` · `allowed-tools`)이 있으면 카드가 알리고, 「회사 스킬」은 스킬 폴더의 「전사에 공유」와 같은 규칙(관리자가 아니어도) · CLI 가 회사를 청해도 미리 골라 두지 않음 · 언제나 한 번 더 확인해야 설치(서버도 409 `company_confirm` · `runs_confirm`, 실행 설정이 있으면 확인 문구가 그것을 말함) (어두운 화면) | 스펙 LA-PP-02 · PR #120 검토 2 | F-PCP-01 · F-PCP-02 · PT-05 · PT-06 | feature · DB | ✅ |
 | 채팅 실행의 Claude Code 는 `ENABLE_TOOL_SEARCH=false`(도구는 세션과 함께 — 회사 게이트웨이가 지연 도구 참조를 못 받음), 그 사람의 환경 · runner 설정이 이김, 단계 · Codex 에는 없음 | 스펙 LA-PP-07 | DT-09 | 단위 | ✅ |
-| 서버가 다시 봄: 경로 탈출 · `.git` · 비밀 이름 · 확실한 열쇠 · SKILL.md 없음 · 301개 · 같은 이름 · 실행 설정은 서버가 읽음 · git 제어 파일(`.gitignore` · `.gitattributes` · `.gitmodules` · `.lfsconfig`)은 거절하지 않고 버림(앱도 뺌) · 카드의 설명은 서버가 올라온 `SKILL.md` 에서 읽음 | 스펙 LA-PP-03 · PR #120 검토 4 · 10 | PT-04 · DT-03 | DB · 단위 | ✅ |
+| 서버가 다시 봄: 경로 탈출 · `.git` · 비밀 이름 · 확실한 열쇠 · SKILL.md 없음 · 301개 · 같은 이름 · 실행 설정은 서버가 읽음 · git 제어 파일(`.gitignore` · `.gitattributes` · `.gitmodules` · `.lfsconfig` — 대소문자 · 끝의 점 · 빈칸 무시, `docs/.LFSCONFIG. ` 도)은 거절하지 않고 버림(앱도 뺌) · 카드의 설명은 서버가 올라온 `SKILL.md` 에서 읽음 | 스펙 LA-PP-03 · PR #120 검토 4 · 10 | PT-04 · DT-03 | DB · 단위 | ✅ |
 | 토큰은 그 사람 · 그 기기 · 켜진 그 채팅 실행만(90분), 없음 · 위조 401, 끝난 실행 · 끊은 기기 403, 앱의 실행 열쇠도 닫힘 · 기다리는 제안 10개까지(동시에 12개가 와도 — 사람마다 하나씩) | 스펙 LA-PP-04 · PR #120 검토 8 | PT-01 · PT-03 · PT-09 · e2e 3 · 6단계 · DT-04 | DB · HTTP · 단위 | ✅ |
 | 도구 경로는 본문을 읽기 전에 토큰을 봄(토큰 없이 3 MB · 위조 토큰 → 401), 16 MB 는 스킬 제안에만(폴더 제안 2 MB → 413) | 스펙 LA-PP-09 · PR #120 검토 5 | e2e 3b단계 | HTTP | ✅ |
 | 등록이 실패하면 파일 · 잡은 이름을 풀고 오류에 서버 경로가 없음 · 서버의 정기 정리(만료 · 두 시간 넘은 누름 · 제안 없는 파일, `PRO_BACKGROUND=0` 이면 없음) · 누른 뒤 PC 가 새로 연결되면 기다리던 업로드를 끝냄 | 스펙 LA-PP-10 · LA-PP-11 · PR #120 검토 6 · 7 · 9 | PT-07 · PT-10 · PT-11 | DB | ✅ |
+| (재검토 R2 · R3) 쉬지 않고 도는 정기 정리 곁의 스킬 제안 아홉 — 모두 파일과 함께(행을 먼저 넣고 파일을 씀; 예전 순서로는 실패) · 「올리기」에서 공유 폴더를 못 만들면 카드 · 행에는 `create_failed` 만(서버 경로 없음), 다시 누를 수 있음 | PR #120 재검토 2 · 3 | PT-12 · PT-13 | DB | ✅ |
 | 카드는 그 사람만(404) · 보인 그대로의 확인(409 stale) · 한 번만(409) · 한 시간 뒤 만료 · 「그만두기」 | 스펙 「채팅에서 내 PC의 스킬 · 폴더 등록 제안」 | PT-05 · PT-07 · F-PCP-04 | DB · feature | ✅ |
 | 휴대폰 390: 카드가 화면 안, 옆 넘침 없음, 밝은 · 어두운 | 스펙 LA-PP-05 | F-PCP-04 | feature | ✅ |
 | 옛 데스크톱(0.2.7): 토큰 없음 · 첫 메시지에 업데이트 안내 · 고르기에 「0.2.8 이상으로 업데이트하면 …」 | 스펙 LA-PP-06 | PT-02 | DB | ✅ |
-| 어느 폴더: `~` · 작업 폴더 기준 상대(탈출 거절) · 링크 · 디스크 맨 위 · 홈과 그 위 · `~/Library` · 시스템 · CLI 의 집과 그 안(스킬 폴더만 예외) · 홈 바로 아래 숨은 폴더(`~/.kube` · `~/.docker` · `~/.config/gh` …) · 경로에 비밀 · 개인 폴더(`.ssh` · `.claude/projects` · `.codex/sessions` · `.vscode`) · 앱 데이터 거절 | 스펙 「허용하는 폴더 경로」 · LA-PP-08 · PR #120 검토 3 | DT-01 · DT-05 | 단위 | ✅ |
+| 어느 폴더: `~` · 작업 폴더 기준 상대(탈출 거절) · 링크 · 디스크 맨 위 · 홈과 그 위 · `~/Library` · 시스템 · CLI 의 집과 그 안(스킬 폴더만 예외) · 홈 바로 아래 숨은 폴더(`~/.kube` · `~/.docker` · `~/.config/gh` …) · 경로에 비밀 · 개인 폴더(`.ssh` · `.claude/projects` · `.codex/sessions` · `.vscode`) · `/var` · `/private/var` 안쪽(macOS 의 사람마다 임시 · 캐시 `/var/folders/…/T` · `C` 도) · `/opt/homebrew` · `~/snap` · 볼륨 맨 위(`/Volumes/<이름>` · `/media/<사람>/<이름>` · `/mnt/<이름>`) · `CLAUDE_CONFIG_DIR` 를 다른 대소문자로 적어도 그 집 · 앱 데이터 거절 | 스펙 「허용하는 폴더 경로」 · LA-PP-08 · PR #120 검토 3 | DT-01 · DT-05 | 단위 | ✅ |
 | PC 의 스킬 목록(Claude Code · Codex · 작업 폴더 · 말한 폴더, 링크는 가리키는 곳만) · 앱이 읽는 스킬(챔피언 검사, `.mcp.json` 은 확인할 파일로 빠짐) | 스펙 「파일은 앱이 읽는다」 | DT-02 · DT-03 | 단위 | ✅ |
 | stdio MCP 서버(initialize · tools/list · tools/call · ping), 설정 파일에 서버 토큰 없음(0600), 닫힌 실행 · 틀린 열쇠는 아무것도 못 함 | 스펙 「도구는 데스크톱 앱이 제공한다」 | DT-04 | 단위 | ✅ |
 | Claude Code `--mcp-config`(내 MCP 옆에) + 도구 허용 · Codex `-c mcp_servers.…` · 앱은 liteTools · liteFolders 를 알림 · 묶은 앱은 자기 실행 파일을 node 로(RunAsNode 퓨즈 그대로) | 스펙 「도구는 데스크톱 앱이 제공한다」 | DT-07 · DT-08 · e2e 2 · 7단계(Codex) | 단위 · HTTP | ✅ |
 | 「~/영업 키트 올려 줘」 → 「폴더를 올릴까요?」(챔피언 미리 보기 · 에이전트 자산 · 이름) → 「올리기」 → 그 PC 가 챔피언 엔진(`FolderSync.bind`)으로 올림 → 「폴더를 올렸어요 · 열기」, main 에 `.env` · `node_modules` 없음, 출처는 그 PC | 스펙 CF-PCP-01 | F-PCP-03 · e2e 5단계 · PT-08 | feature · HTTP · DB | ✅ |
 | 서버는 제안의 pick 만 말할 수 있음(페이지의 pick · 다른 제안 · 이미 올린 pick 은 `no_pick`), 경로는 서버에 가지 않음 | 스펙 CF-PCP-02 | DT-06 · PT-08 | 단위 · DB | ✅ |
 | 올라가지 않으면 빈 폴더를 지우고 다시 누를 수 있음, 남의 PC 의 답은 무시, pick 을 잃으면 실패로 끝, PC 꺼짐 409 | 스펙 CF-PCP-03 | PT-08 | DB | ✅ |
-| 카드에 보인 뒤 폴더가 바뀌면(파일 더함 · 크기 바뀜 · 링크로 바뀜) 올리기 직전 다시 검사 · 다시 훑어 아무것도 올리지 않음 → 「폴더를 올리지 못했어요 · 미리 보여 드린 뒤 폴더가 바뀌었어요 …」, 만든 빈 폴더는 지움 | 스펙 CF-PCP-04 · PR #120 검토 1 | F-PCP-05 · DT-10(DT-06 안) · PT-11 | feature · 단위 · DB | ✅ |
+| 카드에 보인 뒤 폴더가 바뀌면(파일 더함 · 크기 바뀜 · 같은 크기로 고침 · 같은 이름끼리 바꿔치기 · 링크로 바뀜) 올리기 직전 다시 검사 · 다시 훑어 아무것도 올리지 않음 → 「폴더를 올리지 못했어요 · 미리 보여 드린 뒤 폴더가 바뀌었어요 …」, 만든 빈 폴더는 지움 | 스펙 CF-PCP-04 · PR #120 검토 1 · 재검토 6 | F-PCP-05 · DT-10(DT-06 안) · PT-11 | feature · 단위 · DB | ✅ |
+| 「예」 뒤에도 그대로만: 동의한 뒤 첫 올리기 전에 더한 파일 · 같은 크기로 고친 파일 · 링크로 바뀐 위 폴더 · 스냅숏이 읽는 동안 고친 파일 → 아무것도 밀어 넣지 않고 원본 행을 되돌림(`changed`) — 카드의 길과 페이지의 시스템 창 길 모두 | 스펙 챔피언 「동의한 뒤 바뀐 폴더는 올라가지 않는다」 · PR #120 재검토 1 | `desktop/test/sync.test.js` 「동의한 뒤 바뀐 폴더」 | 단위 | ✅ |
 | 회귀: 채팅 에이전트 · 챔피언 폴더 · 데스크톱 전체 | — | `chatAgents.test.js` · `chatAgents.e2e.mjs` · `championFolders.test.js` · `champion-sync.e2e.mjs` · desktop `test/*.test.js` · F-CA-* · F-CF-* | DB · HTTP · 단위 · feature | ✅ |
 | 실제 Claude Code 2.1.332(회사 게이트웨이 · 임시 설정 · 임시 홈): 「내 PC 의 견적-규칙 스킬을 Process GPT 에 등록해 줘」 → 도구 설명만 보고 `lite_list_pc_skills` → `lite_propose_skill`, `.env` 빠짐, 카드를 확인해 달라며 멈춤 (게이트웨이 때문에 `ENABLE_TOOL_SEARCH=false`) | 스펙 「요청의 의미는 CLI가 해석한다」 | `desktop/test/realClaudeTools.test.js`(사람이 켤 때만) | 실제 CLI | ✅ 1회 |
-| MCP 서버를 앱 플래그(`--pgl-mcp`)로: 재 본 결과(프로세스 3개 · 약 215 MB · LaunchServices 등록 vs 노드 모드 1개 · 약 56 MB)로 노드 모드를 둠 | PR #120 검토 12 · 설계 §13 | 측정(시험 아님) | — | — |
+| MCP 서버를 앱 플래그(`--pgl-mcp`)로: 재 본 결과(프로세스 3개 · 약 215 MB · LaunchServices 등록 vs 노드 모드 1개 · 약 56 MB)로 노드 모드를 둠 — Developer ID · hardened runtime 으로 옮길 때 앱 플래그로 바꿈 | PR #120 검토 12 · 재검토 8 · 설계 §13.4 | 측정(시험 아님) | — | — |
 | 실제 Codex · 폴더 제안을 실제 CLI 로 · 묶은 앱 · Windows 이름 있는 파이프 | — | — | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

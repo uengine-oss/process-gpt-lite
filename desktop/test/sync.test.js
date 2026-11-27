@@ -358,6 +358,41 @@ test('동의하지 않으면(시스템 창 「취소」) 서버에 아무것도 
   assert.throws(() => bare('rev-parse', '--verify', '--quiet', `refs/heads/${BRANCH}`), '이 기기의 가지는 아직 없다')
 })
 
+test('동의한 뒤 바뀐 폴더: 첫 올리기는 「예」 한 그대로만 — 그 뒤 더한 파일 · 같은 크기로 고친 파일 · 링크로 바뀐 위 폴더 · 스냅숏이 읽는 동안 고친 파일이면 아무것도 올리지 않는다(changed)', async () => {
+  const f = makeSync()
+  const top = path.join(ROOT, 'people2')
+  const dir = path.join(top, '견적 자료')
+  const write = (rel, text) => { const x = path.join(dir, ...rel.split('/')); fs.mkdirSync(path.dirname(x), { recursive: true }); fs.writeFileSync(x, text) }
+  write('README.md', '# 견적 자료\n')
+  write('양식/견적서.md', '| 품목 | 금액 |\n')
+  // after the yes (inside it — the person's yes was for what the dialog said), before the first round looked
+  const cases = [
+    ['a file added', () => write('나중.md', '# 나중에\n')],
+    ['an edit of the same size', () => write('README.md', '# 견적 자랴\n')],
+    ...(symlinks ? [['the folder above it replaced by a link', () => { fs.renameSync(top, `${top}-옛것`); fs.symlinkSync(`${top}-옛것`, top, process.platform === 'win32' ? 'junction' : 'dir') }]] : []),
+    // (while the round's snapshot reads the files — after its own look found them as they were: the look after the snapshot stops it)
+    ['an edit while the snapshot reads them', () => write('README.md', '# 견적 자뢰\n'), 'snapshot'],
+  ]
+  for (const [what, change, when = 'yes'] of cases) {
+    const r = await f.pick(dir)
+    assert.ok(r.pickId, what)
+    const id = crypto.randomUUID()
+    const n = sent.length
+    let once = false
+    if (when === 'snapshot') S.setTap((c) => { calls.push(c); if (!once && c.sub === 'update-index' && c.args.includes('--add')) { once = true; change() } })
+    let out
+    try { out = await f.bind({ pickId: r.pickId, folderId: id, folderName: '견적 자료' }, { confirm: async () => { if (when === 'yes') change(); return true } }) } finally { S.setTap((c) => calls.push(c)) }
+    assert.deepEqual(out, { ok: false, why: 'changed' }, what)
+    if (when === 'snapshot') assert.ok(once, 'the change came while the snapshot read the files')
+    const mine = sent.slice(n).filter((m) => m.folderId === id).map((m) => m.type)
+    assert.deepEqual(mine, when === 'yes' ? ['sync:bind', 'sync:unbind'] : ['sync:bind', 'sync:token', 'sync:unbind'], `${what}: nothing pushed — the source row undone`)
+    assert.ok(!f.list().some((e) => e.folderId === id), `${what}: nothing kept here`)
+    if (fs.lstatSync(top).isSymbolicLink()) { if (process.platform === 'win32') fs.rmdirSync(top); else fs.unlinkSync(top); fs.renameSync(`${top}-옛것`, top) }
+  }
+  assert.throws(() => bare('rev-parse', '--verify', '--quiet', `refs/heads/${BRANCH}`), '이 기기의 가지는 아직 없다')
+  rmQuiet(top)
+})
+
 test('F-CH-09 확인 창: 확인이 필요한 파일 가운데 빼는 수와 함께 올리는 수 — 시트가 뺄 파일을 이름으로 넘겨도(이 훑기는 그 파일을 읽지 않는다)', async () => {
   const f = makeSync()
   const n = sent.length

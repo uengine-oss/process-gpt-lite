@@ -107,6 +107,7 @@ export const WHY = {
   no_folder: '폴더를 찾지 못했어요',
   not_managed: '이 폴더는 PC 에서 올릴 수 없어요',
   folder_missing: 'PC 에서 폴더를 찾을 수 없어요',
+  changed: '「올리기」에 동의한 뒤 폴더가 바뀌어서 아무것도 올리지 않았어요. 다시 올려 주세요.',
   offline: '서버와 연결되어 있지 않아요',
   timeout: '서버가 제때 답하지 않았어요',
   empty: '올릴 파일이 없어요',

@@ -350,7 +350,23 @@ async function pool(items, n, fn) {
 
 // git's own control files a folder may carry: a submodule list, LFS's settings (its lfs.url would name where git sends requests)
 const CONTROL = new Set(['.gitmodules', '.lfsconfig'])
-const baseName = (rel) => String(rel).split('/').pop().toLowerCase()
+// (a name as Windows and a Mac read it: case aside, trailing dots and spaces dropped — '.LFSCONFIG.' is .lfsconfig there)
+const baseName = (rel) => String(rel).split('/').pop().trim().toLowerCase().replace(/[. ]+$/, '')
+// what a file is now, beyond its size: the same name with other bytes of the same size, or another file renamed into its place, is not
+// the file that was shown (its inode, its change and modification times)
+const stampOf = (st) => `${st.size}:${st.ino}:${st.ctimeMs}:${st.mtimeMs}`
+const fingerprintOf = (rels, stamps) => crypto.createHash('sha256').update(rels.map((r) => `${r}\0${stamps.get(r)}`).join('\n')).digest('hex')
+// the files a scan kept, as they are now (each a plain file, never a link) → their fingerprint, or null when one is no longer a plain file
+async function restamp(root, rels) {
+  const stamps = new Map()
+  for (const rel of rels) {
+    let st
+    try { st = await fsp.lstat(path.join(root, ...rel.split('/'))) } catch { return null }
+    if (st.isSymbolicLink() || !st.isFile()) return null
+    stamps.set(rel, stampOf(st))
+  }
+  return fingerprintOf(rels, stamps)
+}
 
 // the files under a folder the person brought back in (one the folder's .gitignore or the app's rebuildable group had left out as a whole)
 async function walk(root, relDir, cb, depth = 0) {
@@ -387,6 +403,7 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
   const excluded = Object.fromEntries(GROUPS.map((g) => [g, { count: 0, samples: [] }]))
   const leave = (g, rel) => { const e = excluded[g]; e.count++; if (e.samples.length < SAMPLES) e.samples.push(rel) }
   const files = new Map() // rel → size
+  const stamps = new Map() // rel → what the file is (stampOf)
   const decided = new Set() // (a path the person named and a folder of theirs may both bring the same file: it is judged once)
   const consider = async (rel, { lifted = '' } = {}) => {
     if (out(rel) || decided.has(rel)) return
@@ -406,6 +423,7 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
     if (!st.isFile()) return
     if (st.size > rules.limits.largeFileBytes && !asked(rel)) return leave('large', rel)
     files.set(rel, st.size)
+    stamps.set(rel, stampOf(st))
   }
   // A folder git shows as one left-out entry is one a pattern names (dist/ in the folder's .gitignore, node_modules/ of the app's); any
   // other (git did not list what is in it) is looked into, so each file is counted under its own reason
@@ -501,8 +519,8 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
     flagged, flaggedIncluded: flaggedIn, kit, warnings,
   }
   const report = { files: kept.length, bytes, excluded: Object.fromEntries(GROUPS.map((g) => [g, excluded[g].count])), flagged: flaggedFiles.size - flaggedIn, flaggedIncluded: flaggedIn }
-  // (what exactly would go up — each path with its size: a look and a later upload compare it, runner/tools.js)
-  const fingerprint = crypto.createHash('sha256').update(kept.map((r) => `${r}\0${files.get(r)}`).join('\n')).digest('hex')
+  // (what exactly would go up — each path with its size, inode and times: a look and a later upload compare it, runner/tools.js · bind)
+  const fingerprint = fingerprintOf(kept, stamps)
   return { preview, files: kept, report, flaggedIn, flaggedPaths: [...flaggedFiles], fingerprint }
 }
 
@@ -729,7 +747,8 @@ class FolderSync extends Uploader {
       this.store.put({ folderId, path: p.dir, label: p.label, include: inc, exclude: exc, sourceId: b.sourceId || null, branch: b.branch || null, state: 'synced', boundAt: new Date().toISOString() })
       this.picks.delete(String(pickId))
       this.changed()
-      const r = await this.round(folderId)
+      // (what goes up is what the person said yes to: the round finds the same files, as they were — else nothing goes up)
+      const r = await this.round(folderId, { expect: s.fingerprint })
       if (!r.ok) {
         // nothing of it stays: the page deletes the folder it made, the server its source row
         await this.ask({ type: 'sync:unbind', folderId }, ['sync:unbound'], 5000).catch(() => {})
@@ -749,7 +768,9 @@ class FolderSync extends Uploader {
   }
 
   // one round: scan → the token → fetch → snapshot → push → the server takes it (sync:pushed → sync:taken · behind · refused)
-  async round(folderId) {
+  // expect (the first upload — bind): the fingerprint the person said yes to; a scan or a snapshot that finds other files, or files changed
+  // since, ends the round before anything is pushed ('changed')
+  async round(folderId, { expect = null } = {}) {
     const e = this.store.get(folderId)
     if (!e) return { ok: false, why: 'not_bound' }
     if (!this.connected) return { ok: false, why: 'offline' }
@@ -759,8 +780,15 @@ class FolderSync extends Uploader {
       let st = null
       try { st = await fsp.stat(e.path) } catch { /* moved or deleted */ }
       if (!st?.isDirectory()) { this.mark(folderId, { state: 'missing', why: 'folder_missing' }); return { ok: false, why: 'folder_missing' } }
+      // the folder is still where it was picked: its real path the same (a folder on its way renamed, or replaced by a link, leads elsewhere —
+      // not followed)
+      if (!(await this.stillAt(e.path))) {
+        if (expect) return { ok: false, why: 'changed' }
+        this.mark(folderId, { state: 'missing', why: 'folder_missing' }); return { ok: false, why: 'folder_missing' }
+      }
       const gitDir = this.gitDirOf(folderId)
       const s = await this.scanOf(e.path, gitDir, e.include, e.exclude)
+      if (expect && s.fingerprint !== expect) return { ok: false, why: 'changed' }
       const big = tooBig(this.rules, s.report)
       if (big) { this.mark(folderId, { state: 'blocked', why: big }); return { ok: false, why: big } }
       const t = await this.ask({ type: 'sync:token', folderId }, ['sync:token'])
@@ -779,6 +807,8 @@ class FolderSync extends Uploader {
       const person = this.userFn() || {}
       const author = { name: t.person?.name || person.name || 'Process GPT Lite', email: t.person?.email || `${this.userId || 'desktop'}@users.pgpt-lite.local` }
       const snap = await snapshot(e.path, gitDir, { files: s.files, parent, author, message: SNAPSHOT_MESSAGE })
+      // (and still so after the snapshot read them: nothing changed or moved while it did)
+      if (expect && (!(await this.stillAt(e.path)) || (await restamp(e.path, s.files)) !== expect)) return { ok: false, why: 'changed' }
       const pushed = { files: s.report.files, bytes: s.report.bytes }
       // nothing new, and the server already took what is on the branch
       if (!snap.changed && (!tip || tip === e.taken)) {
@@ -804,6 +834,9 @@ class FolderSync extends Uploader {
       this.busy.delete(folderId)
       this.changed()
     }
+  }
+  async stillAt(dir) {
+    try { return samePath(nfc(await fsp.realpath(dir)), dir) } catch { return false }
   }
   // 「연결 끊기」: the server's source row, then this computer's record and shadow repository — the picked folder and the Lite folder
   // stay as they are

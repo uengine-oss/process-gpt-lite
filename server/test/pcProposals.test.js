@@ -191,7 +191,9 @@ test('PT-04 스킬의 파일은 서버가 다시 본다 — 경로 · 비밀 이
   assert.equal(await code(propose(skillBody('있는-스킬'))), '409 name_taken')
   // a good one, whose front matter runs things although the app said none
   const out = await propose({ ...skillBody('견적-규칙', { extra: 'allowed-tools: Bash\nhooks:\n  PreToolUse: []\n',
-    files: [{ path: '.gitignore', data: b64('node_modules/\n') }, { path: 'templates/.gitattributes', data: b64('* text=auto\n') }, { path: '.gitmodules', data: b64('[submodule]') }] }),
+    files: [{ path: '.gitignore', data: b64('node_modules/\n') }, { path: 'templates/.gitattributes', data: b64('* text=auto\n') }, { path: '.gitmodules', data: b64('[submodule]') },
+      // (a name Windows and a Mac read as .lfsconfig: case aside, trailing dots and spaces dropped)
+      { path: 'docs/.LFSCONFIG. ', data: b64('[lfs]\n\turl = https://example.test/lfs\n') }] }),
   description: '앱이 보낸 다른 설명' })
   assert.equal(out.name, '견적-규칙')
   assert.equal(out.expiresInMinutes, 60)
@@ -199,8 +201,8 @@ test('PT-04 스킬의 파일은 서버가 다시 본다 — 경로 · 비밀 이
   assert.deepEqual(row.summary.runs.sort(), ['allowed-tools', 'hooks'], 'read here')
   assert.equal(row.summary.files, 2, 'git\'s control files left out')
   const st = row.summary.excluded.find((g) => g.group === 'structure')
-  assert.equal(st.count, 3)
-  assert.deepEqual(st.samples.sort(), ['.gitignore', '.gitmodules', 'templates/.gitattributes'])
+  assert.equal(st.count, 4)
+  assert.deepEqual(st.samples.sort(), ['.gitignore', '.gitmodules', 'docs/.LFSCONFIG. ', 'templates/.gitattributes'])
   assert.ok(!fs.existsSync(path.join(staged(out.id), '.gitignore')))
   assert.equal(row.description, '견적서를 회사 양식으로 쓰는 법', 'from the SKILL.md that came, not the app\'s words')
   assert.equal(row.summary.source.where, 'claude')
@@ -432,4 +434,55 @@ test('PT-11 누른 뒤 PC 가 새 연결로 돌아오면 그 누름은 끝(다�
   assert.equal(v.state, 'failed')
   assert.equal(v.error, 'changed')
   await H.gone(again)
+})
+
+test('PT-12 청소가 쓰고 있는 제안의 파일을 지우지 않는다 — 쉬지 않고 도는 청소 곁에서 아홉 제안이 모두 파일과 함께', { skip: !db }, async () => {
+  const a = await person('백도하')
+  const pc = await desktop(a)
+  const run = await chatRun(a, pc)
+  const ctx = await ctxOf(run.payload)
+  let stop = false
+  let rounds = 0
+  const sweeping = (async () => { while (!stop) { await PT.sweepAll(); rounds++ } })()
+  const outs = []
+  try {
+    const many = Array.from({ length: 6 }, (_, i) => ({ path: `양식/${i}.md`, data: b64(`# 양식 ${i}\n${'x'.repeat(2000)}\n`) }))
+    for (let i = 0; i < 9; i++) outs.push(await withLang('ko', () => PT.proposeSkill(ctx, skillBody(`청소-곁-${i}`, { files: many }))))
+  } finally { stop = true; await sweeping }
+  assert.ok(rounds > 9, `the cleanup ran alongside (${rounds})`)
+  for (const o of outs) {
+    assert.ok(fs.existsSync(path.join(staged(o.id), 'SKILL.md')), `${o.name}: its SKILL.md`)
+    assert.equal(fs.readdirSync(path.join(staged(o.id), '양식')).length, 6, `${o.name}: every file`)
+    assert.equal((await q('select state from pro_pc_proposals where id=$1', [o.id]))[0].state, 'pending')
+  }
+  await q(`update pro_pc_proposals set state='dropped' where user_id=$1`, [a.id])
+  await H.gone(pc.link)
+})
+
+test('PT-13 「올리기」에서 공유 폴더를 만들지 못하면 카드에는 까닭의 코드만(서버의 경로 없음) — 다시 누를 수 있다', { skip: !db }, async () => {
+  const a = await person('서예린')
+  const pc = await desktop(a)
+  const run = await chatRun(a, pc)
+  const ctx = await ctxOf(run.payload)
+  const preview = { files: 1, bytes: 10, top: [{ path: 'a.md', files: 1, bytes: 10 }], excluded: [], flagged: [], kit: [], warnings: [] }
+  const out = await withLang('ko', () => PT.proposeFolder(ctx, { pickId: crypto.randomUUID(), label: '만들지 못할 폴더', preview }))
+  let v = await withLang('ko', () => PT.view(a, out.id))
+  // (the company's folders' place is a file for a moment: making a folder there fails with the server's own path in its message)
+  const place = path.join(ROOT, 'folders', TENANT)
+  fs.renameSync(place, `${place}-잠시`)
+  fs.writeFileSync(place, 'x')
+  let thrown
+  try { await withLang('ko', () => PT.upload(a, out.id, { confirm: v.confirm })) } catch (e) { thrown = e } finally { fs.rmSync(place, { force: true }); fs.renameSync(`${place}-잠시`, place) }
+  assert.equal(thrown?.status, 500)
+  assert.equal(thrown.code, 'create_failed')
+  assert.ok(!thrown.message.includes(ROOT), 'no path of the server in what is said')
+  const [row] = await q('select * from pro_pc_proposals where id=$1', [out.id])
+  assert.equal(row.state, 'pending', 'it can be pressed again')
+  assert.equal(row.error, 'create_failed')
+  const card = await cardOf(out.id)
+  assert.equal(card.content.pc.error, 'create_failed')
+  assert.ok(!JSON.stringify(card.content).includes(ROOT))
+  v = await withLang('ko', () => PT.view(a, out.id))
+  assert.equal(v.error, 'create_failed')
+  await H.gone(pc.link)
 })

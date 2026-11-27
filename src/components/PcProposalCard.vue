@@ -57,7 +57,8 @@ const minutesLeft = computed(() => (v.value.expiresAt ? Math.max(0, Math.round((
 const blocked = computed(() => !view.value || !v.value.confirm || !!busy.value || !name.value.trim()
   || (skill.value && scope.value === 'company' && !companyOk.value))
 const ERR = { pc_offline: '이 폴더가 있는 PC 의 앱이 꺼져 있어요 — 켜고 다시 눌러 주세요', no_pick: 'PC 앱이 다시 켜져서 제안이 만료됐어요 — 채팅에서 다시 부탁해 주세요',
-  changed: '미리 보여 드린 뒤 폴더가 바뀌었어요(파일이 추가·삭제되거나 크기가 달라졌어요) — 아무것도 올리지 않았어요. 채팅에서 다시 제안해 달라고 요청해 주세요' }
+  changed: '미리 보여 드린 뒤 폴더가 바뀌었어요(파일이 추가·삭제·수정되었거나 다른 파일로 바뀌었어요). 아무것도 올리지 않았어요. 채팅에서 다시 제안해 달라고 요청해 주세요.',
+  create_failed: '공유 폴더를 만들지 못했어요. 잠시 뒤 다시 눌러 주세요.' }
 const errorText = (e) => (e ? ERR[e] || whyText(e) || e : '')
 const toggle = (g) => { const s = new Set(open.value); s.has(g) ? s.delete(g) : s.add(g); open.value = s }
 
@@ -134,7 +135,7 @@ const openIt = () => { const slug = v.value.result?.slug || pc.value.result?.slu
       </div>
       <label v-if="state === 'pending' && scope === 'company'" class="again" data-test="pc-proposal-company-ok" :data-runs="runs.length ? 'yes' : 'no'">
         <input v-model="companyOk" type="checkbox" /> {{ runs.length ? '실행 설정이 회사 사람들의 PC에 적용된다는 점을 이해하고 등록해요' : '회사 사람들의 에이전트가 이 스킬을 사용하게 된다는 점을 확인했어요' }}</label>
-      <p v-if="state === 'pending'" class="hint" data-test="pc-proposal-staged">이 스킬의 파일은 지금 서버의 임시 공간에 있어요. 등록하지 않으면 늦어도 한 시간 뒤에 지워져요.</p>
+      <p v-if="state === 'pending'" class="hint" data-test="pc-proposal-staged">이 스킬 파일은 지금 서버의 임시 공간에 있어요. 등록하지 않으면 한 시간이 지난 뒤 지워져요.</p>
     </template>
 
     <!-- a folder: the champion folders' preview -->
