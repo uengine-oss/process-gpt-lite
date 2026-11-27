@@ -56,7 +56,8 @@ import { startDrag, cardItem } from '../fileDrag.js'
 import { openMailAttachment } from '../mailAttach.js'
 import { dur } from '../turnView.js'
 
-const props = defineProps({ msg: Object })
+// narrowed: the chat shows one conversation (or a project one sub-topic) — the bar over the list already names it
+const props = defineProps({ msg: Object, narrowed: Boolean })
 const emit = defineEmits(['connect'])
 const openFile = () => openArtifact(app, router, props.msg)
 const dragCard = (e) => startDrag(e, [cardItem(props.msg)])
@@ -211,8 +212,9 @@ onMounted(async () => {
   <div class="row" :data-id="msg.id" :class="[`r-${msg.role}`, `k-${msg.kind}`, { pinned: msg.kind === 'task' && c.state === 'running', needs: c.state === 'needs_input' || c.state === 'pending' }]">
     <span v-if="msg.kind !== 'divider'" class="ts">{{ time }}</span>
 
-    <!-- which context this answer belongs to, as the context-router decided (hark-style threads) -->
-    <div v-if="msg.role === 'agent' && ctx" role="link" tabindex="0" @click="openCtx" class="ctx" :class="ctx.action" :title="ctxWhy">
+    <!-- which context this answer belongs to, as the context-router decided (hark-style threads) — in the whole chat only: inside one
+         conversation every answer is that one, and the bar over the list says so (2026-11-28: 「필터링해서 들어왔기 때문에 … 필요 없지」) -->
+    <div v-if="msg.role === 'agent' && ctx && !narrowed" role="link" tabindex="0" @click="openCtx" class="ctx" :class="ctx.action" :title="ctxWhy">
       <span class="arrow">↳</span><span class="tt">{{ ctx.action === 'new' ? '새 주제 · ' : '' }}{{ ctx.title }}</span>
       <small v-if="ctxBy" class="by" :class="ctx.escalated || ctx.rechecked ? 'escalated' : ctx.strategy">{{ ctxBy }} {{ ctx.confidence != null ? ctx.confidence.toFixed(2) : '' }}</small>
     </div>

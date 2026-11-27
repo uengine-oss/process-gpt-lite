@@ -148,15 +148,24 @@ onBeforeUnmount(() => footObs?.disconnect())
 // a list kept at the bottom stays there when the pile comes, goes or moves
 const asideRoom = computed(() => (props.asideRoom ? props.asideRoom(foot.value) || 0 : 0))
 watch(asideRoom, () => nextTick(() => { const el = scroller.value; if (el && stick && Date.now() - smoothAt >= 600) el.scrollTop = el.scrollHeight }))
-// a conversation's messages arriving (none before) go straight to the bottom; a new message after that scrolls there
-watch(() => [list.value.length, draft.value], ([n], old) => toBottom(!props.keepTop && !old?.[0] && n > 0))
+// the chat narrowed to one conversation (/chat/c/:cid) or a project to one sub-topic (/projects/:id/t/:tid) — the store's thread getter
+// shows only its messages; null for the whole chat or room
+const narrowed = computed(() => (app.convFilter && app.activeId === app.mainThread?.id ? app.convFilter
+  : app.topicFilter && app.mode === 'project' && app.projectOpen ? app.topicFilter : null))
+// a conversation's messages arriving (none before) go straight to the bottom; a new message after that scrolls there.
+// Narrowing to a conversation, back to the whole chat or to another one opens a view too: at its newest message from the first frame
+// (2026-11-28 phone recording: 「맨 위로 스크롤을 하려고 하는데 … 맨 아래로 다시 해줘야 되고」 — the bar is at the top of the list, so
+// the new view kept that place, the top; back in the whole chat a smooth scroll then ran down all of it, blank cards flashing by)
+watch(() => [list.value.length, draft.value, narrowed.value], ([n, , v], old) => toBottom(!props.keepTop && n > 0 && (!old?.[0] || v !== old[2])))
 // a task card that starts waiting or ends grows by its reason and the button that answers it: on a phone that part fell
 // under the composer while the card above it said 「로그인 필요」 (2026-11-21) — keep it in sight (again once the frame loads)
 const settled = computed(() => list.value.filter((m) => m.kind === 'task' && ['needs_input', 'failed', 'needs_review', 'done'].includes(m.content?.state))
   .map((m) => `${m.id}:${m.content.state}:${m.content.need || ''}`).join(','))
 // (only a card already in the chat that changed state — not the first load, whose own scroll and a tap on the
-// waiting ring must not be pulled back down)
-watch(settled, (now, before) => {
+// waiting ring must not be pulled back down; nor a view that changed — narrowing in or out opens at the bottom at once, and a smooth
+// scroll here would turn the keep-at-bottom off while the cards' frames load: PR #124 review)
+watch(() => [settled.value, narrowed.value], ([now, v], [before, ov] = []) => {
+  if (v !== ov) return
   const was = new Map((before || '').split(',').filter(Boolean).map((x) => [x.split(':')[0], x]))
   const changed = (now || '').split(',').filter(Boolean).some((x) => was.has(x.split(':')[0]) ? was.get(x.split(':')[0]) !== x : false)
   const shownBefore = (now || '').split(',').filter(Boolean).some((x) => !was.has(x.split(':')[0]) && runningSeen.has(x.split(':')[0]))
@@ -178,7 +187,7 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
         <p v-if="!list.length && emptyText" class="empty serif">{{ emptyText }}</p>
         <template v-for="(m, i) in list" :key="m.id">
           <div v-if="newDay(i)" class="day">{{ dayOf(m) }}</div>
-          <Message :msg="m" @connect="emit('connect')" />
+          <Message :msg="m" :narrowed="!!narrowed" @connect="emit('connect')" />
           <div v-if="seen(m)" class="seen">··· 읽음</div>
           <TurnPlanCard v-for="t in cardsUnder(m.id)" :key="t.turnId" :turn="t" :now="now" @details="app.turnPanel = $event" />
         </template>
