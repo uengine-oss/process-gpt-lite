@@ -21,6 +21,7 @@ const { EventEmitter } = require('node:events')
 const C = require('./clis')
 const G = require('./git')
 const SKL = require('./skills')
+const RS = require('./runSettings')
 const P = require('./pty')
 const { CliSession } = require('./session')
 const { settleState, finishMsOf } = require('./settle')
@@ -272,6 +273,10 @@ class Runner extends EventEmitter {
     if (chat) {
       // the CLI's own places (its settings, a trust or permission it keeps per folder) and the app's are never committed into the folder
       excludeIn(dir, ['.claude/', '.codex/', '.pgl-run/', '.tmp/'])
+      // the folder's own run settings, for a person who may not edit the folder: left off for this run (runSettings.js — the server tells
+      // the person in the chat), never committed back
+      st.leftOff = job.projectSettings === false ? RS.leaveOff(dir) : []
+      if (st.leftOff.length) this.log(`[runner] ${job.activity}: the folder's run settings left off — ${st.leftOff.join(', ')}`)
       st.dir = dir
       try { st.realDir = fs.realpathSync(dir) } catch { st.realDir = null }
       st.start = start
@@ -360,7 +365,7 @@ class Runner extends EventEmitter {
     this.flush(st)
     fs.rmSync(path.join(st.dir, '.tmp'), { recursive: true, force: true })
     const before = await G.head(st.dir)
-    const commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email })
+    const commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email }, { except: st.leftOff || [] })
     const files = commit ? await G.changed(st.dir, before) : []
     const pushed = (await G.changed(st.dir, st.start)).length ? await G.push(st.dir, g.branch, { token: g.token }) : false
     this.report(st, { type: 'done', jobId: job.id, branch: g.branch, commit: commit || before, pushed, files, summary: (st.summary || '').trim(), sessionId: st.session || null,
@@ -379,7 +384,7 @@ class Runner extends EventEmitter {
       let pushed = false
       try {
         const before = await G.head(st.dir)
-        commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email })
+        commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email }, { except: st.leftOff || [] })
         if (commit) { files = await G.changed(st.dir, before); pushed = await G.push(st.dir, job.git.branch, { token: job.git.token }) }
       } catch (e) { this.log(`[runner] ${job.activity}: turn ${n} — ${e.message}`); this.progress(st, 'error', e.message) }
       const m = { type: 'reply', jobId: job.id, turn: n, text: String(text || '').slice(0, 16000), branch: job.git.branch, commit, pushed, files }

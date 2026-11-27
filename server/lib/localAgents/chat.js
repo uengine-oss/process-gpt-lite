@@ -157,7 +157,7 @@ export async function folderFor(user, thread) {
       const workspace = TPL.isWorkspace(cur) ? TPL.mayView(cur, user) : !cur && TPL.isTemplate(folder)
       const role = await S.roleOf(folder, user)
       if (workspace) {
-        if (!role || S.RANK[role] < S.RANK.runner) throw err(403, L(`이 프로젝트의 템플릿 「${folder.name}」을 쓸 수 있는 사람(실행 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may use this project's template "${folder.name}" (runner or above) can send to an agent on their PC.`))
+        if (!role || S.RANK[role] < S.RANK.runner) throw err(403, L(`이 프로젝트의 템플릿 ${eulReul(`「${folder.name}」`)} 쓸 수 있는 사람(실행 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may use this project's template "${folder.name}" (runner or above) can send to an agent on their PC.`))
       } else if (!role || S.RANK[role] < S.RANK.editor) throw err(403, L(`이 프로젝트의 폴더 「${folder.name}」를 고칠 수 있는 사람(편집자 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may edit this project's folder "${folder.name}" (editor or above) can send to an agent on their PC.`))
       const { v } = await TF.ensureProjectVariation(user, thread, link)
       const tpl = TPL.isWorkspace(v) ? { name: v.source.template.name || folder.name, outputs: TPL.outputsOf(v.source.template.outputs) } : null
@@ -285,6 +285,21 @@ export async function send({ user, thread, text, agent, conversation = null, fil
 }
 
 // ---------- what the desktop gets ----------
+// a folder's files that make a CLI run things on the PC by themselves (hooks · permissions · MCP servers · helpers): left off for a person
+// who may not edit the folder (the desktop's runSettings.js — the same list)
+export const RUN_SETTINGS = ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json', '.codex/config.toml']
+// said once in the chat (the first run that left them off)
+async function settingsNote(job, folder, files) {
+  const [seen] = await q(`select 1 from pro_messages where thread_id=$1 and content->>'settingsOff' = 'true' limit 1`, [job.thread_id])
+  if (seen) return
+  const c = job.chat || {}
+  await withLang(await langOf(String(job.user_id)).catch(() => 'ko'), () => addMessage(String(job.user_id), job.thread_id, 'agent', 'text', {
+    text: L(SETTINGS_OFF_KO, SETTINGS_OFF_EN).replace('{folder}', folder.name).replace('{files}', files.join(', ')),
+    note: true, settingsOff: true, ...(c.conv ? { conv: c.conv } : {}),
+  }))
+}
+const SETTINGS_OFF_KO = '이번 실행에서는 템플릿 「{folder}」의 실행 설정({files})을 켜지 않았어요. 훅 · 권한 · MCP 서버 같은 실행 설정은 템플릿을 고칠 수 있는 사람(편집자 이상)의 PC에서만 켜지고, 템플릿의 스킬과 CLAUDE.md는 그대로 써요.'
+const SETTINGS_OFF_EN = 'This run left the run settings of the template "{folder}" ({files}) off. Run settings such as hooks, permissions and MCP servers turn on only on the PCs of people who can edit the template (editors and above); the template\'s skills and CLAUDE.md are used as usual.'
 const gitPublic = () => String(process.env.PRO_GIT_PUBLIC_URL || '').trim().replace(/\/+$/, '')
 export async function prepare(job, link = null) {
   const c = job.chat || {}
@@ -318,6 +333,17 @@ export async function prepare(job, link = null) {
     }
   }
   const base = await G.branchExists(folder.repo_path, line) ? line : folder.default_branch
+  // The folder's own run settings (Claude Code's project hooks · permissions · MCP servers · status line · helpers, Codex's project config)
+  // run on the PC only for someone who may edit the folder — who could put them there anyway. A template's runner works in their own
+  // workspace (folderFor): the desktop leaves those files off for the run (job.projectSettings false — skills and CLAUDE.md stay), says so
+  // once in the chat, and never sends them back changed. A desktop too old to leave them off does not get the run.
+  const role = await S.roleOf(folder, { id: String(job.user_id) }).catch(() => null)
+  const projectSettings = c.mode !== 'project' || (!!role && S.RANK[role] >= S.RANK.editor)
+  if (!projectSettings) {
+    if (link && !link.caps?.leaveOffSettings) throw new Error(L('이 PC 앱은 템플릿의 실행 설정을 끄고 실행할 수 없어요 — PC 앱을 새 버전으로 올려 주세요.', "This desktop app can't leave a template's run settings off — please update the desktop app."))
+    const off = (await G.lsTree(folder.repo_path, base)).map((f) => f.path).filter((p) => RUN_SETTINGS.includes(p))
+    if (off.length) await settingsNote(job, folder, off).catch((e) => console.warn('[local-agents] chat settings note', e.message))
+  }
   const person = await personOf(job.user_id)
   const lang = await langOf(job.user_id).catch(() => 'ko')
   // this run's own session when it was running before (its desktop app restarted), else the chat's last session — the desktop resumes it
@@ -329,7 +355,7 @@ export async function prepare(job, link = null) {
   const branch = runBranchFor(job, own ? job.run_branch : null)
   return {
     kind: KIND, todoId: String(job.todo_id), instId: null, instName: c.title || '', activity: c.title || L('채팅', 'Chat'), agent: job.agent, label: A.LABEL[job.agent] || job.agent,
-    mode: 'complete', prompt: job.prompt, message: c.message || '', person, lang, skills: [],
+    mode: 'complete', prompt: job.prompt, message: c.message || '', person, lang, skills: [], projectSettings,
     chat: { key: c.key, threadId: String(job.thread_id), title: c.title || '' },
     git: {
       path: `/api/local-git/${folder.id}.git`, url: gitPublic() ? `${gitPublic()}/api/local-git/${folder.id}.git` : null,
@@ -567,10 +593,16 @@ export function cardOf(job, { worker = false } = {}) {
   }
 }
 // who may see a chat run: its sender; and, for a project's folder, its members (they watch — they never type)
+// (a project's workspace made from a template is its person's alone — folders/templates.js: nobody else sees its runs either)
 export async function canSee(user, job) {
   if (String(job.user_id) === String(user.id)) return true
   if (job.chat?.mode !== 'project' || !job.folder_id) return false
   const S = await import('../folders/service.js')
+  if (job.chat?.variation) {
+    const TPL = await import('../folders/templates.js')
+    const v = await S.variationById(job.chat.variation).catch(() => null)
+    if (!v || TPL.isWorkspace(v)) return false
+  }
   return !!(await S.roleOf(await S.folderById(job.folder_id), user).catch(() => null))
 }
 export async function cardFor(user, job) { return cardOf(job, { worker: String(job.user_id) === String(user.id) }) }

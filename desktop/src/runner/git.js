@@ -120,8 +120,10 @@ async function branch(dir, name, base) {
 // commits on the run's branch beyond where it started
 const ahead = async (dir, from) => Number((await git(dir, ['rev-list', '--count', `${from}..HEAD`], { check: false })).trim() || 0)
 
-async function commit(dir, message, { name = 'Process GPT Lite', email = 'desktop@pgpt-lite.local' } = {}) {
+// except: folder paths whose changes in the work folder are never committed (the run settings left off for the run — runSettings.js)
+async function commit(dir, message, { name = 'Process GPT Lite', email = 'desktop@pgpt-lite.local' } = {}, { except = [] } = {}) {
   await git(dir, ['add', '-A'])
+  if (except.length) await git(dir, ['reset', '-q', '--', ...except], { check: false })
   const staged = (await git(dir, ['diff', '--cached', '--name-only'])).trim()
   if (!staged) return null
   await git(dir, ['-c', `user.name=${name || 'Process GPT Lite'}`, '-c', `user.email=${email || 'desktop@pgpt-lite.local'}`, 'commit', '-q', '-m', message])

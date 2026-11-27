@@ -36,11 +36,21 @@ const POLL_MS = 250
 const PASTE_ENTER_MS = 350
 // Claude Code shows a long paste as one placeholder in its input box (「[Pasted text #1 +9 lines]」). An Enter that reaches it while it is still
 // taking the paste in (a busy computer) is lost, and the message sits in the box unsent — the run then waits for nothing (2026-11-27: a chat
-// run's first message stayed there for 10 minutes). So after the Enter, when no UserPromptSubmit came, no question is open and the
-// placeholder is still on the screen, Enter is pressed again — a few times at most. (On an empty input an Enter does nothing.)
+// run's first message stayed there for 10 minutes). So after the Enter of a message given while the CLI was not working, when no
+// UserPromptSubmit came, its turn did not end meanwhile, no question is open and the input box's own line still holds the placeholder,
+// Enter is pressed again — 3 times at most. (A message given while it works waits in Claude Code's queue: no check for it.)
 const SUBMIT_CHECK_MS = 2500
 const SUBMIT_TRIES = 3
-const PASTE_HELD = /\[Pasted text #\d+[^\]\n]*\]/
+const PASTE_HELD = /^\[Pasted text #\d+[^\]\n]*\]\s*$/
+// the input box's line on the screen: the last line that starts with Claude Code's prompt (❯, or > inside the older box │ > …│) → its text
+function inputLine(text) {
+  const lines = String(text || '').split(/\r\n|\n|\r/)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = /^\s*(?:❯|│\s*>)\s?(.*?)\s*│?\s*$/.exec(lines[i])
+    if (m) return m[1]
+  }
+  return null
+}
 const plainText = (s) => String(s || '').replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '').replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '').replace(/\x1b./g, '')
 const WATCH_MAX = 256 * 1024
 // agent-share's _NO_ACCOUNT_SWITCH: the screen is shared, so no one switches the CLI's account from it
@@ -262,7 +272,7 @@ class CliSession extends EventEmitter {
     this.lastInputAt = Date.now()
     this.p.write(`\x1b[200~${t.replace(/\x1b\[20[01]~/g, '')}\x1b[201~`)
     const timer = setTimeout(() => {
-      if (!this.exited) { this.p.write('\r'); if (this.agent === 'claude-code') this.unsent = { at: Date.now(), tries: 0 } }
+      if (!this.exited) { this.p.write('\r'); if (this.agent === 'claude-code' && !this.busy) this.unsent = { at: Date.now(), tries: 0 } }
       this.draining = false; this.drain()
     }, PASTE_ENTER_MS)
     this.timers.push(timer)
@@ -325,7 +335,7 @@ class CliSession extends EventEmitter {
   resubmit() {
     const u = this.unsent
     if (!u || this.exited || this.busy || this.asks.size || Date.now() - u.at < SUBMIT_CHECK_MS) return
-    if (u.tries >= SUBMIT_TRIES || !PASTE_HELD.test(plainText(this.buf.slice(-6000)).slice(-1200))) { this.unsent = null; return }
+    if (u.tries >= SUBMIT_TRIES || !PASTE_HELD.test(inputLine(plainText(this.buf.slice(-6000))) || '')) { this.unsent = null; return }
     u.tries++
     u.at = Date.now()
     this.log(`the message is still in the input box — Enter again (${u.tries})`)
@@ -361,6 +371,7 @@ class CliSession extends EventEmitter {
     if (event === 'SessionStart') this.becomeReady()
     else if (event === 'UserPromptSubmit') { this.unsent = null; this.busy = true; this.closeAsks(); this.turnItem('start'); this.emit('turn-start', { prompt: String(data.prompt || '') }) }
     else if (event === 'Stop') {
+      this.unsent = null
       this.pollTranscriptNow()
       this.busy = false
       this.closeAsks()
@@ -530,4 +541,4 @@ function briefOf(input = {}, rel = (s) => s) {
   return short(rel(String(i.file_path || i.path || i.command || i.pattern || i.description || i.url || '')), 120)
 }
 
-module.exports = { CliSession, Tail, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, samePath, hookProgram, PROMPT_POINTER }
+module.exports = { CliSession, Tail, inputLine, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, samePath, hookProgram, PROMPT_POINTER }

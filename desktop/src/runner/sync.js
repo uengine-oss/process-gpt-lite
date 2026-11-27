@@ -179,13 +179,15 @@ function assignmentHit(line, s) {
   const m = ASSIGN.exec(line)
   if (!m) return false
   let v = m[1].trim()
+  // (a string literal with a prefix — Python's b'…' · r'…' · f'…' — is a quoted value too)
+  const pre = /^[bBrRuUfF]{1,2}(?=['"])/.exec(v)
+  if (pre) v = v.slice(pre[0].length)
   const q = v[0]
   if ((q === '"' || q === "'") && v.lastIndexOf(q) > 0) v = v.slice(1, v.lastIndexOf(q))
   else {
     const hash = v.indexOf(' #'); if (hash >= 0) v = v.slice(0, hash).trim()
-    // (a line of code — a call, an index, a literal: `mar = OxmlElement('w:tcMar')` in a script — is not a value in the dotenv · shell
-    // form: an unquoted key has none of these)
-    if (/[()[\]{},;'"`]/.test(v)) return false
+    // (a line of code — a call or an index: `mar = OxmlElement('w:tcMar')` in a script — is not a value)
+    if (/^[A-Za-z_][\w.]*\s*[([]/.test(v)) return false
   }
   if (v.length < (s.minLength || 20) || /\s/.test(v)) return false
   if ('/.~$%<{'.includes(v[0]) || v.includes('://') || v.includes('${')) return false

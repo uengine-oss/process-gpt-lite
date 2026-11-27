@@ -211,10 +211,22 @@ test('열쇠 생김새: 파일 · 줄 · 까닭만, 값은 돌려주지 않는�
   assert.ok(!JSON.stringify(hits).includes(FAKE.github) && !JSON.stringify(hits).includes(FAKE.env))
   assert.deepEqual(S.shapeHits(R, '# 안내\nAPI 키는 .env 에 두세요\nVERSION=1.2.3\n'), [])
   assert.equal(S.assignmentHit('SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaa', R.shapes.find((s) => s.kind === 'assignment')), false, '고르게 섞이지 않은 값')
-  // a script's line of code is not a key (the company skill's Word kit, msaschool_docx.py — left out as 「확인이 필요해요」 before)
-  const code = "    doc = Doc(client_logo='innotena.png')          # 고객사 로고가 없으면 생략\n                mar = OxmlElement('w:tcMar')\n        borders = OxmlElement('w:tblBorders')\nrows = sheet[Row3Col7Value]\nX=fooBarBazQux123;Next\n"
+  // a script's line of code — a call or an index — is not a key (a company skill's Word kit, msaschool_docx.py — left out as 「확인이 필요해요」 before)
+  const code = "    doc = Doc(client_logo='gana-precision.png')          # 고객사 로고가 없으면 생략\n                mar = OxmlElement('w:tcMar')\n        borders = OxmlElement('w:tblBorders')\nrows = sheet[Row3Col7Value]\nwidth = layout.columns.widthOf(column_index)\n"
   assert.deepEqual(S.shapeHits(R, code), [], '코드 줄')
-  assert.deepEqual(S.shapeHits(R, `API_TOKEN=${FAKE.env}\n`).map((h) => h.reason), ['env_assignment'], '따옴표 없는 값은 그대로 잡음')
+  // …while values with symbols, a string prefix, a trailing ; or a list are still keys
+  const r = (n = 24) => crypto.randomBytes(n).toString('base64').replace(/[+/=]/g, '').slice(0, n)
+  const keys = [
+    `API_TOKEN=${FAKE.env}`,
+    `AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=ganaprecision;AccountKey=${r(40)}==;EndpointSuffix=core.windows.net`,
+    'DB_PASSWORD=aB3$dE6^gH9(jK2)mN5,pQ8wX',
+    `SECRET_KEY = b'${r(32)}'`,
+    `SIGNING_KEY = r'${r(32)}'`,
+    `app.secret_key = b'${r(32)}'`,
+    `SESSION_SECRET=${r(32)};`,
+    `API_KEYS=${r(24)},${r(24)},${r(24)}`,
+  ]
+  for (const k of keys) assert.deepEqual(S.shapeHits(R, `${k}\n`).map((h) => h.reason), ['env_assignment'], k.replace(/=.*/, '=…'))
 })
 
 test('자산 자리 · 머리말', () => {

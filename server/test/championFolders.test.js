@@ -620,19 +620,32 @@ test('CH-U-18 다른 토큰에는 동기화 가지가 보이지 않고 닿지 �
 const L_TOKEN = (u) => mintToken({ tenant: TENANT, folderId: u.f.id, push: SRC.prefixOf(u.d.id), scope: 'sync', device: u.d.id, hours: 1 })
 
 
-test('CH-U-19 1 MB 넘는 올리기: git 이 먼저 보내는 확인 요청(빈 flush 하나)은 통과시키고, 이어지는 실제 올리기가 들어간다', { skip: !db && 'no database' }, async () => {
+test('CH-U-19a git 의 확인 요청: 빈 flush 하나만 — 그 밖의 몸통은 아니다', async () => {
   const H = await import('../lib/folders/gitHttp.js')
   assert.equal(H.isProbe(Buffer.from('0000')), true)
   assert.equal(H.isProbe(Buffer.from('00000000')), false)
   assert.equal(H.isProbe(Buffer.from('0004')), false)
+  assert.equal(H.isProbe(Buffer.from('')), false)
+  assert.equal(H.isProbe('0000'), false, '버퍼만')
+})
+
+test('CH-U-19 1 MB 넘는 올리기: git 이 먼저 보내는 확인 요청(빈 flush 하나)은 밀어 넣을 수 있는 토큰에만 통과시키고, 이어지는 실제 올리기가 들어간다', { skip: !db && 'no database' }, async () => {
+  const H = await import('../lib/folders/gitHttp.js')
   const u = await uploaded('큰 자산')
   const express = (await import('express')).default
   const app = express()
   app.use('/api/local-git', H.gitRoutes({ device: true, check: (cl, o) => D.gitAccess(cl, o), after: SRC.afterPush }))
+  app.use('/api/git', H.gitRoutes())
   const server = await new Promise((r) => { const sv = app.listen(0, '127.0.0.1', () => r(sv)) })
-  const url = `http://127.0.0.1:${server.address().port}/api/local-git/${u.f.id}.git`
+  const base = `http://127.0.0.1:${server.address().port}`
+  const url = `${base}/api/local-git/${u.f.id}.git`
   try {
-    // the desktop's snapshot with a skill's picture (1.5 MB — over git's 1 MB http.postBuffer, so git probes first)
+    // the probe on its own: OK for a token that may push, refused for one that only reads
+    const probe = (token) => fetch(`${base}/api/git/${u.f.id}.git/git-receive-pack`, { method: 'POST', body: '0000',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-git-receive-pack-request' } }).then((r) => r.status)
+    assert.equal(await probe(mintToken({ tenant: TENANT, folderId: u.f.id })), 200)
+    assert.equal(await probe(mintToken({ tenant: TENANT, folderId: u.f.id, push: '' })), 403, 'a read-only token (the skills a desktop job gets)')
+    // the desktop's snapshot with a skill's picture (1.5 MB — over git's http.postBuffer, pinned to its 1 MB default, so git probes first)
     const dir = await fs.mkdtemp(path.join(ROOT, 'big-'))
     await gitc(dir, ['init', '-q', '-b', 'work'])
     await gitc(dir, ['fetch', '-q', u.f.repo_path, `+refs/heads/*:refs/remotes/origin/*`])
@@ -642,7 +655,7 @@ test('CH-U-19 1 MB 넘는 올리기: git 이 먼저 보내는 확인 요청(빈 
     await gitc(dir, ['add', '-A'])
     await gitc(dir, ['commit', '-q', '-m', '동기화 · 맥북 큰 그림'])
     const head = await gitc(dir, ['rev-parse', 'HEAD'])
-    const pushed = await new Promise((resolve) => execFile('git', ['-c', 'credential.helper=', '-c', `http.extraHeader=Authorization: Bearer ${L_TOKEN(u)}`, 'push', url, `HEAD:refs/heads/${u.branch}`],
+    const pushed = await new Promise((resolve) => execFile('git', ['-c', 'credential.helper=', '-c', 'http.postBuffer=1048576', '-c', `http.extraHeader=Authorization: Bearer ${L_TOKEN(u)}`, 'push', url, `HEAD:refs/heads/${u.branch}`],
       { cwd: dir, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (e, out, errOut) => resolve({ code: e ? 1 : 0, err: String(errOut) })))
     assert.equal(pushed.code, 0, pushed.err)
     assert.equal(await G.head(u.f.repo_path, `refs/heads/${u.branch}`), head)

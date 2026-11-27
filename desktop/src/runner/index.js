@@ -28,7 +28,9 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     caps: { clis: Object.fromEntries(Object.entries(caps).map(([k, c]) => [k, { installed: c.installed, version: c.version, loggedIn: c.loggedIn, runnable: c.runnable }])), maxJobs, terminal: runner.interactive(), conversation: runner.interactive(), chat: runner.interactive(),
       // (0.2.3: browser tasks may run in this PC's browser — the server's 「브라우저 작업은 내 PC에서」 · 0.2.5: folders of this PC kept
       // as Lite folders — 「내 PC 폴더 올리기」)
-      browser: !!browser, folders: !!folderStore },
+      browser: !!browser, folders: !!folderStore,
+      // (a folder's own run settings — hooks · permissions · MCP servers — left off for a person who may not edit it: runSettings.js)
+      leaveOffSettings: true },
     prefs: prefs(),
     active: runner.activeIds(),
   })
