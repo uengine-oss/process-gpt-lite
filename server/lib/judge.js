@@ -14,6 +14,9 @@ export const JUDGE_URL = process.env.PRO_JUDGE_URL ?? 'http://127.0.0.1:8896/jud
 const SERVER_MS = Number(process.env.PRO_ASSIST_JUDGE_TIMEOUT_MS || 5000)
 const LLM_ON = process.env.PRO_JUDGE_LLM !== '0'
 const LLM_MS = Number(process.env.PRO_JUDGE_LLM_TIMEOUT_MS || 12000)
+// the LLM's token budget: a model that reasons before it answers (frentis) ran out of 1,024 on about 1 in 15 room readings and gave no
+// answer at all (2026-11-27, the project plan's live check) — the reading then fell through as "something else"
+const LLM_TOKENS = Number(process.env.PRO_JUDGE_LLM_MAX_TOKENS || 2048)
 // a server that refused or timed out is not asked again for a minute (each call would wait for it)
 let downUntil = 0
 
@@ -43,7 +46,7 @@ async function viaLlm({ state, question, options, timeoutMs = LLM_MS }) {
     + 'Answer JSON only: {"key": "<one option key>", "confidence": <0..1, how sure you are>}. '
     + 'Be strict: pick an option only when the remark clearly is that; when unsure, give a low confidence.'
   const j = await chatJson(system, `${state}\n\nQuestion: ${question}\nOptions:\n${list}`,
-    { model: config.llm.fastModel, temperature: 0, timeoutMs, maxTokens: 1024, effort: 'low' })
+    { model: config.llm.fastModel, temperature: 0, timeoutMs, maxTokens: LLM_TOKENS, effort: 'low' })
   return { probabilities: spread(options, String(j.key || ''), j.confidence), model: config.llm.fastModel, via: 'llm' }
 }
 

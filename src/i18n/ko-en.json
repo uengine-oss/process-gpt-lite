@@ -3223,7 +3223,43 @@
   "따로 남긴 파일": "Kept files",
   "작업본을 치울 때 git 이 싣지 않는 파일(.gitignore 대상 · 안쪽 저장소 · 저장하지 못한 것)을 서버에 따로 남겨 두었어요. 보관 기간이 지나면 지워져요.": "When the working copy left the disk, files git does not carry (.gitignore targets, repositories inside, what could not be saved) were kept on the server. They are removed after the retention period.",
   "그 작업본을 가졌던 사람과 폴더 소유자만 내려받아요": "Only whoever had that working copy and the folder owner can download them",
-  "저장 못 함": "not saved"
+  "저장 못 함": "not saved",
+  "프로젝트 계획": "Project plan",
+  "이 프로젝트의 모든 대화가 먼저 읽어요": "Every conversation in this project reads it first",
+  "아직 비어 있어요": "Still empty",
+  "목적": "Purpose",
+  "만들 것": "Deliverables",
+  "이 방에서 늘 만드는 것": "What this room keeps making",
+  "서비스 · 사이트 · 앱과 쓰는 방법": "Services, sites and apps, and how they are used",
+  "지킬 것": "Keep to",
+  "일하는 방법 · 조건 · 예외": "Ways of working, conditions, exceptions",
+  "정한 것": "Decided",
+  "이 방에서 정한 것": "What this room has decided",
+  "고정": "Pinned",
+  "이 프로젝트에서 하는 일": "What this project does",
+  "서버 브라우저 스킬": "Server browser skill",
+  "스킬 없음": "No skill",
+  "이 방에서 쓰는 방법": "How this room uses it",
+  "고친 항목은 고정돼요. AI가 대화를 읽고 계획을 고쳐도 그대로 남아요.": "Items you edit are pinned: they stay as you wrote them when the AI reads the conversation and updates the plan.",
+  "저장 중이에요": "Saving",
+  "저장하지 못했어요": "Couldn't save",
+  "서버 브라우저:": "Server browser:",
+  "에이전트가 처리": "Handled by the agent",
+  "바꾸지 못했어요": "Couldn't change it",
+  "되돌렸어요": "Undone",
+  "계획 보기": "View plan",
+  "바뀐 기록": "History",
+  "언제 · 무엇이 · 어느 메시지에서 바뀌었는지": "When, what changed and from which message",
+  "보낸 메시지": "Message",
+  "계획을 저장했어요": "Saved the plan",
+  "고친 내용을 먼저 저장하거나 닫은 뒤에 되돌려 주세요": "Save or close your edits before undoing",
+  "되돌리지 못했어요": "Couldn't undo",
+  "이 항목과 바꾸기": "Replace this item",
+  "바꿔 넣었어요": "Replaced",
+  "그사이 바뀐 계획에 내가 고친 것만 더했어요": "Added only your edits to the plan that changed meanwhile",
+  "그사이 목적이 바뀌어서 내가 쓴 목적은 저장하지 않았어요. 다른 수정 사항은 저장했어요. 목적을 다시 고쳐 저장해 주세요.": "The purpose changed meanwhile, so the purpose you wrote wasn't saved. Your other edits were saved. Edit the purpose again and save.",
+  "지금 목적": "Purpose now",
+  "내가 쓴 목적": "What you wrote"
  },
  "patterns": [
   [
@@ -7357,6 +7393,14 @@
   [
    "{0}일 남음",
    "{0} days left"
+  ],
+  [
+   "서버 브라우저: {0}",
+   "Server browser: {0}"
+  ],
+  [
+   "프로젝트 계획 · {0}",
+   "Project plan · {0}"
   ]
  ],
  "context": [

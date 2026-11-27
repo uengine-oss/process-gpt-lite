@@ -3,6 +3,7 @@ name: google-sign-in
 description: Google 계정 로그인 화면(accounts.google.com)을 저장된 로그인으로 넘기고, 2단계 인증은 사람에게 맡기며, 이 연결이 요청한 앱 권한을 허용한다. Google 계정을 연결할 때, 그리고 Google 사이트 작업 중에 Google 로그인 화면이 나왔을 때 쓴다.
 metadata:
   runs_in: browser
+  label: Google 로그인
   start_url: https://accounts.google.com/
 ---
 
