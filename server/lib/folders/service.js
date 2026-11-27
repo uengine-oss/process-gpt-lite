@@ -19,6 +19,8 @@ import { people } from '../people.js'
 import { isAdmin } from '../team.js'
 import { assertNoLink } from '../noLinks.js'
 import { kitCounts } from './kit.js'
+// what a folder uploaded from the page may not carry (uploadMany) — the champion folders' rules
+import * as SECRETS from './secrets.js'
 
 const T = () => config.tenantId
 const PGPT = PGPT_ROOT
@@ -296,6 +298,47 @@ export async function upload(folder, user, rel, buf) {
   await fs.mkdir(path.dirname(host), { recursive: true })
   await fs.writeFile(host, buf)
   return commitMain(folder, { name: user.name, email: user.email }, L(`올리기: ${p}`, `Upload: ${p}`))
+}
+// one request's files at most (the page sends a large folder in several requests — src/folderDrop.js BATCH)
+export const BATCH_MAX_FILES = 1000
+// Many files at once, one commit (a folder dropped on the page or picked with 「폴더 올리기」 — src/folderDrop.js, POST
+// /folders/:slug/files/batch). The page has already left out what the champion folders' rules leave out; here the server looks again
+// at each file and refuses — file by file, said back with the reason — a secret's name, git's control files, a file over the size limit
+// and a key of a sure shape (secrets.js refusalOf), a path that is not a document path, and a reference slot's place. The rest is written
+// and committed together, in one writer's turn of the folder (serial): nobody else's commit takes half of it.
+// items: [{path, buf}] · label: what went up (the dropped folder's name) · part/parts: this request's place when the page sends several
+// → {commit, written: [path], refused: [{path, reason, line}]}
+export async function uploadMany(folder, user, items, { label = '', part = 1, parts = 1 } = {}) {
+  if (folder.kind === 'linked') throw err(400, L('연결형 폴더에는 아직 올릴 수 없어요.', "You can't upload to a linked folder yet."))
+  const refused = []
+  const take = new Map()
+  for (const it of items) {
+    let p
+    try { p = safeRel(it.path) } catch { refused.push({ path: String(it.path || '').slice(0, 300), reason: 'path', line: null }); continue }
+    const why = SECRETS.refusalOf(p, it.buf)
+    if (why) { refused.push({ path: p, ...why }); continue }
+    try { await REFS.assertWritable(folder, p) } catch (e) { refused.push({ path: p, reason: e.code || 'ref_readonly', line: null }); continue }
+    take.set(p, it.buf)
+  }
+  if (!take.size) return { commit: null, written: [], refused }
+  const name = String(label || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 80)
+  const what = name || L('파일', 'files')
+  const of = Number(parts) > 1 ? ` (${Math.max(1, Number(part) | 0)}/${Number(parts) | 0})` : ''
+  const message = L(`폴더 올리기: ${what} · 파일 ${take.size}개${of}`, `Upload a folder: ${what} · ${take.size} files${of}`)
+  const written = []
+  const commit = await serial(folder.id, async () => {
+    for (const [p, buf] of take) {
+      try {
+        await assertNoLink(folder.repo_path, p)
+        const host = path.join(folder.repo_path, p)
+        await fs.mkdir(path.dirname(host), { recursive: true })
+        await fs.writeFile(host, buf)
+        written.push(p)
+      } catch { refused.push({ path: p, reason: 'conflict', line: null }) } // (a file where a folder is, or the other way round)
+    }
+    return written.length ? commitMainNow(folder, { name: user.name, email: user.email }, message) : null
+  })
+  return { commit, written, refused }
 }
 export async function removeFile(folder, user, rel) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더의 파일은 지울 수 없어요.', "Files of a linked folder can't be deleted."))

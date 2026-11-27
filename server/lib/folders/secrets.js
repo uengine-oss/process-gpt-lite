@@ -90,3 +90,24 @@ export async function refusedIn(files, contents) {
   }
   return out.slice(0, 50)
 }
+
+// ---------- a folder going up from the page (folders/service.js uploadMany — a dropped folder, 「폴더 올리기」) ----------
+// What the page needs to leave out the same files before anything is sent (src/folderDrop.js): the groups' names (the same groupOf),
+// the limits, and the shapes the server refuses (level 'block' — the token formats, never a value). The page reads no other rule.
+export function pageRules() {
+  return {
+    version: SHAPES.version || 1,
+    groups: Object.fromEntries(ORDER.map((g) => [g, SHAPES.groups[g]])),
+    limits: { largeFileBytes: LIMITS.largeFileBytes, pushMaxBytes: LIMITS.pushMaxBytes || 200 * 1024 * 1024, headMaxFiles: LIMITS.headMaxFiles, textMaxBytes: TEXT_MAX },
+    block: (SHAPES.shapes || []).filter((s) => s.level === 'block' && s.pattern).map((s) => ({ id: s.id, pattern: s.pattern, flags: s.flags || '' })),
+  }
+}
+// Why one uploaded file is not kept, or null: a secret's file name, git's control files (.gitmodules · .lfsconfig), a file over the size
+// limit, or a key of a sure shape in its text → {reason, line} (reason: 'name' · structureOf's · 'large' · the shape id)
+export function refusalOf(rel, buf) {
+  if (groupOf(rel) === 'secret') return { reason: 'name', line: null }
+  const s = structureOf({ path: rel })
+  if (s) return { reason: s, line: null }
+  if (buf.length > LIMITS.largeFileBytes) return { reason: 'large', line: null }
+  return blockIn(buf)
+}

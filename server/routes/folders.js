@@ -16,6 +16,7 @@ import * as SK from '../lib/folders/skills.js'
 import { named } from '../lib/people.js'
 import * as KIT from '../lib/folders/kit.js'
 import * as SRC from '../lib/folders/sources.js'
+import * as SECRETS from '../lib/folders/secrets.js'
 
 const MIME = S.MIME
 
@@ -46,6 +47,8 @@ export function folderRoutes(auth) {
   }))
   // whether 「저장소 연결」 is offered to this person here (S.mayLink)
   r.get('/folders/caps', auth, h(async (req) => ({ link: await S.mayLink(req.user) })))
+  // what the page leaves out before a folder goes up (the champion folders' rules — secrets.js pageRules)
+  r.get('/folders/upload-rules', auth, h(() => SECRETS.pageRules()))
   r.get('/folders/search', auth, h((req) => search(req.user.id, req.query.q)))
   // people and agents a folder can be shared with / a variation handed to
   r.get('/folders/people', auth, h(async () => {
@@ -230,6 +233,24 @@ export function folderRoutes(auth) {
     const sha = await S.upload(folder, user(req), decodeURIComponent(String(req.query.path || req.headers['x-file-name'] || '')), req.body)
     await reindex(folder)
     return { ok: true, commit: sha }
+  }))
+  // a folder from the person's computer (dropped on the page, or 「폴더 올리기」 — src/folderDrop.js): multipart form data — `meta`
+  // ({paths, label, part, parts, final}) and one `file` part per path, in the same order. One commit for the request (S.uploadMany);
+  // the index is brought up to date after the last request of the upload (final), not after each.
+  r.post('/folders/:slug/files/batch', express.raw({ type: () => true, limit: '64mb' }), auth, h(async (req) => {
+    const { folder } = await S.access(req.params.slug, req.user, 'editor')
+    const bad = (m) => Object.assign(new Error(m), { status: 400 })
+    const form = await new Response(req.body, { headers: { 'content-type': String(req.headers['content-type'] || '') } }).formData().catch(() => null)
+    if (!form) throw bad(L('올린 내용을 읽지 못했어요.', 'The upload could not be read.'))
+    let meta = {}
+    try { meta = JSON.parse(String(form.get('meta') || '{}')) } catch { throw bad(L('올린 내용을 읽지 못했어요.', 'The upload could not be read.')) }
+    const files = form.getAll('file').filter((f) => typeof f === 'object' && f && typeof f.arrayBuffer === 'function')
+    const paths = Array.isArray(meta.paths) ? meta.paths.map((p) => String(p ?? '')) : []
+    if (!files.length || files.length !== paths.length || files.length > S.BATCH_MAX_FILES) throw bad(L('올린 파일과 경로가 맞지 않아요.', "The uploaded files and their paths don't match."))
+    const items = await Promise.all(files.map(async (f, i) => ({ path: paths[i], buf: Buffer.from(await f.arrayBuffer()) })))
+    const out = await S.uploadMany(folder, user(req), items, { label: meta.label, part: meta.part, parts: meta.parts })
+    if (meta.final !== false) await reindex(folder)
+    return { ok: true, ...out }
   }))
   r.delete('/folders/:slug/files', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')

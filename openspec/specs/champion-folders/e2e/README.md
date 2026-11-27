@@ -96,3 +96,16 @@ cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js
 | 시스템 대화상자에서 「취소」를 선택하면 「올리지 않았어요」가 표시됨. 원본 레코드와 폴더가 남지 않으며, 앱 목록도 변경되지 않음 | (데스크톱 시험 5) |
 
 스크린샷: `f-ch-01-desktop-preview.png` · `f-ch-02-desktop-folder.png` · `f-ch-02-desktop-kit.png`
+
+## 폴더를 끌어다 놓아 올리기 · 「파일 올리기」 · 「폴더 올리기」 · 작업실의 까닭 (사용자 녹화 11-27)
+
+`e2e/README.md` 68절. 화면은 자기 스택(여러 회사 · 터미널 열쇠 없음 — 운영과 같은 설정)으로 본다.
+
+```bash
+cd server && node --test test/folderDrop.test.js
+cd e2e && npx playwright test --project=feature tests/feature/folder-drop.spec.js
+cd e2e && npx playwright test --project=desktop tests/desktop/folder-drop.spec.js
+```
+
+- 단위(13): 서버와 같은 갈래 읽기(`groupOf` 견주기) · 들어가지 않는 폴더(`.git` · `node_modules` · `.ssh` · `.claude/projects`) · 따라 내려가기(`readEntries` 여러 번) · 빠지는 것과 까닭 · 열쇠 모양(줄 · 종류, 값 없음) · 새 폴더는 그 안의 것을 맨 위부터 · 한도와 가장 큰 것 · 여럿 놓기 · `webkitdirectory` 목록 · 원격 주소(이름 · 토큰 지움) · 요청 나누기 · 서버의 파일별 거절(`refusalOf`) · 자기 안으로 이어지는 폴더(깊이에서 멈춤).
+- 화면 F-FD-01~09 · 데스크톱 F-FD-10 · 11 — 증거 사진(`results/`): `f-fd-01-drop-sheet` · `f-fd-01-uploaded` · `f-fd-02-list-dropzone` · `f-fd-02-new-sheet` · `f-fd-03-over` · `f-fd-04-menu` · `f-fd-05-sheet-390` · `f-fd-06-dark` · `f-fd-07-desktop-old` · `f-fd-07-desktop-ways` · `f-fd-09-workroom` · `f-fd-10-desktop-dir-sheet` · `f-fd-11-desktop-workroom`.

@@ -1639,6 +1639,33 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/folde
 | 저절로 온 메일에서 「그만 올리기」 → 다음 메일은 안 감 · 「본문 끄기」 → 동료 카드가 요약 · 나간 방의 약속은 치움 | 사용자 11-27 | F-MR-03 · F-MR-04 · `mailRooms.integration` | feature · 단위 | ✅ |
 | 실제 Gmail 스레드로 「이 메일 스레드의 다음 메일」 약속이 도는지 · 실제 판정 모델이 방을 고르는 정확도 | — | — (데모 메일함 · 가짜 판정) | — | ✗ |
 
+### 68. 폴더 — 컴퓨터의 폴더를 끌어다 놓아 올리기 · 「파일 올리기」 · 「폴더 올리기」 · 작업실의 까닭 (스펙 `champion-folders`)
+
+사용자 녹화 11-27(데스크톱 앱 0.2.3 · 운영 웹): 「파일 올리기」를 눌러도 파일 창이 뜨지 않음 · Finder 폴더를 폴더에 놓아도 반응 없음 · 놓은 폴더 이름으로 새 폴더 · 폴더 안 「작업실」이 열리지 않음. 시험 파일이 자기 스택(회사 `folder-drop` · `folder-drop-ui`, BFF 8977 · 8981 · Vite 5377 · 5381 부터 빈 곳 — `RT_FD_API_PORT` · `RT_FD_WEB_PORT`)을 띄우고 지운다. 서버는 운영처럼 여러 회사 · 터미널 열쇠 없음으로 띄운다. 폴더 놓기는 `webkitGetAsEntry` 를 흉내 낸 drop 이벤트(페이지 안에서 만든 FileSystemEntry 나무)로 한다. 모델은 부르지 않는다. 사람 · 회사는 지어낸 것이다(정하윤 · 김서연).
+
+```bash
+cd server && node --test test/folderDrop.test.js                                      # 단위 13
+cd e2e && npx playwright test --project=feature tests/feature/folder-drop.spec.js      # F-FD-01~09
+cd e2e && npx playwright test --project=desktop tests/desktop/folder-drop.spec.js      # F-FD-10 · 11 (Electron, desktop/ 에서)
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 폴더 칸에 폴더를 놓으면 미리 보기(파일 수 · 크기 · 맨 위 항목 · 빠지는 것과 까닭 · 올라갈 곳) → 올리기: 놓은 폴더 이름부터 경로 그대로, 한 커밋 「폴더 올리기: <이름> · 파일 N개」 | 녹화 0:30–0:58 | F-FD-01 · 단위 「what stays here and why」 | feature · 단위 | ✅ |
+| 빠지는 것은 「내 PC 폴더 올리기」와 같은 규칙(`secret-shapes.json`, `GET /api/folders/upload-rules`): `.git`(어느 깊이든, 들어가지 않음) · 비밀 · 개인 설정 · 다시 만들 수 있는 것(`node_modules` — 들어가지 않음) · git 제어 파일 · 50 MB 넘는 파일 · 확실한 열쇠 모양(줄 · 종류만, 값 없음) | 브리프 C | F-FD-01 · 단위 「same groups as the server」 · 「folders the walk never goes into」 · 「a key of a sure shape」 | feature · 단위 | ✅ |
+| git 저장소면 「git 저장소예요(원격 …)」, 주소의 이름 · 토큰은 지움, `.git` 은 안 올림 | 브리프 4 | F-FD-01 · 단위 「a remote's address」 | feature · 단위 | ✅ |
+| 폴더 목록 · 「새 폴더」 창에 놓으면 그 이름(또는 적어 둔 이름)의 새 폴더에 그 안의 것을 맨 위부터, 파일만 놓으면 안내 | 녹화 0:00–0:14 | F-FD-02 · 단위 「a new folder … holds its contents」 | feature · 단위 | ✅ |
+| 한도(2만 개 · 200 MB)를 넘으면 무엇이 넘는지 · 가장 큰 것, 올리기 막힘, 체크를 풀면 나머지가 올라감 | 브리프 C | F-FD-03 · 단위 「over one upload's limits」 | feature · 단위 | ✅ |
+| 「파일 올리기」(여러 파일) · 「폴더 올리기」(webkitdirectory) 가 시스템의 파일 창을 연다 — 브라우저 | 녹화 0:14–0:30 | F-FD-04 · 단위 「「폴더 올리기」 (webkitdirectory)」 | feature · 단위 | ✅ |
+| 데스크톱 앱(소스, 따로 둔 사용자 데이터)에서도 두 창이 열리고 고른 것이 올라감 · macOS 에서는 실제 파일 창이 앱 창 위에 하나 더 | 녹화 0:14–0:30 | F-FD-10 | desktop | ✅ |
+| 휴대폰 390: 시트가 아래에서 화면 너비로, 옆으로 넘치지 않음, 「폴더 올리기」 없음 | 브리프 시험 | F-FD-05 | feature | ✅ |
+| 어두운 테마의 미리 보기 | 브리프 시험 | F-FD-06 | feature | ✅ |
+| 데스크톱 앱: 다리가 있으면 「한 번 올리기」(기본) · 「내 PC 폴더로 공유(계속 맞춤)」 → 「내 PC 폴더 올리기」 흐름, 0.2.3 은 한 줄 안내 | 브리프 4 | F-FD-07 | feature | ✅ |
+| 서버가 파일마다 다시 본다(이름 · 제어 파일 · 열쇠 모양 · `.git` · `..` · 파일과 폴더가 겹침), 보기 권한 403 | 브리프 C | F-FD-08 · 단위 「the server looks again」 | feature · 단위 | ✅ |
+| 큰 폴더는 요청 여럿(1000개 · 32 MB 씩), 마지막 요청 뒤에만 색인 | 설계 | 단위 「a large folder goes in several requests」 | 단위 | ✅ |
+| 작업실: 터미널을 열지 않는 서버(여러 회사 · 열쇠 없음)에서 까닭 · 파일은 고칠 수 있음, 앞 화면 없이 열어도 「뒤로」는 폴더로, 없는 폴더는 폴더의 말로, 데스크톱 앱에서 머리줄이 신호등을 피함 | 녹화 메시지 | F-FD-09 · F-FD-11 | feature · desktop | ✅ |
+| 실제 Finder 에서 끌어다 놓기(OS 의 끌기는 자동화하지 않음 — drop 이벤트로 대신) · 큰 실제 폴더(`~/uengine-platform`)의 훑기 시간 | — | — | — | ✗ |
+
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 
 ```bash

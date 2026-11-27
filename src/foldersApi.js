@@ -12,6 +12,7 @@ async function call(path, opts) {
   return j
 }
 const enc = encodeURIComponent
+let rulesOnce = null
 
 export const folders = {
   list: () => call('/folders'),
@@ -76,6 +77,18 @@ export const folders = {
   async upload(slug, path, file) {
     const go = async () => fetch(`${BASE}/api/folders/${enc(slug)}/files?path=${enc(path)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${await freshToken()}` } })
     const r = await go()
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
+    return j
+  },
+  // a folder from the computer (src/folderDrop.js): what is left out before it goes up (the champion folders' rules), and its files a
+  // request at a time — one commit each (server S.uploadMany: {written, refused: [{path, reason, line}]})
+  uploadRules: () => (rulesOnce ||= call('/folders/upload-rules').catch((e) => { rulesOnce = null; throw e })),
+  async uploadBatch(slug, batch, meta) {
+    const fd = new FormData()
+    fd.append('meta', JSON.stringify({ ...meta, paths: batch.map((u) => u.path) }))
+    for (const u of batch) fd.append('file', u.file, 'file')
+    const r = await fetch(`${BASE}/api/folders/${enc(slug)}/files/batch`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${await freshToken()}` } })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
     return j
