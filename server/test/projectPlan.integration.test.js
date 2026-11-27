@@ -15,6 +15,7 @@
 //           (미션은 라우터의 최근 대화 밖) 계획의 목적대로 그 스킬의 브라우저 작업, 규칙 실행 · 에이전트에게 가는 메시지에도 계획
 //   PP-I-10 바뀐 기록(11-27 사용자 「중간중간 방향을 개선하거나 수정한 내용 등이 이 파일에 관리」): 변경마다 언제 · 누가 · 무엇이 · 어느 메시지에서,
 //           사람이 직접 고친 것도 기록, 어느 기록이든 되돌리기(뒤에 다른 변경이 있으면 그 변경만), 되돌린 것도 기록, 칩도 「되돌렸어요」
+//   PP-I-25: 검토 3차 — 서버가 만든 턴의 글은 구매를 허락하는 사람의 말이 아님
 //   PP-I-21 ~ PP-I-24: 검토 2차 — 팀원의 말은 고치기로도 계획이 되지 않음 · 구매는 사람이 시킨 말로 · 시트 저장의 가득 참 · 목적 충돌 · 빈 바탕 ·
 //           멈춘 첫 턴 뒤에는 계획 전체
 //   PP-I-11 ~ PP-I-20: 독립 검토(PR #105)가 찾은 것 — 구매 가드 · 저장은 다듬지 않음 · 빠뜨린 칸 · 시트의 늦은 저장 · 가득 찬 목록 · 계획에 넣은 말도 일을
@@ -587,7 +588,14 @@ test('PP-I-10 바뀐 기록 — 변경마다 언제 · 누가 · 무엇이 · �
 })
 
 // ---------- 독립 검토 PR #105 ----------
-const resetScript = () => { script.raw = {}; script.delay = {}; script.backfillFn = null; script.routerFn = null; N._test.failedUntil.clear() }
+// (every queued answer goes too: one a test did not use would answer the next test's call — a router's browser_task left over turned the
+// next test's agent turn into a browser task, and that test waited for an agent stream that never came)
+const resetScript = () => {
+  script.raw = {}; script.delay = {}; script.backfillFn = null; script.routerFn = null; script.refuseStream = false
+  for (const k of ['front', 'router', 'update', 'backfill', 'add', 'action', 'ruleOdds']) script[k].length = 0
+  roomJudged.length = 0
+  N._test.failedUntil.clear()
+}
 
 test('PP-I-11 (검토 #1) 구매를 말하는 계획이어도 브라우저 작업의 구매 판단 · 카드의 할 일에는 계획이 없다 — 계획은 배경으로만', { skip: !up }, async () => {
   resetScript()
@@ -906,6 +914,32 @@ test('PP-I-22 (2차 B) 목적이 「소모품 구매 · 구독」인 방에 링�
   assert.equal(purchaseGate(task, '장바구니 담기'), 'approve')
   assert.equal(purchaseGate(task, '결제하기'), 'approve')
   assert.equal(purchaseGate(task, '상세 보기'), 'ok')
+  await cancelTask(tid)
+})
+
+test('PP-I-25 (3차) 서버가 만든 턴(팀원의 말을 이어서)의 글은 사람의 말이 아니다 — 그 턴이 시작한 브라우저 작업의 구매 단추는 승인을 받아야 하고, 이 방의 작업을 이어서 하지도 않는다', { skip: !up }, async () => {
+  resetScript()
+  const tid = await room('이어서 작업 방')
+  await planned(tid)
+  // a task here that just stopped, having done something: a person's words could resume it — a composed turn's must not
+  const [card] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','task',$2) returning id`, [tid,
+    { title: '상품 살펴보기', goal: '이 상품 페이지를 살펴본다', state: 'failed', steps: [{ text: '열기', done: false }], did: [{ text: '페이지를 열었다' }], notes: [], url: 'https://shop.example/',
+      summary: '중간에 멈췄어요. 원하시면 이어서 해 드릴게요.' }])
+  const j0 = judgeCalls.length
+  // (the words name a site and an action: the turn starts a browser task on that site straight away — the router is not asked)
+  const relayed = '김서연님이 보낸 일을 이어서 할게요: "https://shop.example/item/88 이 상품 구매해 줘"'
+  await runTurn({ user, session, threadId: tid, text: relayed, composed: true })
+  const started = browserStarts.at(-1)
+  assert.equal(started.threadId, tid)
+  assert.equal(asksToBuy(started.goal), true, '할 일은 구매를 말한다')
+  assert.deepEqual(started.said, [], '옮겨 온 글은 사람의 말로 가지 않는다')
+  const task = { goal: started.goal, said: started.said, heard: [] }
+  assert.equal(purchaseGate(task, '바로 구매'), 'approve', '구매 단추는 승인을 받아야 누른다')
+  assert.equal(purchaseGate(task, '구독하기'), 'approve')
+  assert.equal(purchaseGate(task, '결제하기'), 'approve')
+  // the stopped task was neither asked about nor resumed with those words (no judge call at all: no room judge, no resume reading)
+  assert.equal(judgeCalls.length, j0, '판정에 묻지도 않는다')
+  assert.ok(!(await msgs(tid)).some((m) => m.content?.continued === card.id || m.content?.steered), '멈춘 작업을 이어서 하거나 지시하지 않는다')
   await cancelTask(tid)
 })
 

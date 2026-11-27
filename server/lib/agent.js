@@ -317,7 +317,9 @@ function runBrowser({ user, session, threadId, goal, startUrl, skill, files = []
   const own = !turnCtx.getStore()?.auto
   // (the person's own words go with it: what a purchase may do is set by what they asked, never by a goal a model wrote — lib/browser.js
   // purchaseGate; a turn nobody typed — a routine done without asking — has none: its goal decides, as before)
-  const words = own ? [String(asked?.text ?? ''), ...said.filter(Boolean)] : null
+  // (a turn the server composed — a teammate's words picked up, a Home card's action: none of it is the person's own asking, so a purchase
+  // control waits for their approval — review PR #105 round 3)
+  const words = own ? (turnCtx.getStore()?.composed ? [] : [String(asked?.text ?? ''), ...said.filter(Boolean)]) : null
   browserStarts.push({ threadId, goal, startUrl: startUrl || '', skill: skill || '', files: files.map((f) => f.name), own, background, said: words })
   if (browserStarts.length > 20) browserStarts.shift()
   // the person's words go along (behind a task that waits for them, its card offers them as that task's answer — the first choice
@@ -539,7 +541,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // (words the server composed, not typed by the person — the plan's updates read them as context only: lib/projectNote.js)
       ...(composed ? { composed: true } : {}) })
   const store = turnCtx.getStore()
-  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project }
+  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project; store.composed = !!composed }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
   TP.begin({ turn: store?.turn, userId, threadId, msgId: said.id, text, files: [...files, ...(pointed?.shown || [])] })
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
@@ -582,10 +584,11 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // 답이면 그 카드의 답으로(「새로 만들어」), 그 작업에게 어떻게 하라는 말이면 그 작업으로(「미디엄은 … pdf 로 만든 후에 노트북엘엠에
   // 넣어야 해」) — 뜻은 판정 모델이 읽는다. 그 밖의 말은 평소 길로 가고, 그 말로 시작한 브라우저 작업이 기다리는 작업 뒤에 서면 그 카드가
   // 세 갈래(답으로 · 이것부터 · 뒤에 줄 서기)를 판정이 가장 높게 본 것부터 보여 준다(waitRead.default).
-  const active = !habitId && !again && !files.length ? activeIn(userId, threadId) : null
+  // (a composed turn's words never answer, steer or resume a browser task — they are not the person's)
+  const active = !habitId && !again && !composed && !files.length ? activeIn(userId, threadId) : null
   // (the tasks that ended: only asked about when this room has one that stopped with work done, or one that just finished — structure;
   // asked alongside the judgment on the task under way, both with a short wait: lib/browserQueue.js JUDGE_MS)
-  const ended = !habitId && !again && !files.length ? await BQ.recentEnded(userId, threadId).catch(() => []) : []
+  const ended = !habitId && !again && !composed && !files.length ? await BQ.recentEnded(userId, threadId).catch(() => []) : []
   const w = active ? (active.waiting ? { ...active, ...waitingIn(userId, threadId) } : active) : null
   const [activeRead, endedRead] = await Promise.all([w ? BQ.readWaiting(w, text) : null, ended.length ? BQ.readResume(ended, text) : null])
   if (active && activeRead) {
