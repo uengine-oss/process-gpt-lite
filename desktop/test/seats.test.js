@@ -1381,7 +1381,7 @@ test('5차 검토 1 — 끝나지 않은 병합 · cherry-pick · rebase 는 커
   await w.release(v)
 })
 
-test('5차 검토 2 — 앱 밖에서 지운 작업본: 다음 「이 PC 에서 작업」이 막히지 않고, 그 가지에만 있던 안 올린 커밋은 앱 저장소(refs/kept)에 남는다', async () => {
+test('5차 검토 2 — 앱 밖에서 지운 작업본: 다음 「이 PC 에서 작업」이 막히지 않고, 그 가지에만 있던 안 올린 커밋은 앱 저장소(refs/kept)에 남는다', { skip: process.platform === 'win32' && 'Windows 는 앱이 쓰던 작업본 폴더를 바로 지우지 못하게 막음(EBUSY) — 「밖에서 지움」은 macOS · Linux 에서 확인' }, async () => {
   let w = wc || make()
   const v = variation('밖에서 지움')
   const e = await prepared(w, v)
@@ -1502,7 +1502,7 @@ test('6차 검토 A5 — 보관하지 못하면 그 가지를 지우지 않고, 
   await w.release(v)
 })
 
-test('6차 검토 A3 — 앱이 켜진 채 폴더를 지우면: 「지금 올리기」 · 「여기로 가져오기」가 바로 「없어졌어요」로 답하고, 다시 이어지지 않아도 다시 받는다', async () => {
+test('6차 검토 A3 — 앱이 켜진 채 폴더를 지우면: 「지금 올리기」 · 「여기로 가져오기」가 바로 「없어졌어요」로 답하고, 다시 이어지지 않아도 다시 받는다', { skip: process.platform === 'win32' && 'Windows 는 앱이 쓰던 작업본 폴더를 바로 지우지 못하게 막음(EBUSY) — 「밖에서 지움」은 macOS · Linux 에서 확인' }, async () => {
   let w = wc || make()
   const v = variation('켜진 채 지움')
   const e = await prepared(w, v)
