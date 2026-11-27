@@ -68,12 +68,26 @@ export function hidePaths(text) {
 //   whatever the name            a JWT, a Google API key, a GitHub token (SECRET_VALUE)
 //   the address's own parts      a password; a user name that looks like a secret; a fragment holding a session (a JSON object); an address inside a
 //                                value (once or twice %-encoded) that is a key
-// A value that only names its place — …, ..., YOUR_TOKEN, ${t}, {token}, <값>, xxx, $TOKEN, getToken(), words in Hangul — is no secret (PLACEHOLDER).
+// A value that only names its place — …, ..., YOUR_TOKEN, your-api-key, ${t}, {token}, <값>, xxx, $TOKEN, getToken(), words in Hangul — is no secret
+// (PLACEHOLDER: written as a placeholder is, and not itself a secret's look).
 const NAMES = new Set(['auth', 'secret', 'password', 'passwd', 'pwd', 'accesstoken', 'authtoken', 'privatetoken', 'xapikey', 'apikey', 'subscriptionkey',
   'ocpapimsubscriptionkey', 'qsignature', 'xauthtoken', 'sessiontoken', 'refreshtoken', 'idtoken', 'clientsecret'])
-const SHAPED_NAME = /key|token|secret|auth|pass|session|sig|code/
+// a name read in its parts (snake · kebab · dotted · camelCase): one of them is a key's word, or the name ends in one (apikey, accesstoken) —
+// 「design」 · 「promotion」 have the letters but not the word
+const SHAPED_PARTS = new Set(['key', 'token', 'secret', 'auth', 'pass', 'passwd', 'password', 'pwd', 'session', 'sig', 'signature', 'code', 'credential', 'credentials'])
+const SHAPED_END = /(?:key|token|secret|signature|password)$/
+function shapedName(rawName) {
+  const parts = decoded(rawName).replace(/\\/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[-_.\s]+/).filter(Boolean)
+  return parts.some((x) => SHAPED_PARTS.has(x)) || SHAPED_END.test(parts.join(''))
+}
 const SECRET_VALUE = /^(?:eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}|AIza[0-9A-Za-z_-]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_\w{30,})$/
-const PLACEHOLDER = /^(?:…+|\.{2,}|\$\{[^}]*\}|\$\w+|\{[^}]*\}|<[^>]*>|[xX*]{3,}|your[\w-]*|[A-Za-z_$][\w$.]*\(\))$/i
+const PLACEHOLDER = /^(?:…+|\.{2,}|\$\{\s*[\w.]+\s*\}|\$[A-Z_][A-Z0-9_]*|\{\{?\s*[\w.-]+\s*\}?\}|<[^<>"':=&]{1,40}>|[xX*]{3,}|(?:YOUR|your)[-_][\w-]*|[A-Za-z_$][\w$.]*\(\))$/
+// a placeholder — and not a secret wearing one's brackets (what is inside <…> · {…} · ${…} is looked at too)
+function placeholder(value, raw) {
+  if (!PLACEHOLDER.test(value)) return false
+  const bare = value.replace(/^(?:\$\{|\{\{?|<)\s*/, '').replace(/\s*(?:\}\}?|>)$/, '')
+  return ![value, raw, bare].some(secretShape)
+}
 // a secret's look: 20 characters or more of a token's alphabet, letters and digits both, a run of 12 letters or digits in it — 「seoul-office-
 // 2024-11-28」 is not one, a hex digest, a base64 token, a uuid are
 export function secretShape(v) {
@@ -87,6 +101,8 @@ const squash = (name) => name.replace(/[-_.\s]/g, '')
 // urlTokens.js's own answer for a name (remembered: one question per name)
 const asked = new Map()
 function urlTokensHides(name) {
+  // (a name past 64 characters is asked each time — the memory keeps short names only)
+  if (name.length > 64) { const probe = `http://x.invalid/?${encodeURIComponent(name)}=1`; return maskUrl(probe) !== probe }
   if (!asked.has(name)) {
     if (asked.size > 2000) asked.clear()
     const probe = `http://x.invalid/?${encodeURIComponent(name)}=1`
@@ -112,11 +128,11 @@ function hiddenParam(rawName, raw, { state = false, depth = 0 } = {}) {
   if (!raw) return false
   const name = nameOf(rawName)
   const value = decoded(raw)
-  if (PLACEHOLDER.test(value) || /^[^\x00-\x7f]+$/.test(value)) return false
+  if (placeholder(value, raw) || /^[^\x00-\x7f]+$/.test(value)) return false
   if ((name !== 'key' && urlTokensHides(name)) || NAMES.has(squash(name))) return true
   if (name === 'code' && state) return true
   if (SECRET_VALUE.test(value) || SECRET_VALUE.test(raw)) return true
-  if ((name === 'key' || SHAPED_NAME.test(squash(name))) && (secretShape(raw) || secretShape(value))) return true
+  if ((name === 'key' || shapedName(rawName)) && (secretShape(raw) || secretShape(value))) return true
   const inner = depth < 2 ? innerUrl(value) : null
   return !!inner && keyed(inner, depth + 1)
 }
@@ -172,7 +188,8 @@ const BARE_URL = new RegExp(String.raw`(?:\bhttps?:\/\/|(?<![\w:/.])\/\/(?:[\w-]
 // A query left on its own (PR #118 follow-up, PR #122 review): 「?token=…」 · 「&sig=…」 · 「#access_token=…」, a pair after a space or at a line's start
 // (「token=…」), in the words, in backticks, after a word or a piece of an address that is no whole address — each value that is a key (hiddenParam)
 // reads 「…」, as urlTokens.js masks it; the rest stays as written (an example, a code sample keeps its shape).
-const VALUE = String.raw`(?:[^\s&;#<>()[\]"'` + '`' + String.raw`]|\([^\s&;#<>()[\]"'` + '`' + String.raw`]*\))*`
+// (a value may hold one level of (…) or {…} — getToken(), ${t} — but never takes a closing bracket it did not open: 「{auth=abc}」)
+const VALUE = String.raw`(?:[^\s&;#<>()[\]{}"'` + '`' + String.raw`]|\([^\s&;#<>()[\]{}"'` + '`' + String.raw`]*\)|\{[^\s&;#<>()[\]{}"'` + '`' + String.raw`]*\})*`
 const PAIR = String.raw`[\w.~%+\\-]+=` + VALUE
 const PIECE = new RegExp(String.raw`(?:([?&#;])|(?<![^\s(\[{"'` + '`' + String.raw`,:]))(` + PAIR + String.raw`(?:[&;]` + PAIR + ')*)', 'g')
 function maskPiece(m, lead, body) {

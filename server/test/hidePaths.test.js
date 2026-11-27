@@ -4,6 +4,7 @@
 // Run: node --test test/hidePaths.test.js
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 
 process.env.PRO_SUPABASE_URL = 'http://storage.lite.test:54321'
 const H = await import('../lib/hidePaths.js')
@@ -205,4 +206,28 @@ test('주소 · 경로: 100 KB 의 나쁜 모양도 200 ms 안에', () => {
     const t = performance.now(); P.hidePaths(text)
     assert.ok(performance.now() - t < 200, `화면 ${label}`)
   }
+})
+
+// (PR #122 재검토) 자리 표시처럼 생긴 비밀 · 이름의 낱말 · 닫는 괄호
+test('주소: 자리 표시 모양을 한 비밀은 가리고, 자리 표시는 그대로 — 이름은 낱말로 읽고, 열지 않은 닫는 괄호는 값이 아니다', () => {
+  // (값은 여기서 만든다 — 비밀처럼 생긴 글자를 저장소에 두지 않는다)
+  const tok = 'Ab3' + crypto.randomBytes(12).toString('hex')
+  const hosts = H.storageHosts()
+  const at = (q) => [`주소 https://files.example/a/report.pdf?${q} 를 보세요`, `호출은 GET /api/raw?path=a.md&${q} 로`]
+  // 이름만으로 가리는 이름 · 비밀 모양의 값: 자리 표시처럼 시작하거나 괄호에 싸여 있어도
+  for (const [q, secret] of [['token=$' + 'ecretValue99', 'ecretValue99'], ['secret=your' + 'mom1234', 'mom1234'], ['api_key=your-key-' + tok, tok],
+    ['auth=' + encodeURIComponent('{"token":"' + tok + '"}'), tok], ['sig=%3C' + tok + '%3E', tok]]) {
+    for (const text of at(q)) assert.ok(!H.cleanShared(text, hosts).includes(secret), `${q} → ${H.cleanShared(text, hosts)}`)
+  }
+  // 자리만 말한 값은 그대로
+  for (const [q, kept] of [['token=YOUR_TOKEN', 'YOUR_TOKEN'], ['api_key=your-api-key', 'your-api-key'], ['t=${t}', '${t}'], ['token={token}', '{token}'],
+    ['token=<값>', '<값>'], ['token=$TOKEN', '$TOKEN'], ['token=getToken()', 'getToken()']]) {
+    for (const text of at(q)) assert.ok(H.cleanShared(text, hosts).includes(kept), `${q} → ${H.cleanShared(text, hosts)}`)
+  }
+  assert.ok(H.cleanShared('fetch(`/api/files?token=${t}`)', hosts).includes('${t}'))
+  // 이름은 낱말로: design 에는 sig 라는 글자가 있지만 낱말은 아니다
+  const id = crypto.randomUUID()
+  assert.ok(H.cleanShared(`https://x.example/v?design=${id}`, hosts).includes(id))
+  // 열지 않은 닫는 괄호는 값에 들지 않는다
+  assert.equal(H.cleanShared('설정은 {auth=abc} 처럼', hosts), '설정은 {auth=…} 처럼')
 })

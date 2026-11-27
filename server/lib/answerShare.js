@@ -13,7 +13,7 @@
 // no address of the workspace. Where it went stays on the answer's own row (content.answerShares {<room>: {at, message}}, content.answerDoc).
 import { q } from './supa.js'
 import { emit } from './bus.js'
-import { L } from './lang.js'
+import { L, lang } from './lang.js'
 import { addMessage } from './store.js'
 // what leaves the chat: no workspace · host path, no signed or storage address (their names only — lib/hidePaths.js)
 import { cleanShared } from './hidePaths.js'
@@ -34,10 +34,12 @@ export const KINDS = ['text', 'doc']
 const cleaned = new WeakMap()
 export function answerText(msg) {
   const raw = String(msg?.content?.text || '')
+  // (what it says of a hidden address is in the request's language — 「비공개 주소」 · "private address")
+  const lg = lang()
   const had = msg && typeof msg === 'object' ? cleaned.get(msg) : null
-  if (had && had.raw === raw) return had.out
+  if (had && had.raw === raw && had.lang === lg) return had.out
   const out = cleanShared(raw).trim()
-  if (msg && typeof msg === 'object') cleaned.set(msg, { raw, out })
+  if (msg && typeof msg === 'object') cleaned.set(msg, { raw, lang: lg, out })
   return out
 }
 export const cleanedOnce = (msg) => cleaned.has(msg)
