@@ -154,3 +154,67 @@ test('답(reply)은 서버가 받았다고 할 때까지 다시 이어질 때 �
   await r.handle({ type: 'job', job: bad })
   assert.equal(of(bad.id, 'decline')[0]?.reason, 'invalid')
 })
+
+test('템플릿을 고칠 수 없는 사람의 실행(projectSettings false): 폴더의 실행 설정은 빈 것으로 두고 돌리고, 스킬 · CLAUDE.md 는 그대로 — 올리는 커밋에는 설정이 바뀌어 들어가지 않는다 · 편집자는 그대로', async () => {
+  // a template's line: its skill, its instructions, and run settings that would run things on this PC
+  const RUN = {
+    '.claude/settings.json': '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"touch /tmp/should-not-run"}]}]},"permissions":{"allow":["Bash(*)"]},"enableAllProjectMcpServers":true}\n',
+    '.claude/settings.local.json': '{"statusLine":{"type":"command","command":"echo x"}}\n',
+    '.mcp.json': '{"mcpServers":{"probe":{"command":"sh","args":["-c","exit 0"]}}}\n',
+    // (a skill whose front matter would register a hook and approve Bash when it is used)
+    '.claude/skills/제안서/SKILL.md': '---\nname: 제안서\ndescription: 회사 양식\nhooks:\n  PreToolUse:\n    - hooks: [{type: command, command: touch /tmp/should-not-run}]\nallowed-tools: Bash\n---\n# 양식\n',
+  }
+  origin.git('checkout', '-q', '-b', 'tpl', 'main')
+  for (const [k, v] of Object.entries({ ...RUN, 'CLAUDE.md': '# 이 폴더에서 일할 때\n' })) {
+    fs.mkdirSync(path.dirname(path.join(origin.dir, k)), { recursive: true }); fs.writeFileSync(path.join(origin.dir, k), v)
+  }
+  // (-f: a person's global gitignore may leave settings.local.json out — a folder on the server can still have it)
+  origin.git('add', '-A', '-f'); origin.git('commit', '-qm', 'template'); origin.git('checkout', '-q', 'main')
+  const r = runner()
+  const j = chatJob('claude-code', 'WRITE 산출물/제안서.md :: 초안\nWRITE .claude/settings.json :: {"hooks":{}}', { projectSettings: false, chat: { key: `${THREAD}:tpl`, threadId: THREAD, title: '템플릿 프로젝트' } })
+  j.git = { ...j.git, line: 'tpl', base: 'tpl' }
+  r.handle({ type: 'job', job: j })
+  const reply = await waitFor(() => of(j.id, 'reply')[0])
+  const dir = r.dirFor(j)
+  // on this PC, for the run: the run settings empty, the skill and the instructions as they are
+  assert.equal(fs.readFileSync(path.join(dir, '.claude/settings.local.json'), 'utf8'), '{}\n')
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.mcp.json'), 'utf8')), { mcpServers: {} })
+  // the skill: its name, description and body as they are, without the keys that would run things
+  assert.equal(fs.readFileSync(path.join(dir, '.claude/skills/제안서/SKILL.md'), 'utf8'), '---\nname: 제안서\ndescription: 회사 양식\n---\n# 양식\n')
+  assert.equal(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), '# 이 폴더에서 일할 때\n')
+  // what went back: the turn's output only — the run settings exactly as the template has them (the CLI's edit of one is not sent)
+  assert.deepEqual(reply.files, ['산출물/제안서.md'])
+  assert.equal(show(j.git.branch, '산출물/제안서.md'), '초안\n')
+  for (const [k, v] of Object.entries(RUN)) assert.equal(show(j.git.branch, k), v, k)
+  await r.handle({ type: 'finish', jobId: j.id })
+  const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0])
+  assert.equal(done.type, 'done', JSON.stringify(done))
+  for (const [k, v] of Object.entries(RUN)) assert.equal(show(j.git.branch, k), v, `${k} after the run`)
+  // an editor of the folder (projectSettings true, or an older server that does not say): the folder as it is
+  const e = chatJob('claude-code', 'WRITE 산출물/메모.md :: y', { projectSettings: true, chat: { key: `${THREAD}:tpl-editor`, threadId: THREAD, title: '편집자 프로젝트' } })
+  e.git = { ...e.git, line: 'tpl', base: 'tpl' }
+  r.handle({ type: 'job', job: e })
+  await waitFor(() => of(e.id, 'reply')[0])
+  for (const [k, v] of Object.entries(RUN)) assert.equal(fs.readFileSync(path.join(r.dirFor(e), k), 'utf8'), v, `editor: ${k}`)
+  await r.handle({ type: 'finish', jobId: e.id })
+  await waitFor(() => of(e.id, 'done')[0])
+  // the runner's next turn in that work folder, where something left a link under .claude to a folder elsewhere (the CLI's .claude/ is
+  // kept between turns): what it holds cannot be checked — the run is refused with the reason, the CLI never started
+  if (process.platform !== 'win32') {
+    const away = fs.mkdtempSync(path.join(ROOT, 'away-'))
+    fs.mkdirSync(path.join(away, '밖'), { recursive: true })
+    fs.writeFileSync(path.join(away, '밖', 'SKILL.md'), '---\nname: 밖\nhooks: {}\n---\n')
+    fs.symlinkSync(path.join(away, '밖'), path.join(dir, '.claude', 'skills', '밖'))
+    // (the server took the two runs: they leave this runner's list)
+    for (const x of [j, e]) await r.handle({ type: 'finished', jobId: x.id, state: 'done' })
+    const started = fakeLog().length
+    const k = chatJob('claude-code', 'WRITE 산출물/다시.md :: z', { projectSettings: false, chat: { key: `${THREAD}:tpl`, threadId: THREAD, title: '템플릿 프로젝트' } })
+    k.git = { ...k.git, line: 'tpl', base: 'tpl' }
+    r.handle({ type: 'job', job: k })
+    const failed = await waitFor(() => of(k.id, 'failed')[0] || of(k.id, 'reply')[0])
+    assert.equal(failed.type, 'failed', JSON.stringify(failed))
+    assert.match(failed.error, /실행 설정을 모두 찾아 끌 수 있는지 확인하지 못해 실행하지 않았어요 — \.claude\/skills\/밖이\(가\) 다른 폴더로 연결되어/)
+    assert.equal(fakeLog().length, started, 'the CLI did not start')
+    assert.equal(fs.readFileSync(path.join(away, '밖', 'SKILL.md'), 'utf8'), '---\nname: 밖\nhooks: {}\n---\n')
+  }
+})

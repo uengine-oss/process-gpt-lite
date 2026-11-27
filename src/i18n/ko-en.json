@@ -1268,6 +1268,7 @@
   "산출물을 찾지 못했어요.": "I couldn't find that output.",
   "로그인 요청이 만료됐어요. 다시 시도해 주세요.": "The sign-in request expired. Please try again.",
   "Google 로그인에 실패했어요.": "Google sign-in failed.",
+  "이 창에서 시작한 로그인만 완료할 수 있어요. 다시 로그인해 주세요.": "Only a sign-in started in this window can be completed. Please sign in again.",
   "Google 로그인이 취소됐어요.": "Google sign-in was canceled.",
   "Google 인증 코드가 없어요.": "There is no Google authorization code.",
   "메일 연결에 Gmail 읽기 권한이 필요해요. 다시 연결해 주세요.": "Connecting mail needs permission to read Gmail. Please connect again.",

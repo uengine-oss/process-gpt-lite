@@ -15,6 +15,8 @@ import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 import { fileURLToPath } from 'node:url'
+// (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 // ---- the judge: a small HTTP server answering scripted probabilities ----
 const roomJudged = [] // answers for the room's question (options set_rule …), default other

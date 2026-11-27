@@ -7,6 +7,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import http from 'node:http'
 import path from 'node:path'
+// (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 // ---- 가짜 판정 서버: 상태 글의 제목 줄로 확률을 돌려준다. 모델(LLM)로 넘어가지 않게 PRO_JUDGE_LLM=0 ----
 const answers = {} // page title → probabilities, or 'down'

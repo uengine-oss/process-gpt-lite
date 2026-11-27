@@ -4,11 +4,12 @@
 // the site — its sender's domain is the site's, or it names the site (the name in the page title, the host) — and not
 // used for a code before. The code comes out by rule, not by a model: a 4–8 character code next to the words that name
 // it. It goes straight into the field and is kept nowhere: not in the model's messages, the chat or the audit log.
-// Never this installation's own sign-in mail (below: ownSince · ownSenders): a code that signs in to Lite itself is typed
-// by the person, not by a task.
+// Never this installation's own sign-in mail (below: ownSince · ownSenders · a mail that links to this app's own sign-in): a code
+// that signs in to Lite itself is typed by the person, not by a task — nor into this app's own pages at all (lib/browser.js need_secret).
 import { q } from './supa.js'
 import { recentMail } from './mail.js'
 import { config } from '../config.js'
+import { signInPlaces, isSignInStep } from './signInSteps.js'
 
 // the words a verification mail names its code with
 const WORDS = /인증\s*(코드|번호)|확인\s*(코드|번호)|보안\s*코드|일회용|승인\s*번호|인증|코드|verification|verify|one[-\s]?time|passcode|security\s+code|sign[-\s]?in\s+code|login\s+code|\bcode\b|\botp\b|\bpin\b/gi
@@ -114,13 +115,25 @@ export function signInMailSince(addresses, now = Date.now()) {
 // (tests)
 export const forgetSignInMails = () => signIns.clear()
 
+// The addresses a mail's text links to (each word of it read as an address; http · https only)
+export function linksIn(text) {
+  const out = []
+  for (const w of String(text || '').split(/[\s<>"'()[\]]+/)) {
+    if (!/^https?:\/\//i.test(w)) continue
+    try { out.push(new URL(w).href) } catch { /* not an address */ }
+  }
+  return out
+}
+
 // The code from the newest fitting mail: the site's sender before a mail that only names the site, newer first.
-// Not one from this installation's auth sender (ownSenders), and none that came at or after ownSince (a sign-in mail of this
-// installation went to this mailbox then; one with no date counts as after it).
-export function pickCode(mails, { site, names = [], since = 0, used = new Set(), ownSince = null, ownSenders = [] }) {
+// Not one from this installation's auth sender (ownSenders), none that came at or after ownSince (a sign-in mail of this
+// installation went to this mailbox then; one with no date counts as after it), and none that links to a step of this app's own
+// sign-in (its auth server's verify link: lib/signInSteps.js — places, this installation's by default).
+export function pickCode(mails, { site, names = [], since = 0, used = new Set(), ownSince = null, ownSenders = [], places = signInPlaces() }) {
   const own = new Set(ownSenders.map(mailboxOf).filter(Boolean))
   const ours = (m) => (own.size && own.has(senderOf(m.from))) ||
-    (ownSince !== null && !(Date.parse(m.date || '') < ownSince))
+    (ownSince !== null && !(Date.parse(m.date || '') < ownSince)) ||
+    linksIn(`${m.subject || ''}\n${m.text || ''}`).some((u) => isSignInStep(u, places))
   const fit = mails
     .filter((m) => !used.has(m.id) && (!m.date || Date.parse(m.date) >= since) && !ours(m))
     .map((m) => ({ m, how: fromSite(m, { site, names }) }))

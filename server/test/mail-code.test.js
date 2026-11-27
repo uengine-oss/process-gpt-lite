@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { extractCode, registrable, namesOf, fromSite, pickCode, mailboxOf, senderOf, noteSignInMail, signInMailSince, forgetSignInMails, SIGN_IN_MS } from '../lib/mailCode.js'
+import { extractCode, registrable, namesOf, fromSite, pickCode, mailboxOf, senderOf, noteSignInMail, signInMailSince, forgetSignInMails, SIGN_IN_MS, linksIn } from '../lib/mailCode.js'
 
 const CASES = JSON.parse(fs.readFileSync(new URL('./mail-code-cases.json', import.meta.url), 'utf8'))
 for (const c of CASES) test(`code: ${c.name}`, () => assert.equal(extractCode(c.text), c.expect))
@@ -102,6 +102,18 @@ test('a mail from the address this installation sends its sign-in mail from is n
   assert.equal(pickCode([{ ...liteMail, date: at1(-3 * 3600) }], { ...long, ownSenders: ['noreply@lite.example'] }), null, 'at any time')
   // other senders on the same site are not affected
   assert.equal(pickCode([{ ...liteMail, id: 'x', from: 'help@lite.example' }], { ...site, ownSenders: ['noreply@lite.example'] }).code, '555555')
+})
+
+test('BT-C-01 a mail that links to a step of this app\'s own sign-in (its auth server\'s verify link) is never taken', () => {
+  forgetSignInMails()
+  const places = { hosts: ['auth.lite.example', 'lite.example'], parents: [], prefixes: ['/lite'] }
+  assert.deepEqual(linksIn('확인 <https://auth.lite.example/auth/v1/verify?token=x&type=magiclink>\n(https://lite.example/chat) ftp://x'),
+    ['https://auth.lite.example/auth/v1/verify?token=x&type=magiclink', 'https://lite.example/chat'])
+  const site = { site: 'lite.example', names: [], since: t1 - 600000, places }
+  const own = { ...liteMail, id: 'own', from: 'Auth <mailer@other-sender.example>', text: `${liteMail.text}\n로그인: https://auth.lite.example/auth/v1/verify?token=abc&type=magiclink&redirect_to=https://lite.example/` }
+  assert.equal(pickCode([own], site), null)
+  // a mail that only links to the app's ordinary pages is a site's mail as any other
+  assert.equal(pickCode([{ ...own, id: 'plain', text: `${liteMail.text}\nhttps://lite.example/chat` }], site).code, '555555')
 })
 
 test("other sites' mails are unaffected by this installation's sign-in record and sender", () => {

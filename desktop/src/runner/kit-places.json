@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Where each agent platform keeps its skills, commands, instructions and specs inside a folder (design §4.1) — paths only, the contents' meaning is not read. glob: '/'-separated, '*' within one name, '**' any number of folders. name: how an item is named when its file has no front matter name — 'dir' (the folder holding the file), 'file' (the file name), 'command' (the path under the commands folder, ':' between folders, no extension). frontMatter: the file may start with YAML front matter (name · description). runs: the file holds settings that run on the computer of whoever works in the folder (hooks, MCP servers, permissions). The server (server/lib/folders/kit.js) and the desktop preview (desktop/src/runner/sync.js) use the same file; desktop/src/runner/kit-places.json is a copy of server/lib/folders/kit-places.json. runsKeys (optional): for a JSON settings file, the keys (dotted) of which at least one must be there and not empty for it to count as runs — without runsKeys, runs is as given. The single source is server/lib/folders/kit-places.json.",
+  "about": "Where each agent platform keeps its skills, commands, instructions and specs inside a folder (design §4.1) — paths only, the contents' meaning is not read. glob: '/'-separated, '*' within one name, '**' any number of folders. name: how an item is named when its file has no front matter name — 'dir' (the folder holding the file), 'file' (the file name), 'command' (the path under the commands folder, ':' between folders, no extension). frontMatter: the file may start with YAML front matter (name · description). runs: the file holds settings that run on the computer of whoever works in the folder (hooks, MCP servers, permissions). The server (server/lib/folders/kit.js) and the desktop preview (desktop/src/runner/sync.js) use the same file; desktop/src/runner/kit-places.json is a copy of server/lib/folders/kit-places.json. runsKeys (optional): for a JSON settings file, the keys (dotted) of which at least one must be there and not empty for it to count as runs — without runsKeys, runs is as given. The single source is server/lib/folders/kit-places.json. frontRuns: a skill · command · agent file runs something too when its front matter declares one of frontMatterRuns (Claude Code: hooks registered when it is used, tools approved without asking, its own shell · MCP · LSP servers, a permission mode) — the desktop leaves those keys off for a person who may not edit the folder (desktop/src/runner/runSettings.js); the badge reads them conservatively (the front matter found as Claude Code finds it; a key of that name anywhere in it, in any spelling the CLI might take — Hooks, allowed_tools, allowedTools).",
   "platforms": {
     "claude": "Claude Code",
     "codex": "Codex",
@@ -9,10 +9,11 @@
     "copilot": "GitHub Copilot",
     "spec": "Specs"
   },
+  "frontMatterRuns": ["hooks", "allowed-tools", "shell", "mcpServers", "lspServers", "permissionMode"],
   "places": [
-    {"platform": "claude", "type": "skill", "glob": ".claude/skills/*/SKILL.md", "name": "dir", "frontMatter": true},
-    {"platform": "claude", "type": "command", "glob": ".claude/commands/**/*.md", "name": "command", "base": ".claude/commands", "frontMatter": true},
-    {"platform": "claude", "type": "agent", "glob": ".claude/agents/*.md", "name": "file", "frontMatter": true},
+    {"platform": "claude", "type": "skill", "glob": ".claude/skills/*/SKILL.md", "name": "dir", "frontMatter": true, "frontRuns": true},
+    {"platform": "claude", "type": "command", "glob": ".claude/commands/**/*.md", "name": "command", "base": ".claude/commands", "frontMatter": true, "frontRuns": true},
+    {"platform": "claude", "type": "agent", "glob": ".claude/agents/*.md", "name": "file", "frontMatter": true, "frontRuns": true},
     {"platform": "claude", "type": "instructions", "glob": "**/CLAUDE.md", "name": "file"},
     {"platform": "claude", "type": "settings", "glob": ".claude/settings.json", "name": "file", "runs": true, "runsKeys": ["hooks", "permissions.allow", "mcpServers", "enabledMcpjsonServers", "statusLine", "env"]},
     {"platform": "claude", "type": "mcp", "glob": ".mcp.json", "name": "file", "runs": true, "runsKeys": ["mcpServers"]},

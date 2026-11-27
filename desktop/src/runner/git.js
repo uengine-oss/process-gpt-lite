@@ -54,13 +54,15 @@ const NO_GIT = process.platform === 'win32'
   ? 'git is not installed on this computer — install Git for Windows (https://git-scm.com/download/win) and run the step again'
   : 'git is not installed on this computer — install it (macOS: xcode-select --install) and run the step again'
 
+const NO_HOOKS = process.platform === 'win32' ? 'NUL' : '/dev/null'
 // git in `dir`; a token (for `url` — the folder's address) never shows up in what is thrown
-function git(dir, args, { token = '', url = '', timeout = TIMEOUT, check = true } = {}) {
+function git(dir, args, { token = '', url = '', timeout = TIMEOUT, check = true, maxBuffer = 16 * 1024 * 1024 } = {}) {
   const env = {}
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_CONFIG_') && k !== 'GIT_DIR' && k !== 'GIT_WORK_TREE') env[k] = v
-  Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C' }, authEnv(token, [['core.symlinks', 'false']], url))
+  // (what a run may have written into the clone's .git/config — an fsmonitor command, a hooks folder — is never run by the app's git)
+  Object.assign(env, { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '', LC_ALL: 'C' }, authEnv(token, [['core.symlinks', 'false'], ['core.fsmonitor', 'false'], ['core.hooksPath', NO_HOOKS]], url))
   return new Promise((resolve, reject) => {
-    execFile(gitPath(), args, { cwd: dir, env, timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+    execFile(gitPath(), args, { cwd: dir, env, timeout, maxBuffer, windowsHide: true }, (err, stdout, stderr) => {
       if (err && err.code === 'ENOENT' && !fs.existsSync(dir)) return check ? reject(new GitError(`git ${args.slice(0, 2).join(' ')} failed: no folder ${dir}`)) : resolve('')
       if (err && err.code === 'ENOENT') return check ? reject(new GitError(NO_GIT)) : resolve('')
       if (err && check) {
@@ -120,8 +122,10 @@ async function branch(dir, name, base) {
 // commits on the run's branch beyond where it started
 const ahead = async (dir, from) => Number((await git(dir, ['rev-list', '--count', `${from}..HEAD`], { check: false })).trim() || 0)
 
-async function commit(dir, message, { name = 'Process GPT Lite', email = 'desktop@pgpt-lite.local' } = {}) {
+// except: folder paths whose changes in the work folder are never committed (the run settings left off for the run — runSettings.js)
+async function commit(dir, message, { name = 'Process GPT Lite', email = 'desktop@pgpt-lite.local' } = {}, { except = [] } = {}) {
   await git(dir, ['add', '-A'])
+  if (except.length) await git(dir, ['reset', '-q', '--', ...except], { check: false })
   const staged = (await git(dir, ['diff', '--cached', '--name-only'])).trim()
   if (!staged) return null
   await git(dir, ['-c', `user.name=${name || 'Process GPT Lite'}`, '-c', `user.email=${email || 'desktop@pgpt-lite.local'}`, 'commit', '-q', '-m', message])
