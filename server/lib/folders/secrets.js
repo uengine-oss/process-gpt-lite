@@ -92,22 +92,31 @@ export async function refusedIn(files, contents) {
 }
 
 // ---------- a folder going up from the page (folders/service.js uploadMany — a dropped folder, 「폴더 올리기」) ----------
+// One request of such an upload (POST /folders/:slug/files/batch — routes/folders.js): its files at most, their bytes together (one file
+// over the size limit is refused anyway, so a request carries at most that much), and a path's bytes. One upload (a drop — its
+// session) may carry the limits of a champion folder's push: headMaxFiles files and pushMaxBytes bytes.
+export const BATCH = { files: 1000, bytes: LIMITS.largeFileBytes, pathBytes: 1024, metaBytes: 64 * 1024,
+  uploadFiles: LIMITS.headMaxFiles, uploadBytes: LIMITS.pushMaxBytes || 200 * 1024 * 1024 }
 // What the page needs to leave out the same files before anything is sent (src/folderDrop.js): the groups' names (the same groupOf),
 // the limits, and the shapes the server refuses (level 'block' — the token formats, never a value). The page reads no other rule.
 export function pageRules() {
   return {
     version: SHAPES.version || 1,
     groups: Object.fromEntries(ORDER.map((g) => [g, SHAPES.groups[g]])),
-    limits: { largeFileBytes: LIMITS.largeFileBytes, pushMaxBytes: LIMITS.pushMaxBytes || 200 * 1024 * 1024, headMaxFiles: LIMITS.headMaxFiles, textMaxBytes: TEXT_MAX },
+    limits: { largeFileBytes: LIMITS.largeFileBytes, pushMaxBytes: BATCH.uploadBytes, headMaxFiles: BATCH.uploadFiles, textMaxBytes: TEXT_MAX,
+      batchFiles: BATCH.files, batchBytes: BATCH.bytes, pathBytes: BATCH.pathBytes },
     block: (SHAPES.shapes || []).filter((s) => s.level === 'block' && s.pattern).map((s) => ({ id: s.id, pattern: s.pattern, flags: s.flags || '' })),
   }
 }
-// Why one uploaded file is not kept, or null: a secret's file name, git's control files (.gitmodules · .lfsconfig), a file over the size
-// limit, or a key of a sure shape in its text → {reason, line} (reason: 'name' · structureOf's · 'large' · the shape id)
+// Why one uploaded file is not kept, or null: a secret's file name, git's control files (.gitmodules · .lfsconfig · .gitattributes), a
+// file over the size limit, or a key of a sure shape in its text → {reason, line} (reason: 'name' · structureOf's · 'gitattributes' ·
+// 'large' · the shape id). A folder's git attributes are the server's own: what a page uploads does not change how its files are kept.
 export function refusalOf(rel, buf) {
   if (groupOf(rel) === 'secret') return { reason: 'name', line: null }
-  const s = structureOf({ path: rel })
+  const s = structureOf({ path: rel }) || attributesOf(rel)
   if (s) return { reason: s, line: null }
   if (buf.length > LIMITS.largeFileBytes) return { reason: 'large', line: null }
   return blockIn(buf)
 }
+// a .gitattributes anywhere (case as a Mac or Windows reads it) → 'gitattributes' | null
+export const attributesOf = (rel) => (String(rel).split('/').pop().trim().toLowerCase() === '.gitattributes' ? 'gitattributes' : null)

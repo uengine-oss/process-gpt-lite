@@ -14,7 +14,7 @@ import * as S from '../lib/folders/service.js'
 import * as M from '../lib/folders/merge.js'
 // reference slots (참조 자리): every read under one goes through REFS.resolve — the reader's role in the source, now
 import * as REFS from '../lib/folders/refs.js'
-import { reindex, search, changeCard, cardsSoon } from '../lib/folders/indexer.js'
+import { reindex, reindexSoon, search, changeCard, cardsSoon } from '../lib/folders/indexer.js'
 import { handover } from '../lib/folders/handover.js'
 import { listTeam } from '../lib/team.js'
 import * as SK from '../lib/folders/skills.js'
@@ -22,6 +22,7 @@ import { named } from '../lib/people.js'
 import * as KIT from '../lib/folders/kit.js'
 import * as SRC from '../lib/folders/sources.js'
 import * as SECRETS from '../lib/folders/secrets.js'
+import { readBatch } from '../lib/folders/batchBody.js'
 import * as SE from '../lib/folders/seats.js'
 import { emit } from '../lib/bus.js'
 
@@ -268,30 +269,35 @@ export function folderRoutes(auth) {
     if (out.commit || req.body?.final) cardsSoon(folder, req.body?.final ? 0 : 60_000)
     return out
   }))
-  r.post('/folders/:slug/files', express.raw({ type: () => true, limit: '200mb' }), auth, h(async (req) => {
+  r.post('/folders/:slug/files', auth, express.raw({ type: () => true, limit: '200mb' }), h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')
     const sha = await S.upload(folder, user(req), decodeURIComponent(String(req.query.path || req.headers['x-file-name'] || '')), req.body)
     await reindex(folder)
     return { ok: true, commit: sha }
   }))
-  // a folder from the person's computer (dropped on the page, or 「폴더 올리기」 — src/folderDrop.js): multipart form data — `meta`
-  // ({paths, label, part, parts, final}) and one `file` part per path, in the same order. One commit for the request (S.uploadMany);
-  // the index is brought up to date after the last request of the upload (final), not after each.
-  r.post('/folders/:slug/files/batch', express.raw({ type: () => true, limit: '64mb' }), auth, h(async (req) => {
-    const { folder } = await S.access(req.params.slug, req.user, 'editor')
-    const bad = (m) => Object.assign(new Error(m), { status: 400 })
-    const form = await new Response(req.body, { headers: { 'content-type': String(req.headers['content-type'] || '') } }).formData().catch(() => null)
-    if (!form) throw bad(L('올린 내용을 읽지 못했어요.', 'The upload could not be read.'))
-    let meta = {}
-    try { meta = JSON.parse(String(form.get('meta') || '{}')) } catch { throw bad(L('올린 내용을 읽지 못했어요.', 'The upload could not be read.')) }
-    const files = form.getAll('file').filter((f) => typeof f === 'object' && f && typeof f.arrayBuffer === 'function')
-    const paths = Array.isArray(meta.paths) ? meta.paths.map((p) => String(p ?? '')) : []
-    if (!files.length || files.length !== paths.length || files.length > S.BATCH_MAX_FILES) throw bad(L('올린 파일과 경로가 맞지 않아요.', "The uploaded files and their paths don't match."))
-    const items = await Promise.all(files.map(async (f, i) => ({ path: paths[i], buf: Buffer.from(await f.arrayBuffer()) })))
-    const out = await S.uploadMany(folder, user(req), items, { label: meta.label, part: meta.part, parts: meta.parts })
-    if (meta.final !== false) await reindex(folder)
-    return { ok: true, ...out }
-  }))
+  // a folder from the person's computer (dropped on the page, or 「폴더 올리기」 — src/folderDrop.js): its files a request at a time, each one
+  // commit (S.uploadMany). The person and their right in the folder are known before the body is read; the body is read as it comes,
+  // within the limits (lib/folders/batchBody.js); one request at a time per person and folder. The index follows a moment later.
+  // (any refusal ends the connection: the rest of a body is not read)
+  const sending = new Set()
+  r.post('/folders/:slug/files/batch', auth, async (req, res) => {
+    const end = (status, body) => { if (res.headersSent) return; res.status(status).set('Connection', 'close').json(body); res.on('finish', () => req.destroy()) }
+    let key = null
+    try {
+      const { folder } = await S.access(req.params.slug, req.user, 'editor')
+      if (folder.kind !== 'managed') return end(400, { error: L('이 폴더에는 폴더째 올릴 수 없어요.', "A folder can't be uploaded into this folder.") })
+      key = `${config.tenantId}:${req.user.id}:${folder.id}`
+      if (sending.has(key)) { key = null; return end(429, { error: L('이 폴더에 올리는 중이에요 — 끝난 뒤에 다시 해 주세요.', 'An upload to this folder is under way — try again when it is done.') }) }
+      sending.add(key)
+      const { meta, items } = await readBatch(req, SECRETS.BATCH)
+      const out = await S.uploadMany(folder, user(req), items, { label: meta.label, part: meta.part, parts: meta.parts, session: meta.session })
+      if (out.commit) reindexSoon(folder)
+      res.json({ ok: true, ...out })
+    } catch (e) {
+      if (!e.status) console.warn('[folders] batch', req.params.slug, e.message)
+      end(e.status || 500, { error: e.message, ...(e.code ? { code: e.code } : {}), ...(e.limit ? { limit: e.limit } : {}) })
+    } finally { if (key) sending.delete(key) }
+  })
   r.delete('/folders/:slug/files', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user, 'editor')
     await S.removeFile(folder, user(req), req.query.path)

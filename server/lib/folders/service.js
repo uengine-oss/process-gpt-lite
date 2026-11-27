@@ -20,6 +20,7 @@ import * as PS from '../privateStore.js'
 import { people } from '../people.js'
 import { isAdmin } from '../team.js'
 import { assertNoLink } from '../noLinks.js'
+import { gitPart } from '../gitPart.js'
 import { kitCounts } from './kit.js'
 // what a folder uploaded from the page may not carry (uploadMany) — the champion folders' rules
 import * as SECRETS from './secrets.js'
@@ -35,7 +36,7 @@ export const foldersRoot = () => path.join(config.foldersRoot || path.join(os.ho
 export const workspaceDir = () => path.join(PGPT, 'services/deepagents/workspace', config.tenantId)
 
 export const RANK = { viewer: 1, runner: 2, editor: 3, owner: 4 }
-const err = (status, message) => Object.assign(new Error(message), { status })
+const err = (status, message, code) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) })
 
 // ---------- folders & permissions ----------
 // a linked folder (a repository registered where it is) exists only where linking is on (linkingOn)
@@ -288,39 +289,109 @@ export const touch = (folder) => q('update pro_folders set updated_at=now() wher
 
 export function safeRel(rel) {
   const p = path.posix.normalize(String(rel || '').replace(/\\/g, '/').replace(/^\/+/, ''))
-  if (!p || p === '.' || p.startsWith('..') || p.split('/').some((s) => s === '.git' || s === '..')) throw err(400, L('올바르지 않은 경로예요.', 'That path is not valid.'))
+  if (!p || p === '.' || p.startsWith('..') || p.split('/').some((s) => s === '..') || gitPart(p)) throw err(400, L('올바르지 않은 경로예요.', 'That path is not valid.'))
   return p
 }
 
 export async function upload(folder, user, rel, buf) {
   if (folder.kind === 'linked') throw err(400, L('연결형 폴더에는 아직 올릴 수 없어요.', "You can't upload to a linked folder yet."))
   const p = safeRel(rel)
+  if (SECRETS.attributesOf(p)) throw err(400, L('.gitattributes 는 올릴 수 없어요 — 폴더의 속성은 서버가 정해요.', "A .gitattributes can't be uploaded — the server keeps the folder's attributes."))
   await REFS.assertWritable(folder, p)
-  await assertNoLink(folder.repo_path, p)
-  const host = path.join(folder.repo_path, p)
-  await fs.mkdir(path.dirname(host), { recursive: true })
-  await fs.writeFile(host, buf)
-  return commitMain(folder, { name: user.name, email: user.email }, L(`올리기: ${p}`, `Upload: ${p}`))
+  // written, committed and looked at in one writer's turn of the folder: a file git does not take (the folder's own .gitignore names
+  // it) is not left behind for someone else's commit, and the person hears why it is not there
+  return serial(folder.id, async () => {
+    await assertNoLink(folder.repo_path, p)
+    const host = path.join(folder.repo_path, p)
+    await fs.mkdir(path.dirname(host), { recursive: true })
+    await fs.writeFile(host, buf)
+    const sha = await commitWritten(folder, [p], { name: user.name, email: user.email }, L(`올리기: ${p}`, `Upload: ${p}`))
+    if (!(await trackedOf(folder.repo_path, [p])).has(p)) {
+      await dropWritten(folder.repo_path, [p])
+      throw err(409, L(`이 폴더의 .gitignore 가 빼는 이름이라 ‘${p}’ 는 올리지 않았어요.`, `This folder's .gitignore leaves out "${p}", so it was not uploaded.`), 'ignored')
+    }
+    return sha
+  })
 }
-// one request's files at most (the page sends a large folder in several requests — src/folderDrop.js BATCH)
-export const BATCH_MAX_FILES = 1000
-// Many files at once, one commit (a folder dropped on the page or picked with 「폴더 올리기」 — src/folderDrop.js, POST
-// /folders/:slug/files/batch). The page has already left out what the champion folders' rules leave out; here the server looks again
-// at each file and refuses — file by file, said back with the reason — a secret's name, git's control files, a file over the size limit
-// and a key of a sure shape (secrets.js refusalOf), a path that is not a document path, and a reference slot's place. The rest is written
-// and committed together, in one writer's turn of the folder (serial): nobody else's commit takes half of it.
-// items: [{path, buf}] · label: what went up (the dropped folder's name) · part/parts: this request's place when the page sends several
-// → {commit, written: [path], refused: [{path, reason, line}]}
-export async function uploadMany(folder, user, items, { label = '', part = 1, parts = 1 } = {}) {
-  if (folder.kind === 'linked') throw err(400, L('연결형 폴더에는 아직 올릴 수 없어요.', "You can't upload to a linked folder yet."))
+// the paths of `paths` git tracks in the work tree now (written files git took)
+export async function trackedOf(repo, paths) {
+  if (!paths.length) return new Set()
+  const out = await G.git(repo, ['ls-files', '-z', '--', ...paths.map((x) => `:(literal)${x}`)])
+  return new Set(out.split('\0').filter(Boolean))
+}
+// written files taken back off the disk (and empty folders they leave), so nothing uncommitted stays in main's work tree
+async function dropWritten(repo, paths) {
+  for (const p of paths) {
+    await fs.rm(path.join(repo, p), { force: true }).catch(() => {})
+    for (let d = path.posix.dirname(p); d && d !== '.'; d = path.posix.dirname(d)) {
+      if (!(await fs.rmdir(path.join(repo, d)).then(() => true, () => false))) break
+    }
+  }
+}
+// commit main with what was just written; when the commit fails, those paths go back to main's last commit (a file that was there) or
+// off the disk (a new one) before the failure is said
+async function commitWritten(folder, written, author, message) {
+  try { return await commitMainNow(folder, author, message) } catch (e) {
+    const repo = folder.repo_path
+    await G.git(repo, ['reset', '-q', '--', ...written.map((x) => `:(literal)${x}`)], { check: false }).catch(() => {})
+    const before = await trackedAt(repo, 'HEAD', written)
+    for (const p of written) {
+      if (before.has(p)) await G.git(repo, ['checkout', '-q', 'HEAD', '--', `:(literal)${p}`], { check: false }).catch(() => {})
+      else await dropWritten(repo, [p])
+    }
+    throw e
+  }
+}
+// which of `paths` the commit `ref` has
+async function trackedAt(repo, ref, paths) {
+  const out = await G.git(repo, ['ls-tree', '-r', '-z', '--name-only', ref, '--', ...paths.map((x) => `:(literal)${x}`)], { check: false }).catch(() => '')
+  return new Set(String(out || '').split('\0').filter(Boolean))
+}
+
+// ---------- a folder going up from the page (a dropped folder, 「폴더 올리기」 — src/folderDrop.js, POST /folders/:slug/files/batch) ----------
+// one request's files at most (secrets.js BATCH — the page sends a large folder in several requests)
+export const BATCH_MAX_FILES = SECRETS.BATCH.files
+// One upload (the page's session id for one drop) may carry BATCH.uploadFiles files and BATCH.uploadBytes bytes, all its requests
+// together; what is over is refused before anything of that request is written. (kept here for two hours after its last request)
+const sessions = new Map()
+const SESSION_MS = 2 * 60 * 60 * 1000
+function chargeSession(folder, user, session, items) {
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(String(session || ''))) throw err(400, L('올리기 묶음 표시가 없어요.', 'The upload has no session.'))
+  const now = Date.now()
+  for (const [k, v] of sessions) if (now - v.at > SESSION_MS) sessions.delete(k)
+  const key = `${T()}:${user.id}:${folder.id}:${session}`
+  const s = sessions.get(key) || { files: 0, bytes: 0, at: now }
+  const files = s.files + items.length
+  const bytes = s.bytes + items.reduce((a, it) => a + it.buf.length, 0)
+  if (files > SECRETS.BATCH.uploadFiles) throw Object.assign(err(413, L(`한 번에 올릴 수 있는 파일 수(${SECRETS.BATCH.uploadFiles.toLocaleString()}개)를 넘어요.`, `Over the number of files one upload can take (${SECRETS.BATCH.uploadFiles.toLocaleString()}).`), 'upload_limit'), { limit: { kind: 'files', value: files, max: SECRETS.BATCH.uploadFiles } })
+  if (bytes > SECRETS.BATCH.uploadBytes) throw Object.assign(err(413, L('한 번에 올릴 수 있는 크기를 넘어요.', 'Over the size one upload can take.'), 'upload_limit'), { limit: { kind: 'bytes', value: bytes, max: SECRETS.BATCH.uploadBytes } })
+  sessions.set(key, { files, bytes, at: now })
+}
+// Many files at once, one commit. The page has already left out what the champion folders' rules leave out; here the server looks again
+// at each file and refuses — file by file, said back with the reason — a secret's name, git's control files and attributes, a file over
+// the size limit, a key of a sure shape (secrets.js refusalOf), a path that is not a document path, a reference slot's place, and a
+// second path that differs from one before it only in case. The rest is written and committed together, in one writer's turn of the
+// folder (serial): nobody else's commit takes half of it. What git then does not track (the folder's own .gitignore names it) is taken
+// off the disk and said back as 'ignored'; when the commit fails the written paths are put back before the failure is said.
+// Only a managed folder takes it (not a linked repository, not a skill's folder).
+// items: [{path, buf}] · label: what went up (the dropped folder's name) · part/parts: this request's place in the upload · session: the
+// upload's id → {commit, written: [path], refused: [{path, reason, line}]}
+export async function uploadMany(folder, user, items, { label = '', part = 1, parts = 1, session = '' } = {}) {
+  if (folder.kind !== 'managed') throw err(400, L('이 폴더에는 폴더째 올릴 수 없어요.', "A folder can't be uploaded into this folder."))
+  chargeSession(folder, user, session, items)
   const refused = []
   const take = new Map()
+  const seen = new Set()
+  const writable = await REFS.writableCheck(folder)
   for (const it of items) {
     let p
-    try { p = safeRel(it.path) } catch { refused.push({ path: String(it.path || '').slice(0, 300), reason: 'path', line: null }); continue }
+    try { p = safeRel(String(it.path ?? '').normalize('NFC')) } catch { refused.push({ path: String(it.path || '').slice(0, 300), reason: 'path', line: null }); continue }
+    const k = p.toLowerCase()
+    if (seen.has(k)) { refused.push({ path: p, reason: 'clash', line: null }); continue }
+    seen.add(k)
     const why = SECRETS.refusalOf(p, it.buf)
     if (why) { refused.push({ path: p, ...why }); continue }
-    try { await REFS.assertWritable(folder, p) } catch (e) { refused.push({ path: p, reason: e.code || 'ref_readonly', line: null }); continue }
+    try { writable(p) } catch (e) { refused.push({ path: p, reason: e.code || 'ref_readonly', line: null }); continue }
     take.set(p, it.buf)
   }
   if (!take.size) return { commit: null, written: [], refused }
@@ -328,7 +399,7 @@ export async function uploadMany(folder, user, items, { label = '', part = 1, pa
   const what = name || L('파일', 'files')
   const of = Number(parts) > 1 ? ` (${Math.max(1, Number(part) | 0)}/${Number(parts) | 0})` : ''
   const message = L(`폴더 올리기: ${what} · 파일 ${take.size}개${of}`, `Upload a folder: ${what} · ${take.size} files${of}`)
-  const written = []
+  let written = []
   const commit = await serial(folder.id, async () => {
     for (const [p, buf] of take) {
       try {
@@ -339,7 +410,16 @@ export async function uploadMany(folder, user, items, { label = '', part = 1, pa
         written.push(p)
       } catch { refused.push({ path: p, reason: 'conflict', line: null }) } // (a file where a folder is, or the other way round)
     }
-    return written.length ? commitMainNow(folder, { name: user.name, email: user.email }, message) : null
+    if (!written.length) return null
+    const sha = await commitWritten(folder, written, { name: user.name, email: user.email }, message)
+    const tracked = await trackedOf(folder.repo_path, written)
+    const ignored = written.filter((p) => !tracked.has(p))
+    if (ignored.length) {
+      await dropWritten(folder.repo_path, ignored)
+      for (const p of ignored) refused.push({ path: p, reason: 'ignored', line: null })
+      written = written.filter((p) => tracked.has(p))
+    }
+    return sha
   })
   return { commit, written, refused }
 }

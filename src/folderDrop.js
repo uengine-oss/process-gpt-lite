@@ -25,7 +25,8 @@ export function compileRules(raw = {}) {
   for (const s of raw.block || []) { try { block.push({ id: String(s.id), re: new RegExp(s.pattern, s.flags || '') }) } catch { /* a shape this browser cannot read */ } }
   const L = raw.limits || {}
   const limits = { largeFileBytes: Number(L.largeFileBytes) || 50 * 1024 * 1024, pushMaxBytes: Number(L.pushMaxBytes) || 200 * 1024 * 1024,
-    headMaxFiles: Number(L.headMaxFiles) || 20000, textMaxBytes: Number(L.textMaxBytes) || 1024 * 1024 }
+    headMaxFiles: Number(L.headMaxFiles) || 20000, textMaxBytes: Number(L.textMaxBytes) || 1024 * 1024,
+    batchFiles: Number(L.batchFiles) || 1000, batchBytes: Number(L.batchBytes) || Number(L.largeFileBytes) || 50 * 1024 * 1024, pathBytes: Number(L.pathBytes) || 1024 }
   return { groups, order: ['secret', 'personal', 'rebuildable'].filter((g) => groups[g]), limits, block }
 }
 
@@ -57,9 +58,66 @@ export function dirGroupOf(relDir, rules) {
   // (a name no rule has, inside it: what the folder itself makes every file of it)
   return groupOf(`${relDir}/\u0000`, rules)
 }
-// git's control files: never a file of a folder (the server refuses them too — secrets.js structureOf)
-const STRUCTURE = new Set(['.gitmodules', '.lfsconfig'])
-export const structureOf = (rel) => (STRUCTURE.has(String(rel).split('/').pop().toLowerCase()) ? 'structure' : null)
+// git's control files and its attributes: never a file of a folder that goes up from here (the server refuses them too — secrets.js
+// refusalOf; a folder's attributes are the server's own)
+const STRUCTURE = new Set(['.gitmodules', '.lfsconfig', '.gitattributes'])
+export const structureOf = (rel) => (STRUCTURE.has(String(rel).split('/').pop().trim().toLowerCase()) ? 'structure' : null)
+
+// ---------- the folder's own .gitignore ----------
+// What a folder's .gitignore files leave out, read the way git reads them (as the desktop's 「내 PC 폴더 올리기」 does with git itself):
+// a pattern per line (# comments, a leading ! brings back, a trailing / only folders, a / at the start or inside ties it to the
+// .gitignore's folder, else it matches a name at any depth below; * ? [..] within a name, ** across folders), the deeper file and the
+// later line win; nothing inside a left-out folder comes back (the walk does not go into it).
+// → [{re, neg, dir}] for one .gitignore
+export function ignoreRules(text) {
+  const out = []
+  for (let line of String(text || '').split(/\r?\n/)) {
+    if (!line || line.startsWith('#')) continue
+    line = line.replace(/(?<!\\)\s+$/, '')
+    if (!line) continue
+    let neg = false
+    if (line.startsWith('!')) { neg = true; line = line.slice(1) } else if (line.startsWith('\\!') || line.startsWith('\\#')) line = line.slice(1)
+    let dir = false
+    if (line.endsWith('/')) { dir = true; line = line.replace(/\/+$/, '') }
+    if (!line) continue
+    const anchored = line.includes('/')
+    if (line.startsWith('/')) line = line.slice(1)
+    out.push({ re: new RegExp(`^${anchored ? '' : '(?:.*/)?'}${globRe(line)}$`), neg, dir })
+  }
+  return out
+}
+function globRe(g) {
+  let re = ''
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i]
+    if (c === '*' && g[i + 1] === '*') {
+      const before = i === 0 || g[i - 1] === '/', after = i + 2 === g.length || g[i + 2] === '/'
+      if (before && after) { re += i + 2 === g.length ? '.*' : '(?:.*/)?'; i += 2; continue }
+    }
+    if (c === '*') re += '[^/]*'
+    else if (c === '?') re += '[^/]'
+    else if (c === '\\' && i + 1 < g.length) re += `\\${g[++i]}`
+    else if (c === '[') {
+      const j = g.indexOf(']', i + 2)
+      if (j < 0) { re += '\\['; continue }
+      let body = g.slice(i + 1, j)
+      if (body[0] === '!') body = `^${body.slice(1)}`
+      re += `[${body.replace(/\\/g, '\\\\')}]`
+      i = j
+    } else re += c.replace(/[.+^${}()|\]\\]/g, '\\$&')
+  }
+  return re
+}
+// left out by the .gitignore files on its way (stack: [{base, rules}] from the top folder down) → true · false
+export function ignoredBy(stack, rel, isDir) {
+  let hit = false
+  for (const { base, rules } of stack) {
+    if (base && !rel.startsWith(`${base}/`)) continue
+    const sub = base ? rel.slice(base.length + 1) : rel
+    for (const r of rules) if ((!r.dir || isDir) && r.re.test(sub)) hit = !r.neg
+  }
+  return hit
+}
 
 // ---------- what was dropped ----------
 // The entries of a drop, read while the drop event lasts (a DataTransfer's items are gone once it returns): a folder or a file of the
@@ -83,33 +141,42 @@ const fileOf = (entry) => (entry.plain ? Promise.resolve(entry.plain) : new Prom
 const textOf = (entry) => new Promise((res) => entry.file((f) => f.slice(0, 64 * 1024).text().then(res, () => res('')), () => res('')))
 const relOf = (entry) => String(entry.fullPath || entry.name || '').replace(/^\/+/, '')
 const MAX_DEPTH = 40
+// what a stopped walk, look or upload throws (「그만두기」, the sheet closed, the page left)
+export const abortError = () => Object.assign(new Error('그만뒀어요'), { name: 'AbortError' })
 
 // Walk what was dropped: every file below, with its path from the drop (a dropped folder's name first), but never into git's data or a
 // folder the rules leave out whole (counted as one place each). At most `max` files are read — more is said, not counted.
 // → {roots: [{name, dir}], files: [{rel, file}], pruned: [{rel, group}], unreadable: [rel], truncated, git: {remote, worktree} | null}
-export async function walk(entries, rules, { max = 40000, onProgress } = {}) {
+export async function walk(entries, rules, { max = 40000, onProgress, signal } = {}) {
   const out = { roots: entries.map((e) => ({ name: e.name, dir: !!e.isDirectory })), files: [], pruned: [], unreadable: [], truncated: false, git: null }
   let seen = 0
   let dirs = 0
   // (a folder that leads back into itself — a link the browser follows — ends at a depth no real folder has, or at the folder count)
-  const one = async (entry, depth = 0) => {
+  const one = async (entry, depth, stack) => {
     if (out.truncated) return
+    if (signal?.aborted) throw abortError()
     const rel = relOf(entry)
     if (entry.isDirectory) {
-      const g = dirGroupOf(rel, rules)
+      const g = dirGroupOf(rel, rules) || (ignoredBy(stack, rel, true) ? 'gitignore' : null)
       if (g) { out.pruned.push({ rel, group: g }); return }
       if (depth > MAX_DEPTH) { out.unreadable.push(rel); return }
       if (++dirs > max) { out.truncated = true; return }
+      const kids = []
       const reader = entry.createReader()
       for (;;) {
         let batch
         try { batch = await readBatch(reader) } catch { out.unreadable.push(rel); return }
         if (!batch.length) break
-        for (const child of batch) { await one(child, depth + 1); if (out.truncated) return }
+        kids.push(...batch)
       }
+      // this folder's own .gitignore, for what is below it
+      const gi = kids.find((k) => k.isFile && k.name === '.gitignore')
+      const below = gi ? [...stack, { base: rel, rules: ignoreRules(await textOf(gi)) }] : stack
+      for (const child of kids) { await one(child, depth + 1, below); if (out.truncated) return }
       return
     }
     if (!entry.isFile) return
+    if (ignoredBy(stack, rel, false)) { out.pruned.push({ rel, group: 'gitignore', file: true }); return }
     if (out.files.length >= max) { out.truncated = true; return }
     try { out.files.push({ rel, file: await fileOf(entry) }) } catch { out.unreadable.push(rel) }
     if (++seen % 200 === 0) onProgress?.(seen)
@@ -117,7 +184,7 @@ export async function walk(entries, rules, { max = 40000, onProgress } = {}) {
   for (const e of entries) {
     // a dropped folder that is a git repository: where its remote is (git's own config — the page reads the address only)
     if (e.isDirectory && !out.git) out.git = await gitOf(e)
-    await one(e)
+    await one(e, 0, [])
   }
   onProgress?.(out.files.length)
   return out
@@ -157,27 +224,38 @@ export function cleanRemote(url) {
 }
 
 // 「폴더 올리기」 (an input with webkitdirectory): the same as a drop of that folder — its files with their paths from it (the folder's
-// name first), git's data and the folders the rules leave out whole taken apart here (the browser hands every file over)
-export function fromPicked(fileList, rules) {
+// name first), git's data, the folders the rules leave out whole and what the folder's .gitignore files leave out taken apart here (the
+// browser hands every file over)
+export async function fromPicked(fileList, rules) {
   const out = { roots: [], files: [], pruned: [], unreadable: [], truncated: false, git: null }
+  const list = [...(fileList || [])].map((f) => ({ f, rel: String(f.webkitRelativePath || f.name || '').replace(/^\/+/, '') }))
+  // the .gitignore files and their folders (read first: a folder's rules apply to all below it)
+  const ignores = new Map()
+  for (const { f, rel } of list) {
+    if (rel.split('/').pop() !== '.gitignore') continue
+    const base = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
+    try { ignores.set(base, ignoreRules(await f.slice(0, 64 * 1024).text())) } catch { /* unreadable: no rules */ }
+  }
   const roots = new Set()
   const prunedAt = new Set()
-  for (const f of fileList || []) {
-    const rel = String(f.webkitRelativePath || f.name || '').replace(/^\/+/, '')
+  for (const { f, rel } of list) {
     const segs = rel.split('/')
     if (segs.length > 1 && !roots.has(segs[0])) { roots.add(segs[0]); out.roots.push({ name: segs[0], dir: true }) }
-    // the first folder on its path the walk would not have gone into
+    // the first folder on its path the walk would not have gone into, with the .gitignore files above each one
     let cut = null
+    const stack = ignores.has(segs[0]) && segs.length > 1 ? [{ base: segs[0], rules: ignores.get(segs[0]) }] : []
     for (let i = 1; i < segs.length - 1 && !cut; i++) {
       const d = segs.slice(0, i + 1).join('/')
-      const g = dirGroupOf(d, rules)
+      const g = dirGroupOf(d, rules) || (ignoredBy(stack, d, true) ? 'gitignore' : null)
       if (g) cut = { rel: d, group: g }
+      else if (ignores.has(d)) stack.push({ base: d, rules: ignores.get(d) })
     }
     if (cut) {
       if (cut.group === 'git' && cut.rel.split('/').length === 2) out.git ||= { remote: '', worktree: false }
       if (!prunedAt.has(cut.rel)) { prunedAt.add(cut.rel); out.pruned.push(cut) }
       continue
     }
+    if (ignoredBy(stack, rel, false)) { out.pruned.push({ rel, group: 'gitignore', file: true }); continue }
     out.files.push({ rel, file: f })
   }
   return out
@@ -195,7 +273,8 @@ export function planOf(scan, rules, { strip = false, exclude = new Set(), shapes
   const left = {}
   const add = (g, rel) => { (left[g] ||= []).push(rel) }
   const places = {}
-  for (const p of scan.pruned) (places[p.group] ||= []).push(`${p.rel}/`)
+  // (a folder left out whole is one place; a file the folder's .gitignore leaves out is a file)
+  for (const p of scan.pruned) { if (p.file) add(p.group, p.rel); else (places[p.group] ||= []).push(`${p.rel}/`) }
   const shapeOf = new Map(shapes.map((h) => [h.rel, h]))
   const tops = new Map()
   const topRow = (t) => { if (!tops.has(t)) tops.set(t, { top: t, files: 0, bytes: 0, out: exclude.has(t) }); return tops.get(t) }
@@ -207,11 +286,14 @@ export function planOf(scan, rules, { strip = false, exclude = new Set(), shapes
     if (g) { add(g, rel); continue }
     if (size > rules.limits.largeFileBytes) { add('large', rel); continue }
     if (shapeOf.has(rel)) { add('shape', rel); continue }
+    // (the path as the server keeps it: one Unicode form; a path longer than one request carries stays here)
+    const path = pathOf(rel).normalize('NFC')
+    if (utf8.encode(path).length > (rules.limits.pathBytes || 1024)) { add('long', rel); continue }
     const t = topOf(rel)
     const row = topRow(t)
     row.files++; row.bytes += size
     if (row.out) continue
-    up.push({ rel, path: pathOf(rel), size, file })
+    up.push({ rel, path, size, file })
     bytes += size
   }
   const over = []
@@ -232,11 +314,12 @@ export function leftCount(plan) {
 
 // Keys of a sure shape in the text that would go up (files up to textMaxBytes with no NUL in their start): the shape's id and the line —
 // the matched text is not kept. → [{rel, line, reason}]
-export async function shapesIn(up, rules, { onProgress } = {}) {
+export async function shapesIn(up, rules, { onProgress, signal } = {}) {
   if (!rules.block.length) return []
   const out = []
   let n = 0
   for (const u of up) {
+    if (signal?.aborted) throw abortError()
     if (++n % 100 === 0) onProgress?.(n)
     if (!(u.size > 0) || u.size > rules.limits.textMaxBytes || !u.file?.arrayBuffer) continue
     let bytes
@@ -252,10 +335,9 @@ export async function shapesIn(up, rules, { onProgress } = {}) {
 }
 
 // ---------- sending ----------
-// one request's files at most (server folders/service.js BATCH_MAX_FILES) and bytes (under the server's 64 MB body limit, with room for
-// the form's own parts)
-export const BATCH = { files: 1000, bytes: 32 * 1024 * 1024 }
-export function batchesOf(up, { files = BATCH.files, bytes = BATCH.bytes } = {}) {
+// One request (server lib/folders/batchBody.js — read as it arrives, within its limits): at most limits.batchFiles files and
+// limits.batchBytes bytes of them (a file over largeFileBytes never goes, so one file alone always fits).
+export function batchesOf(up, { files = 1000, bytes = 50 * 1024 * 1024 } = {}) {
   const out = []
   let cur = [], size = 0
   for (const u of up) {
@@ -265,16 +347,45 @@ export function batchesOf(up, { files = BATCH.files, bytes = BATCH.bytes } = {})
   if (cur.length) out.push(cur)
   return out
 }
-// the plan's files to the folder, request by request (each one commit) → {written, refused: [{path, reason, line}]}
-// send(batch, meta): the folders API (foldersApi.js uploadBatch) · onProgress(done, total)
-export async function sendPlan(plan, { label, send, onProgress } = {}) {
-  const parts = batchesOf(plan.up)
+const utf8 = new TextEncoder()
+const MAGIC = utf8.encode('PGLB1\n')
+// the body of one request: "PGLB1\n" · u32 meta length · meta JSON · per file u16 path length · path · u32 size · its bytes (a Blob: the
+// browser reads each file as it sends it)
+export function batchBody(batch, meta) {
+  const m = utf8.encode(JSON.stringify({ ...meta, count: batch.length }))
+  const head = new Uint8Array(MAGIC.length + 4 + m.length)
+  head.set(MAGIC); new DataView(head.buffer).setUint32(MAGIC.length, m.length); head.set(m, MAGIC.length + 4)
+  const parts = [head]
+  for (const u of batch) {
+    const p = utf8.encode(u.path)
+    const h = new Uint8Array(2 + p.length + 4)
+    const dv = new DataView(h.buffer)
+    dv.setUint16(0, p.length); h.set(p, 2); dv.setUint32(2 + p.length, u.size)
+    parts.push(h, u.file)
+  }
+  return new Blob(parts, { type: 'application/x-pgl-batch' })
+}
+// an id for one upload (the server counts its requests together against one upload's limits)
+export function sessionId() {
+  const b = new Uint8Array(12)
+  globalThis.crypto.getRandomValues(b)
+  return [...b].map((x) => x.toString(36).padStart(2, '0')).join('').slice(0, 20)
+}
+// The plan's files to the folder, request by request (each one commit) → {written, refused: [{path, reason, line}]}. A failure or a stop
+// part way throws with what went up before it (err.written · err.refused).
+// send(batch, meta, signal): the folders API (foldersApi.js uploadBatch) · onProgress(done, total) · limits: rules.limits
+export async function sendPlan(plan, { label, send, onProgress, signal, limits = {} } = {}) {
+  const parts = batchesOf(plan.up, { files: limits.batchFiles, bytes: limits.batchBytes })
+  const session = sessionId()
   let written = 0
   const refused = []
   for (let i = 0; i < parts.length; i++) {
-    const r = await send(parts[i], { label, part: i + 1, parts: parts.length, final: i === parts.length - 1 })
-    written += (r?.written || []).length
-    refused.push(...(r?.refused || []))
+    try {
+      if (signal?.aborted) throw abortError()
+      const r = await send(parts[i], { label, part: i + 1, parts: parts.length, session }, signal)
+      written += (r?.written || []).length
+      refused.push(...(r?.refused || []))
+    } catch (e) { throw Object.assign(signal?.aborted ? abortError() : e, { written, refused }) }
     onProgress?.(parts.slice(0, i + 1).reduce((a, b) => a + b.length, 0), plan.up.length)
   }
   return { written, refused }

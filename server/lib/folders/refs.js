@@ -517,12 +517,18 @@ export const LEFTOVER = '.slot-leftover'
 // A person's write into the composing folder at rel (올리기 · 지우기 · 이음오피스 저장 · 작업실 · 폴더에 넣기): refused where a reference
 // is — the slot wins, also over a file a commit from elsewhere put there — and in the place leftovers are kept (nothing there is saved)
 export async function assertWritable(folder, rel) {
-  if (!folder || folder.kind !== 'managed') return
-  const p = S.safeRel(rel)
-  if (inside(LEFTOVER, p)) throw err(409, L('참조 자리에서 옮겨 둔 파일의 보관 자리예요. 여기에는 저장되지 않아요 — 내려받아 필요한 곳에 올려 주세요.', "This is where files moved off reference slots are kept; nothing is saved here — download them and upload where they belong."), 'ref_readonly')
+  (await writableCheck(folder))(rel)
+}
+// the same check for many paths of one request (a folder going up — folders/service.js uploadMany): the folder's slots read once →
+// (rel) => nothing, or throws as assertWritable does
+export async function writableCheck(folder) {
+  if (!folder || folder.kind !== 'managed') return () => {}
   const rows = await rowsOf(folder.id)
-  if (!rows.length) return
-  if (rows.some((r) => overlaps(r.slot, p))) throw err(409, L('참조된 자료예요. 원본 폴더에서 고쳐 주세요.', 'This is referenced material. Change it in its original folder.'), 'ref_readonly')
+  return (rel) => {
+    const p = S.safeRel(rel)
+    if (inside(LEFTOVER, p)) throw err(409, L('참조 자리에서 옮겨 둔 파일의 보관 자리예요. 여기에는 저장되지 않아요 — 내려받아 필요한 곳에 올려 주세요.', "This is where files moved off reference slots are kept; nothing is saved here — download them and upload where they belong."), 'ref_readonly')
+    if (rows.some((r) => overlaps(r.slot, p))) throw err(409, L('참조된 자료예요. 원본 폴더에서 고쳐 주세요.', 'This is referenced material. Change it in its original folder.'), 'ref_readonly')
+  }
 }
 // the slots a new file may not take (filing picks another name beside them)
 export async function slotPaths(folder) {

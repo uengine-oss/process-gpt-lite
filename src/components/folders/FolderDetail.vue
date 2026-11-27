@@ -74,7 +74,12 @@ async function load() {
     if (f.kind === 'linked' && !cand.value) cand.value = await F.candidates(props.slug).catch(() => null)
   } catch (e) { err.value = e.message }
 }
-onMounted(load)
+onMounted(() => {
+  load()
+  // a folder just made from a dropped one (FolderList dropDone): what is to be said about it, and its index a moment later
+  const note = window.history.state?.dropNote
+  if (note) { say(note); setTimeout(load, 1500); window.history.replaceState({ ...window.history.state, dropNote: null }, '') }
+})
 defineExpose({ load })
 watch(() => props.slug, () => { folder.value = null; cand.value = null; load() })
 // agents finish runs and cards get made in the background: keep the view fresh meanwhile
@@ -256,32 +261,42 @@ function onDrop(e) {
 // a folder from the computer: the champion folders' rules (what stays here), the walk down, then the sheet
 let rules = null
 const rulesNow = async () => (rules ||= compileRules(await F.uploadRules()))
+// (「그만두기」 on the note, or leaving the folder, stops the walk)
+let walking = null
+onBeforeUnmount(() => walking?.abort())
 async function dropFolder(entries) {
   if (!can('editor') || folder.value?.kind !== 'managed') return say(folder.value?.kind !== 'managed' ? '이 폴더에는 올릴 수 없어요.' : '올리려면 편집 권한이 필요해요.')
+  walking?.abort()
+  const stop = (walking = new AbortController())
   scanning.value = '폴더를 살피는 중…'
   try {
     const r = await rulesNow()
-    const scan = await walk(entries, r, { onProgress: (n) => { scanning.value = `폴더를 살피는 중… 파일 ${n.toLocaleString()}개` } })
-    dropSheet.value = { scan, rules: r }
-  } catch (e) { say(e.message) } finally { scanning.value = '' }
+    const scan = await walk(entries, r, { signal: stop.signal, onProgress: (n) => { scanning.value = `폴더를 살피는 중… 파일 ${n.toLocaleString()}개` } })
+    if (!stop.signal.aborted) dropSheet.value = { scan, rules: r }
+  } catch (e) { if (e.name !== 'AbortError') say(e.message) } finally { if (walking === stop) { walking = null; scanning.value = '' } }
 }
+const stopWalk = () => { walking?.abort(); walking = null; scanning.value = '' }
 async function pickedDir(e) {
   const list = [...(e.target.files || [])]
   e.target.value = ''
   if (!list.length) return
-  try { const r = await rulesNow(); dropSheet.value = { scan: fromPicked(list, r), rules: r } } catch (err2) { say(err2.message) }
+  try { const r = await rulesNow(); dropSheet.value = { scan: await fromPicked(list, r), rules: r } } catch (err2) { say(err2.message) }
 }
 function pickedFiles(e) {
   const list = [...(e.target.files || [])]
   e.target.value = ''
   if (list.length) uploadFiles(list)
 }
+// (the server brings the folder's index up to date a moment after the last request: the list is read now and again shortly)
 function dropDone(r) {
   dropSheet.value = null
   load()
+  setTimeout(load, 1500)
   const bad = r.refused || []
-  if (r.partial) return say(`파일 ${Number(r.written || 0).toLocaleString()}개를 올린 뒤 멈췄어요 — ${r.partial}`)
-  say(`올렸어요 — 파일 ${Number(r.written || 0).toLocaleString()}개${bad.length ? ` · 서버가 받지 않은 것 ${bad.length}개(${bad.slice(0, 3).map((x) => `${x.path} ${reasonText(x.reason)}`).join(', ')})` : ''}`)
+  const n = Number(r.written || 0).toLocaleString()
+  if (r.stopped) return say(`그만뒀어요 — 파일 ${n}개는 올라갔어요`)
+  if (r.partial) return say(`파일 ${n}개를 올린 뒤 멈췄어요 — ${r.partial}`)
+  say(`올렸어요 — 파일 ${n}개${bad.length ? ` · 서버가 받지 않은 것 ${bad.length}개(${bad.slice(0, 3).map((x) => `${x.path} ${reasonText(x.reason)}`).join(', ')})` : ''}`)
 }
 // 「파일 올리기」 · 「폴더 올리기」: the system's file window, opened from the click itself — the inputs stay in the page whatever the
 // menu or the tab row do (a menu item that closes does not take its input with it), out of sight rather than display:none
@@ -579,7 +594,7 @@ const ix = computed(() => folder.value?.index_state || {})
       </div>
     </template>
     <Transition name="fade"><div v-if="toast" class="toast" data-test="folder-toast">{{ toast }}</div></Transition>
-    <Transition name="fade"><div v-if="scanning" class="toast scan" data-test="folder-scanning" role="status"><span class="spin" /> {{ scanning }}</div></Transition>
+    <Transition name="fade"><div v-if="scanning" class="toast scan" data-test="folder-scanning" role="status"><span class="spin" /> {{ scanning }}<button class="press" data-test="folder-scanning-stop" @click="stopWalk">그만두기</button></div></Transition>
     <Transition name="fade">
       <div v-if="filedNote" class="toast filed" data-test="folder-filed" role="status">
         <FIcon name="folder" :size="16" /><span>{{ filedNote.text }}{{ filedNote.count > 1 ? ` · ${filedNote.count}개` : '' }}</span>
@@ -738,6 +753,7 @@ section.pane { position: relative; }
 /* the system's file window opens from these (not display:none — kept in the page, out of sight) */
 .pick { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .toast.scan { display: inline-flex; align-items: center; gap: 8px; }
+.toast.scan button { margin-left: 4px; padding: 3px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #f5f5f7; background: rgba(255, 255, 255, .16); }
 .pop { position: fixed; width: 220px; padding: 6px; border-radius: 16px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 12px 40px rgba(0, 0, 0, .22); --regular-bg: var(--regular-solid-bg); animation: pop-in .25s var(--spring) both; }
 .mh { padding: 8px 10px 6px; font-size: 13.5px; font-weight: 600; display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
 .mh small, .mi small { font-size: 11.5px; font-weight: 400; color: var(--text-secondary); }

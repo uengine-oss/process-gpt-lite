@@ -1,6 +1,6 @@
 <script setup>
 // 폴더 목록(드라이브): 이름·구성원·최근 활동·변형 수·색인 상태, 그리고 색인 검색.
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Icon from '../Icon.vue'
 import FIcon from './FIcon.vue'
@@ -141,33 +141,51 @@ const isComp = (e) => dragKind(e.dataTransfer?.types) === 'files'
 function compEnter(e) { if (!isComp(e) || tab.value !== 'folders') return; e.preventDefault(); compDepth++; comp.value = true }
 function compOver(e) { if (!isComp(e) || tab.value !== 'folders') return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy' }
 function compLeave(e) { if (!isComp(e)) return; if (--compDepth <= 0) { compDepth = 0; comp.value = false } }
-const newDrop = ref(null)        // {scan, rules, name} — the sheet
+const newDrop = ref(null)        // {scan, rules, name, description, typed} — the sheet (typed: 「새 폴더」's own fields when it was dropped there)
 const scanning = ref('')
 let rules = null
+// (「그만두기」 on the note, or leaving the list, stops the walk)
+let walking = null
+onBeforeUnmount(() => walking?.abort())
+const stopWalk = () => { walking?.abort(); walking = null; scanning.value = '' }
 async function compDrop(e) {
   if (!isComp(e) || tab.value !== 'folders') return
   e.preventDefault()
   compDepth = 0; comp.value = false
   // (read now: a drop's items are gone once this returns)
   const entries = entriesOf(e.dataTransfer)
-  const typed = sheet.value === 'new' ? form.value.name.trim() : ''
+  const typed = sheet.value === 'new' ? { ...form.value } : null
   if (!entries.some((x) => x.isDirectory)) { dropNote.value = { text: '폴더를 놓으면 같은 이름으로 새 폴더를 만들어요 — 파일은 폴더를 열고 그 안에 놓아 주세요.' }; setTimeout(() => { dropNote.value = null }, 9000); return }
   sheet.value = null
+  walking?.abort()
+  const stop = (walking = new AbortController())
   scanning.value = '폴더를 살피는 중…'
   try {
     rules ||= compileRules(await F.uploadRules())
-    const scan = await walk(entries.filter((x) => x.isDirectory).slice(0, 1), rules, { onProgress: (n) => { scanning.value = `폴더를 살피는 중… 파일 ${n.toLocaleString()}개` } })
-    newDrop.value = { scan, rules, name: typed || scan.roots[0]?.name || '' }
-  } catch (err2) { dropNote.value = { text: err2.message }; setTimeout(() => { dropNote.value = null }, 9000) } finally { scanning.value = '' }
+    const scan = await walk(entries.filter((x) => x.isDirectory).slice(0, 1), rules, { signal: stop.signal, onProgress: (n) => { scanning.value = `폴더를 살피는 중… 파일 ${n.toLocaleString()}개` } })
+    if (!stop.signal.aborted) newDrop.value = { scan, rules, name: typed?.name.trim() || scan.roots[0]?.name || '', description: typed?.description.trim() || '', typed }
+  } catch (err2) {
+    if (err2.name !== 'AbortError') { dropNote.value = { text: err2.message }; setTimeout(() => { dropNote.value = null }, 9000) }
+  } finally { if (walking === stop) { walking = null; scanning.value = '' } }
+  // (stopped while 「새 폴더」 was open: it comes back as it was)
+  if (stop.signal.aborted && typed) { form.value = typed; sheet.value = 'new' }
+}
+// the drop sheet closed without going up: 「새 폴더」, when it was dropped there, comes back with what was typed in it
+function dropClosed() {
+  const t = newDrop.value?.typed
+  newDrop.value = null
+  if (t) { form.value = t; formErr.value = ''; sheet.value = 'new' }
 }
 // the desktop app's two ways for a new folder: 'ready' — its folder bridge, paired for me · 'unpaired' · 'old' — an app without the bridge
 const pcWay = computed(() => (pc.value ? (link.value === 'ready' ? 'ready' : 'unpaired') : pc.value === false && oldApp ? 'old' : ''))
+// (what is said about it goes with the move: the folder's screen says it — FolderDetail reads history.state.dropNote)
 function dropDone(r) {
   newDrop.value = null
-  if (r.partial) dropNote.value = { text: `‘${r.folder?.name}’ 폴더를 만들었지만 다 올리지 못했어요 — ${r.partial}`, slug: r.slug }
-  else if (r.refused?.length) dropNote.value = { text: `올렸어요 — 파일 ${r.written.toLocaleString()}개 · 서버가 받지 않은 것 ${r.refused.length}개`, slug: r.slug }
-  if (dropNote.value) setTimeout(() => { dropNote.value = null }, 9000)
-  router.push(`/folders/${r.slug}`)
+  const n = Number(r.written || 0).toLocaleString()
+  const note = r.stopped ? `‘${r.folder?.name}’ 폴더를 만들고 그만뒀어요 — 파일 ${n}개는 올라갔어요`
+    : r.partial ? `‘${r.folder?.name}’ 폴더를 만들었지만 다 올리지 못했어요 — ${r.partial}`
+      : r.refused?.length ? `올렸어요 — 파일 ${n}개 · 서버가 받지 않은 것 ${r.refused.length}개` : ''
+  router.push({ path: `/folders/${r.slug}`, state: note ? { dropNote: note } : {} })
 }
 // 「내 PC 폴더로 공유(계속 맞춤)」: the champion folders' own flow — the app's system dialog picks the folder, its preview follows
 function dropToPc() { newDrop.value = null; pickPcFolder() }
@@ -282,12 +300,12 @@ function dropToPc() { newDrop.value = null; pickPcFolder() }
     </Transition>
 
     <SourceSheet v-if="picked" :pick="picked" @close="picked = null" @done="picked = null" />
-    <FolderDropSheet v-if="newDrop" :scan="newDrop.scan" :rules="newDrop.rules" mode="new" :name="newDrop.name" :pc="pcWay" @close="newDrop = null" @done="dropDone" @champion="dropToPc" />
+    <FolderDropSheet v-if="newDrop" :scan="newDrop.scan" :rules="newDrop.rules" mode="new" :name="newDrop.name" :description="newDrop.description" :pc="pcWay" @close="dropClosed" @done="dropDone" @champion="dropToPc" />
     <!-- a computer's folder over the list: dropped, it becomes a new folder by its name -->
     <Transition name="fade">
       <div v-if="comp" class="compzone" data-test="folder-list-dropzone"><div><FIcon name="folder" :size="28" /><p>여기에 놓으면 같은 이름으로 새 폴더를 만들어요</p><small>올릴 내용을 먼저 확인해요</small></div></div>
     </Transition>
-    <Transition name="fade"><div v-if="scanning" class="dropnote" data-test="folder-scanning" role="status"><span class="spin" /> {{ scanning }}</div></Transition>
+    <Transition name="fade"><div v-if="scanning" class="dropnote" data-test="folder-scanning" role="status"><span class="spin" /> {{ scanning }}<button class="press stopb" data-test="folder-scanning-stop" @click="stopWalk">그만두기</button></div></Transition>
 
     <div v-if="sheet" class="veil" @click.self="sheet = null">
       <form class="box glass" @submit.prevent="submit">
@@ -346,6 +364,10 @@ h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
 .compzone p { margin: 6px 0 2px; font-size: 16px; font-weight: 600; }
 .compzone small { font-size: 12px; color: #5b6472; }
 .dropnote .spin { color: #f5f5f7; }
+.dropnote button.stopb { background: rgba(255, 255, 255, .16); }
+:root[data-theme="dark"] .compzone { background: rgba(120, 175, 255, .12); border-color: rgba(140, 193, 255, .75); }
+:root[data-theme="dark"] .compzone div { color: #9cc7ff; background: rgba(29, 29, 31, .94); box-shadow: 0 8px 28px rgba(0, 0, 0, .5); }
+:root[data-theme="dark"] .compzone small { color: #a1a1aa; }
 .dropnote { position: fixed; left: 50%; bottom: 28px; translate: -50% 0; z-index: 50; display: inline-flex; align-items: center; gap: 8px; max-width: 90vw; padding: 12px 18px; border-radius: 14px; background: #1d1d1f; color: #f5f5f7; font-size: 14px; }
 .dropnote button { padding: 3px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #fff; background: #2a78d6; }
 .row.th { padding: 0 18px; font-size: 12.5px; color: var(--text-tertiary); }

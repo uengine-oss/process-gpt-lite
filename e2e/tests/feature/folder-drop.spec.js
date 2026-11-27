@@ -1,18 +1,19 @@
 // 폴더 — 컴퓨터의 폴더를 끌어다 놓아 올리기 · 「파일 올리기」 · 「폴더 올리기」 (사용자 녹화 11-27, spec openspec/specs/champion-folders
 // 「컴퓨터의 폴더를 끌어다 놓아 올린다」 · 「올리기 메뉴는 시스템의 파일 창을 연다」).
-//   F-FD-01 폴더의 파일 칸에 폴더를 놓으면 미리 보기(몇 개 · 크기 · 빠지는 것과 까닭 · git 원격) → 올리기: 경로 그대로 main 에 한 커밋,
+//   F-DR-01 폴더의 파일 칸에 폴더를 놓으면 미리 보기(몇 개 · 크기 · 빠지는 것과 까닭 · git 원격) → 올리기: 경로 그대로 main 에 한 커밋,
 //           .git · node_modules · 비밀 · 개인 설정 · git 제어 파일 · 큰 파일 · 열쇠 모양이 든 파일은 없다
-//   F-FD-02 폴더 목록에 폴더를 놓으면 그 이름이 들어간 새 폴더 → 만들고 올리기 → 새 폴더에 그 안의 것이 그대로. 「새 폴더」 창에 놓으면
+//   F-DR-02 폴더 목록에 폴더를 놓으면 그 이름이 들어간 새 폴더 → 만들고 올리기 → 새 폴더에 그 안의 것이 그대로. 「새 폴더」 창에 놓으면
 //           적어 둔 이름으로
-//   F-FD-03 한도를 넘으면 무엇이 넘는지와 가장 큰 것 — 올리기는 막히고, 「올릴 것」에서 빼면 나머지가 올라간다
-//   F-FD-04 「파일 올리기」 · 「폴더 올리기」는 시스템의 파일 창을 연다(폴더 창은 디렉터리를 고름) → 고른 폴더는 같은 미리 보기로
-//   F-FD-05 휴대폰 390: 미리 보기는 아래에서 올라오는 시트, 옆으로 넘치지 않음 · 휴대폰에는 「폴더 올리기」가 없다
-//   F-FD-06 어두운 테마의 미리 보기(git 원격 · 한도 넘음 · 빠지는 것)
-//   F-FD-07 데스크톱 앱: 다리가 있으면 새 폴더에 두 길(「한 번 올리기」 기본 · 「내 PC 폴더로 공유(계속 맞춤)」 → 챔피언 흐름의 시스템 창),
+//   F-DR-03 한도를 넘으면 무엇이 넘는지와 가장 큰 것 — 올리기는 막히고, 「올릴 것」에서 빼면 나머지가 올라간다
+//   F-DR-04 「파일 올리기」 · 「폴더 올리기」는 시스템의 파일 창을 연다(폴더 창은 디렉터리를 고름) → 고른 폴더는 같은 미리 보기로
+//   F-DR-05 휴대폰 390: 미리 보기는 아래에서 올라오는 시트, 옆으로 넘치지 않음 · 휴대폰에는 「폴더 올리기」가 없다
+//   F-DR-06 어두운 테마의 미리 보기(git 원격 · 한도 넘음 · 빠지는 것)
+//   F-DR-07 데스크톱 앱: 다리가 있으면 새 폴더에 두 길(「한 번 올리기」 기본 · 「내 PC 폴더로 공유(계속 맞춤)」 → 챔피언 흐름의 시스템 창),
 //           다리가 없는 0.2.3 은 한 줄 안내
-//   F-FD-08 서버가 다시 본다: 비밀 이름 · git 제어 파일 · 열쇠 모양 · .git 경로 · 폴더를 벗어난 경로는 파일마다 까닭과 함께 거절,
+//   F-DR-08 서버가 다시 본다: 비밀 이름 · git 제어 파일 · 열쇠 모양 · .git 경로 · 폴더를 벗어난 경로는 파일마다 까닭과 함께 거절,
 //           보기 권한은 403
-//   F-FD-09 작업실: 이 서버(여러 회사 · 터미널 열쇠 없음)가 터미널을 열지 않는 까닭을 보이고, 데스크톱 앱에서는 머리줄이 창의 단추를
+//   F-DR-12 「그만두기」: 폴더를 살피는 중에 멈추면 시트가 뜨지 않고, 올리는 중에 멈추면 그 요청은 가지 않으며 그렇다고 말한다
+//   F-DR-09 작업실: 이 서버(여러 회사 · 터미널 열쇠 없음)가 터미널을 열지 않는 까닭을 보이고, 데스크톱 앱에서는 머리줄이 창의 단추를
 //           피하며, 앞 화면 없이 열었어도 폴더로 돌아간다 · 없는 폴더는 폴더의 말로
 // 디렉터리 놓기는 webkitGetAsEntry 를 흉내 낸 drop 이벤트로 한다(페이지 안에서 만든 FileSystemEntry 나무 — 브라우저가 주는 모양 그대로).
 // 자기 스택(lib/localStack.js: 회사 folder-drop 의 BFF + Vite, 8977 · 5377 부터 빈 곳 — RT_FD_API_PORT · RT_FD_WEB_PORT)을 띄우고 지운다.
@@ -23,7 +24,9 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
 import { startStack, REPO } from '../../lib/localStack.js'
+import { batchBody, sessionId } from '../../../src/folderDrop.js'
 
 test.describe.configure({ mode: 'serial' })
 const SHOTS = path.join(REPO, 'openspec/specs/champion-folders/e2e/results')
@@ -49,9 +52,14 @@ const KIT = {
   '.gitmodules': '[submodule "x"]\n',
   'deploy_key.pem': PEM,
   '녹화.mov': { __size: 60 * 1024 * 1024 },
+  '.gitignore': 'out/\n*.log\n',
+  'out': { 'bundle.js': '1' },
+  'debug.log': 'x',
+  '.gitattributes': '* filter=lfs\n',
 }
-const UP_KIT = ['README.md', '견적/양식.md', '견적/단가표.csv', 'docs/쓰는 법.md', 'src/app.js', '.env.example', '.claude/skills/견적-정리/SKILL.md']
-const NOT_UP = ['.git/config', '.git/HEAD', 'node_modules/pkg/index.js', '.env', '.claude/settings.local.json', '.gitmodules', 'deploy_key.pem', '녹화.mov', 'src/deploy.js']
+const UP_KIT = ['README.md', '견적/양식.md', '견적/단가표.csv', 'docs/쓰는 법.md', 'src/app.js', '.env.example', '.claude/skills/견적-정리/SKILL.md', '.gitignore']
+const NOT_UP = ['.git/config', '.git/HEAD', 'node_modules/pkg/index.js', '.env', '.claude/settings.local.json', '.gitmodules', 'deploy_key.pem', '녹화.mov', 'src/deploy.js',
+  'out/bundle.js', 'debug.log', '.gitattributes']
 
 // in the page: a FileSystemEntry tree as the browser hands a dropped folder over, and the drag events a drop of it makes
 const FAKE_DROP = `(() => {
@@ -62,10 +70,11 @@ const FAKE_DROP = `(() => {
       if (typeof spec !== 'string') Object.defineProperty(f, 'size', { value: spec.__size })
       return { isFile: true, isDirectory: false, name, fullPath, file: (ok) => setTimeout(() => ok(f)) }
     }
-    const kids = Object.entries(spec).map(([n, s]) => entryOf(n, s, fullPath))
+    // (__slow: this folder's entries come that many ms late — a big folder being read)
+    const kids = Object.entries(spec).filter(([n]) => n !== '__slow').map(([n, s]) => entryOf(n, s, fullPath))
     const find = (p) => { let cur = { kids }; for (const s of p.split('/')) { cur = (cur.kids || []).find((k) => k.name === s); if (!cur) return null } return cur }
     return { isFile: false, isDirectory: true, name, fullPath, kids,
-      createReader() { let i = 0; return { readEntries(ok) { const b = kids.slice(i, i + 100); i += 100; setTimeout(() => ok(b)) } } },
+      createReader() { let i = 0; return { readEntries(ok) { const b = kids.slice(i, i + 100); i += 100; setTimeout(() => ok(b), spec.__slow || 0) } } },
       getDirectory(p, _o, ok, no) { const e = find(p); e && e.isDirectory ? ok(e) : no(new DOMException('not found', 'NotFoundError')) },
       getFile(p, _o, ok, no) { const e = find(p); e && e.isFile ? ok(e) : no(new DOMException('not found', 'NotFoundError')) } }
   }
@@ -139,7 +148,7 @@ const lastCommit = async (slug) => {
   return execFileSync('git', ['log', '-1', '--format=%an|%s', 'main'], { cwd: f.repo_path }).toString().trim()
 }
 
-test('F-FD-01 폴더 칸에 폴더를 놓으면 미리 보기 → 올리기: 경로 그대로, 빠지는 것은 없다', async ({ browser }) => {
+test('F-DR-01 폴더 칸에 폴더를 놓으면 미리 보기 → 올리기: 경로 그대로, 빠지는 것은 없다', async ({ browser }) => {
   const f = await folder('유엔진플랫폼')
   const p = await open(browser, DESK)
   await p.goto(`/folders/${f.slug}`)
@@ -151,14 +160,14 @@ test('F-FD-01 폴더 칸에 폴더를 놓으면 미리 보기 → 올리기: 경
   // the repository's remote — the address only, never the name or token in it
   await expect(p.locator('[data-test="drop-git"]')).toContainText('git 저장소예요(원격 github.com/acme/quote-kit)')
   await expect(p.locator('[data-test="drop-dest"]')).toContainText('main 에 견적 키트/ 그대로 올라가요')
-  for (const g of ['git', 'secret', 'personal', 'rebuildable', 'structure', 'large', 'shape']) await expect(p.locator(`[data-test="drop-left"][data-group="${g}"]`), g).toBeVisible()
+  for (const g of ['git', 'secret', 'personal', 'rebuildable', 'gitignore', 'structure', 'large', 'shape']) await expect(p.locator(`[data-test="drop-left"][data-group="${g}"]`), g).toBeVisible()
   await p.locator('[data-test="drop-left"][data-group="shape"] button').click()
   await expect(p.locator('[data-test="drop-left"][data-group="shape"]')).toContainText('견적 키트/src/deploy.js')
   await expect(p.locator('[data-test="drop-left"][data-group="shape"]')).toContainText('1째 줄 · GitHub 토큰')
   const html = await p.content()
   expect(html).not.toContain(FAKE_GH)
   expect(html).not.toContain('s3cret-tok')
-  await shot(p, 'f-fd-01-drop-sheet')
+  await shot(p, 'f-dr-01-drop-sheet')
   await p.locator('[data-test="drop-go"]').click()
   await expect(sheet).toHaveCount(0, { timeout: 30_000 })
   await expect(p.locator('[data-test="folder-toast"]')).toContainText(`올렸어요 — 파일 ${UP_KIT.length}개`)
@@ -168,19 +177,19 @@ test('F-FD-01 폴더 칸에 폴더를 놓으면 미리 보기 → 올리기: 경
   for (const x of NOT_UP) expect(main, x).not.toContain(`견적 키트/${x}`)
   // one commit for the whole folder, in her name
   expect(await lastCommit(f.slug)).toBe(`정하윤|폴더 올리기: 견적 키트 · 파일 ${UP_KIT.length}개`)
-  await shot(p, 'f-fd-01-uploaded')
+  await shot(p, 'f-dr-01-uploaded')
   expect(p.errors).toEqual([])
   await p.context().close()
 })
 
-test('F-FD-02 폴더 목록에 놓으면 그 이름으로 새 폴더 — 그 안의 것이 그대로, 「새 폴더」 창에 놓으면 적어 둔 이름으로', async ({ browser }) => {
+test('F-DR-02 폴더 목록에 놓으면 그 이름으로 새 폴더 — 그 안의 것이 그대로, 「새 폴더」 창에 놓으면 적어 둔 이름으로', async ({ browser }) => {
   const p = await open(browser, DESK)
   await p.goto('/folders')
   const name = `고객 세미나 자료 ${Date.now().toString(36)}`
   // while it is over the list: where it goes
   await dropOn(p, '[data-test="folder-list"]', name, { 'README.md': '# 세미나\n' }, ['dragenter', 'dragover'])
   await expect(p.locator('[data-test="folder-list-dropzone"]')).toContainText('같은 이름으로 새 폴더를 만들어요')
-  await shot(p, 'f-fd-02-list-dropzone')
+  await shot(p, 'f-dr-02-list-dropzone')
   await dropOn(p, '[data-test="folder-list"]', name, { 'README.md': '# 세미나\n', '안내문': { '1차.md': '# 1차 안내\n' }, '.DS_Store': 'x', 'node_modules': { 'a.js': '1' } }, ['drop'])
   const sheet = p.locator('[data-test="drop-sheet"][data-mode="new"]')
   await expect(sheet).toBeVisible()
@@ -189,7 +198,7 @@ test('F-FD-02 폴더 목록에 놓으면 그 이름으로 새 폴더 — 그 안
   // a browser: no desktop line
   await expect(p.locator('[data-test="drop-ways"]')).toHaveCount(0)
   await expect(p.locator('[data-test="drop-pc-old"]')).toHaveCount(0)
-  await shot(p, 'f-fd-02-new-sheet')
+  await shot(p, 'f-dr-02-new-sheet')
   await p.locator('[data-test="drop-go"]').click()
   await p.waitForURL(/\/folders\/[^/?#]+$/, { timeout: 30_000 })
   const slug = decodeURIComponent(new URL(p.url()).pathname.split('/').pop())
@@ -202,9 +211,15 @@ test('F-FD-02 폴더 목록에 놓으면 그 이름으로 새 폴더 — 그 안
   await expect(p.locator('[data-test="folder-new-drop-hint"]')).toBeVisible()
   const typed = `세미나 2차 ${Date.now().toString(36)}`
   await p.locator('.box input.fld').first().fill(typed)
+  await p.locator('.box input.fld').nth(1).fill('세미나 자료 모음')
   await dropOn(p, '.box', '다른 이름', { 'a.md': 'a' })
   await expect(p.locator('[data-test="drop-name"]')).toHaveValue(typed)
-  await p.locator('[data-test="drop-sheet"] .ic').click()
+  await expect(p.locator('[data-test="drop-description"]')).toHaveValue('세미나 자료 모음')
+  // closing the sheet brings 「새 폴더」 back with what was typed
+  await p.locator('[data-test="drop-cancel"]').click()
+  await expect(p.locator('.box input.fld').first()).toHaveValue(typed)
+  await expect(p.locator('.box input.fld').nth(1)).toHaveValue('세미나 자료 모음')
+  await p.locator('.box .ic').click()
   // plain files on the list: said where they go
   await p.evaluate(() => {
     const f = new File(['x'], 'a.txt')
@@ -217,7 +232,7 @@ test('F-FD-02 폴더 목록에 놓으면 그 이름으로 새 폴더 — 그 안
   await p.context().close()
 })
 
-test('F-FD-03 한도를 넘으면 무엇이 넘는지와 가장 큰 것 — 빼면 나머지가 올라간다', async ({ browser }) => {
+test('F-DR-03 한도를 넘으면 무엇이 넘는지와 가장 큰 것 — 빼면 나머지가 올라간다', async ({ browser }) => {
   const f = await folder('큰 폴더')
   const p = await open(browser, DESK)
   await p.goto(`/folders/${f.slug}`)
@@ -226,7 +241,7 @@ test('F-FD-03 한도를 넘으면 무엇이 넘는지와 가장 큰 것 — 빼�
   await expect(p.locator('[data-test="drop-over"]')).toContainText('한 번에 올릴 수 있는 크기(200 MB)를 넘어요')
   await expect(p.locator('[data-test="drop-over"]')).toContainText('가장 큰 것: 녹화/ 225 MB · 파일 5개')
   await expect(p.locator('[data-test="drop-go"]')).toBeDisabled()
-  await shot(p, 'f-fd-03-over')
+  await shot(p, 'f-dr-03-over')
   await p.locator('[data-test="drop-top"][data-top="녹화/"] input').uncheck()
   await expect(p.locator('[data-test="drop-over"]')).toHaveCount(0)
   await expect(p.locator('[data-test="drop-total"]')).toHaveAttribute('data-files', '2')
@@ -237,7 +252,7 @@ test('F-FD-03 한도를 넘으면 무엇이 넘는지와 가장 큰 것 — 빼�
   await p.context().close()
 })
 
-test('F-FD-04 「파일 올리기」 · 「폴더 올리기」는 시스템의 파일 창을 연다 — 고른 폴더는 같은 미리 보기로', async ({ browser }) => {
+test('F-DR-04 「파일 올리기」 · 「폴더 올리기」는 시스템의 파일 창을 연다 — 고른 폴더는 같은 미리 보기로', async ({ browser }) => {
   const f = await folder('파일 창')
   const p = await open(browser, DESK)
   await p.goto(`/folders/${f.slug}`)
@@ -245,7 +260,7 @@ test('F-FD-04 「파일 올리기」 · 「폴더 올리기」는 시스템의 �
   fs.writeFileSync(path.join(workDir, '회의록.md'), '# 회의록\n')
   await p.locator('[data-test="folder-add-menu"]').click()
   await expect(p.getByRole('menuitem')).toHaveText([/파일 올리기/, /폴더 올리기/, /참조 더하기/])
-  await shot(p, 'f-fd-04-menu')
+  await shot(p, 'f-dr-04-menu')
   let chooser = p.waitForEvent('filechooser')
   await p.locator('[data-test="folder-upload-files"]').click()
   let fc = await chooser
@@ -275,7 +290,7 @@ test('F-FD-04 「파일 올리기」 · 「폴더 올리기」는 시스템의 �
   await p.context().close()
 })
 
-test('F-FD-05 휴대폰 390: 미리 보기는 아래에서 올라오는 시트 · 옆으로 넘치지 않음 · 「폴더 올리기」는 없다', async ({ browser }) => {
+test('F-DR-05 휴대폰 390: 미리 보기는 아래에서 올라오는 시트 · 옆으로 넘치지 않음 · 「폴더 올리기」는 없다', async ({ browser }) => {
   const f = await folder('휴대폰')
   const p = await open(browser, PHONE)
   await p.goto(`/folders/${f.slug}`)
@@ -292,11 +307,11 @@ test('F-FD-05 휴대폰 390: 미리 보기는 아래에서 올라오는 시트 �
   expect(Math.round(b.x + b.width)).toBeGreaterThanOrEqual(389)
   expect(Math.round(b.y + b.height)).toBeGreaterThanOrEqual(843)
   await noSideways(p)
-  await shot(p, 'f-fd-05-sheet-390')
+  await shot(p, 'f-dr-05-sheet-390')
   await p.context().close()
 })
 
-test('F-FD-06 어두운 테마의 미리 보기 — git 원격 · 한도 넘음 · 빠지는 것', async ({ browser }) => {
+test('F-DR-06 어두운 테마의 미리 보기 — git 원격 · 한도 넘음 · 빠지는 것', async ({ browser }) => {
   const f = await folder('어두운')
   const p = await open(browser, DESK, { theme: 'dark' })
   await p.goto(`/folders/${f.slug}`)
@@ -307,7 +322,7 @@ test('F-FD-06 어두운 테마의 미리 보기 — git 원격 · 한도 넘음 
   const fg = await p.locator('[data-test="drop-total"] b').evaluate((el) => getComputedStyle(el).color)
   const lum = (c) => { const [r, g, b] = c.match(/\d+/g).map(Number); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 }
   expect(lum(fg)).toBeGreaterThan(0.7)
-  await shot(p, 'f-fd-06-dark')
+  await shot(p, 'f-dr-06-dark')
   await p.context().close()
 })
 
@@ -322,14 +337,14 @@ const NEW_APP = (uid) => `(() => {
       mayPair: async () => true, pair: async () => ({ ok: true }), forget: async () => ({ ok: true }), setPrefs: async () => {}, detect: async () => ({}), onState: () => () => {} } }
 })()`
 
-test('F-FD-07 데스크톱 앱: 다리가 있으면 두 길(「한 번 올리기」 기본), 다리가 없는 0.2.3 은 한 줄 안내', async ({ browser }) => {
+test('F-DR-07 데스크톱 앱: 다리가 있으면 두 길(「한 번 올리기」 기본), 다리가 없는 0.2.3 은 한 줄 안내', async ({ browser }) => {
   const old = await open(browser, DESK, { init: OLD_APP })
   await old.goto('/folders')
   await dropOn(old, '[data-test="folder-list"]', '견적 키트', { 'README.md': '# 견적\n' })
   await expect(old.locator('[data-test="drop-sheet"][data-mode="new"]')).toBeVisible()
   await expect(old.locator('[data-test="drop-pc-old"]')).toHaveText('데스크톱 앱을 새 판으로 바꾸면 내 PC 폴더를 그대로 공유할 수 있어요')
   await expect(old.locator('[data-test="drop-ways"]')).toHaveCount(0)
-  await shot(old, 'f-fd-07-desktop-old')
+  await shot(old, 'f-dr-07-desktop-old')
   await old.context().close()
 
   const p = await open(browser, DESK, { init: NEW_APP(OWNER.id) })
@@ -342,7 +357,7 @@ test('F-FD-07 데스크톱 앱: 다리가 있으면 두 길(「한 번 올리기
   await expect(p.locator('[data-test="drop-go"]')).toHaveText('만들고 올리기')
   await p.locator('[data-test="drop-way-pc"]').click()
   await expect(p.locator('[data-test="drop-go"]')).toHaveText('시스템 창에서 고르기')
-  await shot(p, 'f-fd-07-desktop-ways')
+  await shot(p, 'f-dr-07-desktop-ways')
   await p.locator('[data-test="drop-go"]').click()
   // the champion folders' own flow: the app's system dialog, then its preview
   await expect(p.locator('[data-test="source-sheet"]')).toBeVisible()
@@ -350,37 +365,82 @@ test('F-FD-07 데스크톱 앱: 다리가 있으면 두 길(「한 번 올리기
   await p.context().close()
 })
 
-test('F-FD-08 서버가 다시 본다 — 파일마다 까닭과 함께 거절, 보기 권한은 403', async () => {
+test('F-DR-08 서버가 다시 본다 — 파일마다 까닭과 함께 거절, 본문은 한도 안에서만 읽고, 한 사람 · 한 폴더에 한 요청씩, 보기 권한은 403', async () => {
   const f = await folder('서버 확인')
   await S.api(OWNER.token, `/folders/${f.slug}/members`, { method: 'POST', body: { type: 'user', id: VIEWER.id, role: 'viewer' } })
-  const send = async (who, files) => {
-    const fd = new FormData()
-    fd.append('meta', JSON.stringify({ paths: Object.keys(files), label: '키트', part: 1, parts: 1, final: true }))
-    for (const t of Object.values(files)) fd.append('file', new Blob([t]), 'file')
-    const r = await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${f.slug}/files/batch`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${who.token}` } })
-    return { status: r.status, body: await r.json() }
+  const URL_ = `http://127.0.0.1:${S.apiPort}/api/folders/${f.slug}/files/batch`
+  const send = async (who, files, meta = {}) => {
+    const items = await Promise.all(Object.entries(files).map(async ([p, t]) => { const file = new Blob([t]); return { path: p, file, size: file.size } }))
+    const r = await fetch(URL_, { method: 'POST', body: batchBody(items, { label: '키트', part: 1, parts: 1, session: sessionId(), ...meta }), headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${who.token}` } })
+    return { status: r.status, body: await r.json().catch(() => ({})) }
   }
-  const r = await send(OWNER, { '키트/README.md': '# 키트\n', '키트/.env': 'A=1\n', '키트/.gitmodules': '[x]\n', '키트/키.txt': `메모\n${PEM}`, '키트/.git/config': '[core]\n', '../밖.txt': 'x', '키트/토큰.js': `t='${FAKE_GH}'\n` })
+  const r = await send(OWNER, { '키트/README.md': '# 키트\n', '키트/.env': 'A=1\n', '키트/.gitmodules': '[x]\n', '키트/.gitattributes': '* filter=x\n', '키트/키.txt': `메모\n${PEM}`,
+    '키트/.git/config': '[core]\n', '.GIT/config': 'x', '키트/.Git/x': 'x', '.git./x': 'x', '.git /x': 'x', '../밖.txt': 'x', '키트/토큰.js': `t='${FAKE_GH}'\n` })
   expect(r.status).toBe(200)
   expect(r.body.written).toEqual(['키트/README.md'])
-  const why = Object.fromEntries(r.body.refused.map((x) => [x.path, `${x.reason}${x.line ? `:${x.line}` : ''}`]))
-  expect(why).toEqual({ '키트/.env': 'name', '키트/.gitmodules': 'gitmodules', '키트/키.txt': 'private_key:2', '키트/.git/config': 'path', '../밖.txt': 'path', '키트/토큰.js': 'github_token:1' })
+  const why = (out) => Object.fromEntries(out.refused.map((x) => [x.path, `${x.reason}${x.line ? `:${x.line}` : ''}`]))
+  expect(why(r.body)).toEqual({ '키트/.env': 'name', '키트/.gitmodules': 'gitmodules', '키트/.gitattributes': 'gitattributes', '키트/키.txt': 'private_key:2',
+    '키트/.git/config': 'path', '.GIT/config': 'path', '키트/.Git/x': 'path', '.git./x': 'path', '.git /x': 'path', '../밖.txt': 'path', '키트/토큰.js': 'github_token:1' })
   expect(JSON.stringify(r.body)).not.toContain(FAKE_GH)
   expect(await mainFiles(f.slug)).toEqual(expect.arrayContaining(['키트/README.md']))
   expect(await mainFiles(f.slug)).not.toContain('키트/.env')
-  // a file where a folder is: that one is said, the rest goes in
-  const r2 = await send(OWNER, { '키트/README.md/x.md': 'x', '키트/b.md': 'b' })
+  // a file where a folder is: that one is said, the rest goes in · a second path differing only in case is a clash
+  const r2 = await send(OWNER, { '키트/README.md/x.md': 'x', '키트/b.md': 'b', '키트/B.md': 'B' })
   expect(r2.body.written).toEqual(['키트/b.md'])
-  expect(r2.body.refused).toEqual([{ path: '키트/README.md/x.md', reason: 'conflict', line: null }])
+  expect(why(r2.body)).toEqual({ '키트/README.md/x.md': 'conflict', '키트/B.md': 'clash' })
+  // the folder's own .gitignore (one that came up with a drop): what it names is not kept, and a later single upload says so
+  const r3 = await send(OWNER, { '.gitignore': '*.log\n', 'a.log': 'x', 'c.md': 'c' })
+  expect(why(r3.body)).toEqual({ 'a.log': 'ignored' })
+  const single = await fetch(`http://127.0.0.1:${S.apiPort}/api/folders/${f.slug}/files?path=${encodeURIComponent('later.log')}`, { method: 'POST', body: 'x', headers: { Authorization: `Bearer ${OWNER.token}`, 'Content-Type': 'application/octet-stream' } })
+  expect(single.status).toBe(409)
+  expect((await mainFiles(f.slug)).some((p) => p.endsWith('.log'))).toBe(false)
   // the rules the page reads
   const rules = await S.api(OWNER.token, '/folders/upload-rules')
-  expect(rules.limits).toEqual({ largeFileBytes: 52428800, pushMaxBytes: 209715200, headMaxFiles: 20000, textMaxBytes: 1048576 })
+  expect(rules.limits).toEqual({ largeFileBytes: 52428800, pushMaxBytes: 209715200, headMaxFiles: 20000, textMaxBytes: 1048576, batchFiles: 1000, batchBytes: 52428800, pathBytes: 1024 })
   expect(rules.groups.secret.names).toContain('.env')
-  // a viewer may not
+  // a viewer may not · no upload id · a description that is not one
   expect((await send(VIEWER, { 'a.md': 'a' })).status).toBe(403)
+  expect((await send(OWNER, { 'a.md': 'a' }, { session: '' })).status).toBe(400)
+  const nul = Buffer.concat([Buffer.from('PGLB1\n'), Buffer.from([0, 0, 0, 4]), Buffer.from('null')])
+  expect((await fetch(URL_, { method: 'POST', body: nul, headers: { Authorization: `Bearer ${OWNER.token}` } })).status).toBe(400)
+
+  // the body is read only within its limits, after the person and their right are known: an answer comes before the body is all sent
+  const early = (target, headers, first) => new Promise((ok, no) => {
+    const req = http.request(target, { method: 'POST', headers: { 'Content-Type': 'application/x-pgl-batch', ...headers } }, (res) => { const t = Date.now() - t0; res.resume(); req.destroy(); ok({ status: res.statusCode, ms: t }) })
+    const t0 = Date.now()
+    req.on('error', () => {})
+    req.write(first)
+    // (then 1 MB a little at a time — never all of it)
+    let n = 0
+    const tick = setInterval(() => { if (n++ > 50 || req.destroyed) return clearInterval(tick); req.write(Buffer.alloc(64 * 1024)) }, 50)
+    setTimeout(() => { clearInterval(tick); req.destroy(); no(new Error('no early answer')) }, 8000)
+  })
+  const head = (meta) => { const m = Buffer.from(JSON.stringify(meta)); const h = Buffer.alloc(10); Buffer.from('PGLB1\n').copy(h); h.writeUInt32BE(m.length, 6); return Buffer.concat([h, m]) }
+  // not signed in: 401 at once, for the batch and for the older upload routes
+  for (const p of [`/api/folders/${f.slug}/files/batch`, `/api/folders/${f.slug}/files?path=a.bin`, '/api/attachments', '/api/team/uploads']) {
+    const a = await early(`http://127.0.0.1:${S.apiPort}${p}`, {}, Buffer.alloc(64 * 1024))
+    expect(a.status, p).toBe(401)
+    expect(a.ms, p).toBeLessThan(2000)
+  }
+  // more parts than a request takes (half a million): refused from the description, before any part
+  const many = await early(URL_, { Authorization: `Bearer ${OWNER.token}` }, head({ count: 500000, session: sessionId() }))
+  expect(many.status).toBe(413)
+  expect(many.ms).toBeLessThan(2000)
+  // a file over the size limit: refused from its size, before its bytes
+  const fh = Buffer.alloc(2 + 5 + 4); fh.writeUInt16BE(5, 0); fh.write('a.bin', 2); fh.writeUInt32BE(60 * 1024 * 1024, 7)
+  const big = await early(URL_, { Authorization: `Bearer ${OWNER.token}` }, Buffer.concat([head({ count: 1, session: sessionId() }), fh]))
+  expect(big.status).toBe(413)
+  // one request at a time per person and folder: a second while the first is on its way is 429
+  const slow = http.request(URL_, { method: 'POST', headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${OWNER.token}` } })
+  slow.on('error', () => {})
+  slow.write(head({ count: 1, session: sessionId() }))
+  await new Promise((ok) => setTimeout(ok, 400))
+  expect((await send(OWNER, { 'z.md': 'z' })).status).toBe(429)
+  slow.destroy()
+  await expect.poll(async () => (await send(OWNER, { 'z.md': 'z' })).status, { timeout: 5000 }).toBe(200)
 })
 
-test('F-FD-09 작업실: 이 서버가 터미널을 열지 않는 까닭을 보이고, 데스크톱 앱에서는 머리줄이 창의 단추를 피하고, 폴더로 돌아간다', async ({ browser }) => {
+test('F-DR-09 작업실: 이 서버가 터미널을 열지 않는 까닭을 보이고, 데스크톱 앱에서는 머리줄이 창의 단추를 피하고, 폴더로 돌아간다', async ({ browser }) => {
   const f = await folder('작업실')
   // the desktop app's page (its preload marks <html> and the room the traffic lights take)
   const desk = `new MutationObserver((_m, o) => { if (document.documentElement) { document.documentElement.classList.add('pgl-desktop', 'pgl-os-darwin'); document.documentElement.style.setProperty('--pgl-tb-left', '80px'); o.disconnect() } }).observe(document, { childList: true, subtree: true })`
@@ -391,13 +451,39 @@ test('F-FD-09 작업실: 이 서버가 터미널을 열지 않는 까닭을 보�
   await expect(p.locator('[data-test="workroom-deny"]')).toContainText('파일은 오른쪽 「파일」에서 그대로 보고 고칠 수 있어요')
   const back = await p.locator('[data-test="workroom-back"]').boundingBox()
   expect(back.x).toBeGreaterThanOrEqual(80)
-  await shot(p, 'f-fd-09-workroom')
+  await shot(p, 'f-dr-09-workroom')
   // no page before it: back goes to the folder
   await p.locator('[data-test="workroom-back"]').click()
   await p.waitForURL(new RegExp(`/folders/${f.slug}$`))
   // a folder that is not there: its own words, not a run's
   await p.goto('/workroom/folder/no-such-folder')
   await expect(p.locator('[data-test="workroom-error"]')).toHaveText('이 폴더(또는 변형)의 작업실을 찾지 못했어요 — 지워졌거나 아직 작업 사본이 없어요.')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-DR-12 「그만두기」 — 살피는 중에 멈추면 시트가 뜨지 않고, 올리는 중에 멈추면 아무것도 올라가지 않았다고 말한다', async ({ browser }) => {
+  const f = await folder('그만두기')
+  const p = await open(browser, DESK)
+  await p.goto(`/folders/${f.slug}`)
+  // a folder that takes long to read: stopped while it is looked through
+  await dropOn(p, '[data-test="folder-detail"] .files', '큰 폴더', { 'a.md': 'a', '깊은 곳': { __slow: 4000, 'b.md': 'b' } })
+  await expect(p.locator('[data-test="folder-scanning"]')).toContainText('폴더를 살피는 중')
+  await p.locator('[data-test="folder-scanning-stop"]').click()
+  await expect(p.locator('[data-test="folder-scanning"]')).toHaveCount(0)
+  await p.waitForTimeout(4500)
+  await expect(p.locator('[data-test="drop-sheet"]')).toHaveCount(0)
+  // an upload stopped on its way (the request is held back here so it is still going)
+  await p.route('**/files/batch', async (route) => { await new Promise((ok) => setTimeout(ok, 4000)); await route.continue().catch(() => {}) })
+  await dropOn(p, '[data-test="folder-detail"] .files', '작은 폴더', { 'a.md': 'a' })
+  await expect(p.locator('[data-test="drop-sheet"]')).toBeVisible()
+  await p.locator('[data-test="drop-go"]').click()
+  await expect(p.locator('[data-test="drop-cancel"]')).toHaveText('그만두기')
+  await p.locator('[data-test="drop-cancel"]').click()
+  await expect(p.locator('[data-test="drop-error"]')).toHaveText('그만뒀어요 — 올라간 것은 없어요.')
+  await p.unroute('**/files/batch')
+  await p.waitForTimeout(4500)
+  expect((await mainFiles(f.slug)).filter((x) => x !== '.gitattributes')).toEqual([])
   expect(p.errors).toEqual([])
   await p.context().close()
 })

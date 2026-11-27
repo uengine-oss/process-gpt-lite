@@ -8,7 +8,7 @@
 // In the desktop app with its folder bridge (0.2.5+), a new folder can instead be 「내 PC 폴더로 공유(계속 맞춤)」 — the champion folders'
 // own flow (emit 'champion': the app's system dialog picks the folder, SourceSheet previews it). An app without the bridge says in one
 // line that a newer one can.
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import Icon from '../Icon.vue'
 import FIcon from './FIcon.vue'
 import { folders as F } from '../../foldersApi.js'
@@ -21,6 +21,7 @@ const props = defineProps({
   mode: { type: String, default: 'into' },    // 'into' | 'new'
   folder: { type: Object, default: null },    // into: {slug, name}
   name: { type: String, default: '' },        // new: what the name starts as
+  description: { type: String, default: '' }, // new: what the description starts as (typed in 「새 폴더」 before the drop)
   pc: { type: String, default: '' },          // new, in the desktop app: 'ready' (the bridge, paired) · 'unpaired' · 'old' (no bridge) · ''
 })
 const emit = defineEmits(['close', 'done', 'champion'])
@@ -31,12 +32,15 @@ const hits = ref([])                 // keys of a sure shape found ({rel, line, 
 const checked = new Set()            // files already looked at for them
 const checking = ref(false)
 const fname = ref(String(props.name || base.value || '').slice(0, 80))
-const description = ref('')
+const description = ref(String(props.description || '').slice(0, 200))
 const way = ref('once')              // new, in the app with the bridge: 'once' | 'pc'
 const busy = ref('')                 // 'upload'
 const progress = ref({ done: 0, total: 0 })
 const err = ref('')
 const open = ref(new Set())
+// 「그만두기」 · the sheet closed · the page left: the look for keys and the upload stop where they are
+let stopper = new AbortController()
+onBeforeUnmount(() => stopper.abort())
 
 const plan = computed(() => planOf(props.scan, props.rules, { strip: isNew.value, exclude: exclude.value, shapes: hits.value }))
 const leftN = computed(() => leftCount(plan.value))
@@ -54,9 +58,11 @@ const WORDS = {
   secret: GROUP.secret,
   personal: GROUP.personal,
   rebuildable: GROUP.rebuildable,
-  structure: 'git 제어 파일(.gitmodules · .lfsconfig)',
+  gitignore: GROUP.gitignore,
+  structure: 'git 제어 파일(.gitmodules · .lfsconfig · .gitattributes)',
   large: `큰 파일 — ${fmtBytes(props.rules.limits.largeFileBytes)} 넘는 파일은 올리지 않아요`,
   shape: '열쇠 · 토큰처럼 생긴 글이 든 파일',
+  long: '경로가 너무 긴 파일',
 }
 const groups = computed(() => Object.keys(WORDS).map((g) => {
   const files = plan.value.left[g] || []
@@ -80,10 +86,10 @@ async function check() {
   if (!todo.length) return
   checking.value = true
   try {
-    const found = await shapesIn(todo, props.rules)
+    const found = await shapesIn(todo, props.rules, { signal: stopper.signal })
     for (const u of todo) checked.add(u.rel)
     if (found.length) hits.value = [...hits.value, ...found]
-  } finally { checking.value = false }
+  } catch { return } finally { checking.value = false }
   check()
 }
 onMounted(check)
@@ -95,29 +101,37 @@ async function go() {
   if (way.value === 'pc') { emit('champion'); return }
   err.value = ''
   busy.value = 'upload'
+  stopper = new AbortController()
   let slug = props.folder?.slug || ''
   let made = null
   progress.value = { done: 0, total: plan.value.files }
   try {
     if (isNew.value) { made = await F.create({ name: fname.value.trim(), description: description.value.trim() }); slug = made.slug }
     const label = isNew.value ? made.name : base.value || `${plan.value.files}개`
-    const r = await sendPlan(plan.value, { label, send: (batch, meta) => F.uploadBatch(slug, batch, meta), onProgress: (done, total) => { progress.value = { done, total } } })
+    const r = await sendPlan(plan.value, { label, signal: stopper.signal, limits: props.rules.limits,
+      send: (batch, meta, signal) => F.uploadBatch(slug, batch, meta, signal), onProgress: (done, total) => { progress.value = { done, total } } })
     emit('done', { slug, folder: made, written: r.written, refused: r.refused, left: leftN.value })
   } catch (e) {
-    err.value = made ? `‘${made.name}’ 폴더는 만들었지만 다 올리지 못했어요 — ${e.message}` : e.message
-    if (made) emit('done', { slug, folder: made, written: progress.value.done, refused: [], left: leftN.value, partial: e.message })
+    // stopped, or failed part way: what went up stays and is said; nothing went up yet — said here
+    const stopped = e.name === 'AbortError'
+    const partial = stopped ? '그만뒀어요' : e.message
+    if (made || e.written) emit('done', { slug, folder: made, written: e.written || 0, refused: e.refused || [], left: leftN.value, partial, stopped })
+    else err.value = stopped ? '그만뒀어요 — 올라간 것은 없어요.' : e.message
   } finally { busy.value = '' }
 }
+// 「그만두기」 while uploading: the request on its way is stopped (what went up before it stays)
+function stop() { stopper.abort() }
+function close() { if (busy.value) return stop(); emit('close') }
 </script>
 
 <template>
-  <div class="veil" data-test="drop-sheet" :data-mode="mode" @click.self="!busy && emit('close')">
+  <div class="veil" data-test="drop-sheet" :data-mode="mode" @click.self="!busy && close()">
     <div class="box glass" role="dialog" :aria-label="isNew ? '새 폴더로 올리기' : '폴더 올리기'">
       <header class="hd">
         <FIcon name="upload" :size="19" />
         <b class="ttl">{{ isNew ? '새 폴더로 올리기' : '폴더 올리기' }}<template v-if="base"> — <span data-no-i18n>{{ base }}</span></template></b>
         <span class="sp" />
-        <button class="ic press" title="닫기" :disabled="!!busy" @click="emit('close')"><Icon name="close" :size="16" /></button>
+        <button class="ic press" title="닫기" :disabled="!!busy" @click="close()"><Icon name="close" :size="16" /></button>
       </header>
       <div class="body scroll">
         <div class="sum">
@@ -164,7 +178,7 @@ async function go() {
         <template v-if="isNew">
           <div class="sec">이름</div>
           <input v-model="fname" class="fld" maxlength="80" data-test="drop-name" placeholder="예: 11월 고객 세미나" :disabled="!!busy" />
-          <input v-model="description" class="fld" maxlength="200" placeholder="설명(선택)" :disabled="!!busy" />
+          <input v-model="description" class="fld" maxlength="200" placeholder="설명(선택)" data-test="drop-description" :disabled="!!busy" />
           <!-- the desktop app with its folder bridge: once, or kept in step with this computer's folder (champion folders) -->
           <div v-if="pc === 'ready'" class="ways" role="radiogroup" data-test="drop-ways">
             <label class="way" :class="{ on: way === 'once' }" data-test="drop-way-once">
@@ -186,7 +200,7 @@ async function go() {
         <small v-else-if="way === 'pc'">이어서 「내 PC 폴더 올리기」와 같은 미리 보기를 확인해요</small>
         <small v-else>한 번 올리고 끝나요 — 내 PC 의 폴더는 그대로예요</small>
         <span class="sp" />
-        <button class="pill-btn" :disabled="!!busy" @click="emit('close')">취소</button>
+        <button class="pill-btn" data-test="drop-cancel" @click="close()">{{ busy ? '그만두기' : '취소' }}</button>
         <button class="dark-btn" data-test="drop-go" :disabled="!canGo" @click="go">{{ busy ? '올리는 중…' : way === 'pc' ? '시스템 창에서 고르기' : isNew ? '만들고 올리기' : '올리기' }}</button>
       </footer>
     </div>

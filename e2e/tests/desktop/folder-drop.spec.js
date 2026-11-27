@@ -2,9 +2,9 @@
 // spec openspec/specs/champion-folders 「올리기 메뉴는 시스템의 파일 창을 연다」 · 「컴퓨터의 폴더를 끌어다 놓아 올린다」).
 // The real app from desktop/ with a user data folder of its own (never the person's installed app or its settings), against a stack of
 // its own (lib/localStack.js: a BFF for several companies without a terminal key — as uengine.process-gpt.io runs — and Vite).
-//   F-FD-10 「파일 올리기」 · 「폴더 올리기」가 시스템의 파일 창을 연다(Playwright 가 받아 파일을 고름) · 고른 폴더는 미리 보기를 거쳐 올라간다 ·
+//   F-DR-10 「파일 올리기」 · 「폴더 올리기」가 시스템의 파일 창을 연다(Playwright 가 받아 파일을 고름) · 고른 폴더는 미리 보기를 거쳐 올라간다 ·
 //           macOS 에서는 실제 파일 창(시트)이 앱 창 위에 뜬다(창 서버의 창 목록에 하나 더)
-//   F-FD-11 앱 안에서 폴더를 놓으면(webkitGetAsEntry 를 흉내 낸 drop) 같은 미리 보기 → 올리기 · 작업실은 까닭을 보이고 머리줄은 창의 단추를 피한다
+//   F-DR-11 앱 안에서 폴더를 놓으면(webkitGetAsEntry 를 흉내 낸 drop) 같은 미리 보기 → 올리기 · 작업실은 까닭을 보이고 머리줄은 창의 단추를 피한다
 //   cd e2e && npx playwright test --project=desktop tests/desktop/folder-drop.spec.js
 import { test, expect, _electron } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
@@ -70,9 +70,14 @@ test.afterAll(async () => {
   }
   if (root) fs.rmSync(root, { recursive: true, force: true })
 })
+// (the sheet's own animations finished before a picture is taken)
+const calm = () => page.evaluate(() => Promise.race([
+  Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming?.().iterations !== Infinity).map((a) => a.finished.catch(() => {}))),
+  new Promise((ok) => setTimeout(ok, 2000)),
+])).then(() => page.waitForTimeout(200))
 const mainFiles = () => execFileSync('git', ['ls-tree', '-r', '--name-only', '-z', 'main'], { cwd: repo }).toString().split('\0').filter(Boolean)
 
-test('F-FD-10 「파일 올리기」 · 「폴더 올리기」가 시스템의 파일 창을 연다', async () => {
+test('F-DR-10 「파일 올리기」 · 「폴더 올리기」가 시스템의 파일 창을 연다', async () => {
   await page.goto(`http://127.0.0.1:${S.webPort}/folders/${slug}`)
   await expect(page.locator('html')).toHaveClass(/pgl-desktop/)
   // 파일 올리기 → the file window (taken by Playwright: a file is picked in it)
@@ -98,14 +103,15 @@ test('F-FD-10 「파일 올리기」 · 「폴더 올리기」가 시스템의 �
   await fc.setFiles(dir)
   await expect(page.locator('[data-test="drop-sheet"]')).toBeVisible()
   await expect(page.locator('[data-test="drop-total"]')).toHaveAttribute('data-files', '1')
-  await page.screenshot({ path: path.join(SHOTS, 'f-fd-10-desktop-dir-sheet.png') })
+  await calm()
+  await page.screenshot({ path: path.join(SHOTS, 'f-dr-10-desktop-dir-sheet.png') })
   await page.locator('[data-test="drop-go"]').click()
   await expect(page.locator('[data-test="folder-file"][data-file="제안 키트/README.md"]')).toBeVisible({ timeout: 20_000 })
   expect(mainFiles()).not.toContain('제안 키트/.env')
   expect(page.errors).toEqual([])
 })
 
-test('F-FD-11 앱 안에서 폴더를 놓으면 미리 보기 → 올리기 · 작업실은 까닭을 보이고 머리줄은 창의 단추를 피한다', async () => {
+test('F-DR-11 앱 안에서 폴더를 놓으면 미리 보기 → 올리기 · 작업실은 까닭을 보이고 머리줄은 창의 단추를 피한다', async () => {
   await page.goto(`http://127.0.0.1:${S.webPort}/folders/${slug}`)
   await expect(page.locator('[data-test="folder-drop-hint"]')).toBeVisible()
   // a folder as Finder hands it over (webkitGetAsEntry), dropped on the files
@@ -131,13 +137,14 @@ test('F-FD-11 앱 안에서 폴더를 놓으면 미리 보기 → 올리기 · �
   await expect(page.locator('[data-test="workroom-deny"]')).toContainText('여러 회사가 함께 쓰는 이 서버에서는 터미널을 열지 않아요')
   const back = await page.locator('[data-test="workroom-back"]').boundingBox()
   if (MAC) expect(back.x).toBeGreaterThanOrEqual(80)
-  await page.screenshot({ path: path.join(SHOTS, 'f-fd-11-desktop-workroom.png') })
+  await calm()
+  await page.screenshot({ path: path.join(SHOTS, 'f-dr-11-desktop-workroom.png') })
   await page.locator('[data-test="workroom-back"]').click()
   await page.waitForURL(new RegExp(`/folders/${slug}$`))
   expect(page.errors).toEqual([])
 })
 
-test('F-FD-10 macOS: 실제 파일 창이 앱 창 위에 뜬다', async () => {
+test('F-DR-10 macOS: 실제 파일 창이 앱 창 위에 뜬다', async () => {
   test.skip(!MAC, 'macOS 의 창 목록으로 본다')
   await page.goto(`http://127.0.0.1:${S.webPort}/folders/${slug}`)
   await expect(page.locator('[data-test="folder-add-menu"]')).toBeVisible()

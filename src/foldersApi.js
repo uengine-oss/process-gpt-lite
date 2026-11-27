@@ -2,6 +2,7 @@
 import { api, auth, freshToken, htmlPage } from './api.js'
 import { BASE } from './base.js'
 import { nameOf } from './people.js'
+import { batchBody } from './folderDrop.js'
 
 async function call(path, opts) {
   const r = await api(path, { ...opts, raw: true })
@@ -93,13 +94,11 @@ export const folders = {
     return j
   },
   // a folder from the computer (src/folderDrop.js): what is left out before it goes up (the champion folders' rules), and its files a
-  // request at a time — one commit each (server S.uploadMany: {written, refused: [{path, reason, line}]})
+  // request at a time — one commit each (server S.uploadMany: {written, refused: [{path, reason, line}]}); signal stops it
   uploadRules: () => (rulesOnce ||= call('/folders/upload-rules').catch((e) => { rulesOnce = null; throw e })),
-  async uploadBatch(slug, batch, meta) {
-    const fd = new FormData()
-    fd.append('meta', JSON.stringify({ ...meta, paths: batch.map((u) => u.path) }))
-    for (const u of batch) fd.append('file', u.file, 'file')
-    const r = await fetch(`${BASE}/api/folders/${enc(slug)}/files/batch`, { method: 'POST', body: fd, headers: { Authorization: `Bearer ${await freshToken()}` } })
+  async uploadBatch(slug, batch, meta, signal) {
+    const r = await fetch(`${BASE}/api/folders/${enc(slug)}/files/batch`, { method: 'POST', body: batchBody(batch, meta), signal,
+      headers: { 'Content-Type': 'application/x-pgl-batch', Authorization: `Bearer ${await freshToken()}` } })
     const j = await r.json().catch(() => ({}))
     if (!r.ok) throw new Error(j.error || '올리지 못했어요.')
     return j

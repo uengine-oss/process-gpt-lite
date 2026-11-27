@@ -198,7 +198,7 @@ async function sendSteer() {
       <button v-if="seat?.can.release" class="hb" data-test="wr-release" :disabled="seatBusy" title="저장 안 한 변경까지 그대로 저장하고 작업본을 보관해요" @click="seatAct('release')"><FIcon name="archive" :size="14" /> 돌려놓기</button>
       <button v-if="room" class="hb" :class="{ on: side }" @click="side = !side"><Icon name="doc" :size="14" /> 파일</button>
     </header>
-        <p v-if="err" class="err" data-test="workroom-error" role="alert">{{ err }}</p>
+    <p v-if="err" class="err" data-test="workroom-error" role="alert">{{ err }}</p>
     <!-- read only: the variation's working copy is elsewhere (or put away) — what is shown is its branch as last saved -->
     <div v-if="room && readonly" class="robar" data-test="wr-readonly" role="status">
       <FIcon :name="seat?.place === 'device' ? 'pc' : seat?.place ? 'terminal' : 'archive'" :size="16" />

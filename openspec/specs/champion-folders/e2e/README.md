@@ -102,10 +102,11 @@ cd e2e && npx playwright test --project=desktop tests/desktop/champion.spec.js
 `e2e/README.md` 71절. 화면은 자기 스택(여러 회사 · 터미널 열쇠 없음 — 운영과 같은 설정)으로 본다.
 
 ```bash
-cd server && node --test test/folderDrop.test.js
+cd server && node --test test/folderDrop.test.js test/folderDropUpload.test.js
 cd e2e && npx playwright test --project=feature tests/feature/folder-drop.spec.js
 cd e2e && npx playwright test --project=desktop tests/desktop/folder-drop.spec.js
 ```
 
-- 단위(13): 서버와 같은 갈래 읽기(`groupOf` 견주기) · 들어가지 않는 폴더(`.git` · `node_modules` · `.ssh` · `.claude/projects`) · 따라 내려가기(`readEntries` 여러 번) · 빠지는 것과 까닭 · 열쇠 모양(줄 · 종류, 값 없음) · 새 폴더는 그 안의 것을 맨 위부터 · 한도와 가장 큰 것 · 여럿 놓기 · `webkitdirectory` 목록 · 원격 주소(이름 · 토큰 지움) · 요청 나누기 · 서버의 파일별 거절(`refusalOf`) · 자기 안으로 이어지는 폴더(깊이에서 멈춤).
-- 화면 F-FD-01~09 · 데스크톱 F-FD-10 · 11 — 증거 사진(`results/`): `f-fd-01-drop-sheet` · `f-fd-01-uploaded` · `f-fd-02-list-dropzone` · `f-fd-02-new-sheet` · `f-fd-03-over` · `f-fd-04-menu` · `f-fd-05-sheet-390` · `f-fd-06-dark` · `f-fd-07-desktop-old` · `f-fd-07-desktop-ways` · `f-fd-09-workroom` · `f-fd-10-desktop-dir-sheet` · `f-fd-11-desktop-workroom`.
+- 단위(16, `folderDrop.test.js`): 서버와 같은 갈래 읽기(`groupOf` 견주기) · 들어가지 않는 폴더(`.git` · `node_modules` · `.ssh` · `.claude/projects`) · 따라 내려가기(`readEntries` 여러 번) · 빠지는 것과 까닭 · 열쇠 모양(줄 · 종류, 값 없음) · 새 폴더는 그 안의 것을 맨 위부터 · 한도와 가장 큰 것 · 여럿 놓기 · `webkitdirectory` 목록 · 원격 주소(이름 · 토큰 지움) · 요청 나누기 · 서버의 파일별 거절(`refusalOf`) · 자기 안으로 이어지는 폴더(깊이에서 멈춤) · 폴더의 `.gitignore`(걷기 · 「폴더 올리기」) · NFC · 긴 경로 · `.gitattributes` · 요청 본문을 오는 대로 한도 안에서 읽기(50만 개 · 큰 파일 · 설명 없음 · 남는 바이트) · 여러 요청에 한 묶음 표시 · 중간 실패 · 그만두기.
+- DB 와 실제 git(6, `folderDropUpload.test.js`): DR-U-01 한 요청 한 커밋 · DR-U-02 파일마다 다시 보기(git 제어 경로의 여러 철자 · 대소문자만 다른 두 번째 · NFC) · DR-U-03 폴더의 `.gitignore` · DR-U-04 커밋이 실패하면 되돌림 · DR-U-05 참조 자리 · 관리형만 · DR-U-06 한 번의 올리기 한도.
+- 화면 F-DR-01~09 · 12 · 데스크톱 F-DR-10 · 11 — 증거 사진(`results/`): `f-dr-01-drop-sheet` · `f-dr-01-uploaded` · `f-dr-02-list-dropzone` · `f-dr-02-new-sheet` · `f-dr-03-over` · `f-dr-04-menu` · `f-dr-05-sheet-390` · `f-dr-06-dark` · `f-dr-07-desktop-old` · `f-dr-07-desktop-ways` · `f-dr-09-workroom` · `f-dr-10-desktop-dir-sheet` · `f-dr-11-desktop-workroom`.

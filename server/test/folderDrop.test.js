@@ -2,11 +2,14 @@
 // folders down, leaving out git's data · secrets · personal settings · what can be rebuilt · git's control files · large files · keys of
 // a sure shape, the limits of one upload, the names (a dropped folder's name, a new folder's contents) — read with the champion folders'
 // own rules (lib/folders/secret-shapes.json through secrets.js pageRules), and the server's own look at each uploaded file (refusalOf).
-// Spec: openspec/specs/champion-folders. The screens: e2e/tests/feature/folder-drop.spec.js (F-FD-…).
+// Spec: openspec/specs/champion-folders. The screens: e2e/tests/feature/folder-drop.spec.js (F-DR-…).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { compileRules, groupOf, dirGroupOf, structureOf, walk, fromPicked, planOf, leftCount, shapesIn, batchesOf, sendPlan, remoteOf, cleanRemote, entriesOf } from '../../src/folderDrop.js'
-import { pageRules, refusalOf, groupOf as serverGroupOf } from '../lib/folders/secrets.js'
+import { Readable } from 'node:stream'
+import { compileRules, groupOf, dirGroupOf, structureOf, walk, fromPicked, planOf, leftCount, shapesIn, batchesOf, sendPlan, remoteOf, cleanRemote, entriesOf,
+  ignoreRules, ignoredBy, batchBody } from '../../src/folderDrop.js'
+import { pageRules, refusalOf, groupOf as serverGroupOf, BATCH } from '../lib/folders/secrets.js'
+import { readBatch } from '../lib/folders/batchBody.js'
 
 const rules = compileRules(pageRules())
 // key-shaped text made here (the repository is public: no key-shaped literal in this file)
@@ -82,6 +85,8 @@ test('folders the walk never goes into: git data, and the rules\' folders', () =
   assert.equal(structureOf('a/.gitmodules'), 'structure')
   assert.equal(structureOf('a/.LFSCONFIG'), 'structure')
   assert.equal(structureOf('a/gitmodules.md'), null)
+  assert.equal(structureOf('a/.gitattributes'), 'structure')
+  assert.equal(structureOf('.GitAttributes'), 'structure')
 })
 
 test('a dropped folder is followed down with its name first; .git and node_modules are not walked into', async () => {
@@ -166,9 +171,9 @@ test('several things dropped at once keep their own names; plain files of a brow
   assert.equal(es[0].plain, f)
 })
 
-test('「폴더 올리기」 (webkitdirectory): the same plan from the browser\'s whole list', () => {
+test('「폴더 올리기」 (webkitdirectory): the same plan from the browser\'s whole list', async () => {
   const at = (rel, text = 'x') => Object.assign(fileLike(text), { name: rel.split('/').pop(), webkitRelativePath: rel })
-  const scan = fromPicked([at('kit/README.md'), at('kit/.git/HEAD'), at('kit/.git/objects/aa'), at('kit/node_modules/p/i.js'), at('kit/src/a.js'), at('kit/.env')], rules)
+  const scan = await fromPicked([at('kit/README.md'), at('kit/.git/HEAD'), at('kit/.git/objects/aa'), at('kit/node_modules/p/i.js'), at('kit/src/a.js'), at('kit/.env')], rules)
   assert.deepEqual(scan.roots, [{ name: 'kit', dir: true }])
   assert.deepEqual(scan.pruned, [{ rel: 'kit/.git', group: 'git' }, { rel: 'kit/node_modules', group: 'rebuildable' }])
   assert.deepEqual(scan.git, { remote: '', worktree: false })
@@ -184,21 +189,93 @@ test('a remote\'s address: origin first, no name · password · token', () => {
   assert.equal(cleanRemote('ssh://git@host.example:2222/team/repo.git/'), 'host.example:2222/team/repo')
 })
 
-test('a large folder goes in several requests (files · bytes), the last one says it is the last', async () => {
+test('a large folder goes in several requests (files · bytes), all of one upload', async () => {
   const up = Array.from({ length: 5 }, (_, i) => ({ rel: `f${i}`, path: `f${i}`, size: 10 }))
   assert.deepEqual(batchesOf(up, { files: 2, bytes: 1000 }).map((b) => b.length), [2, 2, 1])
   assert.deepEqual(batchesOf(up, { files: 100, bytes: 25 }).map((b) => b.length), [2, 2, 1])
   assert.deepEqual(batchesOf([{ size: 100 }, { size: 1 }], { files: 10, bytes: 50 }).map((b) => b.length), [1, 1])
+  // the server's own limits for one request
+  assert.deepEqual(batchesOf([{ size: BATCH.bytes }, { size: 1 }], { files: BATCH.files, bytes: BATCH.bytes }).map((b) => b.length), [1, 1])
   const seen = []
-  const r = await sendPlan({ up }, { label: 'kit', send: async (b, m) => { seen.push(m); return { written: b.map((u) => u.path), refused: m.final ? [{ path: 'x', reason: 'name' }] : [] } } })
+  const r = await sendPlan({ up }, { label: 'kit', limits: { batchFiles: 2 }, send: async (b, m) => { seen.push({ ...m, n: b.length }); return { written: b.map((u) => u.path), refused: m.part === 3 ? [{ path: 'x', reason: 'name' }] : [] } } })
   assert.equal(r.written, 5)
   assert.deepEqual(r.refused, [{ path: 'x', reason: 'name' }])
-  assert.deepEqual(seen.map((m) => [m.part, m.parts, m.final]), [[1, 1, true]])
+  assert.deepEqual(seen.map((m) => [m.part, m.parts, m.n]), [[1, 3, 2], [2, 3, 2], [3, 3, 1]])
+  assert.ok(seen.every((m) => m.session === seen[0].session && /^[a-z0-9]{8,}$/.test(m.session)))
+  // a failure part way: what went up before it comes with the failure
+  await assert.rejects(sendPlan({ up }, { limits: { batchFiles: 2 }, send: async (b, m) => { if (m.part === 2) throw new Error('끊김'); return { written: b.map((u) => u.path) } } }),
+    (e) => e.message === '끊김' && e.written === 2)
+  // stopped: no request after the stop
+  const stop = new AbortController()
+  let sent = 0
+  await assert.rejects(sendPlan({ up }, { limits: { batchFiles: 2 }, signal: stop.signal, send: async (b) => { sent++; stop.abort(); return { written: b.map((u) => u.path) } } }),
+    (e) => e.name === 'AbortError' && e.written === 2)
+  assert.equal(sent, 1)
+})
+
+test('the folder\'s own .gitignore: what it leaves out stays here, a left-out folder is not walked, a deeper file and a later line win', async () => {
+  const st = [{ base: 'k', rules: ignoreRules('# 빌드\ndist/\n*.log\n!keep.log\n/build\nsecret[0-9].txt\ndocs/**/draft.md\n\\#hash\n') }]
+  for (const [p, d, want] of [['k/dist', true, true], ['k/a/dist', true, true], ['k/dist', false, false], ['k/x.log', false, true], ['k/a/keep.log', false, false],
+    ['k/build', true, true], ['k/a/build', true, false], ['k/secret3.txt', false, true], ['k/secretx.txt', false, false], ['k/docs/a/b/draft.md', false, true],
+    ['k/docs/draft.md', false, true], ['k/#hash', false, true], ['other/x.log', false, false]]) assert.equal(ignoredBy(st, p, d), want, `${p} ${d}`)
+  const scan = await walk([tree('키트', { '.gitignore': 'dist/\n*.log\n', 'README.md': '#', 'dist': { 'a.js': '1' }, 'app.log': 'x', 'sub': { '.gitignore': '!app.log\n*.tmp\n', 'app.log': 'y', 'b.tmp': 'z', 'c.md': 'c' } })], rules)
+  const plan = planOf(scan, rules)
+  assert.deepEqual(plan.up.map((u) => u.path).sort(), ['키트/.gitignore', '키트/README.md', '키트/sub/.gitignore', '키트/sub/app.log', '키트/sub/c.md'])
+  assert.deepEqual(plan.places.gitignore, ['키트/dist/'])
+  assert.deepEqual(plan.left.gitignore.sort(), ['키트/app.log', '키트/sub/b.tmp'])
+  // 「폴더 올리기」 reads them the same way
+  const at = (rel, text = 'x') => Object.assign(fileLike(text), { name: rel.split('/').pop(), webkitRelativePath: rel })
+  const picked = await fromPicked([at('키트/.gitignore', 'dist/\n*.log\n'), at('키트/README.md'), at('키트/dist/a.js'), at('키트/app.log'), at('키트/sub/.gitignore', '!app.log\n'), at('키트/sub/app.log')], rules)
+  const p2 = planOf(picked, rules)
+  assert.deepEqual(p2.up.map((u) => u.path).sort(), ['키트/.gitignore', '키트/README.md', '키트/sub/.gitignore', '키트/sub/app.log'])
+  assert.deepEqual(p2.places.gitignore, ['키트/dist/'])
+  assert.deepEqual(p2.left.gitignore, ['키트/app.log'])
+})
+
+test('paths go in one Unicode form; a path longer than one request carries stays here; .gitattributes stays here', async () => {
+  const nfd = '한글'.normalize('NFD')
+  const long = 'ㄱ'.repeat(400)   // 1,200 bytes
+  const scan = await walk([tree('k', { [`${nfd}.md`]: 'a', [`${long}.md`]: 'b', '.gitattributes': '* text=auto\n' })], rules)
+  const plan = planOf(scan, rules)
+  assert.deepEqual(plan.up.map((u) => u.path), [`k/${'한글'.normalize('NFC')}.md`])
+  assert.equal(plan.left.long.length, 1)
+  assert.deepEqual(plan.left.structure, ['k/.gitattributes'])
+})
+
+test('one request\'s body is read as it comes and within its limits', async () => {
+  const L = { ...BATCH, largeFileBytes: BATCH.bytes }
+  const body = async (blob) => Readable.from([Buffer.from(await blob.arrayBuffer())])
+  const items = [{ path: '키트/README.md', size: 6, file: new Blob(['# 키트\n'.slice(0, 6)]) }, { path: '키트/빈.txt', size: 0, file: new Blob([]) }]
+  items[0].size = (await items[0].file.arrayBuffer()).byteLength
+  const r = await readBatch(await body(batchBody(items, { label: '키트', part: 1, parts: 1, session: 'abcdefgh12' })), L)
+  assert.deepEqual(r.items.map((x) => [x.path, x.buf.length]), [['키트/README.md', items[0].size], ['키트/빈.txt', 0]])
+  assert.equal(r.meta.session, 'abcdefgh12')
+  // a body cut into many small chunks reads the same
+  const whole = Buffer.from(await batchBody(items, { session: 'abcdefgh12' }).arrayBuffer())
+  const bits = [...whole].map((b) => Buffer.from([b]))
+  assert.equal((await readBatch(Readable.from(bits), L)).items.length, 2)
+  // refused before the rest is read: more parts than a request takes, a file over the limit, no description, more than it said
+  const head = (meta) => { const m = Buffer.from(JSON.stringify(meta)); const h = Buffer.alloc(10); Buffer.from('PGLB1\n').copy(h); h.writeUInt32BE(m.length, 6); return Buffer.concat([h, m]) }
+  const never = (first) => new Readable({ read() { if (!this.sent) { this.sent = true; this.push(first) } } }) // (the rest never comes)
+  const t0 = Date.now()
+  await assert.rejects(readBatch(never(head({ count: 500000 })), L), (e) => e.status === 413 && e.code === 'too_many')
+  const fileHead = Buffer.alloc(2 + 1 + 4); fileHead.writeUInt16BE(1, 0); fileHead.write('a', 2); fileHead.writeUInt32BE(BATCH.bytes + 1, 3)
+  await assert.rejects(readBatch(never(Buffer.concat([head({ count: 1 }), fileHead])), L), (e) => e.status === 413 && e.code === 'too_big')
+  assert.ok(Date.now() - t0 < 1000)
+  await assert.rejects(readBatch(Readable.from([head(null)]), L), (e) => e.status === 400)
+  await assert.rejects(readBatch(Readable.from([Buffer.from('PGLB1\n'), Buffer.from([0, 0, 0, 4]), Buffer.from('null')]), L), (e) => e.status === 400)
+  await assert.rejects(readBatch(Readable.from([Buffer.from('hello world!')]), L), (e) => e.status === 400)
+  await assert.rejects(readBatch(Readable.from([whole, Buffer.from('x')]), L), (e) => e.status === 400)
+  await assert.rejects(readBatch(Readable.from([whole.subarray(0, whole.length - 2)]), L), (e) => e.status === 400)
+  const bigMeta = Buffer.alloc(10); Buffer.from('PGLB1\n').copy(bigMeta); bigMeta.writeUInt32BE(BATCH.metaBytes + 1, 6)
+  await assert.rejects(readBatch(never(bigMeta), L), (e) => e.status === 413)
 })
 
 test('the server looks again at each uploaded file: a secret\'s name, git\'s control files, a large file, a key of a sure shape', () => {
   assert.deepEqual(refusalOf('kit/.env', Buffer.from('A=1')), { reason: 'name', line: null })
   assert.deepEqual(refusalOf('kit/.gitmodules', Buffer.from('')), { reason: 'gitmodules', line: null })
+  assert.deepEqual(refusalOf('kit/.gitattributes', Buffer.from('* filter=x')), { reason: 'gitattributes', line: null })
+  assert.deepEqual(refusalOf('.GITATTRIBUTES', Buffer.from('')), { reason: 'gitattributes', line: null })
   assert.deepEqual(refusalOf('kit/a.txt', Buffer.from(`ok\n${PEM}\n`)), { line: 2, reason: 'private_key' })
   assert.equal(refusalOf('kit/.env.example', Buffer.from('A=')), null)
   assert.equal(refusalOf('kit/readme.md', Buffer.from('# hi')), null)

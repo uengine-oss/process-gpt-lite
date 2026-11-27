@@ -3260,7 +3260,11 @@
   "폴더를 놓으면 같은 이름으로 새 폴더를 만들어요 — 파일은 폴더를 열고 그 안에 놓아 주세요.": "Drop a folder to create a new folder with the same name — to add files, open a folder and drop them in it.",
   "이 작업실을 열 권한이 없어요 — 이 폴더의 편집 권한(변형은 실행 권한)이 필요해요.": "You don't have access to this workroom — it needs edit access to the folder (run access for a variation).",
   "이 폴더(또는 변형)의 작업실을 찾지 못했어요 — 지워졌거나 아직 작업 사본이 없어요.": "Couldn't find the workroom of this folder (or variation) — it was deleted or has no working copy yet.",
-  "이 폴더에는 올릴 수 없어요.": "You can't upload to this folder."
+  "이 폴더에는 올릴 수 없어요.": "You can't upload to this folder.",
+  "그만뒀어요": "Stopped",
+  "경로가 너무 긴 파일": "Files whose path is too long",
+  "git 제어 파일(.gitmodules · .lfsconfig · .gitattributes)": "git control files (.gitmodules · .lfsconfig · .gitattributes)",
+  "그만뒀어요 — 올라간 것은 없어요.": "Stopped — nothing went up."
  },
  "patterns": [
   [
@@ -7470,6 +7474,14 @@
   [
    "작업실을 열지 못했어요 — {0}",
    "Couldn't open the workroom — {0}"
+  ],
+  [
+   "그만뒀어요 — 파일 {0}개는 올라갔어요",
+   "Stopped — {0} files went up"
+  ],
+  [
+   "‘{0}’ 폴더를 만들고 그만뒀어요 — 파일 {1}개는 올라갔어요",
+   "Created ‘{0}’ and stopped — {1} files went up"
   ]
  ],
  "context": [
