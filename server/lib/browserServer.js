@@ -9,12 +9,7 @@
 // A driver does not know about tasks: what it sees on its own (a live frame, a download, a login typed by the person, the
 // work moving to a new tab) goes to the hooks it was given — on.frame(d, data, url), on.download(d, {name, read}),
 // on.wantsDownload(d), on.capture(d, payload), on.moved(d, host).
-//
-// Its requests to this Lite server's own addresses (lib/liteOwn.js) are marked as an agent browser's (X-PGL-Agent-Browser:
-// server): this server then serves it only what needs no session — never its sign-in or the person's API (lib/agentBrowserGuard.js).
 import { chromium } from 'playwright'
-import { liteOwnPage } from './liteOwn.js'
-import { AGENT_BROWSER_HEADER } from './agentBrowserGuard.js'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -148,8 +143,6 @@ export class ServerDriver {
     // stop answering and not close
     this.pid = lockHolder(dir)?.pid || browserPidFor(dir)
     await ctx.addInitScript(PAGE_GUARD)
-    // (this server's own addresses only: no other site learns that an agent's browser asks)
-    await ctx.route((u) => liteOwnPage(u.href), (route) => route.continue({ headers: { ...route.request().headers(), [AGENT_BROWSER_HEADER]: 'server' } }).catch(() => {}))
     await ctx.exposeBinding('__proVaultCapture', (_src, payload) => Promise.resolve(this.on.capture?.(this, payload)).catch((e) => console.warn('[vault capture]', e.message)))
     const watchDownloads = (page) => {
       page.on('download', (d) => this.download(d, page).catch((e) => console.warn('[browser] download', e.message)))

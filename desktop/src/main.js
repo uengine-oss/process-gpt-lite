@@ -149,6 +149,10 @@ function createWindow() {
 
   const wc = win.webContents
   guard(wc)
+  // (a new document: its router listens again once the web app has started — showInWindow)
+  wc.on('did-start-navigation', (e, url, inPlace, isMain) => {
+    if ((e?.isMainFrame ?? isMain) && !(e?.isSameDocument ?? inPlace)) navListening = false
+  })
   for (const [ev, on] of [['enter-full-screen', true], ['leave-full-screen', false]]) win.on(ev, () => wc.send('pgl:fullscreen', on))
   wc.on('did-finish-load', () => {
     if (win.isFullScreen()) wc.send('pgl:fullscreen', true)
@@ -253,6 +257,14 @@ function guard(wc) {
 
 // the web app's screen at url, in the app's window: its router goes there (pgl:navigate — preload onNavigate); a window that does not show
 // the web app now (the setup or offline page) loads it
+// - the window shows one of the web app's screens and its router listens (pgl:navigate:listening — preload onNavigate): it goes there
+// - it shows one and the router does not listen yet (the page is still starting): it goes there once it does — or, when it has not
+//   within NAV_WAIT_MS (a web app too old to listen), the window loads the address
+// - it shows anything else (the setup or offline page, ProcessGPT's own pages at the origin's root, a file): the window loads the address
+// Never the web app's sign-in return page (/auth/…).
+let navListening = false
+let navPending = null // { to, url, timer }
+const NAV_WAIT_MS = 3000
 function showInWindow(url) {
   if (!win || win.isDestroyed()) createWindow()
   let to = ''
@@ -260,11 +272,28 @@ function showInWindow(url) {
     const u = new URL(url), root = new URL(serverUrl()).pathname.replace(/\/+$/, '')
     to = `${u.pathname.slice(root.length) || '/'}${u.search}${u.hash}`
   } catch { return }
-  if (isServerPage(win.webContents.getURL())) win.webContents.send('pgl:navigate', to)
-  else win.loadURL(url).catch(() => { /* did-fail-load shows the offline page */ })
+  if (/^\/auth(\/|$|\?|#)/.test(to) || policy.windowFor(url, ctx()) !== 'main') return
+  const wc = win.webContents
+  clearTimeout(navPending?.timer)
+  navPending = null
+  if (policy.windowFor(wc.getURL(), ctx()) !== 'main') win.loadURL(url).catch(() => { /* did-fail-load shows the offline page */ })
+  else if (navListening) wc.send('pgl:navigate', to)
+  else {
+    navPending = { to, url, timer: setTimeout(() => { if (navPending?.url === url) { navPending = null; win?.loadURL(url).catch(() => {}) } }, NAV_WAIT_MS) }
+  }
   if (win.isMinimized()) win.restore()
   win.focus()
 }
+ipcMain.on('pgl:navigate:listening', (e) => {
+  if (!fromServerPage(e) || e.senderFrame !== e.sender.mainFrame) return
+  navListening = true
+  if (!navPending) return
+  clearTimeout(navPending.timer)
+  e.sender.send('pgl:navigate', navPending.to)
+  navPending = null
+})
+// (tests — an app that is not packaged, PGL_DESKTOP_EXTERNAL=log: what a link to a screen does, from the main process)
+if (!app.isPackaged && process.env.PGL_DESKTOP_EXTERNAL === 'log') global.__pglShowInWindow = (u) => showInWindow(u)
 
 // what a right click offers where the page does not handle it: editing, copying, a link
 function contextMenu(wc, p) {

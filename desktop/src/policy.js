@@ -121,16 +121,28 @@ const underAppSite = (host, ctx = {}) => { const h = bare(host); return appSites
 // *.intranet · *.localdomain · *.home.arpa · *.localhost), or under the app's names: one that does not resolve is not opened on the app's
 // port (nothing else is refused for a lookup that failed)
 const NET_SUFFIX = /\.(localhost|local|lan|internal|intranet|localdomain|home\.arpa)$/
+// A request on the port of the app's server (or of an address it gives for itself) when that port is not 80 · 443: marked, whatever its
+// host is and whatever that resolves to
+function onAppPort(url, { server = '', appOrigins = [] } = {}) {
+  const p = placeOf(url)
+  if (!p || !server) return false
+  return [server, ...appOrigins].map(placeOf).some((a) => a && !atDefault(a) && a.port === p.port)
+}
 const couldBeLocal = (host, ctx = {}) => { const h = bare(host); return !!h && (!h.includes('.') || NET_SUFFIX.test(h) || underAppSite(h, ctx)) }
 
+// The web app's own screens: the first part of each path its router has (src/main.js routes — test/policy.test.js checks this list
+// against that file). Its sign-in's return page (/auth/…) is not one a link opens.
+const APP_SCREENS = ['', 'login', 'welcome', 'chat', 'routines', 'projects', 'settings', 'workroom', 'folders', 'mining', 'improve', 'process-map',
+  'strategy', 'agentic', 'backoffice', 'team-activity', 'context']
+const NOT_FROM_LINKS = ['auth']
 // Which window a page of the app's own window opens a new window's address in (main.js setWindowOpenHandler):
-//   'main'     — a screen of the web app itself (the server's address under its path — a link in the chat to a project, a folder): the
-//                app's window shows it, by the web app's own router (main.js — nothing reloads); the web app keeps its sign-in only through
-//                that window
-//   'child'    — the server's other addresses (its /api/, a file it serves — anything named like a file —, /craft/ · /assets/ · /_lite/,
-//                a download, ProcessGPT's own pages behind the gateway): a window of its own
+//   'main'     — a screen of the web app itself (the server's address under its path, on one of APP_SCREENS — a link in the chat to a
+//                project, a folder): the app's window shows it, by the web app's own router (main.js — nothing reloads); the web app keeps
+//                its sign-in only through that window
+//   'child'    — the server's other addresses (its /api/, the files it serves, /craft/ · /assets/ · /_lite/ …, a download, ProcessGPT's
+//                own pages behind the gateway): a window of its own
 //   'outside'  — a sign-in page or any other web or mail address: the system browser or mail app
-//   'none'     — nowhere
+//   'none'     — nowhere (also the web app's sign-in return page)
 function windowFor(url, ctx = {}) {
   const k = kind(url, ctx)
   if (k === 'external' || k === 'auth') return 'outside'
@@ -141,9 +153,9 @@ function windowFor(url, ctx = {}) {
   const root = base.pathname.replace(/\/+$/, '')
   const p = u.pathname
   if (root && p !== root && !p.startsWith(`${root}/`)) return 'child'
-  const rest = p.slice(root.length) || '/'
-  if (/^\/(api|craft|assets|_lite)(\/|$)/.test(rest) || /\.[a-z0-9]{1,12}$/i.test(rest.split('/').pop())) return 'child'
-  return 'main'
+  const first = (p.slice(root.length) || '/').split('/')[1] || ''
+  if (NOT_FROM_LINKS.includes(first)) return 'none'
+  return APP_SCREENS.includes(first) ? 'main' : 'child'
 }
 
 // The server's basic-auth gate (a tunnel's) is answered with the saved pair only for the app's own window — its default session — on the
@@ -153,4 +165,4 @@ function answersGate({ mainSession = false, isProxy = false, url = '', server = 
   return !!mainSession && !isProxy && !!server && !!originOf(url) && originOf(url) === originOf(server)
 }
 
-module.exports = { kind, openable, originOf, loopback, answersGate, agentMay, appNames, nameToCheck, hereAddress, windowFor, bare, siteOf, underAppSite, couldBeLocal }
+module.exports = { kind, openable, originOf, loopback, answersGate, agentMay, appNames, nameToCheck, hereAddress, windowFor, APP_SCREENS, NOT_FROM_LINKS, bare, siteOf, underAppSite, couldBeLocal, onAppPort }

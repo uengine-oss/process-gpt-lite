@@ -1,7 +1,6 @@
 // The browser the agent drives on the person's PC (desktop app, desktop/src/browser) marks its requests that may reach this server
-// (by any of its addresses) with X-PGL-Agent-Browser, and so does this server's own browser for its requests to this server's own
-// addresses (lib/browserServer.js). A marked request reaches only the few routes that need no session (OPEN below — this app's public
-// config, a file's signed address, this server's own browser's Google connection); never the sign-in, any API that needs a session,
+// (by any of its addresses) with X-PGL-Agent-Browser. A marked request reaches only the few routes that need no session (OPEN below —
+// this app's public config, a file's signed address, this server's own browser's Google connection); never the sign-in, any API that needs a session,
 // the MCP endpoints, the ArtCraft apps or the live links (websockets) —
 // a task works on other sites in that browser, never in Lite as the person. Lite itself is used in the app's own window or
 // a web browser. (A task that starts on a page of this server runs in this server's browser instead: lib/browserRemote.js

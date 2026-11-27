@@ -26,7 +26,7 @@ const os = require('node:os')
 const fs = require('node:fs')
 const { Cdp, withTimeout } = require('./cdp')
 const P = require('./pageScripts')
-const { agentMay, appNames, nameToCheck, hereAddress, underAppSite, couldBeLocal, bare } = require('../policy')
+const { agentMay, appNames, nameToCheck, hereAddress, underAppSite, couldBeLocal, onAppPort, bare } = require('../policy')
 
 const VIEW = { width: 1280, height: 800 }
 const MAX_DOWNLOAD = Number(process.env.PGL_BROWSER_MAX_DOWNLOAD) > 0 ? Number(process.env.PGL_BROWSER_MAX_DOWNLOAD) : 50 * 1024 * 1024 // (tests make it small)
@@ -160,9 +160,10 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     if (state.here.size > 500) state.here.delete(state.here.keys().next().value)
     return here
   }
-  // Whether a request that goes may still reach the app's server by an address the rules above do not know — its host is this PC or its
-  // network (by address, by a local name, by what it resolves to), a name under the app's, or an address of the app's server: then it
-  // carries the mark (AGENT_HEADER) and the Lite server refuses it its sign-in and API. Any other site never sees the mark.
+  // Whether a request that goes may still reach the app's server by an address the rules above do not know — it is on that server's own
+  // port (not 80 · 443: whatever its name resolves to), or its host is this PC or its network (by address, by a local name, by what it
+  // resolves to), a name under the app's, or an address of the app's server: then it carries the mark (AGENT_HEADER) and the Lite server
+  // refuses it its sign-in and API. Any other site never sees the mark.
   const markedAddress = (a, appIps) => { const h = bare(a); return privateIp(h) === true || hereAddress(h, selfHosts()) || appIps.has(h) }
   async function markFor(ses, u) {
     const ctx = appCtx()
@@ -170,7 +171,7 @@ function createBrowserHost({ electron, log = () => {}, tmp = path.join(os.tmpdir
     let h
     try { h = bare(new URL(String(u).replace(/^ws(s?):/i, 'http$1:')).hostname) } catch { return false }
     if (!h) return false
-    if (underAppSite(h, ctx) || (privateIp(h) === null && couldBeLocal(h, ctx))) return true
+    if (onAppPort(u, ctx) || underAppSite(h, ctx) || (privateIp(h) === null && couldBeLocal(h, ctx))) return true
     const appIps = new Set()
     for (const n of appNames(ctx)) for (const a of (await endpointsOf(ses, n)) || []) appIps.add(bare(a))
     if (privateIp(h) !== null) return markedAddress(h, appIps)

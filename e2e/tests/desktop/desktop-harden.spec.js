@@ -9,7 +9,9 @@
 //         넘겨받은 창에서도, 그때는 「이 주소는 에이전트 브라우저에서 열지 않아요」. Lite 서버의 다른 주소일 수 있는 곳(이 PC 의 주소 — BFF 포트)으로 가는
 //         그 브라우저의 요청에는 표시가 붙고 Lite 서버는 세션이 필요한 API 를 거절한다(403 agent_browser). 다른 사이트의 CORS 요청은 그대로 된다
 //   DH-05 새 창으로 여는 웹 앱 링크(채팅의 프로젝트 · 폴더 링크)는 앱 창에서, 웹 앱의 라우터로 연다 — 다시 불러오지 않고 로그인한 채, 페이지의
-//         저장소에 로그인이 생기지 않는다. 앱 화면이 아닌 서버 주소(/api/ · 파일)는 지금처럼 새 창, 패널 앱의 링크는 시스템 브라우저
+//         저장소에 로그인이 생기지 않는다(점이 든 화면 경로도). 앱 화면이 아닌 서버 주소(/api/ · 파일)는 지금처럼 새 창, 로그인 돌아오는 곳(/auth/…)은
+//         어디서도 열지 않고, 패널 앱의 링크는 시스템 브라우저. 창이 앱 화면이 아니면 그 주소를 불러오고, 페이지가 막 시작하는 중이면 라우터가
+//         들을 때 그리로 간다(한 번만 불러옴)
 //   DH-06 에이전트 브라우저 세션의 웹소켓도 Lite 서버의 다른 주소(BFF 포트)로 가면 표시가 붙어 서버가 403 으로 닫는다 — 표시 없는 같은 연결은 열린다
 //   DH-03 로그아웃하면 봉인해 둔 로그인도 지운다
 //   DH-04 앞선 판처럼 페이지의 저장소에 있던 로그인은 처음 실행에 옮기고 지운다(한 번 새로 받아 저장소에 있던 짝은 다 쓴 것으로) — 키체인을 쓸 수
@@ -375,6 +377,18 @@ test('DH-05 새 창으로 여는 웹 앱 링크는 앱 창에서, 웹 앱의 라
   expect(win.url()).not.toMatch(/\/login/)
   expect((await pageSession(win))?.access_token?.length).toBeGreaterThan(20)
   expect(await stored(win)).toBeNull()
+  // a screen whose path has a dot in it: still a screen, in this window
+  await open(`${LITE}/folders/report.v2`)
+  await win.waitForURL(/\/folders\/report\.v2/, { timeout: 15000 })
+  expect(await win.evaluate(() => window.__dh05)).toBe('still here')
+  expect(pages()).toBe(before)
+  // the sign-in's return page: nowhere — no window, this one stays
+  await open(`${LITE}/auth/done#access_token=not-a-token`)
+  await win.waitForTimeout(800)
+  expect(win.url()).toMatch(/\/folders\/report\.v2/)
+  expect(pages()).toBe(before)
+  await open(`${LITE}/folders`)
+  await win.waitForURL(/\/folders$/, { timeout: 15000 })
   // the server's addresses that are not the web app's screens (its /api/, a file it serves): a window of their own, as before
   for (const p of ['/api/config', '/favicon.svg']) {
     const child = app.waitForEvent('window', { timeout: 15000 })
@@ -390,6 +404,27 @@ test('DH-05 새 창으로 여는 웹 앱 링크는 앱 창에서, 웹 앱의 라
   await expect.poll(async () => (await app.evaluate(() => global.__pglExternal || [])).slice(had)).toEqual([`${LITE}/chat`])
   expect(win.url()).toMatch(/\/folders/)
   expect(await win.evaluate(() => window.__dh05)).toBe('still here')
+  // the page is still starting (a reload) when a link asks for a screen: it goes there once the router listens — loaded once, not twice
+  const loads = await app.evaluate(({ BrowserWindow }, base) => new Promise((ok) => {
+    const w = BrowserWindow.getAllWindows().find((x) => !x.pglBrowser && !x.isDestroyed() && x.webContents.getURL().startsWith(base))
+    let n = 0
+    const on = () => { n++ }
+    w.webContents.on('did-finish-load', on)
+    w.webContents.once('did-start-navigation', () => global.__pglShowInWindow(`${base}/chat`))
+    w.webContents.reload()
+    setTimeout(() => { w.webContents.off('did-finish-load', on); ok(n) }, 6000)
+  }), LITE)
+  await win.waitForURL(/\/chat/, { timeout: 15000 })
+  expect(loads).toBe(1)
+  await expect(win.locator('header.top')).toBeVisible()
+  // the window shows something that is not one of the web app's screens (here a file of the server; behind the gateway ProcessGPT's own
+  // page at the origin's root): the window loads the screen's address
+  await win.goto(`${LITE}/favicon.svg`)
+  await app.evaluate((_e, u) => global.__pglShowInWindow(u), `${LITE}/folders`)
+  await win.waitForURL(/\/folders/, { timeout: 15000 })
+  await expect.poll(async () => (await pageSession(win))?.access_token?.length || 0, { timeout: 15000 }).toBeGreaterThan(20)
+  expect(win.url()).not.toMatch(/\/login/)
+  expect(await stored(win)).toBeNull()
 })
 
 // a raw websocket handshake to the BFF port, with or without the mark: the first line of the answer

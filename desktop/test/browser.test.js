@@ -426,3 +426,27 @@ test('앞선 판에서 이 세션에 남은 Lite 의 저장소 · 쿠키는 한 
     assert.equal(person.cleared.length, 3)
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('앱 서버의 포트(80 · 443 이 아님)로 가는 요청에는 이름이 어디로 풀리든 표시', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-host-'))
+  try {
+    // (a name that resolves to a public address: on the app's port it is marked all the same)
+    const f = fakeHost({ dir, server: 'http://localhost:5391', names: { 'any-name.example': ['93.184.216.34'], 'public.example': ['93.184.216.34'] } })
+    await f.host.open({ user: 'u-1' })
+    let id = 1000
+    const sent = async (url) => {
+      const n = ++id
+      const v = await new Promise((r) => f.on.request({ id: n, url, resourceType: 'xhr', webContents: {} }, r))
+      if (v.cancel) return 'refused'
+      const out = await new Promise((r) => f.on.headers({ id: n, url, requestHeaders: {} }, r))
+      return out.requestHeaders?.[AGENT_HEADER] === '1' ? 'marked' : 'plain'
+    }
+    for (const u of ['http://any-name.example:5391/api/me', 'ws://any-name.example:5391/api/events', 'https://any-name.example:5391/']) assert.equal(await sent(u), 'marked', u)
+    for (const u of ['http://any-name.example:5392/', 'https://public.example/', 'http://public.example/']) assert.equal(await sent(u), 'plain', u)
+    // a server on 80 · 443: every site is on that port — not marked for it
+    const g = fakeHost({ dir, server: 'https://acme.process-gpt.io/lite', names: { 'public.example': ['93.184.216.34'], 'acme.process-gpt.io': ['34.1.2.3'] } })
+    await g.host.open({ user: 'u-1' })
+    const out = await new Promise((r) => g.on.request({ id: 1, url: 'https://public.example/', resourceType: 'xhr', webContents: {} }, () => g.on.headers({ id: 1, url: 'https://public.example/', requestHeaders: {} }, r)))
+    assert.deepEqual(out, {})
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})

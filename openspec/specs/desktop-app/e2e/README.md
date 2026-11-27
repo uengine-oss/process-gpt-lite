@@ -56,7 +56,6 @@ PGL_DESKTOP_EXE="../desktop/release/mac-arm64/Process GPT Lite.app/Contents/MacO
 | (browser-handoff) 이 PC 를 가리키는 다른 이름 · 서버의 다른 주소 | DH-02(`--host-resolver-rules` 로 `lite-alias.test` → 127.0.0.1 · `[::ffff:7f00:1]` · BFF 포트), `desktop/test/policy.test.js` · `browser.test.js`, `server/test/agentBrowserGuard.test.js` |
 | (browser-handoff) Lite 의 페이지에서 시작하는 작업 · 앞선 판의 데스크톱 | `server/test/browserRoute.test.js` |
 | (browser-handoff) 웹소켓의 표시 | DH-06 |
-| (browser-handoff) 서버의 브라우저가 Lite 자신의 주소로 간다 | `server/test/browserServerMark.test.js` |
 | (browser-handoff) 인증 코드를 묻는다 — 그 설치 자신의 로그인 메일 | `server/test/mail-code.test.js` |
 
 시험하지 않은 것: 실제 Windows · Linux 의 트레이 · 작업 표시줄 오버레이 · 런처 숫자(가짜 Electron 의 단위 시험만), 메뉴 막대에 보이는 모습(화면 기록 권한이 없어 찍지 못함 — `state()` 의 `tray.getTitle()` 로 확인), 전체 화면에서 신호등 자리 비우기(macOS 전체 화면은 새 Space로 옮겨 가서 이 PC의 화면에 영향을 준다), 마우스 오른쪽 단추 메뉴, 접근 암호(basic auth)가 걸린 서버, 401 응답일 때 자동으로 재시도하지 않는 동작, 화면 공유, Windows · Linux.

@@ -1,5 +1,5 @@
-// This Lite server's own addresses — shared by where a browser task runs (lib/browserRemote.js routeOf), what this server's own
-// browser marks (lib/browserServer.js) and what the desktop app is told about this server (/api/config appOrigins).
+// This Lite server's own addresses — shared by where a browser task runs (lib/browserRemote.js routeOf) and what the desktop app is
+// told about this server (/api/config appOrigins).
 import { config } from '../config.js'
 import { urlOf } from './tenant.js'
 

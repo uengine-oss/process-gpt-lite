@@ -331,7 +331,7 @@
 - 서버가 `/api/config` 의 `appOrigins` 로 알린 제 주소(공개 주소 · 터널 주소)도 그 서버다 — 앱이 어느 주소로 연결돼 있든.
 - 막히면 에이전트는 까닭을 열기의 답으로 받고, 페이지가 그리로 가려 한 것은 다음 읽기의 글 끝에 `[not opened] <출처>: …` 로 온다. 페이지는 있던 자리에 남는다.
 - 넘겨받아 보이는 창에서 막히면 그 창에 「이 주소는 에이전트 브라우저에서 열지 않아요」(그 출처와 함께)를 보인다. 이 상자는 10초에 한 번까지 띄운다(주소가 달라도).
-- 그 브라우저의 요청 가운데 Lite 서버의 다른 주소일 수 있는 곳 — 이 PC · 내부망(주소, 그런 이름, 그리로 풀리는 이름), 앱 이름 아래, 앱 서버의 주소로 풀리는 이름, 서버가 알린 제 주소 — 으로 가는 요청에 표시(`X-PGL-Agent-Browser`)가 붙는다. 다른 사이트(Google 계정 화면 · NotebookLM 을 포함)로 가는 요청에는 붙지 않는다(MUST NOT). 서버의 브라우저도 그 Lite 서버 자신의 주소로 가는 요청에 같은 표시를 단다.
+- 그 브라우저의 요청 가운데 Lite 서버의 다른 주소일 수 있는 곳 — 앱 서버의 포트(80 · 443 이 아닐 때, 이름이 어디로 풀리든), 이 PC · 내부망(주소, 그런 이름, 그리로 풀리는 이름), 앱 이름 아래, 앱 서버의 주소로 풀리는 이름, 서버가 알린 제 주소 — 으로 가는 요청에 표시(`X-PGL-Agent-Browser`)가 붙는다. 다른 사이트(Google 계정 화면 · NotebookLM 을 포함)로 가는 요청에는 붙지 않는다(MUST NOT).
 - Lite 서버는 표시가 있는 요청에 세션 없이 여는 몇 곳 — 앱의 공개 설정(`GET /api/config`), 서명된 파일 주소(공유 파일 · 메일 첨부의 `…/raw?sig=`), 서버 브라우저의 Google 연결(`/api/auth/google/callback` · `done` — 그 연결의 것만, 로그인은 아님) — 만 답하고, 로그인 · 세션이 필요한 API · 토큰을 지닌 요청 · MCP 끝점 · ArtCraft 앱 · 웹소켓은 어느 주소로 오든 받지 않는다(MUST NOT — 403 `agent_browser`, 「에이전트 브라우저에서 온 요청은 받지 않아요. …」). 다른 사이트의 요청(CORS 포함)은 그대로 된다.
 - 0.2.6 이 그 사람의 브라우저 세션을 처음 열 때, 그 세션에 남아 있던 Lite 서버 · 로그인 출처의 저장소 · 쿠키 · 서비스 워커를 한 번 지운다.
 - 시작 주소가 그 Lite 서버 자신의 페이지(공유 · 미리 보기)인 작업은 PC 대신 서버 브라우저에서 돈다(`where.why: 'lite-page'`).
@@ -350,10 +350,6 @@
 - **WHEN** 에이전트가 이 PC 로 풀리는 이름(시험: Chromium 의 host resolver 규칙으로 `lite-alias.test` → 127.0.0.1)과 `[::ffff:7f00:1]` 로 Lite 의 로그인 화면을 열고, 그 브라우저의 세션이 Lite 서버의 API 를 앱이 모르는 다른 주소(BFF 의 포트)로 부른다
 - **THEN** 두 열기는 `error: could not open … does not open the Process GPT Lite app …` 이고, 세션이 필요한 API(`/api/me`)는 서버가 403 `agent_browser` 로 거절한다 — 표시가 없는 같은 요청은 401, 공개 설정(`/api/config`)은 200 이다(DH-02, `desktop/test/policy.test.js` · `browser.test.js`, `server/test/agentBrowserGuard.test.js`)
 - **AND** 그 세션의 웹소켓이 BFF 포트의 `/api/local-agents/link` 로 가면 서버가 403 으로 닫는다 — 표시가 없는 같은 연결은 열린다(DH-06)
-
-#### Scenario: 서버의 브라우저가 Lite 자신의 주소로 간다
-- **WHEN** 서버의 브라우저가 Lite 서버 자신의 주소(공개 주소 · 그 loopback 의 다른 이름)의 페이지를 열고, 그 페이지가 fetch · 그림을 부르며, 다른 사이트의 페이지가 Lite 로 요청을 보낸다
-- **THEN** Lite 로 가는 요청에는 모두 표시(`server`)가 붙고 그 페이지의 쿠키는 그대로 가며, 다른 사이트로 가는 요청에는 표시가 없다(`server/test/browserServerMark.test.js`)
 
 #### Scenario: 앞선 판의 데스크톱
 - **WHEN** 0.2.6 보다 앞선 데스크톱(`caps.browserGuard` 없음)만 켜져 있는 사람이 브라우저 작업을 시킨다

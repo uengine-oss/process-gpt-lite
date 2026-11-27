@@ -96,9 +96,11 @@ const badge = local ? {} : {
     ipcRenderer.on('pgl:open-home', h)
     return () => ipcRenderer.removeListener('pgl:open-home', h)
   },
+  // (main holds a screen asked for before this listens, and gives it now: the router listens from here on)
   onNavigate: (cb) => {
     const h = (_e, to) => { try { cb(String(to || '')) } catch { /* the page's own */ } }
     ipcRenderer.on('pgl:navigate', h)
+    ipcRenderer.send('pgl:navigate:listening')
     return () => ipcRenderer.removeListener('pgl:navigate', h)
   },
   openOutside: (url) => ipcRenderer.send('pgl:open-outside', String(url || '')),

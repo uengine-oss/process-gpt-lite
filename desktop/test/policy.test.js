@@ -132,3 +132,20 @@ test('웹 앱의 화면만 앱 창에서 — 정적 파일 · 다른 앱(/craft 
   for (const u of ['https://acme.process-gpt.io/lite/chat/c/1', 'https://acme.process-gpt.io/lite/routines/abc', 'https://acme.process-gpt.io/lite/folders/my.folder/v/2?x=1#a'])
     assert.equal(windowFor(u, company), 'main', u)
 })
+
+test('앱 창에서 여는 화면은 웹 앱 라우터의 경로 그대로 — 이 목록은 src/main.js 의 routes 와 같다, 점이 든 경로도 화면, 로그인 돌아오는 곳은 어디서도', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const { APP_SCREENS, NOT_FROM_LINKS } = require('../src/policy')
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'main.js'), 'utf8')
+  const start = src.indexOf('const routes = [')
+  const block = src.slice(start, src.indexOf('\n]', start))
+  assert.ok(start > 0 && block.length > 100, 'src/main.js routes')
+  const firsts = new Set([...block.matchAll(/path: '([^']*)'/g)].map((m) => m[1].split('/')[1] || ''))
+  assert.deepEqual([...firsts].sort(), [...APP_SCREENS, ...NOT_FROM_LINKS].sort(), 'desktop/src/policy.js APP_SCREENS 를 src/main.js 의 routes 와 같게')
+  const company = { server: 'https://acme.process-gpt.io/lite', authOrigins: [] }
+  for (const u of ['https://acme.process-gpt.io/lite/folders/report.v2', 'https://acme.process-gpt.io/lite/folders/a.b/v/c.d', 'https://acme.process-gpt.io/lite/context/x.y',
+    'https://acme.process-gpt.io/lite/settings/accounts']) assert.equal(windowFor(u, company), 'main', u)
+  for (const u of ['https://acme.process-gpt.io/lite/auth/done#access_token=x', 'https://acme.process-gpt.io/lite/auth']) assert.equal(windowFor(u, company), 'none', u)
+  for (const u of ['https://acme.process-gpt.io/lite/unknown-screen', 'https://acme.process-gpt.io/lite/robots.txt']) assert.equal(windowFor(u, company), 'child', u)
+})

@@ -96,3 +96,11 @@ sessionStore 6/6 · mail-code 26/26 · agentBrowserGuard 6/6(MCP · ArtCraft 포
 #   DH-05 웹 앱 링크: 창을 다시 불러오지 않고 /folders, 로그인한 채 · /api/config · /favicon.svg 는 새 창 · 패널 앱의 링크는 시스템 브라우저
 #   DH-06 그 세션의 ws://127.0.0.1:<BFF>/api/local-agents/link: error(서버 403) · 표시 없는 같은 연결 101
 # 회귀: desktop.spec.js D-01~13 13 passed(BFF 8993) · local-browser.spec.js 3 passed · local-agents.spec.js 4 passed
+
+# 0.2.6 4차 — 2026-11-27 밤: 서버 브라우저의 표시는 뺌(따로) · 앱 서버의 포트(80 · 443 이 아님)로 가는 요청은 늘 표시 · 앱 창 화면은 웹 앱 라우터의 경로로 ·
+# 웹 앱이 막 시작하는 중이면 라우터가 들을 때 · 앱 창이 화면이 아니면 불러옴 · /auth/ 는 링크로 열지 않음
+# desktop/ 단위 시험 — ℹ tests 130 · pass 126 · fail 0 · skipped 4
+# server — sessionStore 6/6 · mail-code 26/26 · agentBrowserGuard 8/8 · browserRoute 6/6 · browser-local 15/15 · browserDriver 53/53
+# Playwright --project=desktop tests/desktop/desktop-harden.spec.js (BFF 8992 · Vite 5392) — 6 passed
+#   DH-05 /folders · /folders/report.v2 는 다시 불러오지 않고 · /auth/done 은 열리지 않음 · 새로 고치는 중의 링크는 한 번 불러온 뒤 /chat · 파일을 보이는 창은 /folders 를 불러옴
+# 회귀: desktop.spec.js D-01~13 13 passed(BFF 8993) · local-browser.spec.js 3 passed · local-agents.spec.js 4 passed
