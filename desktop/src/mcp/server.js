@@ -3,8 +3,13 @@
 // The stdio MCP server the desktop app gives its person's CLI in a chat run (design docs/local-agents/design.md §13): the CLI starts it
 // as one of its MCP servers (Claude Code: --mcp-config · Codex: -c mcp_servers.…), with the desktop app's own binary as its node
 // (ELECTRON_RUN_AS_NODE — no window, no app; plain Node in the tests). It is only a front: it tells the CLI the tools (mcp/tools.js) and
-// hands each call to the app (runner/tools.js) over the app's own local channel — a socket in a private temporary folder (a named pipe
-// on Windows), with the key of this one run. It never talks to the server, holds no server token and reads no file itself.
+// hands each call to the app (runner/tools.js) over the app's own local channel — a unix socket in a temporary folder only this user can
+// open, or a named pipe on Windows (which any local program can open) — always with the key of this one run (32 random bytes: the call's
+// only way in). It never talks to the server, holds no server token and reads no file itself.
+// Why ELECTRON_RUN_AS_NODE, not an app flag like the hooks' --pgl-hook: this server lives as long as the CLI's session and answers over stdio;
+// as the app's browser process (measured 2026-11-28, Electron 45.3.2 on macOS) it worked but registered with LaunchServices as a UI element,
+// started 3 processes and ~215 MB (node mode: 1 process, ~56 MB) per chat run, and a Windows GUI-subsystem main process writing stdout to a
+// pipe was not verified — the hook only reads stdin and leaves.
 //   node server.js --config <file>    the file (0600, in the run's own state folder): {ipc, key, lang}
 // MCP over stdio: JSON-RPC 2.0, one message per line (initialize · tools/list · tools/call · ping).
 const fs = require('node:fs')

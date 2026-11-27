@@ -18,10 +18,17 @@
 //                         this way.
 // Which folders: one the person or the list named, as an absolute path, ~/…, or relative to the CLI's work folder (never escaping it). Never
 // a link (the named folder itself — the folder it points to may be named instead), the disk's or a volume's top, the home folder or above
-// it, the system's folders (~/Library, /System, /usr, C:\Windows, AppData …), the CLIs' own homes (~/.claude, ~/.codex), a secret's folder
-// (.ssh, .aws, .gnupg), or this app's data.
-// The channel: one local socket of this app (a private temporary folder — 0700 — or a named pipe on Windows); each chat run has its own key
-// (open → the MCP server's config file, 0600, in the run's own state folder) and the run's token for the server stays in this process.
+// it, the system's folders (~/Library, /System, /usr, C:\Windows, AppData …), anything in the CLIs' own homes (~/.claude, ~/.codex,
+// ~/.agents — only their skills folders may be named), any hidden folder right under the home folder (~/.ssh, ~/.kube, ~/.docker, ~/.config,
+// keyrings, browser profiles …) and what is in it, a folder of the champion folders' secret or personal groups anywhere on its path (.ssh,
+// .aws, .gnupg, .claude/projects, .codex/sessions, .vscode …), or this app's data.
+// A folder proposed from a chat goes up only as it was shown: the card's 「올리기」 makes the upload look at it again (checked again, its real
+// path unchanged), and when what would go up is not what the proposal's first look found (each path with its size), nothing goes up —
+// the card says the folder changed.
+// The channel: one local socket of this app — a unix socket in a temporary folder only this user can open (0700), a named pipe on
+// Windows (which any local program may open: there the boundary is the key). Each chat run has its own key, 32 random bytes, in the MCP
+// server's config file (0600, in the run's own state folder) — a call without it gets nothing — and the run's token for the server stays in
+// this process.
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const fsp = require('node:fs/promises')
@@ -90,12 +97,20 @@ async function checkFolder(abs, { home = os.homedir(), env = process.env, dataDi
   const sys = systemFolders(home, env)
   for (const d of sys.inside) { const r = realOr(d); if (same(real, r) || isInside(real, r)) return { error: 'system_folder' } }
   for (const d of sys.exact) if (same(real, realOr(d))) return { error: 'system_folder' }
-  // the CLIs' own homes (their sign-in, settings, histories) — the skills folder inside one may still be named
-  const homes = [env.CLAUDE_CONFIG_DIR, path.join(home, '.claude'), env.CODEX_HOME, path.join(home, '.codex'), path.join(home, '.config'), path.join(home, '.agents')].filter(Boolean)
-  if (homes.some((d) => same(real, realOr(d)))) return { error: 'cli_home' }
-  // a secret's folder anywhere on the way (.ssh, .aws, .gnupg — the champion folders' groups)
+  // the CLIs' own homes (their sign-ins, settings, histories, sessions): nothing in them but their skills folders
+  const homes = cliHomes(home, env).map(realOr)
+  const inSkills = homes.some((d) => isInside(real, path.join(d, 'skills')))
+  if (!inSkills && homes.some((d) => same(real, d) || isInside(real, d))) return { error: 'cli_home' }
+  // a folder of the champion folders' secret or personal groups anywhere on the way (.ssh, .aws, .gnupg · .claude/projects, .codex/sessions,
+  // .vscode …) — by the names on its whole path
   const rel = path.relative(path.parse(real).root, real).split(path.sep).join('/')
-  if (SY.groupOf(rules, rel, true) === 'secret') return { error: 'secret_folder' }
+  const g = SY.groupOf(rules, rel, true)
+  if (g === 'secret') return { error: 'secret_folder' }
+  if (g === 'personal') return { error: 'personal_folder' }
+  // a hidden folder right under the home folder, and what is in it: a program's own place (~/.kube, ~/.docker, ~/.config, keyrings, browser
+  // profiles …) — the CLIs' skills folders aside
+  const under = path.relative(h, real)
+  if (!inSkills && under && !under.startsWith('..') && !path.isAbsolute(under) && under.split(path.sep)[0].startsWith('.')) return { error: 'hidden_folder' }
   if (dataDir) {
     const data = realOr(dataDir)
     if (isInside(data, real) || isInside(real, path.dirname(data))) return { error: 'app_folder' }
@@ -103,6 +118,9 @@ async function checkFolder(abs, { home = os.homedir(), env = process.env, dataDi
   try { await fsp.access(real, fs.constants.R_OK) } catch { return { error: 'not_readable' } }
   return { real }
 }
+
+// the CLIs' own homes on this computer (the run's environment names theirs when they moved them)
+const cliHomes = (home = os.homedir(), env = process.env) => [env.CLAUDE_CONFIG_DIR, path.join(home, '.claude'), env.CODEX_HOME, path.join(home, '.codex'), path.join(home, '.agents')].filter(Boolean)
 
 // what the person sees of where a folder is: the home folder as ~ (never sent to the server — only the CLI hears it)
 const shown = (p, home = os.homedir()) => (isInside(p, home) ? `~${path.sep}${path.relative(home, p)}`.replace(/[\\/]$/, '') : p)
@@ -164,19 +182,31 @@ async function skillsIn(dir, where, home) {
 
 // ---------- a skill read here ----------
 // the champion folders' scan of the skill folder (sync.js — the same rules), then its files → {skill} | {error, detail}
+// git's own control files of a skill folder (its .gitignore · .gitattributes — the scan already leaves .gitmodules · .lfsconfig out): a
+// skill's folder on the server is the server's own repository, so they stay here (counted as left out)
+const CONTROL = new Set(['.gitignore', '.gitattributes', '.gitmodules', '.lfsconfig'])
+const isControl = (rel) => CONTROL.has(String(rel).split('/').pop().trim().toLowerCase())
 async function packSkill(dir, { gitDir, rules = SY.compileRules(), places } = {}) {
   const s = await SY.scan(dir, { gitDir, rules, ...(places ? { places } : {}) })
+  const control = s.files.filter(isControl)
+  if (control.length) {
+    s.files = s.files.filter((r) => !isControl(r))
+    const g = s.preview.excluded.find((x) => x.group === 'structure') || (s.preview.excluded.push({ group: 'structure', count: 0, samples: [] }), s.preview.excluded.at(-1))
+    g.count += control.length
+    g.samples = [...g.samples, ...control].slice(0, 5)
+  }
   if (!s.files.includes('SKILL.md')) return { error: 'no_skill_md' }
   if (s.files.length > SKILL_MAX_FILES) return { error: 'too_many', detail: { files: s.files.length, max: SKILL_MAX_FILES } }
-  const bytes = s.report.bytes
-  if (bytes > SKILL_MAX_BYTES) return { error: 'too_big', detail: { bytes, max: SKILL_MAX_BYTES } }
   const files = []
+  let bytes = 0
   for (const rel of s.files) {
     const abs = path.join(dir, ...rel.split('/'))
     // (each file once more as it is now: a plain file inside the folder, never a link)
     const st = await fsp.lstat(abs).catch(() => null)
     if (!st || !st.isFile() || st.isSymbolicLink()) continue
     if (!isInside(realOr(abs), dir)) continue
+    bytes += st.size
+    if (bytes > SKILL_MAX_BYTES) return { error: 'too_big', detail: { bytes, max: SKILL_MAX_BYTES } }
     const buf = await fsp.readFile(abs)
     files.push({ path: rel, size: buf.length, data: buf.toString('base64') })
   }
@@ -204,7 +234,9 @@ const WHY = {
   link: ['링크(바로 가기)는 따라가지 않아요. 링크가 가리키는 실제 폴더를 알려 주세요', 'links are not followed — name the folder the link points to'],
   system_folder: ['디스크 최상위 폴더나 시스템 폴더는 보낼 수 없어요', 'the top of a disk or a system folder cannot be sent'],
   home_folder: ['홈 폴더 전체는 보낼 수 없어요. 그 안의 폴더를 골라 주세요', 'the whole home folder cannot be sent — pick a folder inside it'],
-  cli_home: ['CLI 설정 폴더 자체는 보낼 수 없어요. 로그인 정보와 사용 기록이 들어 있어요', 'a CLI\'s own settings folder cannot be sent (it holds sign-ins and histories)'],
+  cli_home: ['CLI 설정 폴더와 그 안의 폴더는 보낼 수 없어요(스킬 폴더만 보낼 수 있어요). 로그인 정보와 사용 기록이 들어 있어요', 'a CLI\'s own settings folder and what is in it cannot be sent (only its skills folder) — it holds sign-ins and histories'],
+  personal_folder: ['CLI 대화 기록이나 편집기 설정처럼 이 PC에만 보관하는 폴더는 보낼 수 없어요', 'a folder kept on this PC only (a CLI\'s histories, an editor\'s settings) cannot be sent'],
+  hidden_folder: ['홈 폴더 바로 아래에 있는 숨김 폴더(~/.kube · ~/.docker · ~/.config처럼 프로그램이 쓰는 곳)는 보낼 수 없어요', 'a hidden folder right under the home folder (a program\'s own place, like ~/.kube, ~/.docker, ~/.config) cannot be sent'],
   secret_folder: ['인증 정보를 보관하는 폴더(.ssh · .aws · .gnupg)는 보낼 수 없어요', 'a folder for secret keys (.ssh, .aws, .gnupg) cannot be sent'],
   app_folder: ['이 앱의 데이터 폴더는 보낼 수 없어요', 'this app\'s own data cannot be sent'],
   not_readable: ['그 폴더를 읽을 수 없어요', 'that folder cannot be read'],
@@ -407,7 +439,9 @@ class ToolDesk extends EventEmitter {
     const r = await this.api(run, '/folders/propose', { method: 'POST', body: { pickId: pick.pickId, label: pick.label, name: String(name || pick.label).trim().slice(0, 80), preview: pv } })
     if (r.error) return fail(r.error === 'server' ? r.message : why(run.lang, r.error))
     for (const [k, x] of this.proposed) if (Date.now() - x.at > 2 * 3600_000) this.proposed.delete(k)
-    this.proposed.set(pick.pickId, { proposalId: String(r.data.id), at: Date.now() })
+    // (what the card shows: what this look would upload — the upload must find the same; and where, with the run's environment, to check
+    // the folder again then — the run may be over by the time the card is pressed)
+    this.proposed.set(pick.pickId, { proposalId: String(r.data.id), at: Date.now(), seen: fs_.picks.get(pick.pickId)?.seen || null, dir: f.real, env: run.env })
     const left = (pv.excluded || []).reduce((n, g) => n + g.count, 0)
     const kit = (pv.kit || []).length
     return { text: T(run.lang,
@@ -428,10 +462,27 @@ class ToolDesk extends EventEmitter {
     // (only a pick this app made for that proposal — never the page's own dialog's, never a path)
     if (!mine || mine.proposalId !== proposalId) return answer({ ok: false, why: 'no_pick' })
     if (!this.folders) return answer({ ok: false, why: 'folders_off' })
+    // the folder as the proposal found it: checked again (the same rules), its real path the one that was looked at — a folder renamed or
+    // replaced by a link meanwhile is not followed
+    const pick = this.folders.picks.get(pickId)
+    if (!pick) return answer({ ok: false, why: 'no_pick' })
+    const again = await checkFolder(pick.dir, { home: this.home, env: mine.env || process.env, dataDir: this.dataDir, rules: this.rules })
+    let real = null
+    try { real = nfc(fs.realpathSync(pick.dir)) } catch { /* gone */ }
+    const gone = (why) => { this.proposed.delete(pickId); this.folders.picks.delete(pickId); this.log(`[tools] upload ${proposalId.slice(0, 8)}: ${why}`); return answer({ ok: false, why }) }
+    if (again.error || real !== pick.dir || again.real !== pick.dir || (mine.dir && mine.dir !== pick.dir)) return gone('changed')
     this.emit('notice', { kind: 'pc-upload', folderName: String(msg.folderName || '').slice(0, 120) })
-    // the champion folders' own first upload — the person's yes was the card's 「올리기」
-    const r = await this.folders.bind({ pickId, folderId: String(msg.folderId || ''), folderName: String(msg.folderName || '').slice(0, 120) }, { confirm: async () => true })
+    // the champion folders' own first upload — the person's yes was the card's 「올리기」, for what the card showed: the upload's own look must
+    // find the same files (each path with its size) as the proposal's, or nothing goes up
+    let changed = false
+    const yes = async (now) => {
+      const seen = mine.seen
+      if (!seen || now?.fingerprint !== seen.fingerprint || now?.files !== seen.files || now?.bytes !== seen.bytes) { changed = true; return false }
+      return true
+    }
+    const r = await this.folders.bind({ pickId, folderId: String(msg.folderId || ''), folderName: String(msg.folderName || '').slice(0, 120) }, { confirm: yes })
       .catch((e) => ({ ok: false, why: 'failed', error: e.message }))
+    if (!r.ok && changed) return gone('changed')
     if (r.ok) this.proposed.delete(pickId)
     this.log(`[tools] upload ${proposalId.slice(0, 8)}: ${r.ok ? 'ok' : r.why}`)
     answer({ ok: !!r.ok, why: r.ok ? null : String(r.why || 'failed'), ...(r.pushed ? { pushed: r.pushed } : {}), ...(Array.isArray(r.paths) ? { paths: r.paths.slice(0, 20) } : {}) })

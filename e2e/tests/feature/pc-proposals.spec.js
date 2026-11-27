@@ -4,12 +4,16 @@
 // Fictional person: 정하윤 — her PC (the desktop app's own runner, its tools and champion folders' engine, fake Claude Code —
 // desktop/test/fixtures/fake-tui.js — which calls the app's MCP server over its real stdio) has skills in Claude Code's folder and a folder
 // 「영업 키트」. She is the company's first person here, so its administrator (회사 스킬 may be chosen).
-// F-PP-01 her message to 「Claude Code · 내 PC」 → the card 「스킬을 등록할까요?」: what goes up, what was left out, where (내 스킬 · 회사 스킬),
-//         「등록」 → 「스킬을 등록했어요」 → 열기 → the skill's folder; Folders › 스킬 lists it as hers
-// F-PP-02 a skill with run settings: the card says so; 「회사 스킬」 needs one more check before 「등록」 → installed for the company (dark theme)
-// F-PP-03 a folder: 「폴더를 올릴까요?」 with the champion preview (files, left out, agent assets, name) → 「올리기」 → her PC uploads it →
+// F-PCP-01 her message to 「Claude Code · 내 PC」 → the card 「스킬을 등록할까요?」: what goes up, what was left out, where (내 스킬 first ·
+//         회사 스킬 only with one more check), that its files wait on the server for an hour, 「등록」 → 「스킬을 등록했어요」 → 열기 → the
+//         skill's folder; Folders › 스킬 lists it as hers
+// F-PCP-02 a skill with run settings, the CLI asking for 회사 스킬: the card still starts at 내 스킬 and says so; 「회사 스킬」 needs one more
+//         check (it names the run settings) before 「등록」 → installed for the company (dark theme)
+// F-PCP-03 a folder: 「폴더를 올릴까요?」 with the champion preview (files, left out, agent assets, name) → 「올리기」 → her PC uploads it →
 //         「폴더를 올렸어요」 → 열기 → the folder with its files
-// F-PP-04 390px phone: the card inside the screen, no sideways scroll, light and dark; 「그만두기」
+// F-PCP-04 390px phone: the card inside the screen, no sideways scroll, light and dark; 「그만두기」
+// F-PCP-05 a folder changed on her PC after the card showed it: 「올리기」 sends nothing — 「폴더를 올리지 못했어요」 · 「미리 보여 드린 뒤
+//         폴더가 바뀌었어요 …」, the folder made for it is gone
 // Its own stack (lib/localStack.js: a BFF in tenant pctools-ui on :8999, Vite on :5399), a stand-in deepagents for 회사 스킬's install. No model.
 //   cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.js
 import { test, expect } from '@playwright/test'
@@ -80,6 +84,8 @@ test.beforeAll(async () => {
   put(path.join(home, '영업 키트', 'node_modules', 'x', 'index.js'), 'x\n')
   put(path.join(home, '영업 키트', '.claude', 'skills', '제안서', 'SKILL.md'), '---\nname: 제안서\ndescription: 제안서를 써요\n---\n')
   put(path.join(home, '영업 키트', '.claude', 'commands', '견적.md'), '# 견적\n')
+  put(path.join(home, '기술 자료', '설치 안내.md'), '# 설치 안내\n')
+  put(path.join(home, '기술 자료', '점검표.md'), '- [ ] 전원\n')
   const dev = await S.api(HY.token, '/local-agents/devices', { method: 'POST', body: { name: '정하윤의 맥', platform: 'darwin', appVersion: '0.2.8' } })
   Object.assign(process.env, S.fakeEnv)
   const { createLocalRunner } = desktopRequire('./src/runner/index.js')
@@ -102,7 +108,7 @@ test.afterAll(async () => {
 })
 
 let desk
-test('F-PP-01 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → 「스킬을 등록할까요?」(올릴 것 · 뺀 것 · 어디에) → 「등록」 → 「스킬을 등록했어요」 → 열기 · 스킬 목록에 내 것으로', async ({ browser }) => {
+test('F-PCP-01 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → 「스킬을 등록할까요?」(올릴 것 · 뺀 것 · 어디에) → 「등록」 → 「스킬을 등록했어요」 → 열기 · 스킬 목록에 내 것으로', async ({ browser }) => {
   desk = await page(browser, HY, DESK)
   await desk.goto('/chat')
   await expect(desk.locator('[data-test=chat-agent-chip]').first()).toContainText('Claude Code', { timeout: 20000 })
@@ -117,6 +123,16 @@ test('F-PP-01 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → 「스�
   await expect(c.locator('[data-test=pc-proposal-scope][data-scope=mine] input')).toBeChecked()
   await expect(c.locator('[data-test=pc-proposal-scope][data-scope=company]')).toBeVisible()
   await expect(c.locator('[data-test=pc-proposal-runs]')).toHaveCount(0)
+  await expect(c.locator('[data-test=pc-proposal-staged]')).toHaveText('이 스킬의 파일은 지금 서버의 임시 공간에 있어요. 등록하지 않으면 늦어도 한 시간 뒤에 지워져요.')
+  // 회사 스킬 always takes one more check, run settings or not
+  await expect(c.locator('[data-test=pc-proposal-company-ok]')).toHaveCount(0)
+  await c.locator('[data-test=pc-proposal-scope][data-scope=company] input').check()
+  await expect(c.locator('[data-test=pc-proposal-company-ok]')).toHaveAttribute('data-runs', 'no')
+  await expect(c.locator('[data-test=pc-proposal-company-ok]')).toContainText('회사 사람들의 에이전트가 이 스킬을 사용하게 된다는 점을 확인했어요')
+  await expect(c.locator('[data-test=pc-proposal-go]')).toBeDisabled()
+  await c.locator('[data-test=pc-proposal-scope][data-scope=mine] input').check()
+  await expect(c.locator('[data-test=pc-proposal-company-ok]')).toHaveCount(0)
+  await expect(c.locator('[data-test=pc-proposal-go]')).toBeEnabled()
   await c.locator('button:has-text("파일 보기")').click()
   await expect(c.locator('[data-test=pc-proposal-files]')).toContainText('templates/견적서.md')
   await c.scrollIntoViewIfNeeded()
@@ -136,7 +152,7 @@ test('F-PP-01 「내 PC 의 견적-규칙 스킬을 등록해 줘」 → 「스�
   expect(desk.errors).toEqual([])
 })
 
-test('F-PP-02 실행 설정이 있는 스킬: 카드가 알리고, 「회사 스킬」은 한 번 더 확인해야 「등록」 → 회사에 설치(어두운 화면)', async ({ browser }) => {
+test('F-PCP-02 실행 설정이 있는 스킬: 카드가 알리고, 「회사 스킬」은 한 번 더 확인해야 「등록」 → 회사에 설치(어두운 화면)', async ({ browser }) => {
   const dark = await page(browser, HY, DESK, { theme: 'dark' })
   await dark.goto('/chat')
   // (the page is up — its live events too — before her message: the card comes within a second of it)
@@ -146,11 +162,16 @@ test('F-PP-02 실행 설정이 있는 스킬: 카드가 알리고, 「회사 스
   await expect(c).toContainText('회의록-정리', { timeout: 40000 })
   await expect(c.locator('[data-test=pc-proposal-runs]')).toContainText('allowed-tools')
   await expect(c.locator('[data-test=pc-proposal-runs]')).toContainText('hooks')
+  // (the CLI asked for 회사 스킬: the card still starts at 내 스킬 — the person chooses)
+  await expect(c.locator('[data-test=pc-proposal-scope][data-scope=mine] input')).toBeChecked()
+  await expect(c.locator('[data-test=pc-proposal-scope][data-scope=company] input')).not.toBeChecked()
   await c.locator('[data-test=pc-proposal-scope][data-scope=company] input').check()
+  await expect(c.locator('[data-test=pc-proposal-company-ok]')).toHaveAttribute('data-runs', 'yes')
+  await expect(c.locator('[data-test=pc-proposal-company-ok]')).toContainText('실행 설정이 회사 사람들의 PC에 적용된다는 점을 이해하고 등록해요')
   await expect(c.locator('[data-test=pc-proposal-go]')).toBeDisabled()
   await c.scrollIntoViewIfNeeded()
   await shot(dark, 'pp02-company-runs-dark', c)
-  await c.locator('[data-test=pc-proposal-runs-ok] input').check()
+  await c.locator('[data-test=pc-proposal-company-ok] input').check()
   await expect(c.locator('[data-test=pc-proposal-go]')).toBeEnabled()
   const before = uploads.length
   await c.locator('[data-test=pc-proposal-go]').click()
@@ -162,7 +183,7 @@ test('F-PP-02 실행 설정이 있는 스킬: 카드가 알리고, 「회사 스
   await dark.context().close()
 })
 
-test('F-PP-03 「~/영업 키트 올려 줘」 → 「폴더를 올릴까요?」(파일 · 뺀 것 · 에이전트 자산 · 이름) → 「올리기」 → 그 PC 가 올림 → 「폴더를 올렸어요」 → 열기', async () => {
+test('F-PCP-03 「~/영업 키트 올려 줘」 → 「폴더를 올릴까요?」(파일 · 뺀 것 · 에이전트 자산 · 이름) → 「올리기」 → 그 PC 가 올림 → 「폴더를 올렸어요」 → 열기', async () => {
   await desk.goto('/chat')
   await expect(desk.locator('[data-test=chat-agent-chip]').first()).toContainText('Claude Code', { timeout: 20000 })
   await say('~/영업 키트 폴더를 공유 폴더로 올려 줘', 'MCP process_gpt_lite.lite_propose_folder :: {"path": "~/영업 키트"}')
@@ -195,7 +216,7 @@ test('F-PP-03 「~/영업 키트 올려 줘」 → 「폴더를 올릴까요?」
   expect(desk.errors).toEqual([])
 })
 
-test('F-PP-04 휴대폰 390: 카드가 화면 안에, 옆으로 밀리지 않음 — 밝은 · 어두운 화면 · 「그만두기」', async ({ browser }) => {
+test('F-PCP-04 휴대폰 390: 카드가 화면 안에, 옆으로 밀리지 않음 — 밝은 · 어두운 화면 · 「그만두기」', async ({ browser }) => {
   await say('회의록-정리 스킬을 한 번 더 보여 줘', 'MCP process_gpt_lite.lite_propose_skill :: {"path": "~/.claude/skills/회의록-정리", "name": "회의록-정리-2"}')
   await waitFor(async () => (await proposals()).some((p) => p.name === '회의록-정리-2'), 40000, 'the proposal')
   for (const theme of ['light', 'dark']) {
@@ -219,4 +240,25 @@ test('F-PP-04 휴대폰 390: 카드가 화면 안에, 옆으로 밀리지 않음
     expect(phone.errors).toEqual([])
     await phone.context().close()
   }
+})
+
+test('F-PCP-05 카드를 본 뒤 PC 의 폴더가 바뀌면 「올리기」는 아무것도 보내지 않는다 — 「폴더를 올리지 못했어요」 · 「미리 보여 드린 뒤 폴더가 바뀌었어요 …」', async () => {
+  await desk.goto('/chat')
+  await expect(desk.locator('[data-test=chat-agent-chip]').first()).toContainText('Claude Code', { timeout: 20000 })
+  await say('~/기술 자료 폴더도 올려 줘', 'MCP process_gpt_lite.lite_propose_folder :: {"path": "~/기술 자료"}')
+  const c = card(desk, 'folder', 'pending')
+  await expect(c).toContainText('기술 자료', { timeout: 40000 })
+  await expect(c.locator('[data-test=pc-proposal-total]')).toContainText('파일 2개')
+  // (after the card: a file added on her PC — the card no longer shows what would go up)
+  put(path.join(home, '기술 자료', '고객 명단.xlsx'), 'y'.repeat(4096))
+  await c.locator('[data-test=pc-proposal-go]').click()
+  const failed = card(desk, 'folder', 'failed')
+  await expect(failed.locator('[data-test=pc-proposal-state]')).toHaveText('폴더를 올리지 못했어요', { timeout: 60000 })
+  await expect(failed).toContainText('미리 보여 드린 뒤 폴더가 바뀌었어요(파일이 추가·삭제되거나 크기가 달라졌어요) — 아무것도 올리지 않았어요. 채팅에서 다시 제안해 달라고 요청해 주세요')
+  await failed.scrollIntoViewIfNeeded()
+  await shot(desk, 'pp05-folder-changed', failed)
+  const row = (await proposals()).at(-1)
+  expect([row.kind, row.state, row.error]).toEqual(['folder', 'failed', 'changed'])
+  expect(await S.q(`select id from pro_folders where tenant_id=$1 and name='기술 자료'`, [S.tenant])).toEqual([])
+  expect(desk.errors).toEqual([])
 })

@@ -4,7 +4,8 @@
 // fixtures/fake-tui.js, which call the MCP server the runner gave them over its real stdio, as the real CLIs do). Fictional people:
 //   정하윤 — her PC has skills in Claude Code's folder and a folder 「영업 키트」; 김서연 — another person of the company
 //   1. her chat to 「Claude Code · 내 PC」: its CLI sees the five tools, lists her PC's skills, proposes 「견적-규칙」 → the card in the chat
-//      (nothing registered yet); the token route: none · forged → 401, another person's card → 404
+//      (nothing registered yet); the token route: none · forged → 401, another person's card → 404; the token is checked before any body is
+//      read (a big body without one: 401), a folder's preview may carry 1 MB, a skill 16 MB
 //   2. 「등록」 on the card (its confirmation) → her own skill, in her skill list; a second press 409
 //   3. a folder: the CLI proposes 「~/영업 키트」 → 「폴더를 올릴까요?」 with the champion preview (.env left out, the skill found) → 「올리기」 →
 //      her PC uploads it with the champion folders' engine → a shared folder whose main has the files (never .env), the card 「올렸어요」
@@ -181,6 +182,19 @@ await step('「내 PC 의 견적-규칙 스킬을 등록해 줘」 → CLI 가 �
   assert.equal((await api(null, '/local-agents/tools/skills', { raw: true })).status, 401)
   assert.equal((await api('plt1.forged.token', '/local-agents/tools/skills', { raw: true })).status, 401)
   return `카드 ${skillCard.content.pc.id.slice(0, 8)} · CLI 가 본 스킬 ${listed.join(', ')}`
+})
+
+await step('도구 경로는 본문을 읽기 전에 토큰부터 — 토큰 없이 큰 본문은 401, 폴더 제안은 1 MB · 스킬 제안만 16 MB', async () => {
+  const big = (n) => JSON.stringify({ pad: 'x'.repeat(n) })
+  const post = (p, body, token) => fetch(`${BASE}/api/local-agents/tools${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body })
+  assert.equal((await post('/skills/propose', big(3 * 1024 * 1024))).status, 401, 'no token: refused before the body')
+  assert.equal((await post('/folders/propose', big(3 * 1024 * 1024), 'plt1.forged.token')).status, 401)
+  const token = PT.mintToken({ tenant: TENANT, user: HY.id, device: device.device.id, job: job1 })
+  assert.equal((await post('/folders/propose', big(2 * 1024 * 1024), token)).status, 413, 'a folder\'s preview: 1 MB')
+  const r = await post('/skills/propose', big(2 * 1024 * 1024), token)
+  assert.notEqual(r.status, 413, 'a skill: up to 16 MB')
+  assert.equal(r.status, 400, 'read, then refused for what it is (no name)')
+  return '401 · 401 · 413 · 400'
 })
 
 await step('카드의 「등록」 → 그녀의 스킬(내 스킬 목록에) · .env 는 없음 · 두 번 누르면 409', async () => {

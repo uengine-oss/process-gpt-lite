@@ -3585,7 +3585,6 @@
   "나와 내 에이전트만 써요": "Only you and your agents use it",
   "회사 스킬": "Company skill",
   "회사 사람들의 에이전트도 써요": "Your company's agents use it too",
-  "실행 설정이 회사 사람들의 PC 에서 적용되는 것을 이해하고 등록해요": "I understand its run settings will apply on my colleagues' PCs",
   "처음에는 나만 볼 수 있어요. 올린 뒤 폴더의 「공유」에서 동료를 초대해 주세요. 내 PC 의 폴더는 그대로예요. 변경한 내용은 폴더 화면의 「지금 올리기」를 눌러 올려 주세요.": "Only you see it at first. Once it is up, invite colleagues from the folder's Share. The folder on your PC stays as it is; upload later changes with Upload now on the folder screen.",
   "이 폴더가 있는 PC 의 앱이 꺼져 있어요 — 켜야 올라가요": "The app on the PC with this folder is off — it uploads once that app is on",
   "이 폴더가 있는 PC 의 앱이 꺼져 있어요 — 켜고 다시 눌러 주세요": "The app on the PC with this folder is off — turn it on and press again",
@@ -3604,7 +3603,11 @@
   "올리지 않기로 했어요": "You chose not to upload it",
   "한 시간이 지나 제안이 만료됐어요 — 채팅에서 다시 부탁해 주세요": "An hour passed and this proposal ended — ask again in the chat",
   "스킬을 등록하지 못했어요": "Couldn't register the skill",
-  "폴더를 올리지 못했어요": "Couldn't upload the folder"
+  "폴더를 올리지 못했어요": "Couldn't upload the folder",
+  "회사 사람들의 에이전트가 이 스킬을 사용하게 된다는 점을 확인했어요": "I confirm that my colleagues' agents will use this skill",
+  "실행 설정이 회사 사람들의 PC에 적용된다는 점을 이해하고 등록해요": "I understand its run settings will apply on my colleagues' PCs",
+  "이 스킬의 파일은 지금 서버의 임시 공간에 있어요. 등록하지 않으면 늦어도 한 시간 뒤에 지워져요.": "This skill's files are in a temporary place on the server for now. If you don't register it, they are deleted within an hour.",
+  "미리 보여 드린 뒤 폴더가 바뀌었어요(파일이 추가·삭제되거나 크기가 달라졌어요) — 아무것도 올리지 않았어요. 채팅에서 다시 제안해 달라고 요청해 주세요": "The folder changed after it was shown (files were added or removed, or a size changed) — nothing was uploaded. Ask again in the chat for a new proposal"
  },
  "patterns": [
   [

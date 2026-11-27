@@ -3,11 +3,13 @@
 // 「채팅에서 내 PC 의 스킬 · 폴더를 등록 제안」 · champion-folders 「채팅으로 폴더 올리기 제안」). No CLI and no server: the stdio MCP server is
 // called as an MCP client would (JSON-RPC over its stdin · stdout), the server's API is a stand-in that records what it was sent.
 //   DT-01 which folder: ~, a path relative to the work folder (never leaving it), absolute; never a link, the disk's top, the home folder or
-//         above, the system's folders (~/Library, /System, /usr …), the CLIs' homes, a secret's folder, this app's data
+//         above, the system's folders (~/Library, /System, /usr …), anything in the CLIs' homes but their skills folders, a hidden folder
+//         right under the home folder (~/.kube, ~/.docker, ~/.config/gcloud …), a secret's or a personal folder anywhere (.ssh ·
+//         .claude/projects · .codex/sessions · .vscode), this app's data
 //   DT-02 the skills on this PC: Claude Code's ($CLAUDE_CONFIG_DIR/skills), Codex's, the work folder's — name and description from SKILL.md;
 //         a link listed as one (where it points), never read through; `under` a folder the person named
 //   DT-03 a skill read here: the champion folders' scan — secrets, personal settings, rebuildable, links, keys of a sure shape and files to
-//         check left out; SKILL.md at its top; a skill's size; its run settings (front matter · .mcp.json)
+//         check left out, and git's control files (.gitignore · .gitattributes); SKILL.md at its top; a skill's size; its run settings
 //   DT-04 the stdio MCP server: initialize · tools/list (five tools) · tools/call through the app's channel with the run's key; a closed run
 //         (or a wrong key) answers nothing of it
 //   DT-05 lite_propose_skill: the files go to the server with the run's token as a proposal — no path of this PC, no token in the config
@@ -17,6 +19,8 @@
 //   DT-07 the CLI's command line: Claude Code --mcp-config (the app's server beside the person's own) and its tools allowed; Codex -c
 //         mcp_servers.…; none without the tools
 //   DT-08 the app says it has them (caps liteTools · liteFolders); the packaged app can run the server as node (RunAsNode left as shipped)
+//   DT-10 (in DT-06) a folder changed between the proposal and 「올리기」 — a file added, a size, the folder replaced by a link — uploads
+//         nothing: 'changed' (and that pick is gone); unchanged, it goes
 //   DT-09 a chat run's Claude Code gets ENABLE_TOOL_SEARCH=false (the tools load with the session — the company gateway cannot take
 //         Claude Code's deferred tool references); the person's own env or the runner's setting wins; not for a step, not for Codex
 //   node --test test/tools.test.js
@@ -90,6 +94,29 @@ test('DT-01 어느 폴더: ~ · 작업 폴더 기준 상대 경로(밖으로 못
   if (!WIN) assert.equal((await check('/usr/bin')).error, 'system_folder')
   fs.mkdirSync(CLAUDE, { recursive: true })
   assert.equal((await check(CLAUDE)).error, 'cli_home')
+  // nothing in a CLI's home but its skills folder (its sessions, histories, settings — ~/.claude/projects, ~/.codex/sessions)
+  for (const d of [path.join(CLAUDE, 'projects', 'x'), path.join(CLAUDE, 'plugins'), path.join(HOME, '.codex', 'sessions'), path.join(HOME, '.agents', 'memory')]) {
+    fs.mkdirSync(d, { recursive: true })
+    assert.equal((await check(d)).error, 'cli_home', d)
+  }
+  for (const d of [path.join(CLAUDE, 'skills', 'quote'), path.join(HOME, '.codex', 'skills', 'q'), path.join(HOME, '.agents', 'skills', 'q')]) {
+    fs.mkdirSync(d, { recursive: true })
+    assert.equal((await check(d)).real, d, d)
+  }
+  // a hidden folder right under the home folder, and what is in it — a program's own place
+  for (const d of [path.join(HOME, '.kube'), path.join(HOME, '.docker', 'contexts'), path.join(HOME, '.azure'), path.join(HOME, '.config', 'gcloud'), path.join(HOME, '.config', 'gh'),
+    path.join(HOME, '.mozilla', 'firefox'), path.join(HOME, '.local', 'share', 'keyrings')]) {
+    fs.mkdirSync(d, { recursive: true })
+    assert.equal((await check(d)).error, 'hidden_folder', d)
+  }
+  // the champion folders' personal places, wherever the folder is (outside the home folder too)
+  for (const d of [path.join(ROOT, 'work2', 'proj', '.claude', 'projects'), path.join(ROOT, 'work2', 'proj', '.codex', 'sessions', 'a'), path.join(ROOT, 'work2', 'proj', '.vscode')]) {
+    fs.mkdirSync(d, { recursive: true })
+    assert.equal((await check(d)).error, 'personal_folder', d)
+  }
+  // (a hidden folder deeper down is a person's own: a project's .github)
+  fs.mkdirSync(path.join(HOME, 'proj', '.github'), { recursive: true })
+  assert.equal((await check(path.join(HOME, 'proj', '.github'))).real, path.join(HOME, 'proj', '.github'))
   fs.mkdirSync(path.join(HOME, '.ssh', 'keys'), { recursive: true })
   assert.equal((await check(path.join(HOME, '.ssh', 'keys'))).error, 'secret_folder')
   assert.equal((await check(DATA)).error, 'app_folder')
@@ -137,6 +164,8 @@ function skillFolder() {
   put(path.join(SKILL_DIR, 'keys.txt'), `token = ghp_${'a1B2'.repeat(9)}\n`)
   put(path.join(SKILL_DIR, 'conf.sh'), 'SECRET_VALUE=aZ3kQ9mW2xP7vL5nR8tY4uJ6\n')
   put(path.join(SKILL_DIR, '.mcp.json'), JSON.stringify({ mcpServers: { x: { command: 'x' } } }))
+  put(path.join(SKILL_DIR, '.gitignore'), 'node_modules/\n')
+  put(path.join(SKILL_DIR, 'templates', '.gitattributes'), '* text=auto\n')
   fs.symlinkSync(path.join(HOME, 'elsewhere'), path.join(SKILL_DIR, 'out-link'), WIN ? 'junction' : 'dir')
 }
 
@@ -152,7 +181,8 @@ test('DT-03 여기서 읽는 스킬: 챔피언 폴더의 검사 그대로 — �
   assert.ok(groups.secret >= 2, '.env · id_rsa')
   assert.ok(groups.personal >= 1, 'settings.local.json')
   assert.ok(groups.rebuildable >= 1, 'node_modules')
-  assert.ok(groups.structure >= 1, 'the link')
+  assert.ok(groups.structure >= 3, 'the link, and git\'s control files (.gitignore · .gitattributes) — the server keeps a skill in its own repository')
+  assert.ok(k.skill.excluded.find((g) => g.group === 'structure').samples.some((x) => x.endsWith('.gitattributes')))
   assert.equal(k.skill.flagged, 3, 'a sure key, a value to check and a .mcp.json (it runs things — a file to check) stay out')
   assert.deepEqual(k.skill.runs, ['hooks'])
   assert.deepEqual(k.skill.runFiles, [])
@@ -275,12 +305,19 @@ test('DT-05 lite_propose_skill: 파일은 이 실행의 토큰으로 서버에 �
   await c.close()
 })
 
-test('DT-06 lite_propose_folder: 챔피언 폴더의 pick · 미리 보기 그대로, tools:upload 는 그 제안의 pick 만 묶는다(페이지의 pick · 경로는 아님) — 카드가 그 사람의 「예」', async () => {
+test('DT-06 · DT-10 lite_propose_folder: 챔피언 폴더의 pick · 미리 보기 그대로, tools:upload 는 그 제안의 pick 만 묶는다(페이지의 pick · 경로는 아님) — 카드가 그 사람의 「예」, 그사이 바뀐 폴더는 올리지 않는다', async () => {
   const sent = []
   const folders = new SY.FolderSync({ dataDir: DATA, server: 'http://srv.test/lite', userId: 'u-1', store: memStore(), send: (m) => { sent.push(m); return true } })
   folders.linkUp({ id: 'u-1' })
   const binds = []
-  folders.bind = async (v, { confirm }) => { binds.push({ ...v, yes: await confirm({ files: 1 }) }); return { ok: true, folderId: v.folderId, pushed: { files: 2, bytes: 10 } } }
+  // (the champion folders' bind as far as its yes: its own look at the folder, then confirm — no server here)
+  folders.bind = async (v, { confirm }) => {
+    const p = folders.picks.get(v.pickId)
+    const look = await folders.scanOf(p.dir, folders.scratch(), [], [])
+    const yes = await confirm({ fingerprint: look.fingerprint, files: look.report.files, bytes: look.report.bytes })
+    binds.push({ ...v, yes })
+    return yes ? { ok: true, folderId: v.folderId, pushed: { files: look.report.files, bytes: look.report.bytes } } : { ok: false, why: 'cancelled' }
+  }
   const s = server()
   const answers = []
   const d = new TL.ToolDesk({ dataDir: DATA, server: 'http://srv.test/lite', home: HOME, fetchImpl: s.fetchImpl, folders, send: (m) => { answers.push(m); return true } })
@@ -315,7 +352,7 @@ test('DT-06 lite_propose_folder: 챔피언 폴더의 pick · 미리 보기 그�
   const folderId = crypto.randomUUID()
   await d.handle({ type: 'tools:upload', proposalId: mine.proposalId, pickId, folderId, folderName: '영업 키트' })
   assert.deepEqual(binds, [{ pickId, folderId, folderName: '영업 키트', yes: true }])
-  assert.deepEqual(answers.at(-1), { type: 'tools:uploaded', proposalId: mine.proposalId, ok: true, why: null, pushed: { files: 2, bytes: 10 } })
+  assert.deepEqual(answers.at(-1), { type: 'tools:uploaded', proposalId: mine.proposalId, ok: true, why: null, pushed: { files: 2, bytes: body.preview.bytes } })
   // the same again: done once
   await d.handle({ type: 'tools:upload', proposalId: mine.proposalId, pickId, folderId, folderName: '영업 키트' })
   assert.equal(answers.at(-1).why, 'no_pick')
@@ -326,6 +363,38 @@ test('DT-06 lite_propose_folder: 챔피언 폴더의 pick · 미리 보기 그�
   // an app without the champion folders' engine
   const none = new TL.ToolDesk({ dataDir: DATA, server: 'http://srv', home: HOME, fetchImpl: s.fetchImpl })
   assert.match((await none.proposeFolder(run, { path: '~/영업 키트' })).text, /폴더를 올릴 수 없어요/)
+
+  // ---- DT-10 the card shows what goes up: changed since the proposal → nothing goes up, 「changed」
+  const proposeAgain = async (p = '~/영업 키트') => { const x = await d.proposeFolder(run, { path: p }); assert.equal(x.isError, undefined, x.text); return [...d.proposed.entries()].at(-1) }
+  const press = async ([pid, m]) => { await d.handle({ type: 'tools:upload', proposalId: m.proposalId, pickId: pid, folderId: crypto.randomUUID(), folderName: '영업 키트' }); return answers.at(-1) }
+  // a file added after the proposal
+  let p1 = await proposeAgain()
+  put(path.join(kit, '추가.md'), '# 나중에 넣은 파일\n')
+  let a = await press(p1)
+  assert.equal(a.ok, false)
+  assert.equal(a.why, 'changed')
+  assert.equal(binds.at(-1).yes, false, 'the upload\'s own look did not match: no yes')
+  assert.equal(d.proposed.has(p1[0]), false)
+  assert.equal(folders.picks.has(p1[0]), false, 'that pick cannot be bound later')
+  // the same files, one of them a different size
+  p1 = await proposeAgain()
+  put(path.join(kit, 'README.md'), '# 영업 키트 — 고친 판\n')
+  a = await press(p1)
+  assert.equal(a.why, 'changed')
+  // the folder replaced by a link to another one (its real path is no longer the one looked at)
+  p1 = await proposeAgain()
+  const n = binds.length
+  fs.renameSync(kit, `${kit}-옛것`)
+  fs.symlinkSync(`${kit}-옛것`, kit, WIN ? 'junction' : 'dir')
+  a = await press(p1)
+  assert.equal(a.why, 'changed')
+  assert.equal(binds.length, n, 'not even looked at for an upload')
+  if (WIN) fs.rmdirSync(kit); else fs.unlinkSync(kit)
+  fs.renameSync(`${kit}-옛것`, kit)
+  // unchanged: it goes
+  p1 = await proposeAgain()
+  a = await press(p1)
+  assert.equal(a.ok, true)
   folders.stop()
 })
 

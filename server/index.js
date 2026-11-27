@@ -39,6 +39,7 @@ import { folderRoutes } from './routes/folders.js'
 import { filingRoutes } from './routes/filing.js'
 import { localAgentRoutes } from './routes/localAgents.js'
 import { pcToolRoutes, pcProposalRoutes } from './routes/pcProposals.js'
+import { startSweeper as startPcProposalSweep } from './lib/localAgents/pcTools.js'
 import { startLocalAgents, steerFromThread } from './lib/localAgents/steps.js'
 import { send as chatToLocal } from './lib/localAgents/chat.js'
 import { gitAccess } from './lib/localAgents/devices.js'
@@ -1413,6 +1414,8 @@ const server = app.listen(config.port, async () => {
   startPlanSync(forEachTenant)
   startBrowserWorker()
   startSkillWorker()
+  // proposals from a PC (「스킬을 등록할까요?」 · 「폴더를 올릴까요?」) past their hour, and a skill's files once its proposal no longer waits
+  startPcProposalSweep(forEachTenant)
   startMiningScan()
   // registering Lite's connectors in the tenant's system list changes what ProcessGPT shows: not
   // behind the ProcessGPT gateway, where the tenants are ProcessGPT's own

@@ -501,7 +501,9 @@ async function scan(root, { gitDir, rules = compileRules(), places = PLACES, inc
     flagged, flaggedIncluded: flaggedIn, kit, warnings,
   }
   const report = { files: kept.length, bytes, excluded: Object.fromEntries(GROUPS.map((g) => [g, excluded[g].count])), flagged: flaggedFiles.size - flaggedIn, flaggedIncluded: flaggedIn }
-  return { preview, files: kept, report, flaggedIn, flaggedPaths: [...flaggedFiles] }
+  // (what exactly would go up — each path with its size: a look and a later upload compare it, runner/tools.js)
+  const fingerprint = crypto.createHash('sha256').update(kept.map((r) => `${r}\0${files.get(r)}`).join('\n')).digest('hex')
+  return { preview, files: kept, report, flaggedIn, flaggedPaths: [...flaggedFiles], fingerprint }
 }
 
 // what the server would refuse for its size (secret-shapes.json limits: one push · the snapshot's whole tree) → 'too_big' | 'too_many' | null
@@ -664,6 +666,8 @@ class FolderSync extends Uploader {
     // (what this first look flagged: the page may later send those files as left out by name — then no scan reads them again, and the
     // dialog before the upload still counts them — bind)
     p.flagged = s.flaggedPaths
+    // (what this first look would upload — a proposal from the chat compares the upload's own look with it: runner/tools.js)
+    p.seen = { files: s.report.files, bytes: s.report.bytes, fingerprint: s.fingerprint }
     return { pickId, label, preview: s.preview }
   }
   async preview(pickId, { include = [], exclude = [] } = {}) {
@@ -718,7 +722,7 @@ class FolderSync extends Uploader {
       const going = new Set(s.files)
       const flaggedOut = new Set([...(p.flagged || []), ...s.flaggedPaths].filter((r) => !going.has(r))).size
       let yes = false
-      try { yes = typeof confirm === 'function' && (await confirm({ files: s.report.files, bytes: s.report.bytes, folderName: String(folderName || p.label).slice(0, 120), label: p.label, report: s.report, flaggedIn: s.flaggedIn, flaggedOut })) === true } catch { yes = false }
+      try { yes = typeof confirm === 'function' && (await confirm({ fingerprint: s.fingerprint, files: s.report.files, bytes: s.report.bytes, folderName: String(folderName || p.label).slice(0, 120), label: p.label, report: s.report, flaggedIn: s.flaggedIn, flaggedOut })) === true } catch { yes = false }
       if (!yes) return { ok: false, why: 'cancelled' }
       const b = await this.ask({ type: 'sync:bind', folderId, label: p.label }, ['sync:bound'])
       if (b.type !== 'sync:bound') return { ok: false, why: String(b.why || 'refused') }

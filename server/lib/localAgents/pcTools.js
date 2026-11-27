@@ -24,6 +24,8 @@ import { q } from '../supa.js'
 import { emit } from '../bus.js'
 import { L, withLang, langOf } from '../lang.js'
 import * as H from './hub.js'
+// (a failure says what failed, never where on the server — the folder screen's own rule: the folders' roots, then any path, by its name)
+const hidePaths = async (m) => (await import('../../routes/folders.js')).hidePaths(m)
 
 const T = () => config.tenantId
 const err = (status, message, code = null) => Object.assign(new Error(message), { status, ...(code ? { code } : {}) })
@@ -35,6 +37,7 @@ export const PENDING_MAX = 10
 export const SKILL_MAX_FILES = 300
 export const SKILL_MAX_BYTES = 8 * 1024 * 1024
 const KINDS = ['skill', 'folder']
+const CONTROL = ['gitignore', 'gitattributes', 'gitmodules', 'lfsconfig']
 const clean = (s, n = 200) => String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n)
 
 // ---------- the run's tool token ----------
@@ -130,6 +133,40 @@ export async function sweep(userId = null) {
   for (const p of gone) { if (p.kind === 'skill') await unstage(p.id); await noteCard(p).catch(() => {}) }
   return gone.length
 }
+// one proposal at a time per person on this server (the count of waiting ones and the new one's insert together — no database lock: a
+// lock held over the shared pool waits on the pool itself, #118)
+const chains = new Map()
+function oneAtATime(userId, fn) {
+  const k = `${T()}:${userId}`
+  const run = (chains.get(k) || Promise.resolve()).catch(() => {}).then(fn)
+  const tail = run.catch(() => {})
+  chains.set(k, tail)
+  tail.then(() => { if (chains.get(k) === tail) chains.delete(k) })
+  return run
+}
+// Now and then (the server's background — not with PRO_BACKGROUND=0): every company's proposals past their hour expire; a skill's files go
+// as soon as its proposal is no longer waiting (registered, dropped, expired, failed) — and whatever else is left in the staging place (a
+// proposal deleted, a server stopped midway); a press that has waited for two hours without an end is ended (its files go)
+export async function sweepAll() {
+  await sweep()
+  const stale = await q(`select * from pro_pc_proposals where tenant_id=$1 and state='working' and decided_at < now() - interval '2 hours'`, [T()])
+  for (const p of stale) {
+    if (p.kind === 'folder') await settleUpload(p, { ok: false, why: 'pc_offline' }).catch(() => {})
+    else await setState(p, ['working'], { state: 'failed', error: 'timeout' }).catch(() => {})
+  }
+  let ids = []
+  try { ids = await fs.readdir(await stageRoot()) } catch { return }
+  const live = new Set((await q(`select id::text from pro_pc_proposals where tenant_id=$1 and kind='skill' and state in ('pending','working')`, [T()])).map((r) => r.id))
+  for (const id of ids) if (!live.has(id)) await unstage(id)
+}
+let sweeper = null
+export function startSweeper(forEachTenant, { everyMs = 10 * 60_000 } = {}) {
+  if (sweeper) return
+  const run = () => forEachTenant(() => sweepAll(), 'pc-tools sweep').catch((e) => console.warn('[pc-tools] sweep', e.message))
+  sweeper = setInterval(run, everyMs)
+  sweeper.unref?.()
+  run()
+}
 async function limit(ctx) {
   await sweep(ctx.user.id)
   const [{ n }] = await q(`select count(*)::int as n from pro_pc_proposals where tenant_id=$1 and user_id=$2 and state='pending'`, [T(), ctx.user.id])
@@ -158,7 +195,8 @@ async function noteCard(row) {
 }
 
 // POST /api/local-agents/tools/skills/propose {name, description, scope, source:{where, label}, files:[{path, size, data}], summary}
-export async function proposeSkill(ctx, body = {}) {
+export async function proposeSkill(ctx, body = {}) { return oneAtATime(ctx.user.id, () => proposeSkillNow(ctx, body)) }
+async function proposeSkillNow(ctx, body) {
   await limit(ctx)
   const SK = await import('../folders/skills.js')
   const SEC = await import('../folders/secrets.js')
@@ -173,6 +211,7 @@ export async function proposeSkill(ctx, body = {}) {
   const seen = new Set()
   let bytes = 0
   const refused = []
+  const dropped = []
   for (const f of list) {
     const rel = safeRel(f?.path)
     if (!rel || seen.has(rel.toLowerCase())) throw err(400, L('스킬 안의 파일 경로가 올바르지 않아요.', 'A file path in the skill is not valid.'), 'bad_path')
@@ -180,22 +219,32 @@ export async function proposeSkill(ctx, body = {}) {
     const buf = Buffer.from(String(f?.data || ''), 'base64')
     bytes += buf.length
     if (bytes > SKILL_MAX_BYTES) throw err(413, L('스킬로 올리기에는 너무 커요(8 MB까지).', 'Too big for a skill (8 MB at most).'), 'too_big')
-    // (looked at again here: a secret's name, git's control files, a key of a sure shape — the app should have left them out)
+    // (looked at again here: a secret's name, a key of a sure shape — the app should have left them out; git's own control files
+    // (.gitignore · .gitattributes · .gitmodules · .lfsconfig) are only left out — the skill's folder here is the server's own repository)
     const why = SEC.refusalOf(rel, buf)
+    if (why && CONTROL.includes(why.reason)) { dropped.push(rel); continue }
     if (why) { refused.push({ path: rel, ...why }); continue }
     files.push({ path: rel, buf })
   }
   if (refused.length) throw err(422, L(`비밀 정보가 담겼거나 따로 관리하는 파일이 있어 받지 않았어요: ${refused.slice(0, 5).map((r) => r.path).join(', ')}`, `Not taken: it holds secret or control files — ${refused.slice(0, 5).map((r) => r.path).join(', ')}`), 'refused')
   const md = files.find((f) => f.path === 'SKILL.md')
   if (!md) throw err(400, L('맨 위에 SKILL.md 가 없어서 스킬이 아니에요.', 'There is no SKILL.md at the top, so it is not a skill.'), 'no_skill_md')
-  // what would run on the computer of whoever uses it — read here
+  // what would run on the computer of whoever uses it, and what the skill says it is — read here from its SKILL.md
   const text = md.buf.toString('utf8')
+  const { summarizeSkill } = await import('../skills.js')
+  const fm = summarizeSkill(text.slice(0, 64 * 1024).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n'))
   const runs = KIT.frontRuns(text.slice(0, 1024 * 1024), { truncated: md.buf.length > 1024 * 1024 })
   const fold = (p) => p.split('/').map((n) => n.toLowerCase().replace(/[. ]+$/, '')).join('/')
   const runFiles = files.map((f) => f.path).filter((p) => RUN_SETTINGS.some((x) => fold(p) === x || fold(p).endsWith(`/${x}`)))
   const s = body.summary || {}
   const where = ['claude', 'codex', 'agents', 'work', 'other'].includes(body.source?.where) ? body.source.where : 'other'
-  const summary = { files: files.length, bytes, runs, runFiles, excluded: excludedOf(s.excluded), flagged: int(s.flagged, 1e6), warnings: strs(s.warnings, 8, 20).filter((w) => WARNINGS.includes(w)),
+  const excluded = excludedOf(s.excluded)
+  if (dropped.length) {
+    const g = excluded.find((x) => x.group === 'structure') || (excluded.push({ group: 'structure', count: 0, samples: [] }), excluded.at(-1))
+    g.count += dropped.length
+    g.samples = [...g.samples, ...dropped].slice(0, 5)
+  }
+  const summary = { files: files.length, bytes, runs, runFiles, excluded, flagged: int(s.flagged, 1e6), warnings: strs(s.warnings, 8, 20).filter((w) => WARNINGS.includes(w)),
     source: { where, label: clean(body.source?.label, 120) }, list: files.slice(0, 60).map((f) => ({ path: f.path, size: f.buf.length })), more: Math.max(0, files.length - 60) }
   const id = crypto.randomUUID()
   const dir = await stageDir(id)
@@ -208,14 +257,15 @@ export async function proposeSkill(ctx, body = {}) {
   } catch (e) { await unstage(id); throw e }
   const [row] = await q(`insert into pro_pc_proposals (id, tenant_id, user_id, kind, device_id, job_id, thread_id, name, description, scope, summary, expires_at)
                          values ($1,$2,$3,'skill',$4,$5,$6,$7,$8,$9,$10, now() + make_interval(mins => $11)) returning *`,
-  [id, T(), ctx.user.id, ctx.device.id, ctx.job.id, ctx.job.thread_id, name, clean(body.description, 1000), body.scope === 'company' ? 'company' : 'mine', summary, PROPOSAL_MINUTES])
+  [id, T(), ctx.user.id, ctx.device.id, ctx.job.id, ctx.job.thread_id, name, clean(fm.description, 1000), body.scope === 'company' ? 'company' : 'mine', summary, PROPOSAL_MINUTES])
   await card(ctx, row)
   console.log(`[pc-tools] skill proposal ${id.slice(0, 8)} '${name}' user=${ctx.user.id.slice(0, 8)} files=${files.length}${runs.length || runFiles.length ? ' runs' : ''}`)
   return { id, name, state: 'pending', expiresInMinutes: PROPOSAL_MINUTES }
 }
 
 // POST /api/local-agents/tools/folders/propose {pickId, label, name, preview}
-export async function proposeFolder(ctx, body = {}) {
+export async function proposeFolder(ctx, body = {}) { return oneAtATime(ctx.user.id, () => proposeFolderNow(ctx, body)) }
+async function proposeFolderNow(ctx, body) {
   await limit(ctx)
   const link = H.linkOf(T(), String(ctx.device.id))
   if (!link?.caps?.liteFolders) throw err(409, L('이 PC 앱은 지금 폴더를 올릴 수 없어요.', 'This desktop app cannot upload folders now.'), 'folders_off')
@@ -244,9 +294,12 @@ async function own(user, id) {
 }
 async function current(row) {
   if (row.state === 'pending' && new Date(row.expires_at).getTime() < Date.now()) { await sweep(String(row.user_id)); return (await q('select * from pro_pc_proposals where id=$1', [row.id]))[0] }
-  // (an upload whose PC went away before it answered: back to the card — or done, when the folder got its files after all)
-  if (row.kind === 'folder' && row.state === 'working' && !H.linkOf(T(), String(row.device_id)) && Date.now() - new Date(row.decided_at || row.created_at).getTime() > 60_000) {
-    return settleUpload(row, { ok: false, why: 'pc_offline' })
+  // (an upload whose PC went away before it answered — gone for a minute, or back on a new link since the press, which never answers that
+  // press: back to the card, or done when the folder got its files after all)
+  if (row.kind === 'folder' && row.state === 'working') {
+    const link = H.linkOf(T(), String(row.device_id))
+    const pressed = new Date(row.decided_at || row.created_at).getTime()
+    if ((!link && Date.now() - pressed > 60_000) || (link && new Date(link.since).getTime() > pressed)) return settleUpload(row, { ok: false, why: 'pc_offline' })
   }
   return row
 }
@@ -299,8 +352,9 @@ function open(row) {
   if (row.state !== 'pending') throw err(409, L('이미 끝난 제안이에요.', 'This proposal is already closed.'), 'closed')
 }
 
-// POST /api/pc-proposals/:id/register {scope, confirm, runsOk, name} — 「등록」
-export async function register(user, id, { scope = 'mine', confirm, runsOk = false, name = null, jwt = null } = {}) {
+// POST /api/pc-proposals/:id/register {scope, confirm, companyOk, name} — 「등록」 (「회사 스킬」: companyOk — the card's second check, always;
+// with run settings it says so)
+export async function register(user, id, { scope = 'mine', confirm, companyOk = false, name = null, jwt = null } = {}) {
   let row = await current(await own(user, id))
   if (row.kind !== 'skill') throw err(400, L('스킬 제안이 아니에요.', 'This is not a skill proposal.'))
   open(row)
@@ -310,7 +364,10 @@ export async function register(user, id, { scope = 'mine', confirm, runsOk = fal
   if (company && !options.company) throw err(403, L('이 스킬은 회사 스킬로 등록할 수 없어요. 「내 스킬」로 등록해 주세요.', "This skill can't be registered as a company skill — register it as yours."), 'not_allowed')
   const s = row.summary || {}
   const runs = (s.runs || []).length + (s.runFiles || []).length > 0
-  if (company && runs && runsOk !== true) throw err(409, L('실행 설정이 있는 스킬을 회사 스킬로 등록하려면 한 번 더 확인해 주세요.', 'A skill with run settings needs one more confirmation to become a company skill.'), 'runs_confirm')
+  if (company && companyOk !== true) {
+    throw runs ? err(409, L('실행 설정이 있는 스킬을 회사 스킬로 등록하려면 한 번 더 확인해 주세요.', 'A skill with run settings needs one more confirmation to become a company skill.'), 'runs_confirm')
+      : err(409, L('회사 스킬로 등록하려면 한 번 더 확인해 주세요.', 'A company skill needs one more confirmation.'), 'company_confirm')
+  }
   const want = name != null && String(name).trim() ? skillName(name) : row.name
   if (!want) throw err(400, L('스킬 이름은 글자 · 숫자 · - · _ 로 64자까지예요.', 'A skill name is letters, digits, - and _, 64 at most.'), 'bad_name')
   if (await nameTaken(row, want)) throw err(409, L(`「${want}」라는 스킬이 이미 있어요 — 다른 이름을 적어 주세요.`, `A skill named "${want}" already exists — write another name.`), 'name_taken')
@@ -323,13 +380,18 @@ export async function register(user, id, { scope = 'mine', confirm, runsOk = fal
     folder = await SK.saveDraftPrivate(user, await stageDir(row.id), want)
   } catch (e) {
     console.warn(`[pc-tools] register ${row.id.slice(0, 8)}: ${e.message}`)
-    await setState(row, ['working'], { state: 'failed', error: clean(e.message, 300) })
-    throw err(e.status || 500, L(`스킬을 등록하지 못했어요: ${clean(e.message, 200)}`, `Couldn't register the skill: ${clean(e.message, 200)}`), 'failed')
+    const said = clean(await hidePaths(e.message), 200)
+    await setState(row, ['working'], { state: 'failed', error: said })
+    await unstage(row.id)
+    // (the name it took for this press, while no folder came of it: free again)
+    await q(`delete from pro_skill_visibility where tenant_id=$1 and skill_name=$2 and author_id=$3 and folder_id is null
+             and not exists (select 1 from pro_folders f where f.tenant_id=$1 and f.kind='skill' and f.settings->>'skill_name'=$2)`, [T(), want, user.id]).catch(() => {})
+    throw err(e.status || 500, L(`스킬을 등록하지 못했어요: ${said}`, `Couldn't register the skill: ${said}`), 'failed')
   }
   let visibility = 'private'
   let shareError = null
   if (company) {
-    try { await SK.share(folder, user, jwt); visibility = 'tenant' } catch (e) { shareError = clean(e.message, 200); console.warn(`[pc-tools] share ${row.id.slice(0, 8)}: ${e.message}`) }
+    try { await SK.share(folder, user, jwt); visibility = 'tenant' } catch (e) { shareError = clean(await hidePaths(e.message), 200); console.warn(`[pc-tools] share ${row.id.slice(0, 8)}: ${e.message}`) }
   }
   await unstage(row.id)
   const done = await setState(row, ['working'], { state: 'done', result: { slug: folder.slug, name: want, visibility, ...(shareError ? { shareError } : {}) } })
@@ -385,7 +447,7 @@ async function settleUpload(row, { ok, why = null, pushed = null }) {
     }
   }
   // (a pick the app no longer has — it was restarted — cannot be pressed again; anything else can)
-  const final = ['no_pick', 'folders_off', 'other_user', 'already_bound'].includes(why)
+  const final = ['no_pick', 'folders_off', 'other_user', 'already_bound', 'changed'].includes(why)
   return (await setState(row, ['working'], { state: final ? 'failed' : 'pending', result: null, error: clean(why || 'failed', 60) })) || row
 }
 export async function uploaded(link, msg) {

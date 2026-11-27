@@ -17,8 +17,9 @@ const pc = computed(() => props.msg.content?.pc || {})
 const view = ref(null)
 const busy = ref('')
 const err = ref('')
-const scope = ref(null)   // set once from what the CLI asked for (회사 스킬 only when they may), then the person's
-const runsOk = ref(false)
+// (「내 스킬」 first, whatever the CLI asked for: 「회사 스킬」 is the person's own choice, and always checked once more)
+const scope = ref('mine')
+const companyOk = ref(false)
 const name = ref('')
 const showFiles = ref(false)
 const open = ref(new Set())
@@ -28,7 +29,6 @@ async function load() {
     view.value = await api(`/pc-proposals/${encodeURIComponent(pc.value.id)}`)
     err.value = ''
     if (!name.value) name.value = view.value.name || ''
-    if (!scope.value) scope.value = view.value.scope === 'company' && view.value.options?.company ? 'company' : 'mine'
   } catch (e) { err.value = e.message }
 }
 onMounted(load)
@@ -55,8 +55,9 @@ const kitLines = computed(() => {
 })
 const minutesLeft = computed(() => (v.value.expiresAt ? Math.max(0, Math.round((new Date(v.value.expiresAt).getTime() - Date.now()) / 60000)) : null))
 const blocked = computed(() => !view.value || !v.value.confirm || !!busy.value || !name.value.trim()
-  || (skill.value && scope.value === 'company' && runs.value.length > 0 && !runsOk.value))
-const ERR = { pc_offline: '이 폴더가 있는 PC 의 앱이 꺼져 있어요 — 켜고 다시 눌러 주세요', no_pick: 'PC 앱이 다시 켜져서 제안이 만료됐어요 — 채팅에서 다시 부탁해 주세요' }
+  || (skill.value && scope.value === 'company' && !companyOk.value))
+const ERR = { pc_offline: '이 폴더가 있는 PC 의 앱이 꺼져 있어요 — 켜고 다시 눌러 주세요', no_pick: 'PC 앱이 다시 켜져서 제안이 만료됐어요 — 채팅에서 다시 부탁해 주세요',
+  changed: '미리 보여 드린 뒤 폴더가 바뀌었어요(파일이 추가·삭제되거나 크기가 달라졌어요) — 아무것도 올리지 않았어요. 채팅에서 다시 제안해 달라고 요청해 주세요' }
 const errorText = (e) => (e ? ERR[e] || whyText(e) || e : '')
 const toggle = (g) => { const s = new Set(open.value); s.has(g) ? s.delete(g) : s.add(g); open.value = s }
 
@@ -70,7 +71,7 @@ async function act(what, body) {
     if (['stale', 'expired', 'already', 'closed', 'name_taken'].includes(e.code)) load()
   } finally { busy.value = '' }
 }
-const register = () => act('register', { scope: scope.value || 'mine', runsOk: runsOk.value, name: name.value.trim(), confirm: v.value.confirm })
+const register = () => act('register', { scope: scope.value || 'mine', companyOk: scope.value === 'company' && companyOk.value, name: name.value.trim(), confirm: v.value.confirm })
 const upload = () => act('upload', { name: name.value.trim(), confirm: v.value.confirm })
 const openIt = () => { const slug = v.value.result?.slug || pc.value.result?.slug; if (slug) router.push(`/folders/${encodeURIComponent(slug)}`) }
 </script>
@@ -94,7 +95,7 @@ const openIt = () => { const slug = v.value.result?.slug || pc.value.result?.slu
     · <span data-no-i18n>{{ v.name || pc.name }}</span>
   </div>
   <!-- failed -->
-  <div v-else-if="state === 'failed'" class="pp glass" data-test="pc-proposal" data-state="failed">
+  <div v-else-if="state === 'failed'" class="pp glass" data-test="pc-proposal" :data-kind="skill ? 'skill' : 'folder'" data-state="failed">
     <div class="h"><Icon name="alert" :size="17" /><b data-test="pc-proposal-state">{{ skill ? '스킬을 등록하지 못했어요' : '폴더를 올리지 못했어요' }}</b><span class="sub" data-no-i18n>{{ v.name || pc.name }}</span></div>
     <p class="notice">{{ errorText(v.error || pc.error) }}</p>
   </div>
@@ -131,8 +132,9 @@ const openIt = () => { const slug = v.value.result?.slug || pc.value.result?.slu
         <label class="opt" data-test="pc-proposal-scope" data-scope="mine"><input v-model="scope" type="radio" value="mine" /> <b>내 스킬</b><small>나와 내 에이전트만 써요</small></label>
         <label v-if="canCompany" class="opt" data-test="pc-proposal-scope" data-scope="company"><input v-model="scope" type="radio" value="company" /> <b>회사 스킬</b><small>회사 사람들의 에이전트도 써요</small></label>
       </div>
-      <label v-if="state === 'pending' && scope === 'company' && runs.length" class="again" data-test="pc-proposal-runs-ok">
-        <input v-model="runsOk" type="checkbox" /> 실행 설정이 회사 사람들의 PC 에서 적용되는 것을 이해하고 등록해요</label>
+      <label v-if="state === 'pending' && scope === 'company'" class="again" data-test="pc-proposal-company-ok" :data-runs="runs.length ? 'yes' : 'no'">
+        <input v-model="companyOk" type="checkbox" /> {{ runs.length ? '실행 설정이 회사 사람들의 PC에 적용된다는 점을 이해하고 등록해요' : '회사 사람들의 에이전트가 이 스킬을 사용하게 된다는 점을 확인했어요' }}</label>
+      <p v-if="state === 'pending'" class="hint" data-test="pc-proposal-staged">이 스킬의 파일은 지금 서버의 임시 공간에 있어요. 등록하지 않으면 늦어도 한 시간 뒤에 지워져요.</p>
     </template>
 
     <!-- a folder: the champion folders' preview -->
