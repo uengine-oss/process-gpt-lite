@@ -21,6 +21,7 @@ const { EventEmitter } = require('node:events')
 const C = require('./clis')
 const G = require('./git')
 const SKL = require('./skills')
+const RS = require('./runSettings')
 const P = require('./pty')
 const { CliSession } = require('./session')
 const { settleState, finishMsOf } = require('./settle')
@@ -42,6 +43,18 @@ const HOLD_MS = 10 * 60_000
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const safePart = (s, n = 24) => String(s || '').replace(/[^A-Za-z0-9._-]/g, '').slice(-n) || 'x'
 const T = (lang, ko, en) => (lang === 'en' ? en : ko)
+// a run refused because the folder's run settings could not all be found and left off (runSettings.js Incomplete) — what the chat shows
+function refusedWhy(lang, e) {
+  const at = String(e.detail || '').split(':')[0].slice(0, 200)
+  const why = {
+    list: T(lang, '작업 폴더의 파일 목록을 읽지 못했어요', "the work folder's files could not be listed"),
+    link: T(lang, `${at}이(가) 다른 폴더로 연결되어 있어 그 안을 확인할 수 없어요`, `${at} leads to another folder, whose files cannot be checked`),
+    inner: T(lang, `작업 폴더 안의 다른 저장소(${at})에 파일이 너무 많아요`, `the repository inside the work folder (${at}) has too many files`),
+    write: T(lang, `${at} 파일에서 실행 설정을 지우려 했지만 변경 내용을 저장하지 못했어요`, `${at} could not be rewritten`),
+  }[e.why] || e.message
+  return T(lang, `이 템플릿 작업 폴더의 실행 설정을 모두 찾아 끌 수 있는지 확인하지 못해 실행하지 않았어요 — ${why}`,
+    `Not run: the run settings in this template's work folder could not all be found and left off — ${why}`)
+}
 // a chat's own name on this computer (its folder, its session record): its key, hashed (a thread id and a conversation's)
 const chatHash = (job) => crypto.createHash('sha1').update(String(job.chat?.key || job.id)).digest('hex').slice(0, 16)
 // paths git leaves out of the folder's commits (.git/info/exclude), added once
@@ -272,6 +285,14 @@ class Runner extends EventEmitter {
     if (chat) {
       // the CLI's own places (its settings, a trust or permission it keeps per folder) and the app's are never committed into the folder
       excludeIn(dir, ['.claude/', '.codex/', '.pgl-run/', '.tmp/'])
+      // the folder's own run settings, for a person who may not edit the folder: left off for this run (runSettings.js — the server tells
+      // the person in the chat), never committed back; when they cannot all be found, the run is refused, never started with them on
+      let off = { paths: [], files: [], front: [] }
+      if (job.projectSettings === false) {
+        try { off = await RS.leaveOff(dir) } catch (e) { throw e.code === 'RUN_SETTINGS_INCOMPLETE' ? new Error(refusedWhy(lang, e)) : e }
+      }
+      st.leftOff = off.paths
+      if (st.leftOff.length) this.log(`[runner] ${job.activity}: the folder's run settings left off — ${off.files.join(', ')}${off.front.length ? ` · front matter of ${off.front.length} file(s)` : ''}`)
       st.dir = dir
       try { st.realDir = fs.realpathSync(dir) } catch { st.realDir = null }
       st.start = start
@@ -360,7 +381,7 @@ class Runner extends EventEmitter {
     this.flush(st)
     fs.rmSync(path.join(st.dir, '.tmp'), { recursive: true, force: true })
     const before = await G.head(st.dir)
-    const commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email })
+    const commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email }, { except: st.leftOff || [] })
     const files = commit ? await G.changed(st.dir, before) : []
     const pushed = (await G.changed(st.dir, st.start)).length ? await G.push(st.dir, g.branch, { token: g.token }) : false
     this.report(st, { type: 'done', jobId: job.id, branch: g.branch, commit: commit || before, pushed, files, summary: (st.summary || '').trim(), sessionId: st.session || null,
@@ -379,7 +400,7 @@ class Runner extends EventEmitter {
       let pushed = false
       try {
         const before = await G.head(st.dir)
-        commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email })
+        commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email }, { except: st.leftOff || [] })
         if (commit) { files = await G.changed(st.dir, before); pushed = await G.push(st.dir, job.git.branch, { token: job.git.token }) }
       } catch (e) { this.log(`[runner] ${job.activity}: turn ${n} — ${e.message}`); this.progress(st, 'error', e.message) }
       const m = { type: 'reply', jobId: job.id, turn: n, text: String(text || '').slice(0, 16000), branch: job.git.branch, commit, pushed, files }
