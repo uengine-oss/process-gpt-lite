@@ -110,6 +110,14 @@ test('편집기의 저장 · 다른 이름으로 저장을 알아본다(편집�
   assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyY' })), true)
   assert.equal(undoKeyOf(key({ code: 'KeyZ' })), false)
   assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyS' })), false)
+  // other layouts: the key's own letter where it is a Latin one (AZERTY's Ctrl+Z is on QWERTY's W, its Ctrl+W on QWERTY's Z; Dvorak's
+  // Ctrl+S on QWERTY's ;), the key's place where the layout gives none (a Korean one)
+  assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyW', key: 'z' })), true)
+  assert.equal(undoKeyOf(key({ ctrlKey: true, code: 'KeyZ', key: 'w' })), false)
+  assert.equal(undoKeyOf(key({ metaKey: true, code: 'KeyZ', key: 'ㅋ' })), true)
+  assert.equal(saveKeyOf(key({ ctrlKey: true, code: 'Semicolon', key: 's' })), 'save')
+  assert.equal(saveKeyOf(key({ metaKey: true, code: 'KeyS', key: 'ㄴ' })), 'save')
+  assert.equal(saveKeyOf(key({ ctrlKey: true, code: 'KeyS', key: 'o' })), null)
 })
 
 // the editor's 저장 switched off is never pressed (a press of it is never answered — review #111): the host sends the editor's last write up
@@ -137,6 +145,15 @@ test('편집기의 저장이 꺼져 있으면 누르지 않는다: 호스트에 
   assert.equal(asked, 1)
   assert.equal(f.clicks(), 0)
   assert.deepEqual(f.sent, [])
+  // only where 저장 off can be taken at its word: a slide's text box keeps text that is not written — the editor's Ctrl+S, unless nothing
+  // was edited since the write that failed
+  f = fake({ disabled: true })
+  assert.equal(await pressSave(f.frame, { republish, editor: 'slides' }), 'key')
+  assert.equal(asked, 1)
+  assert.equal(await pressSave(f.frame, { republish, editor: 'slides', quiet: true }), 'republish')
+  assert.equal(asked, 2)
+  for (const editor of ['markdown', 'html', 'mindmap']) assert.equal(await pressSave(fake({ disabled: true }).frame, { republish, editor }), 'republish')
+  asked = 1
   f = fake({ disabled: true })
   assert.equal(await pressSave(f.frame, { editor: 'markdown' }), 'key')
   assert.equal(f.clicks(), 0)
@@ -145,6 +162,8 @@ test('편집기의 저장이 꺼져 있으면 누르지 않는다: 호스트에 
   f = fake({ disabled: true, typing: true })
   assert.equal(await pressSave(f.frame, { republish, editor: 'sheets' }), 'key')
   assert.equal(asked, 1)
+  assert.equal(await pressSave(f.frame, { republish, editor: 'sheets', quiet: true }), 'republish')
+  asked = 1
   // the cell left: its editor stays focused, parked off the page — written; the host sends it up
   f = fake({ disabled: true, typing: 'parked' })
   assert.equal(await pressSave(f.frame, { republish, editor: 'sheets' }), 'republish')

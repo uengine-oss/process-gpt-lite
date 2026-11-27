@@ -40,9 +40,17 @@ export function saveKindOf(el) {
   return null
 }
 
+// The letter a shortcut was pressed with: the key's own where the layout gives a Latin letter (AZERTY's Ctrl+Z is on the key QWERTY calls
+// W — code KeyW, key 'z'; Dvorak's Ctrl+S on QWERTY's ;), else the key's place (a Korean or Cyrillic layout gives no Latin letter).
+function letterOf(e) {
+  const k = String(e?.key || '')
+  if (/^[a-z]$/i.test(k)) return k.toLowerCase()
+  return /^Key([A-Z])$/.exec(e?.code || '')?.[1]?.toLowerCase() || ''
+}
+
 // ⌘S · Ctrl+S → 'save', with ⇧ → 'saveAs' (the editors' own shortcuts), anything else → null
 export function saveKeyOf(e) {
-  if (!e || !(e.ctrlKey || e.metaKey) || e.altKey || e.repeat || e.code !== 'KeyS') return null
+  if (!e || !(e.ctrlKey || e.metaKey) || e.altKey || e.repeat || letterOf(e) !== 's') return null
   return e.shiftKey ? 'saveAs' : 'save'
 }
 
@@ -70,14 +78,17 @@ export const EDITOR_CHROME = '.ribbon, .ribbon-tabs, .ribbon-collapsible, .find-
 // press 저장 in the editor; false when the frame is not there. force: also when the editor's button says there is nothing to save
 // (a retry after the editor's upload failed — the editor took that save as done): its own ⌘S writes the file again.
 // → how it was pressed: 'button' | 'republish' | 'key', or null (no editor page). Async: a slide's text box left by Escape turns 저장 on
-// a moment later.
+// a moment later (waited for, up to 2 s).
 // The editor's 저장 switched off says it has written everything it has — and a press of it is never answered (review #111: 25–30 s, then
 // 「저장하지 못했어요」; an upload that failed leaves it off too, the editor taking its save as done). Then the host is asked to send the
 // editor's last write up again (republish — a host that says it can, in its 'ready'), which it answers like a save; without that, the
-// editor's own Ctrl+S. Not while a spreadsheet's cell is being typed in (its text is not written until the cell is left, and its 저장 is
-// off meanwhile): the editor's Ctrl+S then — refused by the web host's spreadsheet, so the save is not answered and nothing typed is
-// taken as saved.
-export async function pressSave(frame, { republish = null, editor = '' } = {}) {
+// editor's own Ctrl+S. Only where 저장 off can be taken at its word (review #111): the text, HTML and Word editors turn it on with each
+// edit as it is made, the mind map (its fork build) also while a title is being typed; a spreadsheet when no cell is open. A slide's text
+// box and a sheet's open cell keep text that is not written while 저장 is off: the editor's Ctrl+S then — refused by the web host's
+// spreadsheet, ignored by its slides, so the save is not answered and nothing typed is taken as saved — unless nothing was edited since
+// the write that failed (quiet: the page's word), which is then the one to send up again.
+const OFF_MEANS_WRITTEN = new Set(['markdown', 'html', 'docs', 'mindmap'])
+export async function pressSave(frame, { republish = null, editor = '', quiet = false } = {}) {
   const w = frame?.contentWindow
   const doc = frame?.contentDocument
   if (!w || !doc) return null
@@ -85,11 +96,14 @@ export async function pressSave(frame, { republish = null, editor = '' } = {}) {
   const el = doc.activeElement
   if (el && el !== doc.body && el.isContentEditable && doc.querySelector('.slide-list, .stage-wrap')) {
     el.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }))
-    if (saveButton(doc)?.disabled) await new Promise((r) => setTimeout(r, 150))
+    // (the editor puts the box's text into the slide a moment later, and only then turns its 저장 on — measured 11-27, e2e F-CS-23: not
+    // within 150 ms; pressed before that, the save of the text never came)
+    for (let t = 0; t < 2000 && saveButton(doc)?.disabled; t += 50) await new Promise((r) => setTimeout(r, 50))
   }
   const btn = saveButton(doc)
   if (btn && !btn.disabled) { btn.click(); return 'button' }
-  if (btn && republish && !(editor === 'sheets' && typingIn(doc))) { republish(); return 'republish' }
+  const written = quiet || OFF_MEANS_WRITTEN.has(editor) || (editor === 'sheets' && !typingIn(doc))
+  if (btn && republish && written) { republish(); return 'republish' }
   ;(doc.activeElement || doc.body).dispatchEvent(new w.KeyboardEvent('keydown', { key: 's', code: 'KeyS', ctrlKey: true, bubbles: true, cancelable: true }))
   return 'key'
 }
@@ -107,7 +121,8 @@ function typingIn(doc) {
 // ⌘Z · Ctrl+Z, ⌘⇧Z, Ctrl+Y: an undo or a redo changes the document (review #111: the mind map's are not typed)
 export function undoKeyOf(e) {
   if (!e || !(e.ctrlKey || e.metaKey) || e.altKey || e.repeat) return false
-  return e.code === 'KeyZ' || e.code === 'KeyY'
+  const l = letterOf(e)
+  return l === 'z' || l === 'y'
 }
 
 // listen for edits in the editor page and the same-origin pages inside it (the 한글 editor's studio, which a

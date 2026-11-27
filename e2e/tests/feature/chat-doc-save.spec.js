@@ -29,6 +29,7 @@
 //   F-CS-21 마인드맵을 마우스로만 고친 뒤(주제 누르고 도구 막대의 「하위 주제」, 저장 뒤 리본의 실행 취소) 닫으면 묻는다 · 저장하고 닫기는 그 판을 저장
 //   F-CS-22 (고친 호스트) 저장소가 올리기를 거절한 뒤(편집기의 저장은 꺼짐): 닫으면 묻고 저장하고 닫기는 바로 다시 올림 · 다른 이름으로
 //           저장의 다시 시도는 고친 내용으로 새 카드 · 워드도(RT_FIXED_SHEETS=1 이면 엑셀도)
+//   F-CS-23 슬라이드의 글 상자에 친 채 닫으면 묻고, 저장하고 닫기는 그 글까지 저장(글 상자를 떠나게 한 뒤 편집기의 저장)
 //   (F-CS-09 안에서) 패널 반영 실패는 그 열기의 것만 — 다시 연 시트를 닫아도 옛 사본을 다시 보내지 않고, 고쳤으면 묻는다
 // 자기 스택(lib/localStack.js — 회사 chat-save, BFF 8983 · Vite 5383 부터 빈 포트), 실제 이음오피스 편집기: RT_OFFICE_HOST_URL(운영 이미지 컨테이너,
 // 스펙 e2e/README) 또는 빌드된 호스트(lib/officeHost.js, 5403 부터). 모델 · deepagents 는 부르지 않는다. 사람은 지어낸 이름(정하윤 · 김서연).
@@ -1076,7 +1077,11 @@ async function withFailingStorage(fn) {
   const fixed = await startOfficeHost({ from: 5406, env: { SUPABASE_URL: proxy.url, IEUM_ALLOWED_SOURCES: 'http://127.0.0.1:54321' } })
   if (was == null) delete process.env.RT_OFFICE_HOST_DIR; else process.env.RT_OFFICE_HOST_DIR = was
   R.target = fixed.url
-  try { await fn(proxy) } catch (e) { console.log('[F-CS-22 host log]\n' + fixed.logs.join('').split('\n').slice(-60).join('\n')); throw e } finally {
+  try { await fn(proxy) } catch (e) {
+    const closed = await proxy.page?.evaluate(() => window.__closed || []).catch(() => 'page gone')
+    console.log(`[F-CS-22 editor connection closed] ${JSON.stringify(closed)}\n[F-CS-22 host log]\n${fixed.logs.join('').split('\n').slice(-60).join('\n')}`)
+    throw e
+  } finally {
     R.target = hostUrl
     await fixed.stop()
     await proxy.close()
@@ -1106,6 +1111,9 @@ test('F-CS-22 (고친 호스트) 저장소가 올리기를 거절한 뒤: 닫으
   }
   await withFailingStorage(async (proxy) => {
     const p = await page(browser)
+    // (the editor page's word when its connection closes — with its close code — kept for a failure's log)
+    await p.addInitScript(() => { if (window.top === window) { window.__closed = []; addEventListener('message', (e) => { if (e.data?.source === 'ieum-office' && e.data.type === 'closed') window.__closed.push({ code: e.data.code, at: Date.now() }) }) } })
+    proxy.page = p
     await openChat(p)
     // (a) a TXT: 💾 refused by storage → the bar says so, the editor's 저장 is off — × still asks, and 저장하고 닫기 sends it up
     await card(p, c.name).click()
@@ -1196,4 +1204,45 @@ test('F-CS-22 (고친 호스트) 저장소가 올리기를 거절한 뒤: 닫으
     expect(p.errors).toEqual([])
     await p.context().close()
   })
+})
+
+// review #111: a slide's text box keeps its text to itself until it is left, and its editor's 저장 is off meanwhile — closing with the
+// text still in the box asks, and 저장하고 닫기 leaves the box (Escape) and saves through the editor's own 저장 (never a republish of the
+// write before it)
+test('F-CS-23 슬라이드의 글 상자에 친 채 닫기 → 묻고, 저장하고 닫기는 그 글까지 저장', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const name = '일정_글상자.pptx'
+  const a = await rawPost(ME.token, '/attachments', PPTX(), { 'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'X-File-Name': encodeURIComponent(name) })
+  const [m] = await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2) returning id`, [mainId, { name, url: a.url, type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }])
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, name).click()
+  await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 120_000 })
+  const stage = ed(p).locator('.stage-wrap').first()
+  await expect(stage).toBeVisible({ timeout: 90_000 })
+  await p.waitForTimeout(4000)
+  // into the title's text box — the slide is drawn on a canvas: pressed where the title is, then pressed twice, the box opens for typing —
+  // and typed in, the box not left
+  const slidesPage = p.frames().find((f) => f.url().includes('/office/slides/'))
+  const box = await ed(p).locator('.stage-zoom-box').first().boundingBox()
+  const at = [box.x + box.width * 0.5, box.y + box.height * 0.12]
+  await p.mouse.click(...at)
+  await p.waitForTimeout(500)
+  await p.mouse.dblclick(...at)
+  await expect.poll(() => slidesPage.evaluate(() => !!document.activeElement?.isContentEditable)).toBe(true)
+  await p.keyboard.type(' 글상자고침', { delay: 40 })
+  await p.waitForTimeout(600)
+  // (still in the box: the editor's 저장 is off)
+  await expect(ed(p).locator('.qa-btn[aria-label^="저장"]').first()).toBeDisabled()
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요', { timeout: 10_000 })
+  const t0 = Date.now()
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(oef(p)).toHaveCount(0, { timeout: 40_000 })
+  expect(Date.now() - t0).toBeLessThan(20_000)
+  await expect.poll(async () => (await cardOf(m.id)).url || '', { timeout: 20_000 }).toMatch(/\/edited-[^/]+\.pptx$/)
+  const saved = Buffer.from(await (await fetch((await cardOf(m.id)).url)).arrayBuffer())
+  expect(zipText(saved, 'ppt/slides/slide1.xml')).toContain('글상자고침')
+  expect(p.errors).toEqual([])
+  await p.context().close()
 })
