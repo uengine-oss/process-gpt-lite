@@ -13,6 +13,8 @@ export const LITE_TOOL_SERVERS = [
   { key: 'folders', paths: ['folders'] },
   { key: 'panelapps', paths: ['panelapps'] },
   { key: 'improve', paths: ['improve'] },
+  // ask_teammate — the person is asked whether to ask a teammate on the messenger (mcp/team.js · lib/askTeammate.js)
+  { key: 'team', paths: ['team'] },
   ...CRAFT_APP_NAMES.map((app) => ({ key: `craft.${app}`, paths: [app] })),
   { key: 'office', paths: [OFFICE_SERVER_PATH, 'office'] },
 ].map((s) => ({ ...s, server: `pgpt-${s.paths[0]}` }))

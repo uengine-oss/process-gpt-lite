@@ -52,6 +52,8 @@ import { caretXY } from './useTeammateMention.js'
 import RoomSettings from './RoomSettings.vue'
 import ReactionBar from './ReactionBar.vue'
 import ReactionChips from './ReactionChips.vue'
+// 「AI 가 대신 묻는 중」: a request the AI sent for someone — its form (server lib/askTeammate.js)
+import AskTeamForm from './AskTeamForm.vue'
 import { hold } from '../holdMenu.js'
 import { canReact } from '../../roomReactions.js'
 // what another app shared to Process GPT, meant for a room (components/ShareArrival.vue · src/shareInbox.js)
@@ -120,7 +122,7 @@ const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션' }
+const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션', askteam: 'AI 가 대신 묻는 중' }
 // team assist: the suggestion cards under the message that prompted them (lib/team/assist.js)
 const sugOf = (id) => (team.suggestions[team.active] || []).filter((x) => x.messageId === id)
 
@@ -653,6 +655,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
                   <MailAttRefCard v-else-if="r.type === 'mailatt'" :m="m" :r="r" :i="i" />
                   <FileRefCard v-else :m="m" :r="r" :i="i" />
                 </template>
+                <!-- a request the AI sent for someone (server lib/askTeammate.js): the form for the one asked, the answer for both -->
+                <AskTeamForm v-if="m.kind === 'askteam' && m.ask" :m="m" />
                 <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
                 <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
                 <!-- my share: each person it went to — 「안 열어 봄」 · 「열어 봄 · 언제」 · what their copy changed (only I see this) -->

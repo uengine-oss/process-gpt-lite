@@ -207,6 +207,8 @@ export function watchRooms() {
   M.onChat(async (row, humans) => {
     const m = row.messages || {}
     if (m.role !== 'user' || m.pgpt?.kind === 'assist' || m.__hidden) return
+    // a request the AI sent for someone (lib/askTeammate.js): its row changes with every answer and state — never a suggestion
+    if (m.pgpt?.kind === 'askteam') return count('askteam')
     // 「@AI …」 is answered by the AI itself (lib/team/aiHelp.js): no second card for it
     if (m.pgpt?.ai) return count('to-ai')
     const author = humans.find((h) => h.id === m.userId || h.email === m.email)

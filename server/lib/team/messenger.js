@@ -25,6 +25,8 @@ import { publicAttRef } from '../mailAttachments.js'
 import { josa, ro } from '../josa.js'
 // reactions on a message (lib/team/reactions.js — their own rows; 2026-11-26)
 import * as RX from './reactions.js'
+// a request the AI sent for someone (lib/askTeammate.js — 「AI 가 대신 묻는 중」): its form for the one asked, its answer for both
+import { askView } from './askView.js'
 // who a person is on every screen: one name, one picture (lib/people.js) — not users.username, which Process GPT may hold as the
 // address's local part (2026-11-25: a room's header listed the user by their address's local part where everything else used their name).
 // Only for what the screens show: what is stored in Process GPT's rows (a room's participants, a message's mentionedUsers — its
@@ -289,6 +291,8 @@ export function view(viewerId, row, byEmail = {}) {
     ...(g.ai && !agent ? { toAi: true } : {}),
     // a mail its owner's rule posted as it arrived (lib/mailRooms.js): the rule's words
     ...(g.auto && !agent ? { auto: { by: String(g.auto.by || ''), label: String(g.auto.label || '') } } : {}),
+    // a request the AI sent for someone (lib/askTeammate.js): the form only for the one asked, while it is open
+    ...(g.kind === 'askteam' && g.ask && !agent ? { ask: askView(viewerId, g.ask) } : {}),
   }
 }
 // each viewer's copy of a row: their view, with the state of its file mentions
@@ -354,7 +358,8 @@ export async function messages(me, roomId, { before, limit = 80 } = {}) {
 // refs: file mentions already checked as the sender (lib/fileRefs.js forSend); ai: addressed to the AI (「@AI …」, answered by
 // lib/team/aiHelp.js — the room's general AI 제안 leaves it alone); mentions: the people named with @ (process-gpt's mentionedUsers);
 // auto: a mail its owner's rule posted as it arrived ({by, label} — lib/mailRooms.js autoShare; what it says only, the owner's card decides)
-export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [], auto = null } = {}) {
+// ask: a request the AI sends for me (kind 'askteam' — lib/askTeammate.js): the card it came from, the one asked, the items, the form
+export async function post(me, roomId, { kind = 'text', body = '', context = null, attach, agent = null, refs = [], ai = false, mentions = [], auto = null, ask = null } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const members = await membersOf(t.id)
@@ -367,7 +372,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   // (a mail mention says its subject — the summary everyone in the room sees anyway, never its body)
   const content = String(body || '').slice(0, 8000) || (files.length || linked.length ? `${kind === 'mailref' ? '✉️' : '📎'} ${[...files, ...linked].join(', ')}` : '')
   const pgptPart = kind === 'text' && !artifacts.length && !context && !refs?.length && !ai ? undefined
-    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(auto ? { auto: { by: String(auto.by || ''), label: String(auto.label || '').slice(0, 200) } } : {}), ...(agent || {}) }
+    : { kind, artifacts, context, ...(refs?.length ? { refs } : {}), ...(ai ? { ai: true } : {}), ...(auto ? { auto: { by: String(auto.by || ''), label: String(auto.label || '').slice(0, 200) } } : {}), ...(ask && kind === 'askteam' ? { ask } : {}), ...(agent || {}) }
   const named = (mentions || []).map(String).filter((id) => members.some((x) => x.id === id && x.id !== me.id))
   const msg = { uuid, clientUuid: uuid, role: 'user', content, timeStamp: iso(), email: me.email, name: me.name, userName: me.name, userId: me.id,
     // (Process GPT's own name: its resolveMentions matches typed mentions against it)
@@ -385,7 +390,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   // attachments — lib/mailRooms.js — is one mail, not one mail and N more)
   const attachment = !!refs?.length && refs.every((r) => r.type === 'mailatt')
   const subjects = kind === 'mailref' && refs.some((r) => r.type === 'mail') ? refs.filter((r) => r.type === 'mail').map((r) => r.name) : [...files, ...linked]
-  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref') await told('notify', () => notifyMembers(me, t, row, kind, subjects, context, members.filter((m) => m.id !== me.id), { attachment }))
+  if (kind === 'share' || kind === 'mention' || kind === 'fileref' || kind === 'mailref' || kind === 'askteam') await told('notify', () => notifyMembers(me, t, row, kind, subjects, context, members.filter((m) => m.id !== me.id), { attachment }))
   return viewFor(me, row, by)
 }
 
@@ -410,6 +415,8 @@ async function notifyMembers(me, t, row, kind, files, context, recipients, { att
       ? (en ? `${me.name} mentioned the mail "${files[0] || ''}"${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 메일 「${files[0] || ''}」${files.length > 1 ? ` 외 ${files.length - 1}통${josa('통', '을', '를')}` : josa(`${files[0] || ''}」`, '을', '를')} 멘션했어요`)
       : kind === 'fileref'
       ? (en ? `${me.name} linked ${files[0] || 'a file'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '파일'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 링크로 멘션했어요`)
+      : kind === 'askteam'
+      ? (en ? `${me.name} asked you something (AI asking for them)` : `${me.name}님이 물어봤어요 · AI 가 대신 묻는 중`)
       : kind === 'share'
       ? (en ? `${me.name} shared ${files[0] || 'an output'}${files.length > 1 ? ` and ${files.length - 1} more` : ''}` : `${me.name}님이 ${files[0] || '산출물'}${files.length > 1 ? ` 외 ${files.length - 1}개` : ''}를 공유했어요`)
       : (en ? `${me.name} mentioned you${ctx}` : `${me.name}님이 나를 언급했어요${ctx}`),
@@ -453,7 +460,7 @@ export async function inbox(me) {
   const rows = await q(`select c.uuid, c.id, c.messages, coalesce(rd.last_read_at, 'epoch'::timestamptz) as last_read_at
                         from chats c join chat_rooms r on r.id=c.id and r.tenant_id=$1 and r.participants @> $3::jsonb
                         left join pro_chat_reads rd on rd.room_id=c.id and rd.user_id=$2
-                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref') and coalesce(c.messages->>'email','') <> $4
+                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref','askteam') and coalesce(c.messages->>'email','') <> $4
                         order by coalesce(public.pro_chat_ts(c.messages), now()) desc limit 50`, [T(), me.id, JSON.stringify([{ id: me.id }]), me.email])
   const senders = await people([...new Set(rows.map((r) => r.messages.userId).filter(Boolean))])
   const by = Object.fromEntries(senders.map((p) => [p.email, p]))

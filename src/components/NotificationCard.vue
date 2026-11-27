@@ -34,12 +34,13 @@ const { down, move, up } = sw
 
 // a teammate's 'team' notice is a share or a mention; its title is in the recipient's language
 // (lib/team/messenger.js notifyMembers: "…를 공유했어요" / "… shared …", "…나를 언급했어요" / "… mentioned you")
-const teamVerb = (title) => (/나를 언급했어요|\bmentioned you\b/.test(title || '') ? '멘션' : /공유했어요|\sshared\s/.test(title || '') ? '공유' : '멘션')
+// (the server's own titles — lib/team/messenger.js notifyMembers; 「…님이 물어봤어요」 is a request the AI sent for someone, lib/askTeammate.js)
+const teamVerb = (title) => (/나를 언급했어요|\bmentioned you\b/.test(title || '') ? '멘션' : /공유했어요|\sshared\s/.test(title || '') ? '공유' : /님이 물어봤어요|\basked you something\b/.test(title || '') ? '질문' : '멘션')
 // the AI waiting on me (server lib/askPerson.js): what it waits for
 const ASK_VERB = { question: '질문', approval: '승인', login: '로그인', hands: '확인' }
-const verb = computed(() => props.n.type === 'ai_ask' ? ASK_VERB[props.n.kind] || '질문' : props.n.type === 'context_access' ? '참고 요청' : props.n.type === 'context_sensitive' ? '민감 제안' : String(props.n.type || '').startsWith('context_access') ? '공유' : props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : props.n.type === 'meeting_action' ? '할 일' : props.n.type === 'chat' ? '메시지' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
+const verb = computed(() => props.n.type === 'ai_ask' ? ASK_VERB[props.n.kind] || '질문' : props.n.type === 'context_access' ? '참고 요청' : props.n.type === 'context_sensitive' ? '민감 제안' : String(props.n.type || '').startsWith('context_access') ? '공유' : props.n.type === 'agent_failed' || props.n.type === 'mission_failed' ? '실패' : props.n.type === 'mining' ? '추천' : props.n.type === 'improve' ? '제약' : props.n.type === 'meeting_action' ? '할 일' : props.n.type === 'ask_teammate' ? '팀원 답' : props.n.type === 'chat' ? '메시지' : (props.n.type === 'team' ? teamVerb(props.n.title) : props.n.type === 'mention' ? '요청' : props.n.type !== 'workitem' ? '알림' : props.n.choices ? '결정' : '입력'))
 // process-gpt's own notification types share the table
-const kinds = { ai_ask: 'Process GPT', context_access: '팀 맥락 공유', context_access_result: '팀 맥락 공유', context_access_digest: '팀 맥락 공유', context_sensitive: '팀 맥락 공유', agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선', folder_access: '폴더 권한 요청', mail_access: '메일 본문 요청' }
+const kinds = { ai_ask: 'Process GPT', context_access: '팀 맥락 공유', context_access_result: '팀 맥락 공유', context_access_digest: '팀 맥락 공유', context_sensitive: '팀 맥락 공유', agent_failed: '프로세스 에이전트 단계', mission_failed: '예약 실행 실패', mission: '예약 실행 결과', chat: 'process-gpt 채팅', handover: '업무 인계', merge_request: '변경 요청', mining: '프로세스 마이닝', improve: '프로세스 개선', folder_access: '폴더 권한 요청', mail_access: '메일 본문 요청', ask_teammate: '팀원에게 묻기' }
 const when = computed(() => {
   const d = new Date(props.n.at)
   const mins = Math.round((Date.now() - d) / 60000)
@@ -66,6 +67,8 @@ async function act(choice) {
   if (!choice && /^\/(projects|routines|settings)\//.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
   // a scheduled run's result opens the task's own conversation in the chat (server lib/missions.js chatUrl)
   if (!choice && /^\/chat\/c\/[^/?#]+$/.test(String(props.n.url || ''))) { app.dismissNotification(props.n); return router.push(props.n.url) }
+  // a teammate the AI asked for me answered, or has not yet (server lib/askTeammate.js): the chat where I asked
+  if (!choice && props.n.type === 'ask_teammate' && props.n.url === '/chat') { app.dismissNotification(props.n); return router.push('/chat') }
   // a work item opens its instance page, where its form is (InstanceHeader 「내 입력이 필요해요」); the
   // card stays until the step is done
   const inst = (id) => router.push(`/routines/${encodeURIComponent(id)}`)

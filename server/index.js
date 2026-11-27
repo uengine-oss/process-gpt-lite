@@ -81,6 +81,10 @@ import { startStepRetry } from './lib/stepRetry.js'
 import { openFileCard } from './lib/fileCards.js'
 import { startSkillWorker } from './lib/mining/worker.js'
 import { mountPanelApps } from './mcp/panelapps.js'
+// ask_teammate: the person is asked whether to ask a teammate on the messenger (mcp/team.js · lib/askTeammate.js · routes/askTeammate.js)
+import { mountTeam } from './mcp/team.js'
+import { askTeammateRoutes } from './routes/askTeammate.js'
+import * as askTeammate from './lib/askTeammate.js'
 import { startFolderSteps } from './lib/folders/work.js'
 import { gitRoutes } from './lib/folders/gitHttp.js'
 import { afterPush as afterSyncPush } from './lib/folders/sources.js'
@@ -602,6 +606,8 @@ app.use('/api', backofficeRoutes(auth))
 // Agentic BPM PoC (pgpt-pro/docs/agentic-bpm/plan.md): policies·decisions·approvals·strategy, then the three scenarios
 app.use('/api', agenticRoutes(auth))
 app.use('/api', followupRoutes(auth))
+// 팀원에게 물어 채우기: the card's 물어보기 · 아니요 · 다시 묻기, the teammate's form (lib/askTeammate.js)
+app.use('/api', askTeammateRoutes(auth))
 // 프로세스 온톨로지: 메일 이력 + 채팅 핸드오버 → Ontological 의 회사 프로세스 지도, 스냅샷 실행, 고정 · 노화 (lib/ontology)
 app.use('/api', ontologyRoutes(auth))
 // the ontology's agent steps (orchestration pgpt-pro-onto) and habit questions run here even with PRO_BACKGROUND=0:
@@ -635,6 +641,7 @@ app.use('/api', craftLiveRoutes(auth))
 mountFolders(app)
 mountImprove(app)
 mountPanelApps(app)
+mountTeam(app)
 mountConnectors(app)
 app.get('/api/connectors', auth, async (req, res) => {
   const list = await connectorStatus(req.user.id)
@@ -861,7 +868,8 @@ app.post('/api/actions/:id/run', auth, async (req, res) => {
   res.json(a)
   const t = await mainThread(req.user.id)
   // a card that answers a customer mail reviews that mail's drafts: never a shared-folder edit
-  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id, composed: true })
+  // (source: the card — a value only a teammate knows, asked for in this turn, fills this mail's reply draft too: lib/askTeammate.js)
+  runTurn({ user: req.user, session: req.session, threadId: t.id, text: `${a.verb}: ${a.text}\n\n${a.prompt || ''}`, noFolder: !!a.source?.mail_id, composed: true, source: { actionId: a.id } })
     .then(async () => {
       const [d] = await q(`update pro_actions set status='done' where id=$1 returning *`, [a.id])
       if (a.verb === 'Review') import('./lib/mining/recorder.js').then((m) => m.recordReply(req.user, a)).catch((e) => console.warn('[mining] reply', e.message))
@@ -1387,6 +1395,9 @@ const server = app.listen(config.port, async () => {
   startConstraintSweep()
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
   startStepRetry()
+  // a teammate the AI asked for someone who has not answered in a day: the person hears of it (lib/askTeammate.js)
+  // (one query for every company — lib/askTeammate.js sweep)
+  askTeammate.startSweep()
 })
 // how long one request may take to arrive whole (Node's own default is five minutes): an upload of 200 MB on a slow line takes longer.
 // A folder going up request by request gives up on its own when a body stops coming (lib/folders/batchBody.js, 30 s).
