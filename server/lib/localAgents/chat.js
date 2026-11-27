@@ -136,8 +136,12 @@ export async function personalFolder(user) {
   }
   return making.get(k)
 }
-// where a chat's runs work: {folder, mode: 'project' | 'personal', line (the branch its runs start from and come back to), variation}
+// where a chat's runs work: {folder, mode: 'project' | 'personal', line (the branch its runs start from and come back to), variation,
+// template (a project started from a template: {name, outputs} — its runs work in the person's own workspace)}
 // A project folder needs edit rights (a viewer or a runner of it is refused — 403); a linked folder is not served over git (409).
+// A project started from a template works in its person's own workspace (folders/templates.js): the right that started it — runner, the
+// same a server agent's turn there needs — is enough (it is never merged into the template; its files reach the template only by
+// 「원본에 반영 요청」, which its owner reviews).
 export async function folderFor(user, thread) {
   const S = await import('../folders/service.js')
   if (thread.kind === 'project') {
@@ -147,10 +151,17 @@ export async function folderFor(user, thread) {
       const folder = await S.folderById(link.folder_id)
       if (!folder) throw err(404, L('이 프로젝트의 폴더를 찾지 못했어요.', "I couldn't find this project's folder."))
       if (folder.kind === 'linked') throw err(409, L('연결형 폴더에서 일하는 프로젝트는 내 PC 에이전트로 보낼 수 없어요 — 기본으로 보내 주세요.', 'A project in a linked folder cannot go to an agent on your PC — send it to Default.'))
+      const TPL = await import('../folders/templates.js')
+      const cur = link.variation_id ? await S.variationById(link.variation_id) : null
+      // (the same choice ensureProjectVariation makes: the project's workspace, or a new one from the template's main)
+      const workspace = TPL.isWorkspace(cur) ? TPL.mayView(cur, user) : !cur && TPL.isTemplate(folder)
       const role = await S.roleOf(folder, user)
-      if (!role || S.RANK[role] < S.RANK.editor) throw err(403, L(`이 프로젝트의 폴더 「${folder.name}」를 고칠 수 있는 사람(편집자 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may edit this project's folder "${folder.name}" (editor or above) can send to an agent on their PC.`))
+      if (workspace) {
+        if (!role || S.RANK[role] < S.RANK.runner) throw err(403, L(`이 프로젝트의 템플릿 「${folder.name}」을 쓸 수 있는 사람(실행 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may use this project's template "${folder.name}" (runner or above) can send to an agent on their PC.`))
+      } else if (!role || S.RANK[role] < S.RANK.editor) throw err(403, L(`이 프로젝트의 폴더 「${folder.name}」를 고칠 수 있는 사람(편집자 이상)만 내 PC 에이전트로 보낼 수 있어요.`, `Only someone who may edit this project's folder "${folder.name}" (editor or above) can send to an agent on their PC.`))
       const { v } = await TF.ensureProjectVariation(user, thread, link)
-      return { folder, mode: 'project', line: v.branch, variation: v.id }
+      const tpl = TPL.isWorkspace(v) ? { name: v.source.template.name || folder.name, outputs: TPL.outputsOf(v.source.template.outputs) } : null
+      return { folder, mode: 'project', line: v.branch, variation: v.id, template: tpl }
     }
   }
   const folder = await personalFolder(user)
@@ -187,13 +198,17 @@ async function recapOf(thread, conv, beforeId) {
   }
   return out.length ? `${L(`[이 대화의 앞부분 — 최근 ${out.length}개]`, `[Earlier in this chat — the last ${out.length}]`)}\n${out.join('\n')}\n\n` : ''
 }
-async function promptFor({ person, folder, mode, recap, message }) {
+// (template: a project started from a template — its own workspace, told as the server agent's turns there are: threadFolders.workspaceNote)
+async function promptFor({ person, folder, mode, recap, message, template = null }) {
   let tpl = ''
   try { tpl = await (await import('../ontology/discovery.js')).prompt('local-chat') } catch { /* the bundled skill has it */ }
   const fill = (s, v) => String(s || '').replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '')
+  const where = template
+    ? L(` — 템플릿 「${template.name}」에서 시작한 이 프로젝트 전용 작업 공간이에요(여기서 바꾼 것은 이 프로젝트에만 남고 템플릿 원본은 바뀌지 않아요). 결과물은 '${template.outputs}/' 아래에 새 파일로 두고, 템플릿의 안내(TEMPLATE.md) · 양식 · 스킬(.claude/skills)을 따라 일하세요. 템플릿 파일 자체(양식 · 스킬)를 고쳐야 하면 작업 공간의 그 파일을 고치고, ${person.name || '사용자'} 님이 프로젝트 위의 「원본에 반영 요청」으로 그 파일만 보낼 수 있다고 알려 주세요`,
+      ` — this project's own workspace, started from the template "${template.name}" (what changes here stays in this project; the template's original does not change). Put outputs as new files under '${template.outputs}/' and follow the template's notes (TEMPLATE.md), forms and skills (.claude/skills). If a template file itself (a form, a skill) needs fixing, fix it in the workspace and tell ${person.name || 'the user'} they can send just that file with 「원본에 반영 요청」 above the project`)
+    : mode === 'project' ? L(' — 이 프로젝트의 변형이에요(원본은 사람이 「반영」으로 바꿔요)', " — this project's variation (a person merges it into the original)") : ''
   const text = fill(tpl || '{recap}[{person} 님의 메시지]\n{message}', {
-    recap, folder: folder.name, person: person.name || L('사용자', 'the user'), message,
-    where: mode === 'project' ? L(' — 이 프로젝트의 변형이에요(원본은 사람이 「반영」으로 바꿔요)', " — this project's variation (a person merges it into the original)") : '',
+    recap, folder: folder.name, person: person.name || L('사용자', 'the user'), message, where,
   })
   return `${text.trim()}${langInstruction()}`
 }
@@ -247,7 +262,7 @@ export async function send({ user, thread, text, agent, conversation = null, fil
   const person = await personOf(user.id)
   const lang = await langOf(user.id).catch(() => 'ko')
   const recap = await recapOf(thread, conv, msg.id)
-  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap, message: words }))
+  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap, message: words, template: where.template }))
   const resumeOf = await lastSession(user, thread.id, key, agent)
   const title = (conv && convTitle) || thread.title || L('채팅', 'Chat')
   const chat = { key, threadId: String(thread.id), conv, convTitle, title, mode: where.mode, folderId: where.folder.id, folderName: where.folder.name, folderSlug: where.folder.slug,
@@ -493,7 +508,7 @@ async function carryOver(job) {
   if (!where) return
   const person = await personOf(job.user_id)
   const lang = await langOf(job.user_id).catch(() => 'ko')
-  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap: '', message: words }))
+  const prompt = await withLang(lang, () => promptFor({ person, folder: where.folder, mode: where.mode, recap: '', message: words, template: where.template }))
   const chat = { ...c, message: words, messages: lost.map((s) => ({ text: s.text, at: s.at })), replies: [], carded: [], line: where.line, variation: where.variation, folderId: where.folder.id,
     resumeOf: job.session_id || c.resumeOf || null }
   let [j] = await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, kind, thread_id, activity_name, agent, mode, offline, server_agent, person_name, chat, prompt, folder_id, line)

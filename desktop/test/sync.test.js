@@ -211,6 +211,10 @@ test('열쇠 생김새: 파일 · 줄 · 까닭만, 값은 돌려주지 않는�
   assert.ok(!JSON.stringify(hits).includes(FAKE.github) && !JSON.stringify(hits).includes(FAKE.env))
   assert.deepEqual(S.shapeHits(R, '# 안내\nAPI 키는 .env 에 두세요\nVERSION=1.2.3\n'), [])
   assert.equal(S.assignmentHit('SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaa', R.shapes.find((s) => s.kind === 'assignment')), false, '고르게 섞이지 않은 값')
+  // a script's line of code is not a key (the company skill's Word kit, msaschool_docx.py — left out as 「확인이 필요해요」 before)
+  const code = "    doc = Doc(client_logo='innotena.png')          # 고객사 로고가 없으면 생략\n                mar = OxmlElement('w:tcMar')\n        borders = OxmlElement('w:tblBorders')\nrows = sheet[Row3Col7Value]\nX=fooBarBazQux123;Next\n"
+  assert.deepEqual(S.shapeHits(R, code), [], '코드 줄')
+  assert.deepEqual(S.shapeHits(R, `API_TOKEN=${FAKE.env}\n`).map((h) => h.reason), ['env_assignment'], '따옴표 없는 값은 그대로 잡음')
 })
 
 test('자산 자리 · 머리말', () => {

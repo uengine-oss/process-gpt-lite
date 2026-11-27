@@ -277,6 +277,10 @@ function submit(text) {
 // ---------- the terminal ----------
 let line = ''
 let paste = null
+let pastes = 0
+// FAKE_TUI_DROP_ENTER=n: the first n Enters after a paste are lost (a busy computer: Claude Code still taking the paste in)
+let dropEnter = Number(process.env.FAKE_TUI_DROP_ENTER || 0)
+let afterPaste = false
 let trusted = true
 let onTrust = null
 function feed(chunk) {
@@ -286,7 +290,7 @@ function feed(chunk) {
     if (paste !== null) {
       const end = s.indexOf('\x1b[201~')
       if (end < 0) { paste += s; s = ''; break }
-      paste += s.slice(0, end); line += paste; screen(paste.length > 80 ? `[붙여 넣은 글 ${paste.split('\n').length}줄]` : paste); paste = null; s = s.slice(end + 6); continue
+      paste += s.slice(0, end); line += paste; screen(paste.length > 80 ? (kind === 'claude' ? `[Pasted text #${++pastes} +${paste.split('\n').length - 1} lines]` : `[붙여 넣은 글 ${paste.split('\n').length}줄]`) : paste); paste = null; afterPaste = true; s = s.slice(end + 6); continue
     }
     if (s.startsWith('\x1b[200~')) { paste = ''; s = s.slice(6); continue }
     // (a dialog takes the next key: a number, or Esc on its own)
@@ -295,6 +299,8 @@ function feed(chunk) {
     const c = s[0]; s = s.slice(1)
     if (c === '\r' || c === '\n') {
       if (onTrust) { const f = onTrust; onTrust = null; f(); continue }
+      if (afterPaste && dropEnter > 0) { dropEnter--; log({ session, droppedEnter: true }); continue }
+      afterPaste = false
       const t = line; line = ''; screen('\n'); submit(t); continue
     }
     if (c === '\x7f') { if (line) { line = line.slice(0, -1); screen('\b \b') } continue }

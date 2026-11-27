@@ -125,6 +125,25 @@ test('Claude Code 터미널: 준비되면 프롬프트를 붙여 넣고, Stop �
   assert.equal(r.record(j.id), null, 'the session record goes with the run')
 })
 
+test('붙여 넣은 첫 메시지의 Enter 가 사라지면(바쁜 컴퓨터) 자리표시가 입력란에 남은 것을 보고 Enter 를 다시 눌러 턴이 시작된다', async () => {
+  process.env.FAKE_TUI_DROP_ENTER = '1'
+  try {
+    const r = runner()
+    const j = job('claude-code', `${'제안서 목차와 참고 자료를 읽고 정리해 주세요. '.repeat(4)}\nWRITE_OUT 메모.md :: 다시 누른 Enter 로 시작`)
+    await r.handle({ type: 'job', job: j })
+    const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0], 30000)
+    assert.equal(done.type, 'done', JSON.stringify(done))
+    const sid = sidOf(j.id)
+    const open = sent.find((m) => m.type === 'term-open' && m.sid === sid)
+    const log = fakeLog().filter((x) => x.session === open.cli)
+    assert.ok(log.some((x) => x.droppedEnter), 'the first Enter was lost')
+    assert.equal(log.filter((x) => x.received).length, 1, 'the message went in once')
+    assert.match(screenOf(bytesOf(sid)), /\[Pasted text #1 \+\d+ lines\]/)
+    assert.equal(show(j.git.branch, `${j.outDir}/메모.md`), '다시 누른 Enter 로 시작\n')
+    await r.handle({ type: 'finished', jobId: j.id, state: 'done' })
+  } finally { delete process.env.FAKE_TUI_DROP_ENTER }
+})
+
 test('입력은 터미널 주인만: 주인이 친 글은 CLI 에, 다른 사람 이름으로 온 입력은 무시 · 조종(고친 제안)은 붙여 넣어 같은 턴에 반영', async () => {
   const r = runner()
   const j = job('claude-code', 'SLEEP 1500\nSLEEP 1500\nWRITE_OUT 처음.md :: 처음 계획')

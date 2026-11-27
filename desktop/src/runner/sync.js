@@ -181,7 +181,12 @@ function assignmentHit(line, s) {
   let v = m[1].trim()
   const q = v[0]
   if ((q === '"' || q === "'") && v.lastIndexOf(q) > 0) v = v.slice(1, v.lastIndexOf(q))
-  else { const hash = v.indexOf(' #'); if (hash >= 0) v = v.slice(0, hash).trim() }
+  else {
+    const hash = v.indexOf(' #'); if (hash >= 0) v = v.slice(0, hash).trim()
+    // (a line of code — a call, an index, a literal: `mar = OxmlElement('w:tcMar')` in a script — is not a value in the dotenv · shell
+    // form: an unquoted key has none of these)
+    if (/[()[\]{},;'"`]/.test(v)) return false
+  }
   if (v.length < (s.minLength || 20) || /\s/.test(v)) return false
   if ('/.~$%<{'.includes(v[0]) || v.includes('://') || v.includes('${')) return false
   const classes = [/[a-z]/, /[A-Z]/, /[0-9]/].filter((r) => r.test(v)).length

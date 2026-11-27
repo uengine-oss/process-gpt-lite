@@ -128,6 +128,9 @@ export function parseCommands(buf) {
   return { commands, caps, count }
 }
 
+// a receive-pack request that is only git's probe (one flush packet, nothing else)
+export const isProbe = (body) => Buffer.isBuffer(body) && body.length === 4 && body.toString('latin1') === '0000'
+
 // null when every ref update may go through, else the reason for each refused ref
 export function refusals(commands, prefix = PUSH_PREFIX) {
   // a token with no push prefix only reads (the skills a desktop's local agent gets — lib/localAgents/steps.js)
@@ -462,6 +465,10 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
         // a push: which refs it may name is decided here, before git sees it; what it brought, by git's pre-receive check (pushCheck.js)
         const body = await readBody(req, maxPush)
         if (!body) return deny(res, 413, `a push may carry at most ${Math.round(maxPush / 1024 / 1024)} MB`)
+        // git's probe before a large push (remote-curl probe_rpc: when the request is over http.postBuffer, 1 MB by default, it first
+        // posts a lone flush packet to see that it may — only the status counts): nothing to update and nothing is written, so it is
+        // answered OK and the real push follows (refused, it failed every push over 1 MB — a champion folder with a skill's assets)
+        if (isProbe(body)) return res.status(200).set({ 'Content-Type': 'application/x-git-receive-pack-result', 'Cache-Control': 'no-cache' }).end()
         let parsed
         try { parsed = parseCommands(body) } catch (e) { return deny(res, 400, e.message) }
         const refused = refusals(parsed.commands, claims.push) || syncRefusals(parsed.commands, claims)
