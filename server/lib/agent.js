@@ -483,7 +483,7 @@ const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 // composed: words the server put together for this turn, not typed by the person in this room (a teammate's message picked up with
 // 「이어서 작업」, a Home card's action, an answer chosen on a card) — the room's judge does not read them as the person's rule or plan
 // (review PR #105 #8: a teammate's text pinned into the plan as the person's)
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false, composed = false }) {
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false, composed = false, clientId = null }) {
   const userId = user.id
   // (only a conversation of this person's — an id from the page is never taken on its word: review 11-25 #1)
   const mine = conversation?.id ? await ownsConversation(userId, conversation.id).catch(() => null) : null
@@ -519,7 +519,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   const project = !habitId && (th || await getThread(userId, threadId).catch(() => null))?.kind === 'project'
   // fresh: 「이미 한 요청」 카드에서 「그래도 새로 하기」(또는 허락 뒤 다시 답하기) — 같은 요청 알아보기를 건너뛴다
   const said = again ? ((await q(`select id from pro_messages where thread_id=$1 and role='user' and content->>'text'=$2 order by created_at desc limit 1`, [threadId, text]))[0] || { id: null })
-    : await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}) })
+    : await addMessage(userId, threadId, 'user', 'text', { text, ...(files.length ? { files } : {}), ...(pointed?.shown?.length ? { refs: pointed.shown } : {}), ...(fresh && !habitId ? { fresh: true } : {}), ...(habitId ? { fromHabit: true } : {}), ...(topicConv ? { conv: topicConv } : {}),
+      // (the page's id for it — lib/sendOnce.js: the same message sent again is taken once)
+      ...(clientId ? { clientId: String(clientId) } : {}) })
   const store = turnCtx.getStore()
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
@@ -1154,7 +1156,7 @@ async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
   // stopped while the variation was being made (review 11-25 #5): it is closed as a stopped run, and the chat is not pointed at it
   const stoppedNow = turnCtx.getStore()?.turn?.stopped
   if (stoppedNow) {
-    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
+    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, run: work.run, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
     checkpoint(turnCtx.getStore()?.turn)
   }
   await TF.noteVariation(user, threadId, folder, work.v).catch(() => {})
@@ -1167,10 +1169,10 @@ async function folderTurn({ user, session, threadId, text, onDelta, folder }) {
     // stopped before the agent was called (review 11-25 #5): the variation made for it is closed as a stopped run, and the chat
     // does not stay pointed at its room
     pinned.delete(threadId)
-    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
+    await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, run: work.run, stopped: true }).catch((x) => console.warn('[folders] chat work', x.message))
     throw e
   }
-  await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
+  await finishChatWork({ user, folder, v: work.v, threadId, room: work.room, seeded: work.seeded, run: work.run, stopped: !!msg?.content?.stopped }).catch((e) => console.warn('[folders] chat work', e.message))
   await TF.announce(user.id, threadId).catch(() => {})
   return msg
 }
@@ -1640,8 +1642,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // (an instance's conversation has its work folder attached for reference — lib/mailWork.js: what is asked there reads its mails)
   if (!pin?.folder && (thread?.kind === 'project' || thread?.kind === 'chat' || thread?.kind === 'process')) {
     // (in the conversation this turn goes to — a project's sub-topic, lib/projectTopics.js — not the one the project stood in before)
-    projectWork = await TF.prepareProjectWork({ user, thread: turn.conv ? { ...thread, conversation_id: turn.conv } : thread }).catch((e) => { console.warn('[folders] project work', e.message); return null })
+    let seatNote = ''
+    projectWork = await TF.prepareProjectWork({ user, thread: turn.conv ? { ...thread, conversation_id: turn.conv } : thread }).catch((e) => { seatNote = TF.seatHint(e); console.warn('[folders] project work', e.message); return null })
     if (projectWork) { thread = { ...thread, conversation_id: projectWork.conv }; turn.setConv(projectWork.conv); text += projectWork.note }
+    // (the project's working copy is on the person's PC or elsewhere: the turn reads, and says where it is — lib/folders/seats.js)
+    else if (seatNote) text += seatNote
     else {
       const ref = await TF.linkOf(threadId).catch(() => null)
       const hint = ref ? await TF.refHint(ref, user).catch(() => '') : ''

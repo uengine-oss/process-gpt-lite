@@ -7,7 +7,7 @@
 //   requested — asked: 「본문 보기를 요청했어요」
 //   gone      — the mail's card is gone
 // The owner can drag their own mention on like any mail (src/fileDrag.js): into the AI chat, another conversation.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Icon from '../Icon.vue'
 import { useTeam } from '../../stores/team.js'
 import { startDrag, mailItem } from '../../fileDrag.js'
@@ -21,6 +21,9 @@ const busy = ref('')
 const note = ref('')
 const body = ref(null)       // the mail, read only, once 「본문 보기」 brought it
 const st = computed(() => props.r.state?.card || (props.r.owner && props.m.mine ? 'mine' : 'summary'))
+// the body shown goes the moment the room may no longer read it (the owner's 「본문 끄기」 · 「공유 그만두기」 — 2026-11-27 recording: it stayed
+// under the card that already said 「요약만 보여요」)
+watch(st, (s) => { if (s !== 'shared') body.value = null })
 const when = computed(() => {
   const d = props.r.date && new Date(props.r.date)
   return d && !isNaN(d) ? d.toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
@@ -32,7 +35,8 @@ async function act(what, fn) {
 }
 const open = () => act('open', async () => {
   const x = await team.openMailRef(props.m, props.i)
-  if (x?.mail) body.value = x.mail
+  // (a late answer after the owner stopped sharing is not kept)
+  if (x?.mail && st.value === 'shared') body.value = x.mail
 })
 const request = () => act('req', () => team.requestRef(props.m, props.i))
 const share = (on) => act('share', () => team.shareMailRef(props.m, props.i, on))
@@ -85,7 +89,7 @@ const dragAtt = (e, name, i) => { e.stopPropagation(); startDrag(e, [attItem({ a
     <p v-else-if="st === 'gone'" class="line lock"><Icon name="alert" :size="13" /><span>이 메일은 이제 볼 수 없어요</span></p>
 
     <!-- the body, read only (shared with this room) -->
-    <div v-if="body" class="body" data-test="mail-ref-body">
+    <div v-if="body && st === 'shared'" class="body" data-test="mail-ref-body">
       <small>{{ body.address ? `${body.from} <${body.address}>` : body.from }}</small>
       <div class="text">{{ body.text }}</div>
       <button class="act ghost press" @click="body = null">접기</button>

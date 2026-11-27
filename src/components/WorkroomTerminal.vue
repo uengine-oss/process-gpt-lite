@@ -11,10 +11,10 @@ import { BASE } from '../base.js'
 
 const props = defineProps({ kind: String, id: String, mode: String, active: Boolean })
 // state: connecting | live | reconnecting | failed (with the reason) | exited
-const emit = defineEmits(['state'])
+const emit = defineEmits(['state', 'closed'])
 const el = ref(null)
 let term, fit, ws, ro, retry = 0, closed = false, timer, exited = false, everLive = false
-let fails = 0, connTimer = null, why = ''
+let fails = 0, connTimer = null, why = '', moved = false
 
 // "live" is the server's own {type:'session'}, not the socket opening: a gateway in front accepts
 // the socket and closes it (1002) when the server refused, so an open socket proves nothing.
@@ -22,7 +22,7 @@ let fails = 0, connTimer = null, why = ''
 const MAX_FAILS = 3
 const CONNECT_MS = 10_000
 const TIMEOUT_WHY = '서버가 터미널 연결에 응답하지 않아요 — 서버 앞단(게이트웨이)이 웹소켓을 넘겨 주는지 확인이 필요해요'
-const TICKET_WHY = { 403: '권한이 없어요 — 이 작업실의 담당자·참여자나 관리자만 열 수 있어요', 404: '작업 폴더가 없어요', 503: '이 서버에서 터미널을 쓰지 않아요' }
+const TICKET_WHY = { 403: '권한이 없어요 — 이 작업실의 담당자·참여자나 관리자만 열 수 있어요', 404: '작업 폴더가 없어요', 409: '이 변형의 작업본이 다른 곳에 있어요', 503: '이 서버에서 터미널을 쓰지 않아요' }
 function setState(s, reason = '') { emit('state', s, reason) }
 function failed(reason, final = false) {
   clearTimeout(connTimer)
@@ -57,6 +57,8 @@ async function connect() {
     if (m.type === 'session') { got = true; clearTimeout(connTimer); retry = 0; fails = 0; why = ''; everLive = true; setState('live'); fitNow() }
     else if (m.type === 'output') { if (m.replay) term.reset(); term.write(m.data) }
     else if (m.type === 'exit') { exited = true; term.write(`\r\n\x1b[90m[끝남 · 코드 ${m.code}] Enter 를 누르면 새로 엽니다\x1b[0m\r\n`); setState('exited') }
+    // the variation's working copy moved elsewhere (server lib/folders/seats.js): this shell is over — the room shows where it went
+    else if (m.type === 'closed') { exited = true; moved = true; term.write(`\r\n\x1b[90m[${m.reason || '작업본이 다른 곳으로 옮겨졌어요'}]\x1b[0m\r\n`); setState('exited'); emit('closed', m.reason || '') }
     // refused by the server (4401 ticket, 4403 origin, 4404 folder, 4503 no terminal here), with its reason
     else if (m.type === 'denied') denied = m.reason || `거절됨 (${m.code})`
     else if (m.type === 'error') { denied = m.message || denied; term.write(`\r\n\x1b[31m${m.message}\x1b[0m\r\n`) }
@@ -111,6 +113,7 @@ onMounted(() => {
   term.open(el.value)
   term.onData((d) => {
     // after the program ended (or the link dropped) Enter starts a fresh one
+    if (moved) return
     if ((exited || ws?.readyState !== 1) && d === '\r') { exited = false; term.reset(); reconnect(); return }
     if (exited) return
     send({ type: 'input', data: d })

@@ -159,15 +159,20 @@ async function toSkill(user, job, c) {
   const v = await S.createVariation(folder, { title: L(`${job.activity_name} 로컬 실행에서 고친 점`, `Changes from a local run of ${job.activity_name}`), kind: 'person',
     holder: { type: 'user', id: user.id, name: user.name }, createdBy: user.id, source: { label: provenance(c), local_job: job.id, todo_id: String(job.todo_id) } })
   const dir = path.join(S.foldersRoot(), '.local-knowhow', `${folder.slug}-${crypto.randomBytes(3).toString('hex')}`)
-  await S.checkout(folder, v, dir)
-  for (const f of c.skill.files) {
-    const p = path.join(dir, S.safeRel(f.path))
-    await fs.mkdir(path.dirname(p), { recursive: true })
-    await fs.writeFile(p, f.text)
-  }
-  const cur = await S.variationById(v.id)
-  await S.commitVariation(folder, cur, { name: user.name, email: user.email }, `${provenance(c)}: ${c.skill.files.map((f) => f.path).join(', ')}`)
-  await S.release(folder, await S.variationById(v.id))
+  // (this one change's own short-lived working copy — a 'knowhow' run, folders/seats.js)
+  const SE = await import('../folders/seats.js')
+  const run = await SE.openServer(folder, v, { user, run: 'agent', work: 'knowhow', ref: String(job.id), dir })
+  await SE.finishRun(folder, await S.variationById(v.id), run, {
+    fill: async (d) => {
+      for (const f of c.skill.files) {
+        const p = path.join(d, S.safeRel(f.path))
+        await fs.mkdir(path.dirname(p), { recursive: true })
+        await fs.writeFile(p, f.text)
+      }
+    },
+    commit: (cur) => S.commitVariation(folder, cur, { name: user.name, email: user.email }, `${provenance(c)}: ${c.skill.files.map((f) => f.path).join(', ')}`, { strict: true }),
+    user: user.id, where: L('로컬 실행의 노하우', 'a local run\'s know-how'),
+  })
   const after = await S.variationById(v.id)
   const changed = await G.changes(folder.repo_path, folder.default_branch, after.branch).catch(() => [])
   if (!changed.length) { await S.discard(folder, after).catch(() => {}); return { where: 'skill', skill: folder.settings?.skill_name, unchanged: true } }

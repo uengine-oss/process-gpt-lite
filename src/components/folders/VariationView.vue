@@ -1,6 +1,7 @@
 <script setup>
 // 변형 하나: main 과 비교한 바뀐 파일 목록, 파일별 차이(텍스트는 줄 단위, 문서·미디어는 양쪽 미리보기와
-// "바뀐 점"), 커밋, 그리고 작업실·인계·반영·버리기.
+// "바뀐 점"), 커밋, 그리고 작업실·인계·반영·버리기. 작업본이 어디에 있는지(자리 — server lib/folders/seats.js)를 모두에게 보여 주고,
+// 남이 가진 작업본은 읽기만 하며 「돌려 달라고 하기」를 건넨다(스펙 variation-seats).
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
@@ -8,7 +9,8 @@ import FIcon from './FIcon.vue'
 import Avatar from './Avatar.vue'
 import HandoverSheet from './HandoverSheet.vue'
 import MergeSheet from './MergeSheet.vue'
-import { folders as F, rawUrl, whoOf, holderName, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
+import SeatPill from './SeatPill.vue'
+import { folders as F, rawUrl, keptUrl, whoOf, holderName, statusLabel, sourceLabel, ago, prLabel } from '../../foldersApi.js'
 import { kindOf, kindLabel, baseName, dirName, lineDiff, highlight, viewOf } from './fileKind.js'
 
 const props = defineProps({ slug: String, vid: String })
@@ -77,8 +79,41 @@ function openSide(which) {
   if (which === 'main') emit('preview', { folder: folder.value, file: { path: p, card: mainCard.value }, ref: 'main' })
   else emit('preview', { folder: folder.value, file: { path: p, change: fileCardLine.value }, ref: v.value.id, refLabel: v.value.branch })
 }
+// the working copy: mine in the server workroom (open · 돌려놓기), elsewhere (someone's workroom, a PC, an agent — read only here,
+// 「돌려 달라고 하기」), or nowhere (보관 중 — open makes it mine)
+const seat = computed(() => v.value?.seat || null)
+const seatMine = computed(() => !!seat.value?.mine)
+const seatElsewhere = computed(() => !!seat.value?.place && !(seatMine.value && seat.value.place === 'server' && seat.value.run === 'workroom'))
+const seatBusy = ref(false)
 async function workroom() {
-  try { const r = await F.checkout(props.slug, props.vid); router.push(r.workroom) } catch (e) { say(e.message) }
+  try { const r = await F.openSeat(props.slug, props.vid); router.push(r.workroom) } catch (e) { say(e.message); if (e.seat) v.value = { ...v.value, seat: e.seat } }
+}
+const readOnly = () => router.push(`/workroom/variation/${props.vid}`)
+// what git does not carry, kept when the working copy left the disk (server lib/folders/seats.js keptOf): a download each, until removed
+const daysLeft = (until) => Math.max(0, Math.ceil((new Date(until).getTime() - Date.now()) / 86400_000))
+// (asked first: past the download limits the server says why — which file, how much — and that is said here instead of a broken download)
+async function getKept(ev, k) {
+  ev.preventDefault()
+  if (!k.canGet) return
+  try {
+    await F.keptCheck(props.slug, props.vid, k.id)
+    const a = document.createElement('a')
+    a.href = keptUrl(props.slug, props.vid, k.id)
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } catch (e) { say(e.message) }
+}
+async function seatAct(what) {
+  if (what === 'take' && !confirm(seatMine.value ? '이 변형을 마지막으로 올린 데서부터 여기로 가져올까요? PC 에 남은 변경은 새 변형으로 올라와요.' : '작업본을 가져올까요? 저장 안 한 변경은 그대로 저장되고, PC 에 남은 변경은 새 변형으로 올라와요.')) return
+  seatBusy.value = true
+  try {
+    if (what === 'release') { const r = await F.releaseSeat(props.slug, props.vid, seat.value?.epoch); say(r?.kept ? `작업본을 보관했어요 — git 이 싣지 않는 파일 ${r.kept > 0 ? `${r.kept}개` : ''}는 서버에 따로 남겨 두었어요` : '작업본을 보관했어요 — 고친 것은 이 변형에 저장했어요') }
+    else if (what === 'recall') { await F.recallSeat(props.slug, props.vid); say(`${seat.value?.who?.name || ''} 님에게 돌려 달라고 했어요`) }
+    else if (what === 'take') { await F.takeSeat(props.slug, props.vid, seat.value?.epoch); say('작업본을 가져왔어요 — 이제 보관 중이에요') }
+    await load()
+  } catch (e) { say(e.message); if (e.seat) v.value = { ...v.value, seat: e.seat } } finally { seatBusy.value = false }
 }
 async function saveCheckout() {
   try { const r = await F.commit(props.slug, props.vid, { release: false }); say(r.commit ? '작업 사본의 변경을 이 변형에 저장했어요' : '저장할 변경이 없어요'); load() } catch (e) { say(e.message) }
@@ -118,17 +153,47 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
           <span class="meta">
             <code><FIcon name="branch" :size="13" /> {{ v.branch }}</code>
             <span class="who"><Avatar :who="whoOf({ id: v.holder_id, name: holderName(v), type: v.holder_type })" :size="20" /> 보유자 {{ holderName(v) }}</span>
+            <SeatPill v-if="seat && live && folder?.kind === 'managed'" :seat="seat" />
             <span class="src" :class="v.kind">{{ sourceLabel[v.kind] }}</span><span class="lbl">{{ v.source?.label }}</span>
             <span class="ab">↑{{ v.ahead }} ↓{{ v.behind }}</span>
           </span>
         </div>
         <span class="sp" />
-        <button v-if="live && rank(role) >= 2 && folder?.kind === 'managed'" class="pill-btn hbtn" :disabled="running" title="이 변형을 내 작업 사본으로 열어 파일·셸에서 고치기" @click="workroom"><FIcon name="terminal" :size="16" /> 작업실</button>
-        <button v-if="v.kind === 'person' && v.worktree_path && live" class="pill-btn hbtn" @click="saveCheckout">변경 저장</button>
-        <button v-if="live && rank(role) >= 2" class="pill-btn hbtn" :disabled="running" @click="handing = true"><FIcon name="handover" :size="16" /> 인계하기</button>
+        <button v-if="live && rank(role) >= 2 && folder?.kind === 'managed' && !seatElsewhere && (!seat || seat.can.open || seat.can.release)" class="pill-btn hbtn" data-test="seat-open" :disabled="running" title="이 변형을 내 작업 사본으로 열어 파일·셸에서 고치기" @click="workroom"><FIcon name="terminal" :size="16" /> 작업실</button>
+        <!-- (someone else's variation, put away: its files as saved, read only — only its own person opens it to change it) -->
+        <button v-else-if="live && folder?.kind === 'managed' && !seatElsewhere" class="pill-btn hbtn" data-test="seat-readonly" title="이 변형은 보유자만 작업실에서 고쳐요" @click="readOnly"><FIcon name="terminal" :size="16" /> 읽기 전용으로 보기</button>
+        <button v-if="seat?.can.release && live" class="pill-btn hbtn" @click="saveCheckout">변경 저장</button>
+        <button v-if="seat?.can.release && live" class="pill-btn hbtn" data-test="seat-release" :disabled="seatBusy" title="저장 안 한 변경까지 그대로 저장하고 작업본을 보관해요" @click="seatAct('release')"><FIcon name="archive" :size="16" /> 돌려놓기</button>
+        <button v-if="live && rank(role) >= 2" class="pill-btn hbtn" :disabled="running || seatElsewhere" :title="seatElsewhere ? '작업본이 다른 곳에 있어요 — 먼저 돌려받아 주세요' : ''" @click="handing = true"><FIcon name="handover" :size="16" /> 인계하기</button>
         <button v-if="isSkill && live && !mayMerge && !review?.pr" class="dark-btn hbtn" :disabled="v.status !== 'ready' || asking" @click="requestMerge"><FIcon name="merge" :size="16" /> {{ asking ? '보내는 중…' : '반영 요청' }}</button>
-        <button v-if="live && mayMerge && folder?.kind !== 'linked'" class="dark-btn hbtn" :disabled="v.status !== 'ready'" @click="merging = true"><FIcon name="merge" :size="16" /> 이 변형 반영</button>
-        <button v-if="live && rank(role) >= 2" class="ib press" title="버리기" @click="discard"><Icon name="trash" :size="16" /></button>
+        <button v-if="live && mayMerge && folder?.kind !== 'linked'" class="dark-btn hbtn" :disabled="v.status !== 'ready' || seatElsewhere" :title="seatElsewhere ? '작업본이 다른 곳에 있어요 — 먼저 돌려받아 주세요' : ''" @click="merging = true"><FIcon name="merge" :size="16" /> 이 변형 반영</button>
+        <button v-if="live && rank(role) >= 2" class="ib press" title="버리기" :disabled="seatElsewhere" @click="discard"><Icon name="trash" :size="16" /></button>
+      </div>
+
+      <!-- the working copy is elsewhere: read only here, and who to ask (variation seats) -->
+      <div v-if="live && seatElsewhere" class="seatbar glass" data-test="seat-bar">
+        <FIcon :name="seat.place === 'device' ? 'pc' : seat.run === 'agent' ? 'agent' : 'terminal'" :size="18" />
+        <span class="sbt">
+          <b v-if="seat.state !== 'held'">작업본을 넘기는 중이에요</b>
+          <b v-else-if="seat.place === 'server' && seat.run === 'agent'">서버 에이전트가 이 변형에서 일하는 중이에요</b>
+          <b v-else-if="seatMine">내 PC 에서 작업 중이에요</b>
+          <b v-else>{{ seat.who?.name }} 님이 이 변형을 고치는 중이에요</b>
+          <small>{{ seatMine ? '그 PC 에서 끝내거나, 마지막으로 올린 데서부터 여기로 가져올 수 있어요.' : '여기서는 마지막으로 저장된 내용을 읽기만 해요. 반영 · 인계 · 버리기는 작업본이 돌아온 뒤에 할 수 있어요.' }}</small>
+          <small v-if="seat.recall" class="rq">돌려 달라는 요청 · {{ seat.recall.by?.name }} · {{ ago(seat.recall.at) }}</small>
+        </span>
+        <span class="sp" />
+        <button class="tb press" data-test="seat-readonly" @click="readOnly">읽기 전용으로 보기</button>
+        <button v-if="seat.can.recall" class="tb press dk" data-test="seat-recall" :disabled="seatBusy" @click="seatAct('recall')">{{ seat.recall ? '다시 돌려 달라고 하기' : '돌려 달라고 하기' }}</button>
+        <button v-if="seat.can.take" class="tb press dk" data-test="seat-take" :disabled="seatBusy" @click="seatAct('take')">{{ seatMine ? '여기로 가져오기' : '작업본 가져오기' }}</button>
+      </div>
+
+      <div v-if="v.kept?.length" class="keptbar glass" data-test="seat-kept">
+        <FIcon name="archive" :size="18" />
+        <span class="sbt"><b>따로 남긴 파일</b><small>작업본을 치울 때 git 이 싣지 않는 파일(.gitignore 대상 · 안쪽 저장소 · 저장하지 못한 것)을 서버에 따로 남겨 두었어요. 보관 기간이 지나면 지워져요.</small></span>
+        <span class="kl">
+          <a v-for="k in v.kept" :key="k.id" class="tb press" :class="{ off: !k.canGet }" data-test="seat-kept-get" :href="k.canGet ? keptUrl(slug, vid, k.id) : undefined"
+            :title="k.canGet ? '' : '그 작업본을 가졌던 사람과 폴더 소유자만 내려받아요'" download @click="getKept($event, k)">{{ ago(k.at) }}<template v-if="k.count > 0"> · {{ k.count }}개</template><template v-if="k.why === 'unsaved'"> · 저장 못 함</template> · {{ daysLeft(k.until) }}일 남음</a>
+        </span>
       </div>
 
       <div v-if="isSkill && review" class="rev glass">
@@ -258,6 +323,18 @@ h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.02em; disp
 .vr.th { color: var(--text-tertiary); border-top: 0; padding: 0; }
 .vr i { font-style: normal; font-weight: 600; margin-right: 4px; } .vr .ok i { color: var(--color-success); } .vr .ng i { color: var(--color-error); }
 .cp { color: var(--text-secondary); }
+.seatbar { margin: 0 0 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 16px; font-size: 13.5px; }
+.seatbar > svg { flex: none; color: #8e6fe6; }
+.sbt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; } .sbt b { font-weight: 600; } .sbt small { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
+.seatbar .tb.dk { background: var(--ink); color: var(--ink-inverse); }
+.keptbar { margin: 0 0 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 16px; font-size: 13.5px; }
+.keptbar > svg { flex: none; color: var(--text-secondary); }
+.keptbar .kl { display: flex; gap: 6px; flex-wrap: wrap; }
+.keptbar .tb { display: inline-flex; align-items: center; text-decoration: none; color: inherit; }
+.keptbar .tb.off { opacity: .5; pointer-events: none; }
+.sbt .rq { color: #e0613f; font-weight: 500; }
+.seatbar .tb:disabled { opacity: .5; }
+.ib:disabled { opacity: .4; cursor: default; }
 .what { margin: 0 0 12px; display: flex; gap: 8px; align-items: flex-start; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.55; }
 .what svg, .whatf svg { flex: none; margin-top: 2px; color: var(--color-info); }
 .cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 14px; }
@@ -323,6 +400,8 @@ h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.02em; disp
   .hbtn { height: 36px; font-size: 13.5px; padding: 0 12px; margin-top: 0; }
   .ib { width: 36px; height: 36px; margin-top: 0; }
   .rh { gap: 6px 10px; }
+  .seatbar { padding: 10px 12px; gap: 8px; }
+  .seatbar > .sp { display: none; }
   .vr { grid-template-columns: 1fr; gap: 2px; }
   .cols { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
   .side, .diff { border-radius: 18px; }

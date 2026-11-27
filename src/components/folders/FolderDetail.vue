@@ -12,6 +12,7 @@ import Avatar from './Avatar.vue'
 import RefSheet from './RefSheet.vue'
 import MergeSheet from './MergeSheet.vue'
 import ShareSheet from './ShareSheet.vue'
+import SeatPill from './SeatPill.vue'
 // 에이전트 자산 · the computers that upload this folder (champion folders — src/desktopFolders.js, server lib/folders/kit.js · sources.js)
 import KitTab from './KitTab.vue'
 import { bridge as pcBridge, pcFolders, refreshPcFolders, pcFolderOf, stateText, stopped, whyText, reasonText } from '../../desktopFolders.js'
@@ -135,8 +136,11 @@ function refAdded(r) { addingRef.value = false; load(); say(`‘${r.label}’를
 function toggle(d) { const s = new Set(closed.value); s.has(d) ? s.delete(d) : s.add(d); closed.value = s }
 const live = computed(() => (folder.value?.variations || []).filter((v) => ['open', 'ready', 'conflicted'].includes(v.status)))
 const past = computed(() => (folder.value?.variations || []).filter((v) => ['merged', 'discarded'].includes(v.status)))
+// a variation whose working copy is elsewhere (someone's workroom, a PC, an agent, moving — its seat: server lib/folders/seats.js) is
+// merged after it comes back; my own server workroom is saved as it is and put away by the merge itself
+const seatAway = (v) => !!v.seat?.place && !(v.seat.mine && v.seat.place === 'server' && v.seat.run === 'workroom' && v.seat.state === 'held')
 function pick(v) {
-  if (v.status !== 'ready') return
+  if (v.status !== 'ready' || seatAway(v)) return
   const s = new Set(picked.value)
   s.has(v.id) ? s.delete(v.id) : s.add(v.id)
   picked.value = folder.value.variations.filter((x) => s.has(x.id)).map((x) => x.id)
@@ -460,7 +464,7 @@ const ix = computed(() => folder.value?.index_state || {})
           </div>
           <div class="vl scroll">
             <div v-for="v in live" :key="v.id" class="vc" :class="{ sel: picked.includes(v.id) }">
-              <button class="chk" :class="{ on: picked.includes(v.id) }" :disabled="v.status !== 'ready' || !canMerge || folder.kind === 'linked'" :title="v.status === 'ready' ? '반영할 변형으로 고르기' : '실행이 끝나야 고를 수 있어요'" @click="pick(v)">
+              <button class="chk" :class="{ on: picked.includes(v.id) }" :disabled="v.status !== 'ready' || !canMerge || folder.kind === 'linked' || seatAway(v)" :title="seatAway(v) ? '작업본이 돌아온 뒤에 고를 수 있어요' : v.status === 'ready' ? '반영할 변형으로 고르기' : '실행이 끝나야 고를 수 있어요'" @click="pick(v)">
                 <Icon v-if="picked.includes(v.id)" name="check" :size="14" />
               </button>
               <button class="vb press" @click="router.push(`/folders/${folder.slug}/v/${v.id}`)">
@@ -469,6 +473,7 @@ const ix = computed(() => folder.value?.index_state || {})
                 <span class="vmeta">
                   <Avatar :who="whoOf({ id: v.holder_id, name: holderName(v), type: v.holder_type })" :size="20" /> {{ holderName(v) }}
                   <span class="src" :class="v.kind">{{ sourceLabel[v.kind] }}</span>
+                  <SeatPill v-if="v.seat && folder.kind === 'managed'" :seat="v.seat" compact />
                   <span class="ab" title="main 보다 앞선 커밋 / 뒤처진 커밋">↑{{ v.ahead }} ↓{{ v.behind }}</span>
                   <span class="when">{{ ago(v.updated_at) }}</span>
                 </span>

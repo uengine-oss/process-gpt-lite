@@ -5,7 +5,7 @@ import express from 'express'
 import { L } from '../lib/lang.js'
 import { getThread, mainThread, addMessage } from '../lib/store.js'
 import { runTurn } from '../lib/agent.js'
-import { TeamError, requireMember, resolveRecipients, rateLimit, isMember } from '../lib/team/access.js'
+import { TeamError, requireMember, resolveRecipients, rateLimit, notOnTeam } from '../lib/team/access.js'
 import * as S from '../lib/team/shares.js'
 import * as W from '../lib/team/worktree.js'
 // the messenger's signed media addresses (no sign-in token in an address — lib/team/mediaLink.js)
@@ -206,7 +206,9 @@ export function teamRoutes(auth) {
   r.post('/team/threads', auth, h(async (req) => {
     const ids = [...new Set((req.body.members || []).map(String))].filter((id) => id !== req.user.id)
     if (!ids.length) throw new TeamError(400, L('대화할 팀원을 골라 주세요.', 'Please choose the teammates to talk with.'))
-    for (const id of ids) if (!(await isMember(id))) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
+    // (no limit on a group's size — only on one request; its people are checked below in one query)
+    if (ids.length > M.PER_REQUEST) throw new TeamError(400, L(`한 번에 ${M.PER_REQUEST}명까지 넣을 수 있어요. 나머지는 방을 만든 뒤 초대해 주세요.`, `Up to ${M.PER_REQUEST} people at a time. Invite the rest once the room is made.`))
+    if ((await notOnTeam(ids)).length) throw new TeamError(403, L('팀원과만 대화할 수 있어요.', 'You can talk only with teammates.'))
     const t = ids.length === 1 ? await M.directThread(req.user, ids[0]) : await M.groupThread(req.user, ids, text(req.body.title, 60))
     return { id: t.id }
   }))
@@ -236,7 +238,8 @@ export function teamRoutes(auth) {
     const ai = req.body.ai === true
     if (!body && !files.length && !refs.length) throw new TeamError(400, L('보낼 말을 적어 주세요.', 'Please write a message to send.'))
     rateLimit(req.user.id)
-    const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 8) : []
+    // (people named with @ — a room has no size limit, the names a message carries are bounded)
+    const mentions = Array.isArray(req.body.mentions) ? req.body.mentions.slice(0, 50) : []
     // (a mail mention — lib/mailMention.js — is 'mailref' when it is all the message carries)
     const kind = files.length ? 'share' : refs.length ? (refs.every((x) => x.type === 'mail' || x.type === 'mailatt') ? 'mailref' : 'fileref') : 'text'
     const m = await M.post(req.user, req.params.id, { kind, body, refs, ai, mentions,
@@ -262,7 +265,29 @@ export function teamRoutes(auth) {
     if (!row || (!member && !ownerOff)) throw new TeamError(404, L('메시지를 찾지 못했어요.', "I couldn't find that message."))
     // (an attachment of a mail — lib/mailAttachments.js — is shared the same way, that file only)
     const updated = await (ref?.type === 'mailatt' ? MA.share : MM.share)(req.user, row, index, req.body.on !== false).catch((e) => { throw new TeamError(e.status || 500, e.status ? e.message : L('바꾸지 못했어요.', "I couldn't change it.")) })
-    await M.deliver(updated.uuid)
+    await M.deliver(updated.uuid, { force: true, update: true })
+    // the room's other mentions of the same mail (or the same attachment) follow at once: what each one shows is the owner's card's word
+    // for this room (2026-11-27 recording: an older mention kept 「본문 보기」 until a reload)
+    // (each one is rewritten as the card now says — a row sent before unchanged is not sent again — newest first, at most 50)
+    const same = ref?.type === 'mailatt' ? [{ type: 'mailatt', actionId: ref.actionId, i: ref.i }] : [{ type: 'mail', actionId: ref?.actionId }]
+    const on = req.body.on !== false
+    const others = await q(`select uuid, messages from chats where id=$1 and tenant_id=$2 and uuid <> $3 and messages->'pgpt'->'refs' @> $4::jsonb
+                            order by coalesce(public.pro_chat_ts(messages), now()) desc limit 50`, [row.id, config.tenantId, row.uuid, JSON.stringify(same)])
+      .catch((e) => { console.warn('[team] same mentions', e.message); return [] })
+    for (const o of others) {
+      const refs = o.messages?.pgpt?.refs || []
+      let changed = false
+      for (const [k, r] of refs.entries()) {
+        if (r?.type !== ref.type || String(r.actionId) !== String(ref.actionId) || String(r.owner) !== String(req.user.id)) continue
+        if (ref.type === 'mailatt' && Number(r.i) !== Number(ref.i)) continue
+        const ok = await q(`update chats set messages = jsonb_set(messages, $2::text[], $3::jsonb) where uuid=$1 and tenant_id=$4`,
+          [o.uuid, ['pgpt', 'refs', String(k)], JSON.stringify({ ...r, share: on ? 'room' : null, sharedAt: on ? new Date().toISOString() : null }), config.tenantId])
+          .then(() => true, (e) => { console.warn('[team] same mention', e.message); return false })
+        changed = changed || ok
+      }
+      // (sent even when the stored words did not change — what each one shows is the owner's card; an update, not news)
+      if (changed) await M.deliver(o.uuid, { force: true, update: true })
+    }
     return member ? M.message(req.user, updated.uuid) : { id: updated.uuid, refs: [], left: true }
   }))
   assistRoutes(r, auth, h)
