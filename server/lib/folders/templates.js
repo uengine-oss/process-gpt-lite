@@ -144,6 +144,16 @@ export async function candidates(folder, v) {
   return { files, outputs: outs, outputsDir: outputs, template: { slug: folder.slug, name: folder.name }, start, sent }
 }
 
+// What a computer left of this workspace after its working copy moved away (seats.js leftover — as private as the workspace, so in no
+// list): shown on the workspace's own screen, to its person only → [{id, title, where, at}]
+export async function leftoversOf(folder, v, user) {
+  if (!isWorkspace(v) || !mayView(v, user)) return []
+  const rows = await q(`select id, title, source->>'device_name' as "where", created_at as at from pro_folder_variations
+                        where folder_id=$1 and source->>'left_of'=$2 and source ? 'template' and holder_type='user' and holder_id::text=$3
+                          and status in ('open','ready','conflicted') order by created_at desc limit 20`, [folder.id, String(v.id), String(user.id)])
+  return rows.map((r) => ({ id: r.id, title: r.title, where: r.where || null, at: r.at }))
+}
+
 const blobOf = async (repo, rev, rel) => (await G.git(repo, ['rev-parse', '--verify', '-q', `${rev}:${rel}`], { check: false })).trim() || null
 // the path's mode and object at a rev (ls-tree -z: a name with a line break stays one entry) → {mode, type} | null
 async function entryOf(repo, rev, rel) {

@@ -367,14 +367,15 @@ export async function privateRef(folder, ref) {
   return !!v?.source?.template || isWorkspaceBranch(v?.branch)
 }
 // one version of a file by its blob id (a file mention opens the version it named, lib/fileRefs.js). private: in the private bucket,
-// handed out by a signed address for an hour (PS.folderKey — never the content-addressed public copy everyone can guess)
+// handed out by a signed address for an hour (PS.folderKey — never the content-addressed public copy everyone can guess); its key comes
+// back too: a card keeps the key, never the address (lib/fileCards.js signs one each time the card is opened)
 export async function publishBlob(folder, rel, sha, { private: priv = false } = {}) {
   const p = safeRel(rel)
   if (!/^[0-9a-f]{40}$/.test(String(sha || '')) || (await G.git(folder.repo_path, ['cat-file', '-t', sha], { check: false })).trim() !== 'blob') throw err(404, L('파일이 없어요.', "That file isn't there."))
   if (priv) {
     const key = PS.folderKey({ tenant: T(), folderId: folder.id, sha }, p)
     if (!(await PS.exists(key))) await PS.put(key, await G.git(folder.repo_path, ['cat-file', 'blob', sha], { buffer: true }), MIME[path.extname(p).slice(1).toLowerCase()] || 'application/octet-stream')
-    return { url: await PS.signedUrl(key, 3600), name: path.basename(p), sha, private: true }
+    return { url: await PS.signedUrl(key, 3600), key, name: path.basename(p), sha, private: true }
   }
   const ext = (path.extname(p).slice(1).toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin')
   const key = `pgpt-pro/folders/${folder.id}/${sha}.${ext}`

@@ -30,17 +30,23 @@ export async function start(folder, user, ids, policy = 'stop', { role = null } 
   if (!ids?.length) throw err(400, L('반영할 변형을 골라 주세요.', 'Please choose the variations to merge.'))
   // where each working copy is (folders/seats.js), for all of them before anything changes: someone else's, a computer's or a running
   // agent's is refused — ask for it back; my own server workroom is saved as it is and put away, so what goes in is everything
-  const mine = []
+  // first what each one is, before its seat is looked at or anything is closed: a project's workspace made from a template is not there for
+  // anyone but its person (404 — never where its working copy is), and never goes into the folder whole, its person's either (409 —
+  // folders/templates.js: 「원본에 반영 요청」 sends its template files)
+  const asked = []
   for (const id of ids) {
-    const v = await S.variation(folder, id)
+    const v = await S.variationFor(folder, id, user)
+    if (v.source?.template) throw err(409, L('템플릿에서 시작한 프로젝트의 작업 공간은 통째로 반영하지 않아요. 고친 템플릿 파일만 「원본에 반영 요청」으로 보내 주세요.', "A workspace of a project started from a template isn't merged whole. Send only the template files you fixed with “Request a merge into the original”."))
+    asked.push(v)
+  }
+  const mine = []
+  for (const v of asked) {
     if (user.id && ['open', 'ready', 'conflicted'].includes(v.status) && await SE.checkMove(folder, v, user, { role })) mine.push(v)
   }
   for (const v of mine) await SE.closeMine(folder, v, user)
   const vs = []
   for (const id of ids) {
-    const v = await S.variation(folder, id)
-    // a project's workspace made from a template never goes into it whole (folders/templates.js — 「원본에 반영 요청」 sends its template files)
-    if (v.source?.template && !S.visibleTo(v, user)) throw err(404, L('변형을 찾지 못했어요.', "I couldn't find that variation."))
+    const v = await S.variationFor(folder, id, user)
     if (v.source?.template) throw err(409, L('템플릿에서 시작한 프로젝트의 작업 공간은 통째로 반영하지 않아요. 고친 템플릿 파일만 「원본에 반영 요청」으로 보내 주세요.', "A workspace of a project started from a template isn't merged whole. Send only the template files you fixed with “Request a merge into the original”."))
     if (v.status !== 'ready') throw err(409, L(`'${v.title}' 은(는) 아직 반영할 수 없어요 (${S.STATUS[v.status]}).`, `'${v.title}' can't be merged yet (${S.statusText(v.status)}).`))
     vs.push(v)

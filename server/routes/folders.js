@@ -351,7 +351,9 @@ export function folderRoutes(auth) {
     const { worktree_path, ...d } = await S.variationDetail(folder, v)
     // (kept: what git does not carry, kept when a place left the disk — listed with a download until it is removed)
     const kept = SE.seatsOn() ? await SE.keptOf(folder, v, { me: req.user, role }).catch(() => []) : []
-    return { ...d, worktree_path: worktree_path ? true : null, seat, kept, role, folder: S.publicFolder(folder) }
+    // (a project's workspace: what a computer left of it after its working copy moved — its person's, in no list but here)
+    const leftovers = v.source?.template ? await TPL.leftoversOf(folder, v, req.user).catch(() => []) : []
+    return { ...d, worktree_path: worktree_path ? true : null, seat, kept, leftovers, role, folder: S.publicFolder(folder) }
   }))
   r.get('/folders/:slug/variations/:vid/diff', auth, h(async (req) => {
     const { folder } = await S.access(req.params.slug, req.user)

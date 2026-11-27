@@ -139,12 +139,18 @@ test('TF-U-05 템플릿으로 시작: 프로젝트 + 전용 작업 공간(지금
   // the workroom of its checkout: its person only
   const { folderRoomAccess } = await import('../lib/folders/rooms.js')
   const { folderRoom } = await import('../lib/folders/rooms.js')
-  // (the room as the server makes it — read only or not, it is no one else's: not even the template's owner may look)
+  // (the room as the server makes it — read only or not, it is no one else's: not even the template's owner may look. For anyone else
+  // there is no room at all: the same answer as a workroom that is not there — 404, never 403)
   for (const who of [ks, pd, ha]) {
     const room = await folderRoom('variation', wsK.id, who)
+    if (who !== ks) { assert.equal(room, null, who.name); continue }
     assert.ok(room, 'room')
-    assert.equal(await folderRoomAccess(who, room), who === ks, who.name)
+    assert.equal(await folderRoomAccess(who, room), true, who.name)
+    for (const other of [pd, ha]) assert.equal(await folderRoomAccess(other, room), false, `${other.name}: 같은 방을 받아도`)
   }
+  const WR = await import('../lib/workroom.js')
+  assert.equal(await WR.resolveRoom('variation', wsK.id, ha), null, '작업실 주소: 없는 작업실과 같은 답')
+  assert.equal(await WR.resolveRoom('variation', crypto.randomUUID(), ha), null)
 })
 
 test('TF-U-06 프로젝트 턴: 에이전트에게 작업 공간 · 결과물 자리 · 참조 자리를 알리고, 결과물과 양식 고침은 작업 공간에만', { skip: !db }, async () => {
@@ -366,8 +372,14 @@ test('TF-U-15 git 으로: 어느 토큰에도 작업 공간 가지(var/t/…)가
   try {
     mine = await job(ks); theirs = await job(pd)
     const ws = await S.variationById(wsK.id)
-    assert.deepEqual(await H.workspaceHidden(tpl, { scope: 'device', job: mine }), ['refs/heads/var/t/', `!refs/heads/${ws.branch}`])
-    assert.deepEqual(await H.workspaceHidden(tpl, { scope: 'device', job: theirs }), ['refs/heads/var/t/'])
+    // (its person's job: every workspace of theirs in this folder — and what a computer left of one — shown again, nobody else's)
+    const ownOf = async (who) => (await q(`select branch from pro_folder_variations where folder_id=$1 and source ? 'template' and holder_id::text=$2 and status not in ('merged','discarded') order by created_at`, [tpl.id, who.id])).map((r) => `!refs/heads/${r.branch}`)
+    const own = await ownOf(ks)
+    assert.ok(own.includes(`!refs/heads/${ws.branch}`))
+    assert.deepEqual(await H.workspaceHidden(tpl, { scope: 'device', job: mine }), ['refs/heads/var/t/', ...own])
+    const theirsShown = await H.workspaceHidden(tpl, { scope: 'device', job: theirs })
+    assert.deepEqual(theirsShown, ['refs/heads/var/t/', ...await ownOf(pd)])
+    assert.ok(!theirsShown.includes(`!refs/heads/${ws.branch}`), '남의 작업 공간은 숨은 채로')
     assert.deepEqual(await H.workspaceHidden(intro, { scope: 'device', job: mine }), ['refs/heads/var/t/'], '다른 폴더의 토큰')
   } finally { await q('delete from pro_local_jobs where id = any($1::uuid[])', [[mine, theirs].filter(Boolean)]).catch(() => {}) }
 })
@@ -516,8 +528,9 @@ test('TF-U-21 작업 공간 · 공유되지 않은 판의 사본은 비공개 �
   assert.ok(PS.isPublicUrl(open.url), 'main 의 파일은 예전처럼')
 })
 
-test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으로도 받지 못함 · 남의 판을 가리키는 밀어 넣기는 거절 · 숨은 판 위에 쌓은 밀어 넣기는 되돌림', { skip: !db }, async () => {
+test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으로도 받지 못함 · 읽을 수 없는 것을 쓰는 밀어 넣기는 가지가 바뀌기 전에 거절 · 한 번에 20개까지', { skip: !db }, async () => {
   const H = await import('../lib/folders/gitHttp.js')
+  const CH = await import('../lib/localAgents/chat.js')
   const express = (await import('express')).default
   const zlib = await import('node:zlib')
   const { execFile } = await import('node:child_process')
@@ -536,60 +549,163 @@ test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으�
   const pack = (objects) => {
     const head = Buffer.alloc(12); head.write('PACK'); head.writeUInt32BE(2, 4); head.writeUInt32BE(objects.length, 8)
     const parts = [head]
-    for (const { type, body } of objects) {
+    for (const { type, body, base: on } of objects) {
       let size = body.length
       const bytes = [((type & 7) << 4) | (size & 15)]; size >>= 4
       while (size) { bytes[bytes.length - 1] |= 0x80; bytes.push(size & 0x7f); size >>= 7 }
-      parts.push(Buffer.from(bytes), zlib.deflateSync(body))
+      // (type 7: a delta on an object named by id — what a thin pack is made of)
+      parts.push(Buffer.from(bytes), ...(type === 7 ? [Buffer.from(on, 'hex')] : []), zlib.deflateSync(body))
     }
     const all = Buffer.concat(parts)
     return Buffer.concat([all, crypto.createHash('sha1').update(all).digest()])
   }
-  const push = (ref, sha, objects = []) => fetch(`${url}/git-receive-pack`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-git-receive-pack-request' },
-    body: Buffer.concat([pkt(`${'0'.repeat(40)} ${sha} ${ref}\0report-status\n`), Buffer.from('0000'), pack(objects)]) }).then(async (r) => ({ status: r.status, text: await r.text() }))
+  // a delta: all of the base, then `more` — the same bytes as base + more
+  const varint = (n) => { const out = []; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; out.push(b) } while (n); return Buffer.from(out) }
+  const deltaOf = (baseLen, more) => {
+    const copy = [0x80]; const sizeBytes = []
+    for (let i = 0; i < 3; i++) { const b = (baseLen >> (8 * i)) & 0xff; if (b) { copy[0] |= 0x10 << i; sizeBytes.push(b) } }
+    const ins = []
+    for (let i = 0; i < more.length; i += 127) { const part = more.subarray(i, i + 127); ins.push(Buffer.from([part.length]), part) }
+    return Buffer.concat([varint(baseLen), varint(baseLen + more.length), Buffer.from([...copy, ...sizeBytes]), ...ins])
+  }
+  const send = (cmds, packBuf) => fetch(`${url}/git-receive-pack`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-git-receive-pack-request' },
+    body: Buffer.concat([...cmds.map((c, i) => pkt(`${'0'.repeat(40)} ${c.sha} ${c.ref}${i === 0 ? '\0report-status' : ''}\n`)), Buffer.from('0000'), packBuf]) }).then(async (r) => ({ status: r.status, text: await r.text() }))
+  const push = (ref, sha, objects = []) => send([{ ref, sha }], pack(objects))
+  const oid = (type, body) => crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`${type} ${body.length}\0`), body])).digest('hex')
+  const commitOf = (tree, parent, msg) => { const body = Buffer.from(`tree ${tree}\nparent ${parent}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\n${msg}\n`); return { body, sha: oid('commit', body) } }
+  const refused = (r, ref) => { assert.equal(r.status, 200, r.text); assert.match(r.text, new RegExp(`ng ${ref.replace(/\//g, '\\/')} `), r.text) }
+  const made = ['pgpt-agent/steal-1', 'pgpt-agent/steal-2', 'pgpt-agent/steal-3', 'pgpt-agent/steal-4', 'pgpt-agent/steal-5', 'pgpt-agent/fine-1', 'pgpt-agent/fine-2']
+  // a hidden run branch of someone with a file only it holds (an 8 KB file: big enough for git to make a delta of it)
+  const secret = Array.from({ length: 64 }, () => crypto.randomBytes(64).toString('hex')).join('\n') + '\n'
+  const hiddenRun = `pgpt-agent/local/${pd.id}/dead0000-1`
   try {
     const ls = await gitc(['ls-remote', url])
     assert.equal(ls.code, 0, ls.err)
-    assert.doesNotMatch(ls.out, /pgpt-agent\/local-|refs\/heads\/var\/t\//, '실행 가지 · 작업 공간 가지는 광고하지 않음')
+    assert.doesNotMatch(ls.out, /pgpt-agent\/local|refs\/heads\/var\/t\//, '실행 가지 · 작업 공간 가지는 광고하지 않음')
     // a fetch by the commit's id: not one this token is served (protocol v0 serves the advertised tips only)
     const dir = await fs.mkdtemp(path.join(ROOT, 'clone-'))
     await gitc(['init', '-q'], dir)
     const f = await gitc(['fetch', '-q', url, h], dir)
     assert.notEqual(f.code, 0, '판으로 받기')
-    // a push that points a branch of its own at that commit, with no pack: refused before git sees it
-    const r1 = await push('refs/heads/pgpt-agent/steal-1', h)
-    assert.match(r1.text, /ng refs\/heads\/pgpt-agent\/steal-1 .*not one this token may read/)
-    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/steal-1')))
-    // a new commit made on top of it (its parent only hidden refs hold): taken, then put back before the client is let go
+    // 1) a branch of its own pointed at that commit, with no pack
+    refused(await push('refs/heads/pgpt-agent/steal-1', h), 'refs/heads/pgpt-agent/steal-1')
+    // 2) a new commit made on top of it (its parent only hidden refs hold): never stands, not even for a moment
     const tree = (await G.git(tpl.repo_path, ['rev-parse', 'main^{tree}'])).trim()
-    const body = Buffer.from(`tree ${tree}\nparent ${h}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\nsteal\n`)
-    const sha = crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`commit ${body.length}\0`), body])).digest('hex')
-    const r2 = await push('refs/heads/pgpt-agent/steal-2', sha, [{ type: 1, body }])
-    assert.equal(r2.status, 200, r2.text)
-    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/steal-2')), '되돌림')
+    const c2 = commitOf(tree, h, 'steal')
+    refused(await push('refs/heads/pgpt-agent/steal-2', c2.sha, [{ type: 1, body: c2.body }]), 'refs/heads/pgpt-agent/steal-2')
+    // 3) a new commit on main whose tree is the workspace's (only the commit is sent: the tree and its files are named by id)
+    const wsTree = (await G.git(tpl.repo_path, ['rev-parse', `${h}^{tree}`])).trim()
+    const c3 = commitOf(wsTree, await G.head(tpl.repo_path, 'main'), 'tree only')
+    refused(await push('refs/heads/pgpt-agent/steal-3', c3.sha, [{ type: 1, body: c3.body }]), 'refs/heads/pgpt-agent/steal-3')
+    // 4) a new tree (sent) that names the workspace's draft by its blob id (not sent)
+    const draft = (await G.git(tpl.repo_path, ['rev-parse', `${h}:산출물/가나정밀 3분기 제안서 초안.md`])).trim()
+    const t4 = Buffer.concat([Buffer.from('100644 got.md\0'), Buffer.from(draft, 'hex')])
+    const c4 = commitOf(oid('tree', t4), await G.head(tpl.repo_path, 'main'), 'blob only')
+    refused(await push('refs/heads/pgpt-agent/steal-4', c4.sha, [{ type: 1, body: c4.body }, { type: 2, body: t4 }]), 'refs/heads/pgpt-agent/steal-4')
+    // 5) a thin pack whose file is a delta on a hidden file — named by id only (git copies that base in from the repository)
+    const ow = await fs.mkdtemp(path.join(ROOT, 'own-'))
+    await G.git(tpl.repo_path, ['worktree', 'add', '-q', '--detach', ow, 'main'])
+    await fs.writeFile(path.join(ow, 'secret.md'), secret)
+    await G.git(ow, ['add', '-A']); await G.git(ow, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'hidden'])
+    const hiddenHead = await G.head(ow)
+    await G.git(tpl.repo_path, ['worktree', 'remove', '--force', ow])
+    await G.git(tpl.repo_path, ['update-ref', `refs/heads/${hiddenRun}`, hiddenHead])
+    const thinPush = async (ref, baseBlob, baseLen, name) => {
+      const more = Buffer.from('\none more line\n')
+      const blob = oid('blob', Buffer.concat([await G.git(tpl.repo_path, ['cat-file', 'blob', baseBlob], { buffer: true }), more]))
+      const t = Buffer.concat([Buffer.from(`100644 ${name}\0`), Buffer.from(blob, 'hex')])
+      const c = commitOf(oid('tree', t), await G.head(tpl.repo_path, 'main'), 'thin')
+      return { c, r: await send([{ ref, sha: c.sha }], pack([{ type: 1, body: c.body }, { type: 2, body: t }, { type: 7, base: baseBlob, body: deltaOf(baseLen, more) }])) }
+    }
+    const secretBlob = (await G.git(tpl.repo_path, ['rev-parse', `${hiddenHead}:secret.md`])).trim()
+    const t5 = await thinPush('refs/heads/pgpt-agent/steal-5', secretBlob, Buffer.byteLength(secret), 'stolen.md')
+    refused(t5.r, 'refs/heads/pgpt-agent/steal-5')
+    for (const b of ['steal-1', 'steal-2', 'steal-3', 'steal-4', 'steal-5']) assert.ok(!(await G.branchExists(tpl.repo_path, `pgpt-agent/${b}`)), `${b}: 가지가 생기지 않음`)
+    // what those pushes brought is gone with them (git drops the quarantine)
+    assert.equal((await G.git(tpl.repo_path, ['cat-file', '-t', c2.sha], { check: false })).trim(), '')
+    assert.equal((await G.git(tpl.repo_path, ['cat-file', '-t', t5.c.sha], { check: false })).trim(), '')
     // an ordinary push of its own (a new commit on main) still stands
-    const body3 = Buffer.from(`tree ${tree}\nparent ${await G.head(tpl.repo_path, 'main')}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\nfine\n`)
-    const sha3 = crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`commit ${body3.length}\0`), body3])).digest('hex')
-    const r3 = await push('refs/heads/pgpt-agent/fine-1', sha3, [{ type: 1, body: body3 }])
-    assert.match(r3.text, /ok refs\/heads\/pgpt-agent\/fine-1/)
+    const c6 = commitOf(tree, await G.head(tpl.repo_path, 'main'), 'fine')
+    const r6 = await push('refs/heads/pgpt-agent/fine-1', c6.sha, [{ type: 1, body: c6.body }])
+    assert.match(r6.text, /ok refs\/heads\/pgpt-agent\/fine-1/)
     assert.ok(await G.branchExists(tpl.repo_path, 'pgpt-agent/fine-1'))
+    // …and so does a thin pack whose delta is on a file of main (what git sends every day)
+    const formBlob = (await G.git(tpl.repo_path, ['rev-parse', 'main:제안서 양식.md'])).trim()
+    const formLen = (await G.git(tpl.repo_path, ['cat-file', 'blob', formBlob], { buffer: true })).length
+    const t7 = await thinPush('refs/heads/pgpt-agent/fine-2', formBlob, formLen, '제안서 양식.md')
+    assert.match(t7.r.text, /ok refs\/heads\/pgpt-agent\/fine-2/, t7.r.text)
+    assert.equal(await G.head(tpl.repo_path, 'refs/heads/pgpt-agent/fine-2'), t7.c.sha)
+    // at most 20 refs in one push: 20 go through, 21 are refused before git (no ref changes)
+    const main = await G.head(tpl.repo_path, 'main')
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ ref: `refs/heads/pgpt-agent/many-${i}`, sha: main }))
+    const t0 = Date.now()
+    const r20 = await send(twenty, pack([]))
+    assert.equal((r20.text.match(/ok refs\/heads\/pgpt-agent\/many-/g) || []).length, 20, r20.text)
+    assert.ok(Date.now() - t0 < 15000, '스무 개도 한 번의 검사')
+    const r21 = await send(Array.from({ length: 21 }, (_, i) => ({ ref: `refs/heads/pgpt-agent/more-${i}`, sha: main })), pack([]))
+    assert.equal(r21.status, 400)
+    assert.match(r21.text, /at most 20 refs/)
+    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/more-0')))
+    for (let i = 0; i < 20; i++) made.push(`pgpt-agent/many-${i}`)
+    // a push refused, then at once the desktop says it pushed: nothing to bring in (the branch never stood)
+    const [job] = await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, kind, thread_id, agent, folder_id, chat) values ($1,$2,$3,'chat',$4,'claude',$5,$6) returning *`,
+      [TENANT, ks.id, `tf-${crypto.randomUUID()}`, threadK.id, tpl.id, { mode: 'project', variation: wsK.id, folderId: tpl.id, line: (await S.variationById(wsK.id)).branch, title: '바로 들여오기' }])
+    try {
+      const own = H.runBranchFor(job)
+      const before = await wsHead()
+      const c8 = commitOf(tree, hiddenHead, 'on hidden')
+      refused(await push(`refs/heads/${own}`, c8.sha, [{ type: 1, body: c8.body }]), `refs/heads/${own}`)
+      await CH.reply(job, { turn: 1, text: '올렸어요', branch: own, pushed: true, files: [] })
+      assert.ok(!(await G.branchExists(tpl.repo_path, own)))
+      assert.equal(await wsHead(), before, '작업 공간은 그대로')
+    } finally { await q('delete from pro_local_jobs where id=$1', [job.id]).catch(() => {}) }
   } finally {
     await new Promise((r) => server.close(r))
-    for (const b of [run, 'pgpt-agent/steal-1', 'pgpt-agent/steal-2', 'pgpt-agent/fine-1']) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false })
+    for (const b of [run, hiddenRun, ...made]) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false })
   }
-  // the hidden-ref rule as git reads it, and a desktop job's own run branches
+  // the hidden-ref rule as git reads it
   assert.ok(H.hiddenBy('refs/heads/var/t/abc', ['refs/heads/var/t/']))
   assert.ok(!H.hiddenBy('refs/heads/var/t/abc', ['refs/heads/var/t/', '!refs/heads/var/t/abc']))
   assert.ok(!H.hiddenBy('refs/heads/var/tx', ['refs/heads/var/t/']))
-  const r0 = runBranch('c'), r1b = `${r0.slice(0, r0.lastIndexOf('-'))}-d`
-  await G.git(tpl.repo_path, ['branch', r0, 'main']); await G.git(tpl.repo_path, ['branch', r1b, 'main'])
-  const other = runBranch('e'); await G.git(tpl.repo_path, ['branch', other, 'main'])
+})
+
+test('TF-U-27 내 PC 실행 가지: 새 이름은 pgpt-agent/local/<사람>/<일>-… — 숨김은 사람마다 한 줄 · 그 사람의 일 토큰에는 그 사람의 실행 가지 · 작업 공간 · 남은 변경이 모두 보임 · 예전 이름도 받음', { skip: !db }, async () => {
+  const H = await import('../lib/folders/gitHttp.js')
+  const job = async (who) => (await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, agent, folder_id, chat) values ($1,$2,$3,'claude',$4,$5) returning *`,
+    [TENANT, who.id, `tf-${crypto.randomUUID()}`, tpl.id, { mode: 'project', variation: wsK.id, folderId: tpl.id }]))[0]
+  const jk = await job(ks), jk2 = await job(ks), jp = await job(pd)
+  const made = []
   try {
-    const own = r0.slice(0, r0.lastIndexOf('-') + 1)
-    const hid = await H.runHidden(tpl, { scope: 'device', job: 'x', push: own })
-    assert.ok(hid.includes(`refs/heads/${other}`) && !hid.includes(`refs/heads/${r0}`) && !hid.includes(`refs/heads/${r1b}`))
-    assert.ok((await H.runHidden(tpl, null)).includes(`refs/heads/${r0}`), '클러스터 토큰에는 모두 숨김')
-  } finally { for (const b of [r0, r1b, other]) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false }) }
+    // names: new ones under the person; a resumed run keeps its old name, and its token may push there
+    const nb = H.runBranchFor(jk)
+    assert.ok(nb.startsWith(`pgpt-agent/local/${ks.id}/${jk.id.slice(0, 8)}-`), nb)
+    const old = `pgpt-agent/local-${jk.id.slice(0, 8)}-abc`
+    assert.equal(H.runBranchFor(jk, old), old)
+    assert.equal(H.runPushFor(jk, old), `pgpt-agent/local-${jk.id.slice(0, 8)}-`)
+    assert.equal(H.runPushFor(jk, nb), `pgpt-agent/local/${ks.id}/${jk.id.slice(0, 8)}-`)
+    assert.ok(H.isRunOf(jk, nb) && H.isRunOf(jk, old) && !H.isRunOf(jk2, nb) && !H.isRunOf(jp, old))
+    assert.equal(H.refusals([{ old: '0'.repeat(40), new: 'a'.repeat(40), ref: `refs/heads/${nb}` }], H.runPushFor(jk, nb)), null)
+    assert.ok(H.refusals([{ old: '0'.repeat(40), new: 'a'.repeat(40), ref: `refs/heads/${H.runBranchFor(jk2)}` }], H.runPushFor(jk, nb)), '같은 사람의 다른 일 가지에는 밀어 넣지 못함')
+    // branches: ks's runs (new and old names, two jobs), pd's run (new and old)
+    const ks2 = H.runBranchFor(jk2), pdNew = H.runBranchFor(jp), pdOld = `pgpt-agent/local-${jp.id.slice(0, 8)}-x`
+    for (const b of [nb, old, ks2, pdNew, pdOld]) { await G.git(tpl.repo_path, ['branch', b, 'main']); made.push(b) }
+    const claims = (j, b) => ({ scope: 'device', job: j.id, push: H.runPushFor(j, b) })
+    const hideK = await H.runHidden(tpl, claims(jk, nb))
+    const seenBy = (hide) => (b) => !H.hiddenBy(`refs/heads/${b}`, hide)
+    assert.ok([nb, old, ks2].every(seenBy(hideK)), '김서연의 일 토큰: 김서연의 실행 가지는 모두')
+    assert.ok(![pdNew, pdOld].some(seenBy(hideK)), '박도윤의 것은 숨김')
+    assert.deepEqual(hideK.filter((e) => e.replace(/^!/, '').startsWith('refs/heads/pgpt-agent/local/')), ['refs/heads/pgpt-agent/local/', `!refs/heads/pgpt-agent/local/${ks.id}`], '새 이름은 가지마다가 아니라 한 줄씩')
+    const hideCluster = await H.runHidden(tpl, null)
+    assert.ok(![nb, old, ks2, pdNew, pdOld].some(seenBy(hideCluster)), '클러스터 토큰에는 모두 숨김')
+    // workspaces and what a computer left of one: ks's job sees ks's, pd's job none of ks's
+    const all = await H.hiddenFor(tpl, claims(jk, nb))
+    const wsList = (await q(`select branch from pro_folder_variations where folder_id=$1 and source ? 'template' and holder_id::text=$2 and status not in ('merged','discarded')`, [tpl.id, ks.id])).map((r) => r.branch)
+    assert.ok(wsList.length >= 1 && wsList.every(seenBy(all)), JSON.stringify(wsList))
+    assert.ok(!wsList.some(seenBy(await H.hiddenFor(tpl, claims(jp, pdNew)))))
+  } finally {
+    for (const b of made) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false })
+    await q('delete from pro_local_jobs where id = any($1::uuid[])', [[jk.id, jk2.id, jp.id]]).catch(() => {})
+  }
 })
 
 test('TF-U-23 내 PC 에이전트의 일이 작업 공간에 들어오면 그 실행 가지는 지우고, 「반영하면」 카드 없이 파일 카드는 비공개 주소로', { skip: !db }, async () => {
@@ -598,7 +714,7 @@ test('TF-U-23 내 PC 에이전트의 일이 작업 공간에 들어오면 그 �
   const ws = await S.variationById(wsK.id)
   const [job] = await q(`insert into pro_local_jobs (tenant_id, user_id, todo_id, kind, thread_id, agent, folder_id, chat) values ($1,$2,$3,'chat',$4,'claude',$5,$6) returning *`,
     [TENANT, ks.id, `tf-${crypto.randomUUID()}`, threadK.id, tpl.id, { mode: 'project', variation: ws.id, folderId: tpl.id, line: ws.branch, title: '내 PC 시험' }])
-  const run = `pgpt-agent/local-${String(job.id).slice(0, 8)}-1`
+  const run = (await import('../lib/folders/gitHttp.js')).runBranchFor(job)
   try {
     // what the desktop pushed: one new file on top of the workspace
     const dir = await fs.mkdtemp(path.join(ROOT, 'run-'))
@@ -614,8 +730,16 @@ test('TF-U-23 내 PC 에이전트의 일이 작업 공간에 들어오면 그 �
     assert.equal(await G.head(tpl.repo_path, `refs/heads/${ws.branch}`), head, '작업 공간에 들어옴')
     await new Promise((ok) => setTimeout(ok, 300))
     assert.equal((await S.variationById(ws.id)).change_card, null, '「반영하면」 카드 없음')
-    const [card] = await q(`select content from pro_messages where thread_id=$1 and kind='file' and content->'localRun'->>'jobId'=$2`, [threadK.id, job.id])
-    assert.ok(card && PS.isSignedUrl(card.content.url) && !PS.isPublicUrl(card.content.url), '파일 카드는 비공개 서명 주소')
+    const [card] = await q(`select id, content from pro_messages where thread_id=$1 and kind='file' and content->'localRun'->>'jobId'=$2`, [threadK.id, job.id])
+    // the card keeps the private copy's key, no address: each opening signs one — a card made hours ago still opens
+    assert.ok(card && card.content.private?.key && !card.content.url, JSON.stringify(card?.content))
+    await q(`update pro_messages set created_at = now() - interval '3 hours' where id=$1`, [card.id]).catch(() => {})
+    const { openFileCard } = await import('../lib/fileCards.js')
+    const opened = await openFileCard(ks, card.id)
+    assert.ok(PS.isSignedUrl(opened.url) && !PS.isPublicUrl(opened.url), '열 때 서명 주소')
+    const exp = JSON.parse(Buffer.from(new URL(opened.url).searchParams.get('token').split('.')[1], 'base64url').toString()).exp
+    assert.ok(exp * 1000 > Date.now() + 60_000, '방금 서명한 주소')
+    await assert.rejects(openFileCard(pd, card.id), status(404), '남의 카드')
   } finally {
     await G.git(tpl.repo_path, ['branch', '-D', run], { check: false })
     await q('delete from pro_local_jobs where id=$1', [job.id]).catch(() => {})
@@ -705,6 +829,17 @@ test('TF-U-26 작업본 자리: 작업 공간은 그 사람의 작업실 · 에�
     // the template's 「작업실」 sheet: never its person's workspace (it is opened from the project)
     const sheet = await SE.workroomChoices(tpl, ks, 'runner')
     assert.ok(!sheet.mine.some((x) => x.id === ws.id))
+    // 일괄 반영 with it: the owner learns nothing of where it is (404 — no seat, no PC, no state) and its person is refused before
+    // anything is closed (409 — the workroom stays open)
+    const e1 = await M.start(tpl, ha, [ws.id], 'stop', { role: 'owner' }).catch((e) => e)
+    assert.equal(e1.status, 404, e1.message)
+    assert.equal(e1.seat, undefined, '자리 정보 없음')
+    const e2 = await M.start(tpl, ks, [ws.id], 'stop', { role: 'runner' }).catch((e) => e)
+    assert.equal(e2.status, 409, e2.message)
+    assert.equal(e2.seat, undefined)
+    const still = await SE.seatOf(ws.id, { v: await S.variationById(ws.id) })
+    assert.equal(still.place, 'server'); assert.equal(still.run, 'workroom'); assert.equal(still.state, 'held', '작업실은 그대로')
+    assert.ok((await S.variationById(ws.id)).worktree_path, '작업본도 그대로')
   } finally { await SE.closeServer(tpl, await S.variationById(ws.id), { by: ks.id, me: ks }).catch(() => {}) }
   // what a place that lost the workspace's seat left: as private as the workspace (its person's, hidden branch space, in no list)
   const cur = await S.variationById(ws.id)
@@ -715,5 +850,9 @@ test('TF-U-26 작업본 자리: 작업 공간은 그 사람의 작업실 · 에�
   assert.equal(String(left.holder_id), ks.id)
   assert.ok(!(await S.variations(tpl)).some((v) => v.id === left.id), '목록에 없음')
   await assert.rejects(S.variationFor(tpl, left.id, ha), status(404))
+  // …but its person finds it on the workspace's own screen
+  const lo = await TPL.leftoversOf(tpl, await S.variationById(ws.id), ks)
+  assert.ok(lo.some((x) => x.id === left.id && x.where === '김서연의 PC'), JSON.stringify(lo))
+  assert.deepEqual(await TPL.leftoversOf(tpl, await S.variationById(ws.id), ha), [])
   assert.ok(!(await S.commitVisible(tpl, extra, pd)) && await S.commitVisible(tpl, extra, ks))
 })

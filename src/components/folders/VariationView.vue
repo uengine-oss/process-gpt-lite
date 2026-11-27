@@ -229,6 +229,14 @@ function merged(r) { merging.value = false; load(); if (r?.status === 'done') sa
         </div>
       </div>
       <p v-if="ws" class="what glass wsnote" data-test="variation-workspace"><FIcon name="branch" :size="16" /> <span><b>이 프로젝트 전용 작업 공간</b> — 템플릿 「{{ folder?.name }}」의 {{ String(ws.commit || '').slice(0, 7) }} 에서 시작했어요. 결과물은 「{{ outDir }}/」에만 남고 템플릿에는 통째로 반영하지 않아요. 고친 템플릿 파일만 「원본에 반영 요청」으로 보내요.<template v-if="v.source.requests?.length"> · 보낸 요청 {{ v.source.requests.length }}건</template></span></p>
+      <!-- what a computer left of this workspace after its working copy moved (server lib/folders/templates.js leftoversOf) — in no list but here -->
+      <div v-if="ws && v.leftovers?.length" class="keptbar glass" data-test="workspace-leftovers">
+        <FIcon name="branch" :size="18" />
+        <span class="sbt"><b>PC에 남아 있던 변경</b><small>작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 봐요.</small></span>
+        <span class="kl">
+          <button v-for="l in v.leftovers" :key="l.id" class="tb press" data-test="workspace-leftover" @click="router.push(`/folders/${slug}/v/${l.id}`)">{{ l.where || 'PC' }} · {{ ago(l.at) }}</button>
+        </span>
+      </div>
       <p v-if="v.change_card?.summary" class="what glass"><FIcon name="index" :size="16" /> <span><b>바뀐 점</b> — {{ v.change_card.summary }}</span></p>
 
       <div class="cols">

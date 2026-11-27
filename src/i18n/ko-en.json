@@ -3252,7 +3252,9 @@
   "템플릿에서 온 파일 중 고친 것만 원본에 보내요": "Sends only the template files you fixed to the original",
   "프로젝트로": "To the project",
   "새 프로젝트 이름": "New project name",
-  "전용 작업 공간 · 바뀐 것 없음": "Own workspace · nothing changed"
+  "전용 작업 공간 · 바뀐 것 없음": "Own workspace · nothing changed",
+  "PC에 남아 있던 변경": "Changes left on a PC",
+  "작업본이 다른 곳으로 옮겨진 뒤 PC에서 올라온 변경이에요. 이 작업 공간처럼 나만 볼 수 있어요.": "Changes that came up from a PC after the working copy moved somewhere else. Like this workspace, only you can see them."
  },
  "patterns": [
   [

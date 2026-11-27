@@ -321,12 +321,15 @@ export async function open(user, messageId, index, { latest = false } = {}) {
   const canEdit = isCurrent && !vid && folder.kind === 'managed' && S.RANK[role] >= S.RANK.editor && S.OFFICE_EDIT.has(ext)
   const { filesThread, LINKS_REF } = await import('./team/uploads.js')
   const t = await filesThread(user.id, LINKS_REF)
-  const content = { name: r.name, url: pub.url, folder: { slug: folder.slug, name: folder.name, path: r.path, sha: blob, editable: canEdit }, link: { messageId, index } }
-  // (never a private card of the same version — a mail's attachment opened from its sheet, lib/mailAttachments.js: kept apart, review 11-25 #2)
-  const [had] = await q(`select * from pro_messages where thread_id=$1 and kind='file' and not (content ? 'private') and content->'folder'->>'slug'=$2 and content->'folder'->>'path'=$3
-                         and content->'folder'->>'sha'=$4 order by created_at desc limit 1`, [t.id, folder.slug, r.path, blob])
+  // (a private copy — a workspace's version, a commit no shared branch holds: the card keeps its key and each opening signs an address,
+  // lib/fileCards.js; never an address that runs out)
+  const where = pub.private ? { private: { key: pub.key } } : { url: pub.url }
+  const content = { name: r.name, ...where, folder: { slug: folder.slug, name: folder.name, path: r.path, sha: blob, editable: canEdit }, link: { messageId, index } }
+  // (never a mail's attachment card of the same version — opened from its sheet, lib/mailAttachments.js: kept apart, review 11-25 #2)
+  const [had] = await q(`select * from pro_messages where thread_id=$1 and kind='file' and not (content ? 'mailAtt') and (content ? 'private') = $5 and content->'folder'->>'slug'=$2
+                         and content->'folder'->>'path'=$3 and content->'folder'->>'sha'=$4 order by created_at desc limit 1`, [t.id, folder.slug, r.path, blob, !!pub.private])
   const [m] = had
-    ? await q(`update pro_messages set content = content || $2::jsonb where id=$1 returning *`, [had.id, JSON.stringify({ url: pub.url, folder: content.folder })])
+    ? await q(`update pro_messages set content = (content - 'url' - 'private') || $2::jsonb where id=$1 returning *`, [had.id, JSON.stringify({ ...where, folder: content.folder })])
     : await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','file',$2) returning *`, [t.id, content])
   return { ...out, message: m }
 }

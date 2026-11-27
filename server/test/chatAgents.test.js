@@ -163,7 +163,8 @@ test('메시지 → 보낸 사람 자신의 데스크톱에만 가는 chat 일 �
   assert.equal(sent.chat.key, t.id)
   assert.match(sent.prompt, /회의록 만들어 줘/)
   assert.equal(sent.message, '회의록 만들어 줘')
-  assert.ok(sent.git.token && sent.git.branch.startsWith(`pgpt-agent/local-${job.id.slice(0, 8)}-`))
+  // (its own run branch, under its person: pgpt-agent/local/<person>/<job 8>-… — folders/gitHttp.js)
+  assert.ok(sent.git.token && sent.git.branch.startsWith(`pgpt-agent/local/${a.id}/${job.id.slice(0, 8)}-`), sent.git.branch)
   assert.equal(sent.git.base, 'main')
   assert.equal(sent.resume, undefined)
   // his folder: made now, his alone
