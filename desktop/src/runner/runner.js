@@ -23,7 +23,7 @@ const G = require('./git')
 const SKL = require('./skills')
 const RS = require('./runSettings')
 const P = require('./pty')
-const { CliSession } = require('./session')
+const { CliSession, tookFirst, cliRecordOf, sizeOf, PROMPT_POINTER } = require('./session')
 const { settleState, finishMsOf } = require('./settle')
 
 const RUN_MS = 60 * 60_000
@@ -57,15 +57,36 @@ function refusedWhy(lang, e) {
 }
 // a chat's own name on this computer (its folder, its session record): its key, hashed (a thread id and a conversation's)
 const chatHash = (job) => crypto.createHash('sha1').update(String(job.chat?.key || job.id)).digest('hex').slice(0, 16)
-// a chat's message as its CLI took it, kept in the run's record by its length and hash (not its words)
-const markOf = (s) => { const t = String(s || ''); return { n: t.length, h: crypto.createHash('sha1').update(t).digest('hex').slice(0, 16) } }
+// a chat's message as its CLI took it, kept in the run's record by its length and hash (not its words) — an empty one is no mark (nothing
+// after it could be told apart from the message itself)
+const markOf = (s) => { const t = String(s || ''); return t ? { n: t.length, h: crypto.createHash('sha1').update(t).digest('hex').slice(0, 16) } : undefined }
 // what of a chat's message came after what its CLI took (words the server added while the run waited in its queue): the rest only — ''
-// when nothing came after, or when the message does not begin with the one taken
+// when nothing came after, when there is no mark, or when the message does not begin with the one taken
 function newWords(message, mark) {
   const t = String(message || '')
-  if (!mark || !Number.isInteger(mark.n) || t.length <= mark.n) return ''
-  return markOf(t.slice(0, mark.n)).h === mark.h ? t.slice(mark.n).trim() : ''
+  if (!mark || !Number.isInteger(mark.n) || mark.n <= 0 || t.length <= mark.n) return ''
+  return markOf(t.slice(0, mark.n))?.h === mark.h ? t.slice(mark.n).trim() : ''
 }
+// a file written whole or not at all (a run's record read after a crash is never half of one): a file beside it, then renamed over it
+// (Windows: a rename over a file another process has open fails for a moment — tried again)
+function writeWhole(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = `${file}.${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}.tmp`
+  fs.writeFileSync(tmp, text, { mode: 0o600 })
+  for (let i = 0; ; i++) {
+    try { fs.renameSync(tmp, file); return } catch (e) {
+      if (process.platform !== 'win32' || i >= 5 || !['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) { try { fs.rmSync(tmp, { force: true }) } catch { /* gone */ } throw e }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+    }
+  }
+}
+// A run's record nothing wrote to for RECORD_DAYS (the app was off that long, or the server never offered the run again) keeps only what
+// the run needs to go on in its session — never the CLI's words (its last words, unconfirmed answers) — and its session's folder (hooks
+// file: the CLI's last words) goes; after RECORD_KEEP_DAYS the record goes too. (The server keeps a running run while its desktop is off:
+// it may well offer it again after a week — the record then still says the CLI took the first message.)
+const RECORD_DAYS = 7
+const RECORD_KEEP_DAYS = 90
+const RESUME_FIELDS = ['cli', 'agent', 'dir', 'start', 'outDir', 'given', 'turn', 'turns', 'resumed', 'txFrom', 'txFile', 'leftOff']
 // paths git leaves out of the folder's commits (.git/info/exclude), added once
 function excludeIn(dir, list) {
   const f = path.join(dir, '.git', 'info', 'exclude')
@@ -105,6 +126,35 @@ class Runner extends EventEmitter {
     this.logFn = log
     this.outboxFile = path.join(dataDir, 'outbox.json')
     try { this.outbox = JSON.parse(fs.readFileSync(this.outboxFile, 'utf8')) || [] } catch { this.outbox = [] }
+    this.sweep()
+  }
+  // runs' records and their sessions' folders nothing touched for a while (RECORD_DAYS — the words go; RECORD_KEEP_DAYS — the record goes).
+  // The chats' own records (which CLI session a chat goes on with — no words) stay.
+  sweep({ days = RECORD_DAYS, keepDays = RECORD_KEEP_DAYS } = {}) {
+    const dir = path.join(this.dataDir, 'sessions')
+    const words = Date.now() - days * 86400_000
+    const gone = Date.now() - keepDays * 86400_000
+    let names = []
+    try { names = fs.readdirSync(dir) } catch { return }
+    for (const n of names) {
+      if (!UUID.test(n.replace(/\.json(\..+\.tmp)?$/, ''))) continue
+      const p = path.join(dir, n)
+      try {
+        const s = fs.statSync(p)
+        let last = s.mtimeMs
+        if (s.isDirectory()) for (const f of fs.readdirSync(p)) { try { last = Math.max(last, fs.statSync(path.join(p, f)).mtimeMs) } catch { /* gone */ } }
+        // (a session's folder, a half-written file: the words in them go)
+        if (s.isDirectory() || n.endsWith('.tmp')) { if (last < words) fs.rmSync(p, { recursive: true, force: true }); continue }
+        if (last < gone) { fs.rmSync(p, { force: true }); continue }
+        if (last >= words) continue
+        let rec = null
+        try { rec = JSON.parse(fs.readFileSync(p, 'utf8')) } catch { /* not a record */ }
+        if (!rec || typeof rec !== 'object' || !Object.keys(rec).some((k) => !RESUME_FIELDS.includes(k))) continue
+        writeWhole(p, JSON.stringify(Object.fromEntries(RESUME_FIELDS.filter((k) => rec[k] !== undefined).map((k) => [k, rec[k]]))))
+        // (when it was last written stays: the record goes RECORD_KEEP_DAYS after that)
+        fs.utimesSync(p, s.atime, s.mtime)
+      } catch { /* gone */ }
+    }
   }
 
   log(...a) { let s = a.join(' '); for (const t of this.secrets) if (t) s = s.split(t).join('***'); this.logFn(s) }
@@ -121,9 +171,10 @@ class Runner extends EventEmitter {
   // screen so far with it — a restarted server builds its copy from that)
   welcome(info = {}) {
     this.user = info.user || null
-    for (const m of this.outbox) this.send(m)
-    // (a chat's answers the server has not acknowledged: said again — it takes each turn once)
+    // (a chat's answers the server has not acknowledged: said again, before any report — the server takes each turn once, and no answer
+    // after the run is over)
     for (const st of this.jobs.values()) for (const m of st.replies?.values() || []) this.send(m)
+    for (const m of this.outbox) this.send(m)
     // (an accept the server may not have got: said again — its answer starts the run)
     for (const st of this.jobs.values()) if (st.awaiting) this.send({ type: 'accept', jobId: st.job.id })
     for (const [sid, x] of this.sessions) this.announce(sid, x)
@@ -135,12 +186,23 @@ class Runner extends EventEmitter {
     if (x.tx.length) this.send({ type: 'tx', sid, items: x.tx, replay: true })
   }
   // The server offers a run this app still has — its CLI session is alive here: the run stays as it is (nothing goes into the CLI again).
-  // It is this desktop's again (accept), its terminal is announced again and its wait; a run already over says its report again.
-  again(jobId) {
+  // It is this desktop's again (accept), its terminal is announced again and its wait; a run already over says its report again. Words the
+  // server added to a chat's message meanwhile (it held the run in its queue) go in as the person's input.
+  again(job) {
+    const jobId = job.id
     const st = this.jobs.get(jobId)
     if (!st || st.cancelled || st.phase === 'asking') return
     if (st.reported) { const m = this.outbox.find((o) => o.jobId === jobId); if (m) this.send(m); return }
     this.send({ type: 'accept', jobId })
+    if (st.job.kind === 'chat') {
+      const more = newWords(job.message, markOf(st.job.message))
+      if (more) {
+        st.job.message = String(job.message)
+        if (typeof job.prompt === 'string' && job.prompt.trim()) st.job.prompt = job.prompt
+        // (a CLI not started yet takes them with its first message — firstWords reads the run's message then)
+        if (st.term && !st.term.exited) { if (st.term.ready) this.typeSteer(st, { steerId: '', text: more }); else st.early.push({ steerId: '', text: more }) }
+      }
+    }
     const x = st.term ? this.sessions.get(st.term.id) : null
     if (x) this.announce(st.term.id, x)
     if (st.idleUntil) this.send({ type: 'idle', jobId, until: new Date(st.idleUntil).toISOString() })
@@ -184,8 +246,15 @@ class Runner extends EventEmitter {
     // the owner pressed 「끝내기」: the run ends now (after the turn at hand, when the CLI is working)
     if (msg.type === 'finish') { const st = this.jobs.get(msg.jobId); if (st?.term && !st.ending) { st.finishNow = true; this.settle(st) } return }
     if (msg.type === 'finished') return this.finished(msg)
-    // the server took a chat's answer in (its turn): not said again
-    if (msg.type === 'replied') { this.jobs.get(msg.jobId)?.replies?.delete(Number(msg.turn)); return }
+    // the server took a chat's answer in (its turn): not said again — and no longer kept in the run's record
+    if (msg.type === 'replied') {
+      const st = this.jobs.get(msg.jobId)
+      if (st?.replies?.delete(Number(msg.turn))) this.keepReplies(st)
+      // (one kept with the run's report, in the outbox)
+      const left = this.outbox.filter((m) => !(m.type === 'reply' && m.jobId === msg.jobId && Number(m.turn) === Number(msg.turn)))
+      if (left.length !== this.outbox.length) { this.outbox = left; this.saveOutbox() }
+      return
+    }
   }
 
   // ---------- a job arrives ----------
@@ -217,7 +286,7 @@ class Runner extends EventEmitter {
   async take(job) {
     const bad = this.valid(job)
     if (bad) { this.log('[runner] refused a job:', bad); if (UUID.test(String(job?.id || ''))) this.send({ type: 'decline', jobId: job.id, reason: 'invalid' }); return }
-    if (this.jobs.has(job.id)) return this.again(job.id)
+    if (this.jobs.has(job.id)) return this.again(job)
     if (this.user?.id && job.person?.id && String(job.person.id) !== String(this.user.id)) { this.send({ type: 'decline', jobId: job.id, reason: 'invalid' }); return }
     const prefs = this.prefs() || {}
     if (prefs.enabled === false) { this.send({ type: 'decline', jobId: job.id, reason: 'disabled' }); return }
@@ -236,10 +305,22 @@ class Runner extends EventEmitter {
       const rec = own || (job.kind === 'chat' ? this.chatRecord(job) : null)
       const here = job.kind !== 'chat' || (rec && path.resolve(rec.dir || '') === path.resolve(this.dirFor(job)))
       if (rec && here && rec.cli === String(job.resume.sessionId) && rec.agent === job.agent && fs.existsSync(path.join(rec.dir || '', '.git'))) {
+        let from = { ...rec, own: rec === own }
+        if (from.own && from.given === false) {
+          // (the record says the CLI never took the run's first message — but the app may have gone off after the CLI took it and before
+          // its hook was read: the CLI's own record of the session, after where it stood at the start, tells — then it was working. Only
+          // that message counts there, not a command typed in its terminal.)
+          const t = tookFirst({ agent: job.agent, cli: rec.cli, env: C.cliEnv(this.sessionEnv, this.searchPath), from: rec.txFrom || 0, file: rec.txFile || null,
+            texts: [job.prompt, job.message, PROMPT_POINTER] })
+          if (t.took === 'took') from = { ...from, given: true, turn: 'working' }
+          // (the CLI's record is not what it was — another file, or shorter: whether it took it cannot be told. The first message goes in
+          // again — losing it would be worse than saying it twice — in the same session, so the CLI sees what it did before)
+          else if (t.took === 'unknown' && t.exists) from = { ...from, keepSession: true }
+        }
         // (this run's own session, whose CLI never took the run's first message — the app went off before: the run starts as a new one,
         // its first message given then; a session it went on with — a chat's earlier one — goes on)
-        if (rec === own && own.given === false && !own.resumed) this.log(`[runner] ${job.activity}: its first message never got in — started anew`)
-        else st.resumeFrom = { ...rec, own: rec === own }
+        if (from.own && from.given === false && !from.resumed && !from.keepSession) this.log(`[runner] ${job.activity}: its first message never got in — started anew`)
+        else st.resumeFrom = from
       }
     }
     this.jobs.set(job.id, st)
@@ -293,10 +374,24 @@ class Runner extends EventEmitter {
     const auth = { url, token: g.token, base: g.base }
     const chat = job.kind === 'chat'
     let start
-    // (a chat resumes its CLI session, never its folder: each turn was committed and pushed, so the folder starts from the line again)
-    if (st.resumeFrom && !chat) {
-      // (what the run had done is in the folder, uncommitted: nothing is reset)
-      start = st.resumeFrom.start
+    // the same run after this app restarted (a step, or a chat's own run): the folder as it was left — what the run had done is there,
+    // uncommitted (a turn cut off, a turn's commit not pushed yet): nothing is reset. (A chat's next run resumes the chat's CLI session,
+    // never its folder: each turn was committed and pushed, so that folder starts from the line again.)
+    const from = st.resumeFrom
+    let kept = !!(from && (!chat || from.own) && from.start)
+    // (a chat's record an older app wrote — no given — or a template run's that does not say which files it left off: on the line, as
+    // that app did — a kept folder's left-off files would otherwise go back changed)
+    if (kept && chat && (typeof from.given !== 'boolean' || (job.projectSettings === false && !Array.isArray(from.leftOff)))) kept = false
+    // (another run may have used the folder meanwhile — a chat's Claude Code and Codex share it: it is still this run's only when it is on
+    // the run's branch with where the run began in its history; else it starts on the line, and the CLI is told)
+    if (kept && !(await G.stillOn(dir, g.branch, from.start).catch(() => false))) {
+      kept = false
+      if (from.given) st.folderNote = T(lang, '[알림] 앱이 다시 켜지는 사이 이 작업 폴더를 다른 실행이 썼어요. 그래서 서버에 있는 상태로 다시 맞췄어요. 아직 올리지 않았던 파일은 없을 수 있으니 확인하고 이어서 하세요.',
+        '[Note] While the app was restarting, another run used this work folder, so it was brought back to what the server has. Files not pushed yet may be missing — check before you go on.')
+      this.log(`[runner] ${job.activity}: the folder was used by another run meanwhile — started on the line`)
+    }
+    if (kept) {
+      start = from.start
       this.progress(st, 'status', T(lang, '앱이 다시 켜져 같은 세션을 이어서 해요', 'The app is back: going on in the same session'))
     } else {
       this.progress(st, 'status', T(lang, '작업 폴더를 서버와 맞추는 중', 'Bringing the work folder up to date'))
@@ -319,7 +414,8 @@ class Runner extends EventEmitter {
       if (job.projectSettings === false) {
         try { off = await RS.leaveOff(dir) } catch (e) { throw e.code === 'RUN_SETTINGS_INCOMPLETE' ? new Error(refusedWhy(lang, e)) : e }
       }
-      st.leftOff = off.paths
+      // (a kept folder: the files left off before are left off still — leaveOff finds nothing more to change in them now)
+      st.leftOff = kept && Array.isArray(from.leftOff) ? [...new Set([...from.leftOff, ...off.paths])] : off.paths
       if (st.leftOff.length) this.log(`[runner] ${job.activity}: the folder's run settings left off — ${off.files.join(', ')}${off.front.length ? ` · front matter of ${off.front.length} file(s)` : ''}`)
       st.dir = dir
       try { st.realDir = fs.realpathSync(dir) } catch { st.realDir = null }
@@ -418,24 +514,55 @@ class Runner extends EventEmitter {
   }
   // A chat's turn ended: what it changed is committed and pushed on the run's branch, then its last words go to the server with the files
   // ('reply' — kept until the server says it has the turn: a link that drops does not lose an answer). One turn at a time, in order.
-  chatTurn(st, text) {
+  // From the turn's end until the server has it, the turn is kept in the run's record too (keepReplies): an app that goes off before the
+  // answer was made — or before it reached the server — makes it, or says it, again when the run comes back (again: that turn, where its
+  // commit began).
+  chatTurn(st, text, again = null) {
     const { job } = st
-    const n = (st.turnNo = (st.turnNo || 0) + 1)
+    const n = again ? again.turn : (st.turnNo = (st.turnNo || 0) + 1)
+    const words = String(text || '').slice(0, 16000)
     st.replies ||= new Map()
+    st.pending ||= new Map()
+    if (!again) { st.pending.set(n, { turn: n, text: words }); this.keepReplies(st) }
     st.gitChain = (st.gitChain || Promise.resolve()).then(async () => {
       let commit = null
       let files = []
       let pushed = false
       try {
-        const before = await G.head(st.dir)
+        const before = again?.before || await G.head(st.dir)
+        if (!again?.before) { st.pending.set(n, { turn: n, text: words, before }); this.keepReplies(st) }
         commit = await G.commit(st.dir, `${job.label || job.agent} — ${job.activity || 'chat'}`, { name: job.person?.name, email: job.person?.email }, { except: st.leftOff || [] })
-        if (commit) { files = await G.changed(st.dir, before); pushed = await G.push(st.dir, job.git.branch, { token: job.git.token }) }
+        // (a turn made again after a restart: its commit may be there already, not yet pushed)
+        const head = commit || (again ? await G.head(st.dir) : null)
+        if (head && head !== before) { commit = head; files = await G.changed(st.dir, before); pushed = await G.push(st.dir, job.git.branch, { token: job.git.token }) }
       } catch (e) { this.log(`[runner] ${job.activity}: turn ${n} — ${e.message}`); this.progress(st, 'error', e.message) }
-      const m = { type: 'reply', jobId: job.id, turn: n, text: String(text || '').slice(0, 16000), branch: job.git.branch, commit, pushed, files }
+      const m = { type: 'reply', jobId: job.id, turn: n, text: words, branch: job.git.branch, commit, pushed, files }
+      st.pending.delete(n)
       st.replies.set(n, m)
+      this.keepReplies(st)
       this.send(m)
     }).catch((e) => this.log(`[runner] chat turn: ${e.message}`))
     return st.gitChain
+  }
+  // the chat's turns the server does not have yet, in the run's record: a turn whose answer is being made (its words, where its commit
+  // began), and an answer made but not acknowledged ('replied')
+  keepReplies(st) {
+    this.mark(st, { replies: [...(st.pending?.values() || []), ...(st.replies?.values() || [])].sort((a, b) => a.turn - b.turn) })
+  }
+  // after a restart, the chat's own run: what its record kept of turns the server does not have — an answer made is said again, a turn
+  // whose answer was not made yet is made now (its files committed and pushed from where its commit began)
+  carryReplies(st) {
+    const kept = Array.isArray(st.resumeFrom?.replies) && st.resumeFrom.own ? st.resumeFrom.replies : []
+    st.replies ||= new Map()
+    st.pending ||= new Map()
+    for (const r of kept) {
+      if (!Number.isInteger(r?.turn)) continue
+      if (r.type === 'reply' && r.jobId === st.job.id) st.replies.set(r.turn, r)
+      else st.pending.set(r.turn, { turn: r.turn, text: String(r.text || ''), ...(r.before ? { before: String(r.before) } : {}) })
+      st.turnNo = Math.max(st.turnNo || 0, r.turn)
+    }
+    for (const m of st.replies.values()) this.send(m)
+    for (const p of [...st.pending.values()]) this.chatTurn(st, p.text, p)
   }
 
   // ---------- the interactive CLI (a terminal) ----------
@@ -448,14 +575,26 @@ class Runner extends EventEmitter {
     const from = st.resumeFrom
     const resume = from?.cli || null
     const { prompt, wait } = this.firstWords(st)
-    // (what this computer keeps of the session — the run's record: carried on from before a restart when it is this run's own)
-    st.rec = from?.own ? { cli: from.cli, given: from.given, turn: from.turn, turns: from.turns, msg: from.msg, summary: from.summary } : { given: false }
-    st.rec.resumed = !!resume
+    // (what this computer keeps of the session — the run's record: carried on from before a restart when it is this run's own; a resumed
+    // session is known by its id from the start — Codex says it only for a new one)
+    st.rec = from?.own ? { cli: from.cli, given: from.given, turn: from.turn, turns: from.turns, msg: from.msg, summary: from.summary, replies: from.replies, txFrom: from.txFrom,
+      txFile: from.txFile, resumed: !!from.resumed } : { given: false, resumed: !!resume, ...(resume ? { cli: resume } : {}) }
+    // (the files the run leaves off — a template's run: never committed, after a restart too)
+    if (Array.isArray(st.leftOff)) st.rec.leftOff = st.leftOff
+    // (where the CLI's own record of the session stood before this run gave it anything, and which file it is: what it took after that is
+    // this run's — take)
+    if (!Number.isInteger(st.rec.txFrom)) {
+      const f = resume ? cliRecordOf({ agent: job.agent, cli: resume, env: C.cliEnv(this.sessionEnv, this.searchPath) }) : null
+      st.rec.txFrom = sizeOf(f)
+      if (f) st.rec.txFile = f
+    }
     if (from?.own) {
       // (a chat's turns go on from their number — the server takes each turn once; the step's or chat's last words before the restart)
       if (chat && Number.isInteger(from.turns)) st.turnNo = from.turns
       if (from.summary) st.summary = from.summary
     }
+    // (a chat's turns the server does not have yet: said again, or made now)
+    if (chat) this.carryReplies(st)
     return new Promise((resolve) => {
       let S
       const end = (r) => { if (st.ending) return; st.ending = true; clearTimeout(st.settle); clearTimeout(st.runTimer); resolve(r) }
@@ -523,7 +662,7 @@ class Runner extends EventEmitter {
   // chat's session: the person's words. A run that goes on after this app restarted is judged by its record (sessions/<job>.json — what
   // the CLI did with this run), never by what the words say:
   //   · the CLI never took its first message — that message (a run whose own new session never took it starts anew instead: take)
-  //   · the CLI was working when the app went off — a line that says to finish the work
+  //   · the CLI was working when the app went off — a line that says to finish the work (and a chat's words the server added, after it)
   //   · the turn had ended (the run waited for 「끝내기」) — nothing: it waits again (wait); only a chat's words the server added after
   //     the message the CLI took go in
   //   (a record an older app wrote, without these: as that app did)
@@ -534,18 +673,25 @@ class Runner extends EventEmitter {
     const goOn = T(job.lang, '이 앱이 다시 켜져서 같은 세션을 이어서 해요. 하던 일을 마저 끝내세요.', 'This app was restarted and this session goes on. Finish the work you were doing.')
     if (!from) return { prompt: job.prompt, wait: false }
     if (!from.own || typeof from.given !== 'boolean') return { prompt: chat ? job.message || job.prompt : goOn, wait: false }
-    if (!from.given) return { prompt: chat ? job.message || job.prompt : job.prompt, wait: false }
-    if (from.turn === 'working') return { prompt: goOn, wait: false }
+    // (its first message as it was given: the person's words in a session that had the chat before, else the whole prompt)
+    if (!from.given) return { prompt: chat && from.resumed ? job.message || job.prompt : job.prompt, wait: false }
     const more = chat ? newWords(job.message, from.msg) : ''
-    return { prompt: more, wait: !more }
+    // (the folder was brought back to the line — another run had used it: the CLI hears that first; with nothing to give now, with the
+    // next words it is given — typeSteer)
+    const note = st.folderNote ? `${st.folderNote}\n\n` : ''
+    if (from.turn === 'working') { st.folderNote = null; return { prompt: `${note}${more ? `${goOn}\n\n${more}` : goOn}`, wait: false } }
+    if (more) st.folderNote = null
+    return { prompt: more ? `${note}${more}` : '', wait: !more }
   }
   // the run's record (sessions/<job>.json) brought up to date: where its session is, and what the CLI did with the run
   mark(st, patch) {
     st.rec = { ...(st.rec || {}), ...patch }
     const r = st.rec
-    if (!r.cli) return
+    // (a run that reported is over: its record went with it — a late answer's acknowledgement does not bring it back)
+    if (!r.cli || st.reported) return
     this.remember(st.job.id, { cli: r.cli, agent: st.job.agent, dir: st.dir, start: st.start, outDir: st.job.outDir,
-      given: r.given, turn: r.turn, turns: r.turns, msg: r.msg, summary: r.summary, resumed: r.resumed })
+      given: r.given, turn: r.turn, turns: r.turns, msg: r.msg, summary: r.summary, resumed: r.resumed, txFrom: r.txFrom, txFile: r.txFile,
+      leftOff: Array.isArray(r.leftOff) ? r.leftOff : undefined, replies: r.replies?.length ? r.replies : undefined })
   }
   // after a turn: the run waits for its people, and ends when nothing new came for finishMs, or when its owner says so (settle.js);
   // the server hears when it would end by itself (the card: 「끝내기」 · 「N분 동안 새 입력이 없으면 저절로 끝나요」)
@@ -582,7 +728,9 @@ class Runner extends EventEmitter {
   typeSteer(st, s) {
     const S = st.term
     if (!S || S.exited) return false
-    const text = s.text
+    // (the folder was brought back to the line after a restart and the CLI has not heard of it yet: it does with these words)
+    const text = st.folderNote ? `${st.folderNote}\n\n${s.text}` : s.text
+    st.folderNote = null
     st.live.push({ ...s, typedAt: Date.now(), acked: false })
     st.lastInput = Date.now()
     S.submit(text)
@@ -595,7 +743,7 @@ class Runner extends EventEmitter {
       const head = s.text.trim().slice(0, 80)
       if (head && t.includes(head)) {
         s.acked = true
-        this.send({ type: 'steered', jobId: st.job.id, steerId: s.steerId, how: 'live' })
+        if (s.steerId) this.send({ type: 'steered', jobId: st.job.id, steerId: s.steerId, how: 'live' })
         ;(st.steered ||= []).push({ ...s, how: 'live', histAt: (st.history || []).length })
       }
     }
@@ -639,12 +787,12 @@ class Runner extends EventEmitter {
   // what this computer keeps of a running step's session (to go on with it after a restart): the CLI's session, the folder, where it began
   recordFile(jobId) { return path.join(this.dataDir, 'sessions', `${safePart(jobId, 40)}.json`) }
   record(jobId) { try { return JSON.parse(fs.readFileSync(this.recordFile(jobId), 'utf8')) } catch { return null } }
-  remember(jobId, rec) { try { fs.mkdirSync(path.dirname(this.recordFile(jobId)), { recursive: true }); fs.writeFileSync(this.recordFile(jobId), JSON.stringify(rec), { mode: 0o600 }) } catch (e) { this.log('[runner] record', e.message) } }
+  remember(jobId, rec) { try { writeWhole(this.recordFile(jobId), JSON.stringify(rec)) } catch (e) { this.log('[runner] record', e.message) } }
   forget(jobId) { try { fs.rmSync(this.recordFile(jobId), { force: true }) } catch { /* gone */ } }
   // a chat's CLI session on this computer (one per chat and agent — the next run of the chat resumes it in the same folder)
   chatRecordFile(job) { return path.join(this.dataDir, 'sessions', `chat-${chatHash(job)}-${safePart(job.agent, 16)}.json`) }
   chatRecord(job) { try { return JSON.parse(fs.readFileSync(this.chatRecordFile(job), 'utf8')) } catch { return null } }
-  rememberChat(job, rec) { try { fs.mkdirSync(path.dirname(this.chatRecordFile(job)), { recursive: true }); fs.writeFileSync(this.chatRecordFile(job), JSON.stringify(rec), { mode: 0o600 }) } catch (e) { this.log('[runner] chat record', e.message) } }
+  rememberChat(job, rec) { try { writeWhole(this.chatRecordFile(job), JSON.stringify(rec)) } catch (e) { this.log('[runner] chat record', e.message) } }
 
   // what the run learned, for the server's know-how candidates: each steer (who, how it was taken, what the run did right after it), and
   // what the CLI changed in its skills or wrote into its own memory (skills.js changes)
@@ -810,14 +958,19 @@ class Runner extends EventEmitter {
     this.progress(st, 'error', e.message)
     this.flush(st)
     this.report(st, { type: 'failed', jobId: st.job.id, error: String(e.message).slice(0, 800) })
+    // (a run that failed is not offered again: its record — the CLI's last words with it — goes)
+    this.forget(st.job.id)
   }
 
   // what finished stays in the outbox until the server confirms it ('finished')
+  // (a chat's answers the server has not confirmed go first and stay with the report: the server takes no answer once the run is over)
   report(st, msg) {
     st.reported = true
     st.phase = msg.type === 'done' ? 'done' : 'failed'
-    this.outbox = [...this.outbox.filter((m) => m.jobId !== msg.jobId), msg]
+    const before = [...(st.replies?.values() || [])].sort((a, b) => a.turn - b.turn)
+    this.outbox = [...this.outbox.filter((m) => m.jobId !== msg.jobId), ...before, msg]
     this.saveOutbox()
+    for (const m of before) this.send(m)
     this.send(msg)
     this.changed()
   }
