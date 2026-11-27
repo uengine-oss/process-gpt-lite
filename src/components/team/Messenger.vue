@@ -483,9 +483,10 @@ async function openRx(m, el, at = {}) {
 const rxMine = computed(() => (rx.value ? rxOf(rx.value.m).filter((c) => c.mine).map((c) => c.key) : []))
 const react = (m, key) => { rx.value = null; team.react(m, key).catch((e) => { err.value = e.message || '반응을 남기지 못했어요.' }) }
 async function copyRx() {
-  // (an AI answer shared without a word: its words are the answer's — lib/answerShare.js)
+  // (an AI answer shared from a chat — lib/answerShare.js: what the bubble shows, the word sent with it and the answer's words)
   const m = rx.value?.m
-  const text = m?.body ? hidePaths(team.trBody(m) || m.body) : m?.answer?.text ? hidePaths(m.answer.text) : ''
+  const parts = [m?.body ? team.trBody(m) || m.body : '', m?.answer?.text || ''].filter(Boolean)
+  const text = parts.length ? hidePaths(parts.join('\n\n')) : ''
   rx.value = null
   if (!text) return
   try { await navigator.clipboard.writeText(text); team.say('복사했어요') } catch { err.value = '복사하지 못했어요.' }
@@ -694,7 +695,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <div v-if="aiWait" class="aiwait" data-test="ai-status" role="status"><span class="spark">✦</span><span class="shimmer-text">{{ aiWait.text }}</span></div>
           </div>
           <!-- the reactions bar over the bubble it was opened on (its place measured once it is drawn) -->
-          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="rx.m.body || rx.m.answer?.text || ''" :data-for="rx.m.id"
+          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="[rx.m.body, rx.m.answer?.text].filter(Boolean).join('\n\n')" :data-for="rx.m.id"
             :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
           <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>{{ dropWords }}</p></div></div></Transition>
           <footer class="cmp">

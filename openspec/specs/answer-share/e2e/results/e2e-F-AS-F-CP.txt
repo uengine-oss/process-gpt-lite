@@ -13,3 +13,5 @@ Running 8 tests using 1 worker
   ✓  8 [feature] › tests/feature/answer-share-project.spec.js:431:3 › F-CP-03 휴대폰 390(어두운): 확인 카드가 화면 안 · 옆으로 밀리지 않음 (3.0s)
 
   8 passed (38.3s)
+
+# 검토 2 반영 뒤(2026-11-28): PASS (8) FAIL (0)

@@ -23,6 +23,15 @@ const CASES = [
   ['sandbox:/workspace/.bpmn/c/out.pdf 에 있어요', 'out.pdf 에 있어요'],
   ['/private/tmp/run/로그.txt: 끝', '로그.txt: 끝'],
   ['경로 없는 글은 그대로예요 · 3/4 분기', '경로 없는 글은 그대로예요 · 3/4 분기'],
+  // (PR #118 검토 2) Windows · 콜론 뒤 · file://localhost
+  ['C:\\Users\\me\\Downloads\\견적.xlsx 에 있어요', '견적.xlsx 에 있어요'],
+  ['D:/projects/run/out/요약.md.', '요약.md.'],
+  ['\\\\fileserver\\share\\팀\\보고서.docx 를 봐요', '보고서.docx 를 봐요'],
+  ['`C:\\Users\\me\\My Docs\\제안서.pptx` 와 `\\\\nas\\공유\\폴더\\`', '`제안서.pptx` 와 산출물 폴더'],
+  ['[견적](C:\\Users\\me\\견적.pdf) · [초안](<C:\\Users\\me\\초안 (1).docx>)', '견적 · 초안'],
+  ['경로:/workspace/.bpmn/c/a.md · 위치:/Users/me/x/b.csv', '경로:a.md · 위치:b.csv'],
+  ['file://localhost/Users/me/c.txt 와 file:///C:/Users/me/d.txt', 'c.txt 와 d.txt'],
+  ['주소 http://host.example/Users/me 와 https://x.example:8080/tmp/a 는 주소의 일부라 그대로', '주소 http://host.example/Users/me 와 https://x.example:8080/tmp/a 는 주소의 일부라 그대로'],
 ]
 
 test('경로: 서버와 화면이 같은 답', () => {
@@ -44,6 +53,19 @@ test('주소: 저장소 · 서명 · 토큰은 이름만(링크는 글자), 보�
     ['보통 주소 https://www.example.com/guide?page=2 와 [안내](https://docs.example.org/a) 는 그대로', '보통 주소 https://www.example.com/guide?page=2 와 [안내](https://docs.example.org/a) 는 그대로'],
   ]
   for (const [input, want] of cases) assert.equal(H.dropPrivateUrls(input, hosts), want, input)
+  // (PR #118 검토 2) 대문자 scheme · //host · 줄이 끊긴 주소 · <…> 안의 빈칸 · 괄호 · key 와 AIza…
+  const more = [
+    ['HTTPS://STORAGE.LITE.TEST:54321/STORAGE/V1/OBJECT/public/files/a/표.xlsx', '표.xlsx'],
+    ['//cdn.example/a/file.pdf?token=x 와 //cdn.example/b/공개.pdf', 'file.pdf 와 //cdn.example/b/공개.pdf'],
+    ['첨부: https://x.example/a/report.pdf\n?token=abc\n&exp=1 끝', '첨부: report.pdf 끝'],
+    ['참고: https://www.example.com/guide\n/workspace/.bpmn/c/a.md', '참고: https://www.example.com/guide\n/workspace/.bpmn/c/a.md'],
+    ['[보고서](<https://x.example/a b (1).pdf?token=q>) · [r](https://x.example/a_(1).pdf?sig=z "t")', '보고서 · r'],
+    ['https://maps.example/api/js?key=abc 와 https://x.example/v?api_key=1 와 https://y.example/q?k=AIzaSyA-1234567890abcdefghijk', '비공개 주소 와 비공개 주소 와 비공개 주소'],
+    ['보통: https://www.youtube.com/watch?v=abc&list=x', '보통: https://www.youtube.com/watch?v=abc&list=x'],
+  ]
+  for (const [input, want] of more) assert.equal(H.dropPrivateUrls(input, hosts), want, input)
+  // the broken address's next line is not left behind as a path either (addresses first, then paths)
+  assert.equal(H.cleanShared('참고: https://www.example.com/guide\n/workspace/.bpmn/c/a.md', hosts), '참고: https://www.example.com/guide\na.md')
   assert.equal(H.privateUrl('https://www.youtube.com/watch?v=abc', hosts), false)
   assert.equal(H.privateUrl('https://x.example/a?signature=1', hosts), true)
   assert.equal(H.privateUrl('ftp://storage.lite.test:54321/a', hosts), false)

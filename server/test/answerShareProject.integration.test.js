@@ -40,10 +40,13 @@ process.env.PRO_LLM_API_KEY = 'test'
 process.env.PRO_LLM_KEYS = 'off'
 process.env.PRO_LLM_MODEL = 'fake'
 process.env.PRO_LLM_FAST_MODEL = 'fake'
-process.env.PRO_PROJECT_OFFERS_PER_MIN = '60'
+process.env.PRO_PROJECT_OFFERS_PER_MIN = '200'
+// (a 「만들기」 nobody refreshed for 1.5 s may be taken over — AP-U-07c holds one that long)
+process.env.PRO_PROJECT_MAKING_STALE_MS = '1500'
 
 const { config } = await import('../config.js')
 const { q, pool, admin } = await import('../lib/supa.js')
+const CV = await import('../lib/conversations.js')
 const AS = await import('../lib/answerShare.js')
 const CP = await import('../lib/chatProject.js')
 const db = await q('select 1 from pro_folder_refs limit 1').then(() => true, () => false)
@@ -577,7 +580,7 @@ test('AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 �
   await put(w1, 'agent', 'text', { text: '아래 카드를 준비했어요.' }, 10)
   const o1 = await CP.offer(me, { threadId: w1.id, said: '이 내용으로 프로젝트 하나 만들자', before: said1.id, via: 'words' }, { templates: async () => [] })
   assert.equal(o1.content.source.answer.messageId, a1.id, '이 대화의 답')
-  assert.equal(o1.content.context, undefined, '카드는 대답처럼 따로 묶지 않음')
+  assert.deepEqual(o1.content.context, { conversationId: 'conv-w1', action: 'aside' }, '카드는 처음부터 그 대화에 따로 묶임(사람이 이어 말해도)')
   assert.ok(!llm.drafts.at(-1).includes('시장 동향'), '예약 실행의 글은 자료가 아님')
   // two conversations: the page narrowed to the older one — its answer and its lines only; not narrowed — the newer one (the chat is in it)
   const w2 = await chatOf('말로 2')
@@ -593,7 +596,78 @@ test('AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 �
   await q(`update pro_messages set content = content || '{"state":"declined"}'::jsonb where id=$1`, [narrowed.id])
   const plain = await CP.offer(me, { threadId: w2.id, before: said2.id, via: 'words' }, { templates: async () => [] })
   assert.equal(plain.content.source.answer.messageId, aB.id, '좁히지 않았으면 채팅이 있던 대화(가장 최근 답의 대화)')
-  // the pure rule, as the page files the lines
-  const { conv, cur } = CP.conversationsOf([{ id: 'u1', role: 'user', content: {} }, { id: 'a1', role: 'agent', content: { conv: 'x' } }, { id: 's', role: 'agent', content: { context: { conversationId: 'run', action: 'aside' } } }, { id: 'u2', role: 'user', content: {} }])
-  assert.deepEqual([conv.get('u1'), conv.get('a1'), conv.get('s'), conv.get('u2'), cur], ['x', 'x', 'run', 'x', 'x'])
+  assert.deepEqual(plain.content.context, { conversationId: 'conv-b', action: 'aside' })
+  // a 「stay」 answer does not move the chat, a card filed aside does not either (src/convOf.js): still conv-w3's answer
+  const w3 = await chatOf('말로 3')
+  await put(w3, 'user', 'text', { text: 'C 고객 일정표 만들어 줘' }, 60)
+  const a3 = await put(w3, 'agent', 'doc', { text: `# C 일정표\n\n${long('C 고객 일정표예요.')}`, context: { conversationId: 'conv-w3', action: 'new' } }, 50)
+  // (a short 「stay」 line — no answer to carry on; read as moving the chat, it would leave conv-w3 with no answer)
+  await put(w3, 'agent', 'text', { text: '네, 확인했어요.', context: { conversationId: 'conv-other', action: 'stay' } }, 40)
+  await put(w3, 'agent', 'project_offer', { text: '카드', state: 'declined', context: { conversationId: 'conv-other', action: 'aside' } }, 35)
+  const said3 = await put(w3, 'user', 'text', { text: '이걸로 프로젝트 만들자' }, 20)
+  const o3 = await CP.offer(me, { threadId: w3.id, before: said3.id, via: 'words' }, { templates: async () => [] })
+  assert.equal(o3.content.source.answer.messageId, a3.id)
+  assert.deepEqual(o3.content.context, { conversationId: 'conv-w3', action: 'aside' })
+  // the person goes on talking before 「만들기」: the card stays filed where it is (the page's rule reads it so)
+  const after = await q(`select id, role, kind, content, created_at from pro_messages where thread_id=$1 order by created_at, id`, [w3.id])
+  await put(w3, 'agent', 'text', { text: long('새 대화의 답이에요.'), context: { conversationId: 'conv-new', action: 'new' } }, 0)
+  const all = await q(`select id, role, kind, content, created_at from pro_messages where thread_id=$1 order by created_at, id`, [w3.id])
+  assert.equal(CV.convOf(after)[o3.id], 'conv-w3')
+  assert.equal(CV.convOf(all)[o3.id], 'conv-w3')
 })
+
+// ---------- AP-U-10 many at once: one card, one document, and the server's pool stays free ----------
+test('AP-U-10 12개가 동시에 「문서로 남기기」 · 「프로젝트로 시작」 → 문서 하나 · 카드 하나, 그 뒤 데이터베이스가 바로 답함', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const [t] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat','동시에 열두 번') returning *`, [me.id])
+  const [a] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','doc',$2) returning *`, [t.id, { text: `# 열두 번 누른 답\n\n${'열두 화면에서 동시에 누른 답이에요. '.repeat(8)}`, context: { conversationId: 'conv-12', action: 'new' } }])
+  const drafts = llm.drafts.length
+  const docs = Array.from({ length: 12 }, () => call(me, 'POST', `/messages/${a.id}/share/doc`))
+  const offers = Array.from({ length: 12 }, () => call(me, 'POST', `/messages/${a.id}/project-offer`))
+  const done = await Promise.race([Promise.all([...docs, ...offers]), new Promise((ok) => setTimeout(() => ok(null), 60_000))])
+  assert.ok(done, '24개가 모두 끝남(멈춤 없음)')
+  const t0 = Date.now()
+  await Promise.race([q('select 1'), new Promise((_, no) => setTimeout(() => no(new Error('pool stuck')), 2000))])
+  assert.ok(Date.now() - t0 < 2000, 'select 1 이 2초 안에')
+  const d = done.slice(0, 12), o = done.slice(12)
+  for (const r of [...d, ...o]) assert.equal(r.status, 200, r.text)
+  assert.equal(new Set(d.map((r) => r.body.message.id)).size, 1, '문서 카드 하나')
+  assert.equal(d.filter((r) => !r.body.existing).length, 1)
+  assert.equal(new Set(o.map((r) => r.body.offer.id)).size, 1, '확인 카드 하나')
+  assert.equal(llm.drafts.length - drafts, 1, '카드를 쓰는 모델은 한 번')
+  const rows = await msgs(t.id)
+  assert.equal(rows.filter((m) => m.kind === 'file').length, 1)
+  assert.equal(rows.filter((m) => m.kind === 'project_offer').length, 1)
+})
+
+// ---------- AP-U-07c a slow 「만들기」 and its takeover ----------
+test('AP-U-07c 느린 「만들기」와 그 사이 이어받기 → 프로젝트는 하나(만든 뒤 가리키기 전에 멈춤 · 가리킨 뒤에 멈춤), 남은 단계는 한 번씩', { skip: !db && 'no database' }, async () => {
+  const { me } = await setup()
+  const [t] = await q(`insert into pro_threads(user_id,kind,title) values ($1,'chat','느린 만들기') returning *`, [me.id])
+  const card = async () => (await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','project_offer',$2) returning *`,
+    [t.id, { text: '이 대화로 프로젝트를 시작할까요?', title: '느린 카드', intent: '느린 일을 이어 간다', deliverables: ['결과'], background: '', source: { threadId: t.id }, templates: [], state: 'offered' }]))[0]
+  const count = async (title) => (await q(`select count(*)::int n from pro_threads where user_id=$1 and kind='project' and title=$2`, [me.id, title]))[0].n
+  const gate = () => { let open; const p = new Promise((ok) => { open = ok }); return { p, open } }
+  const wait = (ms) => new Promise((ok) => setTimeout(ok, ms))
+  for (const at of ['created', 'finish']) {
+    const c = await card()
+    const g = gate()
+    const title = `느린 프로젝트 ${at}`
+    const slow = CP.make(me, c.id, { title }, { hold: async (step) => { if (step === at) await g.p } }).then((r) => ({ ok: r }), (e) => ({ err: e }))
+    await wait(CP.MAKING_STALE_MS + 600)
+    const takeover = await CP.make(me, c.id, { title })
+    g.open()
+    const first = await slow
+    assert.equal(first.err?.code, 'taken', `${at}: 먼저 누른 쪽은 이어받혔다고`)
+    assert.equal(await count(title), 1, `${at}: 프로젝트는 하나`)
+    const pid = takeover.project.id
+    const inP = await msgs(pid)
+    assert.equal(inP.filter((m) => m.kind === 'chip' && m.content.fromChat).length, 1, `${at}: 원래 대화 칩 하나`)
+    assert.equal(inP.filter((m) => m.kind === 'chip' && m.content.planChange?.backfill).length, 1, `${at}: 계획 칩 하나`)
+    assert.equal((await q(`select count(*)::int n from pro_messages where thread_id=$1 and kind='chip' and content->'project'->>'id' = $2`, [t.id, pid]))[0].n, 1, `${at}: 옮겼어요 한 줄`)
+    const [now] = await q('select content from pro_messages where id=$1', [c.id])
+    assert.equal(now.content.state, 'made')
+    assert.equal(now.content.project.id, pid)
+  }
+})
+

@@ -4,7 +4,7 @@
 // said so in words (the router's start_project) or pressed 「프로젝트로 시작」 on an answer: the name (theirs to change), what the project is for and
 // where it came from, the answer that becomes its first document, the template folders that fit — each with why — and 「빈 프로젝트로」.
 // 「만들기」 makes it (a template: through the template's own 「템플릿으로 시작」 — the project's own workspace); 「아니요」 makes nothing.
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
@@ -33,7 +33,15 @@ const err = ref('')
 const recs = computed(() => (Array.isArray(c.value.templates) ? c.value.templates : []))
 // a 「만들기」 that stopped half way (the server went away): the card can be made again, or closed (server lib/chatProject.js MAKING_STALE_MS)
 const STALE_MS = 120_000
-const stale = computed(() => c.value.state === 'making' && !c.value.project?.id && Date.now() - new Date(c.value.making_at || 0).getTime() > STALE_MS)
+// (read again every few seconds while the card says 「만드는 중」 — a claim goes stale with no change to the card)
+const now = ref(Date.now())
+let tick = null
+watch(() => c.value.state === 'making', (making) => {
+  clearInterval(tick)
+  tick = making ? setInterval(() => { now.value = Date.now() }, 5000) : null
+}, { immediate: true })
+onBeforeUnmount(() => clearInterval(tick))
+const stale = computed(() => c.value.state === 'making' && !c.value.project?.id && now.value - new Date(c.value.making_at || 0).getTime() > STALE_MS)
 const state = computed(() => (busy.value ? 'making' : stale.value ? 'offered' : c.value.state || 'offered'))
 const mailLine = computed(() => (c.value.source?.mail ? `받은 메일 「${c.value.source.mail.subject}」${c.value.source.mail.from ? ` · ${c.value.source.mail.from}` : ''}` : ''))
 // (one sentence with the template's name in it — the English screen's pattern keeps the name)

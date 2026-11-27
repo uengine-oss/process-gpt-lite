@@ -1878,7 +1878,7 @@ cd e2e && npx playwright test --project=feature tests/feature/mail-send-as-me.sp
 휴대폰 녹화 11-27 22:33: 「텍스트 결과가 나왔을 때 이것을 어딘가에 우리는 공유한다든지 하는 기능이 지금 존재하지 않아」 · 「이 내용을 기반으로 프로젝트를 하나 만들자」(채팅 안의 계획으로만 끝남) · 「여기로 프로젝트로 승격하겠다는 거거든」 · 「교육과정 만드는 템플릿 폴더가 있을 수 있겠지」. 시험 파일이 자기 스택(회사 `answer-project-ui`, BFF 8997 · Vite 5397 — 다른 것이 듣고 있으면 멈춤, `RT_AP_API_PORT` · `RT_AP_WEB_PORT`)과 가짜 모델 · 가짜 deepagents(빈 포트)를 띄운다. 라우터의 `start_project` 는 가짜 모델이 그 말에만 부른다(실제 모델이 고르는지는 아래 ✗). 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 
 ```bash
-cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js   # AP-U-01~09 · 실제 DB · git · 저장소, 가짜 모델 · 경로 규칙
+cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js test/conversations.test.js   # AP-U-01~10 · 실제 DB · git · 저장소, 가짜 모델 · 경로 · 대화 규칙
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~03 · F-CP-01~03
 ```
 
@@ -1900,6 +1900,10 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 | (검토 M3) 카드에서 목적 · 만들 것 · 배경을 고치고, 계획에는 보이던 그대로만 | PR #118 검토 | AP-U-06b · F-CP-02 | DB · feature | ✅ |
 | (검토 L1 · L3) 휴대폰에서 답을 길게 누르면 메뉴만(휴대폰 자체 선택 없음) · 「글 선택」이 돌려줌 · 길게 누르기는 누르는 순간의 상태를 따름(메신저도) | PR #118 검토 | F-AS-03 · F-RX(room-rename-reactions) | feature | ✅ |
 | (검토 L2 · L4 · L5 · L6 · L7) 메신저 「복사」는 답의 글 · 팀에서 빠진 보낸 사람 403(1:1 안 만듦) · 같은 답의 카드 하나 · 문서 하나(동시에도) · 카드 1분 8장 · 동시에 「만들기」는 하나 · 멈춘 「만들기」 이어받기 · 「아니요」 · 작업 공간 실패면 고아 프로젝트 없음 · 판정 JSON 도 스킬의 시간 한도 | PR #118 검토 | AP-U-03b · 04b · 05b · 06b · 07b | DB | ✅ |
+| (검토 2) 하나만 만들기는 답의 행을 조건부로 바꾸는 한 문장(잠금으로 연결을 붙잡지 않음) — 12개가 동시에 와도 문서 하나 · 카드 하나, 그 뒤 `select 1` 이 2초 안에 | PR #118 검토 2 | AP-U-10 · AP-U-04b | DB | ✅ |
+| (검토 2) 말로 만든 카드는 처음부터 그 대화에 따로 묶임 · 대화를 묶는 규칙이 화면과 같음(「stay」 · 따로 묶인 카드는 대화를 옮기지 않음) | PR #118 검토 2 | AP-U-09 · `conversations.test.js` | DB · 단위 | ✅ |
+| (검토 2) 「만들기」 표지(`making_id`) · 데이터베이스 시각 · 단계마다 새로 · 이어받기는 남은 단계만 한 번씩 — 느린 원래 것과 이어받기에도 프로젝트 하나 | PR #118 검토 2 | AP-U-07b · AP-U-07c | DB | ✅ |
+| (검토 2) 경로: Windows(`C:\…` · `\\서버\…`) · 콜론 뒤 · `file://localhost`, 주소: 대문자 scheme · `//호스트` · 줄이 끊긴 주소 · `<…>` 안의 빈칸 · 괄호 · `key` · `AIza…` (서버 · 화면 같은 답) | PR #118 검토 2 | `hidePaths.test.js` | 단위 | ✅ |
 | 실제 사내 모델이 그 말에 `start_project` 를 고르는지 · 실제 판정 모델의 템플릿 추천 정확도 | — | — (가짜 모델) | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

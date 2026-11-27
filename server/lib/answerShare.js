@@ -11,7 +11,7 @@
 // Who may get it is the messenger's rule (lib/team/messenger.js post · lib/team/access.js): a room the owner is in whose people are all still
 // on the team, or a teammate of the same company — never oneself. The room sees the answer's words only: no file of the chat, no mail body,
 // no address of the workspace. Where it went stays on the answer's own row (content.answerShares {<room>: {at, message}}, content.answerDoc).
-import { q, pool } from './supa.js'
+import { q } from './supa.js'
 import { emit } from './bus.js'
 import { L } from './lang.js'
 import { addMessage } from './store.js'
@@ -69,26 +69,22 @@ export function rankRooms(rooms, posted = []) {
     .map(({ r, score }) => ({ ...r, why: score ? [{ kind: 'before', text: L('지난번에도 이 대화의 답을 공유한 대화방', 'Where answers of this chat went before') }] : [], suggested: score > 0 }))
 }
 
-// One at a time per key: in this server (a queue per key — a waiting caller holds no database connection) and across servers (a transaction
-// holding a Postgres advisory lock for the key while fn runs; fn's own queries go through the pool — the lock alone orders the callers).
-// 「문서로 남기기」 twice, 「프로젝트로 시작」 twice, 「만들기」 from two screens: the second sees what the first did.
-const queues = new Map()
-export function exclusive(key, fn) {
-  const prev = queues.get(key) || Promise.resolve()
-  const run = prev.catch(() => {}).then(async () => {
-    const c = await pool.connect()
-    try {
-      await c.query('begin')
-      await c.query('select pg_advisory_xact_lock(hashtext($1))', [key])
-      const out = await fn()
-      await c.query('commit')
-      return out
-    } catch (e) { await c.query('rollback').catch(() => {}); throw e } finally { c.release() }
-  })
-  const tail = run.catch(() => {})
-  queues.set(key, tail)
-  tail.then(() => { if (queues.get(key) === tail) queues.delete(key) })
-  return run
+// A claim on a row in one statement (PR #118 review 2: a transaction holding an advisory lock while its work went through the same pool froze the
+// server at ten callers): an UPDATE … WHERE <free> — two at once serialize on the row and the second sees the first's claim. No connection is
+// held while the work (a storage upload) runs.
+export const CLAIM_STALE_S = 60
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms))
+const token = () => (globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`)
+export const newToken = token
+// waits for what another caller is making: until got() answers, or the claim is gone (free() — then the caller tries again)
+export async function waitFor(got, { ms = 30_000, every = 150 } = {}) {
+  const end = Date.now() + ms
+  for (;;) {
+    const v = await got()
+    if (v) return v
+    if (Date.now() > end) return null
+    await sleep(every)
+  }
 }
 // the conversation of the main chat (or the sub-topic of a project) a message belongs to: the one its turn went to (content.conv), else the
 // context router's (content.context — a scheduled run's or a brief's own, filed aside)
@@ -174,26 +170,43 @@ export async function shareToRoom(user, id, opts = {}, deps = {}) {
 // publish: the bytes into storage → {name, url} (lib/office.js publishBuffer; a test passes its own)
 export async function saveDoc(user, id, deps = {}) {
   const msg = await answerOf(user, id)
-  const existing = async () => {
-    const [row] = await q(`select content->'answerDoc'->>'messageId' as id from pro_messages where id=$1`, [msg.id])
-    if (!row?.id || !UUID.test(row.id)) return null
-    const [f] = await q(`select * from pro_messages where id=$1 and thread_id=$2 and kind='file'`, [row.id, msg.thread_id])
+  const current = async () => (await q(`select content->'answerDoc' as d from pro_messages where id=$1`, [msg.id]))[0]?.d || null
+  const cardOf = async (d) => {
+    if (!d?.messageId || !UUID.test(String(d.messageId))) return null
+    const [f] = await q(`select * from pro_messages where id=$1 and thread_id=$2 and kind='file'`, [d.messageId, msg.thread_id])
     return f || null
   }
-  const had = await existing()
-  if (had) return { message: had, existing: true }
-  // (one document per answer: two presses — two screens — make one card, the second gets the first's)
-  return exclusive(`answer-doc:${msg.id}`, async () => {
-    const again = await existing()
-    if (again) return { message: again, existing: true }
-    const publish = deps.publish || (await import('./office.js')).publishBuffer
-    const name = docName(msg)
-    const pub = await publish(user.id, name, Buffer.from(docBody(msg), 'utf8'))
-    // (the card goes where the answer is: its conversation of the main chat too — aside, so it never moves the one the chat is in)
-    const conv = convOfRow(msg)
-    const card = await addMessage(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
-      ...(conv ? { context: { conversationId: conv, action: 'aside' } } : {}) })
-    await setIn(user.id, msg.id, ['answerDoc'], { messageId: card.id, name: card.content.name, at: new Date().toISOString() })
-    return { message: card, existing: false }
-  })
+  for (let round = 0; round < 3; round++) {
+    const had = await cardOf(await current())
+    if (had) return { message: had, existing: true }
+    // (one document per answer: the first caller claims the answer's row — a claim nobody finished for a minute is free again)
+    const mine = token()
+    const [claimed] = await q(`update pro_messages set content = jsonb_set(content, '{answerDoc}', jsonb_build_object('pending', $2::text, 'at', now()))
+      where id=$1 and (not (content ? 'answerDoc') or (content->'answerDoc'->>'messageId' is null
+        and coalesce((content->'answerDoc'->>'at')::timestamptz, to_timestamp(0)) < now() - make_interval(secs => $3))) returning id`, [msg.id, mine, CLAIM_STALE_S])
+    if (!claimed) {
+      // another caller is making it: its card, once it is there
+      const got = await waitFor(async () => { const d = await current(); return (await cardOf(d)) || (!d || (!d.messageId && !d.pending) ? 'free' : null) })
+      if (got && got !== 'free') return { message: got, existing: true }
+      continue
+    }
+    try {
+      // (the upload runs with no connection held — outside any transaction)
+      const publish = deps.publish || (await import('./office.js')).publishBuffer
+      const name = docName(msg)
+      const pub = await publish(user.id, name, Buffer.from(docBody(msg), 'utf8'))
+      // (the card goes where the answer is: its conversation of the main chat too — aside, so it never moves the one the chat is in)
+      const conv = convOfRow(msg)
+      const card = await addMessage(user.id, msg.thread_id, 'agent', 'file', { name: pub.name || name, url: pub.url, type: 'text/markdown', fromAnswer: msg.id,
+        ...(conv ? { context: { conversationId: conv, action: 'aside' } } : {}) })
+      const [row] = await q(`update pro_messages set content = jsonb_set(content, '{answerDoc}', $3::jsonb) where id=$1 and content->'answerDoc'->>'pending' = $2 returning *`,
+        [msg.id, mine, JSON.stringify({ messageId: card.id, name: card.content.name, at: new Date().toISOString() })])
+      if (row) emit(user.id, 'message', row)
+      return { message: card, existing: false }
+    } catch (e) {
+      await q(`update pro_messages set content = content - 'answerDoc' where id=$1 and content->'answerDoc'->>'pending' = $2`, [msg.id, mine]).catch(() => {})
+      throw e
+    }
+  }
+  throw fail(409, L('문서를 남기고 있어요. 잠시 후 다시 해 주세요.', "It's being saved. Please try again in a moment."), 'busy')
 }

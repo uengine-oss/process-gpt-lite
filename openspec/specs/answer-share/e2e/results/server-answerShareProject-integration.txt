@@ -1,33 +1,42 @@
-✔ AP-U-01 순수: 제목 · 문서 이름 · 문서 글 · 방 순서 · 카드 모양 · 추천 · 판정이 읽는 템플릿 · 계획 (2.660458ms)
-✔ AP-U-01b 나가는 글: 작업 공간 · 호스트 경로와 서명된 · 저장소 주소는 이름만, 보통 웹 주소는 그대로 · 「## 」 머리 · 12,000자 (1.224459ms)
-✔ AP-U-02 방 고르기: 내 대화방 · 대화가 없는 팀원 · 남의 답 404 · 답이 아닌 메시지 400 (814.190417ms)
-✔ AP-U-03 방에 보내기 · 팀원에게 바로 · 거절(팀원이 아님 · 나 · 내가 없는 방 · 팀에서 빠진 사람) (667.684416ms)
-✔ AP-U-04 문서로 남기기: Markdown 파일 카드(한 번만) · 남의 답 404 (135.102ms)
-✔ AP-U-03b 비공개 주소가 든 답 · 잘린 답을 방에 보낸다 — 방 · 알림 · 고르는 화면에 주소 없음, 잘렸다고 · 팀에서 빠진 보낸 사람은 403(1:1 을 만들지 않음) (246.740958ms)
-✔ AP-U-04b 「문서로 남기기」 둘이 동시에 → 카드 하나 (122.044333ms)
-[chat-project] offer thread=79f8a807 via=button conv=conv-ap-1 templates=2 picks=folder-c3b921:0.82 by=logprob draft=true
-✔ AP-U-05 「프로젝트로 시작」 카드: 판정이 고른 템플릿만(까닭) · 실행 권한 없는 템플릿은 후보에도 없음 · 출처 메일 · 아직 아무것도 만들지 않음 (1930.413417ms)
-[chat-project] made thread=5840d48d template=folder-c3b921 doc=true from=79f8a807
-✔ AP-U-06 「만들기」(템플릿): 작업 공간 · 계획 · 첫 문서 · 「프로젝트로 옮겼어요」 · 원래 대화 그대로 · 두 번째 409 (381.284542ms)
-[chat-project] offer thread=79f8a807 via=button conv=conv-ap-1 templates=2 picks=folder-c3b921:0.82 by=logprob draft=true
-[chat-project] made thread=c542ca92 template=- doc=true from=79f8a807
-[chat-project] offer thread=79f8a807 via=button conv=conv-ap-1 templates=2 picks=folder-c3b921:0.82 by=logprob draft=true
-✔ AP-U-07 빈 프로젝트 · 「아니요」 · 실행 권한 없는 템플릿 403(프로젝트 안 생김) · 남의 카드 404 (578.930208ms)
-[chat-project] offer thread=79f8a807 via=button conv=conv-ap-1 templates=0 picks=- by=none draft=true
-✔ AP-U-08 템플릿이 하나도 없으면 판정 모델을 부르지 않고 추천도 없음 (37.889709ms)
-[chat-project] made thread=3f010087 template=- doc=false from=cc4c96c8
-✔ AP-U-07b 멈춘 「만들기」: 오래된 잡음은 이어받고(만든 프로젝트가 있으면 그것), 「아니요」도 되고, 템플릿 작업 공간을 못 만들면 프로젝트도 남지 않음 (648.079708ms)
-[chat-project] offer thread=3491404d via=words conv=conv-w1 templates=0 picks=- by=none draft=true
-[chat-project] offer thread=1ab92029 via=words conv=conv-a templates=0 picks=- by=none draft=true
-[chat-project] offer thread=1ab92029 via=words conv=conv-b templates=0 picks=- by=none draft=true
-✔ AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 이 대화의 답 · 좁혀 본 대화의 답과 줄만 · 카드는 대답처럼 따로 묶지 않음 (119.908333ms)
-✔ 경로: 서버와 화면이 같은 답 (1.217875ms)
-✔ 주소: 저장소 · 서명 · 토큰은 이름만(링크는 글자), 보통 웹 주소는 그대로 (1.515083ms)
-ℹ tests 15
+✔ AP-U-01 순수: 제목 · 문서 이름 · 문서 글 · 방 순서 · 카드 모양 · 추천 · 판정이 읽는 템플릿 · 계획 (2.795791ms)
+✔ AP-U-01b 나가는 글: 작업 공간 · 호스트 경로와 서명된 · 저장소 주소는 이름만, 보통 웹 주소는 그대로 · 「## 」 머리 · 12,000자 (1.419166ms)
+✔ AP-U-02 방 고르기: 내 대화방 · 대화가 없는 팀원 · 남의 답 404 · 답이 아닌 메시지 400 (796.360625ms)
+✔ AP-U-03 방에 보내기 · 팀원에게 바로 · 거절(팀원이 아님 · 나 · 내가 없는 방 · 팀에서 빠진 사람) (581.727167ms)
+✔ AP-U-04 문서로 남기기: Markdown 파일 카드(한 번만) · 남의 답 404 (97.564541ms)
+✔ AP-U-03b 비공개 주소가 든 답 · 잘린 답을 방에 보낸다 — 방 · 알림 · 고르는 화면에 주소 없음, 잘렸다고 · 팀에서 빠진 보낸 사람은 403(1:1 을 만들지 않음) (281.385625ms)
+✔ AP-U-04b 「문서로 남기기」 둘이 동시에 → 카드 하나 (199.54025ms)
+[chat-project] offer thread=6ef5c376 via=button conv=conv-ap-1 templates=2 picks=folder-d1eab8:0.82 by=logprob draft=true
+✔ AP-U-05 「프로젝트로 시작」 카드: 판정이 고른 템플릿만(까닭) · 실행 권한 없는 템플릿은 후보에도 없음 · 출처 메일 · 아직 아무것도 만들지 않음 (1349.042792ms)
+[chat-project] made thread=028b2bab template=folder-d1eab8 doc=true from=6ef5c376
+✔ AP-U-06 「만들기」(템플릿): 작업 공간 · 계획 · 첫 문서 · 「프로젝트로 옮겼어요」 · 원래 대화 그대로 · 두 번째 409 (272.52625ms)
+[chat-project] offer thread=6ef5c376 via=button conv=conv-ap-1 templates=2 picks=folder-d1eab8:0.82 by=logprob draft=true
+[chat-project] made thread=86db9291 template=- doc=true from=6ef5c376
+[chat-project] offer thread=6ef5c376 via=button conv=conv-ap-1 templates=2 picks=folder-d1eab8:0.82 by=logprob draft=true
+✔ AP-U-07 빈 프로젝트 · 「아니요」 · 실행 권한 없는 템플릿 403(프로젝트 안 생김) · 남의 카드 404 (409.9825ms)
+[chat-project] offer thread=6ef5c376 via=button conv=conv-ap-1 templates=0 picks=- by=none draft=true
+✔ AP-U-08 템플릿이 하나도 없으면 판정 모델을 부르지 않고 추천도 없음 (48.846583ms)
+[chat-project] made thread=d0197926 template=- doc=false from=35a5fd5b
+[chat-project] made thread=0199b4e9 template=- doc=false from=35a5fd5b (taken over)
+✔ AP-U-07b 멈춘 「만들기」: 오래된 잡음은 이어받고(만든 프로젝트가 있으면 그것), 「아니요」도 되고, 템플릿 작업 공간을 못 만들면 프로젝트도 남지 않음 (318.987917ms)
+[chat-project] offer thread=d94b2ddb via=words conv=conv-w1 templates=0 picks=- by=none draft=true
+[chat-project] offer thread=869bc5fc via=words conv=conv-a templates=0 picks=- by=none draft=true
+[chat-project] offer thread=869bc5fc via=words conv=conv-b templates=0 picks=- by=none draft=true
+[chat-project] offer thread=c770b2be via=words conv=conv-w3 templates=0 picks=- by=none draft=true
+✔ AP-U-09 말로: 다른 대화의 더 새 답(예약 실행)이 아니라 이 대화의 답 · 좁혀 본 대화의 답과 줄만 · 카드는 대답처럼 따로 묶지 않음 (83.158333ms)
+[chat-project] offer thread=4cf1a7ff via=button conv=conv-12 templates=3 picks=folder-d1eab8:0.82 by=logprob draft=true
+✔ AP-U-10 12개가 동시에 「문서로 남기기」 · 「프로젝트로 시작」 → 문서 하나 · 카드 하나, 그 뒤 데이터베이스가 바로 답함 (297.736125ms)
+[chat-project] made thread=35eb716d template=- doc=false from=c19ea158
+[chat-project] made thread=55aacace template=- doc=false from=c19ea158 (taken over)
+✔ AP-U-07c 느린 「만들기」와 그 사이 이어받기 → 프로젝트는 하나(만든 뒤 가리키기 전에 멈춤 · 가리킨 뒤에 멈춤), 남은 단계는 한 번씩 (4343.829084ms)
+✔ 메인 채팅: 서버와 화면이 같은 답 — 따로 묶인 것 · 「stay」 · 카드 · 옛 실행 · 브리프 · 답이 아직 없는 말 (1.440958ms)
+✔ 프로젝트 주제: 서버와 화면이 같은 답 (0.157334ms)
+✔ 경로: 서버와 화면이 같은 답 (1.493ms)
+✔ 주소: 저장소 · 서명 · 토큰은 이름만(링크는 글자), 보통 웹 주소는 그대로 (2.341584ms)
+ℹ tests 19
 ℹ suites 0
-ℹ pass 15
+ℹ pass 19
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 6454.309417
+ℹ duration_ms 64787.946416
