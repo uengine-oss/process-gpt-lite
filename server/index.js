@@ -758,7 +758,7 @@ app.get('/api/threads/:id/messages', auth, async (req, res) => {
 })
 // A file attached in chat (raw body, name in X-File-Name): saved where the agent can read it and
 // in storage for the card and the editor.
-app.post('/api/attachments', express.raw({ type: () => true, limit: '50mb' }), auth, async (req, res) => {
+app.post('/api/attachments', auth, express.raw({ type: () => true, limit: '50mb' }), async (req, res) => {
   try {
     res.json(await saveAttachment(req.user, decodeURIComponent(req.headers['x-file-name'] || 'file'), req.headers['content-type'], req.body, { pages: true }))
   } catch (e) { res.status(e.status || 500).json({ error: e.message }) }
@@ -1364,6 +1364,9 @@ const server = app.listen(config.port, async () => {
   // agent steps stopped by a passing error are queued again (lib/stepRetry.js)
   startStepRetry()
 })
+// how long one request may take to arrive whole (Node's own default is five minutes): an upload of 200 MB on a slow line takes longer.
+// A folder going up request by request gives up on its own when a body stops coming (lib/folders/batchBody.js, 30 s).
+server.requestTimeout = 15 * 60 * 1000
 
 // terminals in the agent workroom (websocket upgrade on /api/workroom/term)
 workroom.attachTerminal(server)
