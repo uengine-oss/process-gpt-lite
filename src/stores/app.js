@@ -70,6 +70,8 @@ export const useApp = defineStore('app', {
     // threadId -> {turnId -> the turn as it runs}: plan, stage, to-dos, steps, notes (server lib/turnPlan.js; TurnPlanCard · TurnProgress)
     turns: {},
     turnPanel: null,           // the turn whose progress panel is open (its id), or null
+    planOpen: null,            // the project whose plan sheet is open (its thread id — ProjectNote.vue, a change chip's 「계획 보기」), or null
+    planTick: {},              // threadId -> bumps when the project's plan changed (server event projectNote)
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
     mailCardFrom: null,        // where that sheet was opened: home | chat | instance | inbox (the sheet's 「Home 카드로」 is for the others)
@@ -316,6 +318,8 @@ export const useApp = defineStore('app', {
             if (ed && !CRAFT_APPS.has(ed)) { this.setOfficeDoc(officeDocOf(d.id, d.content)); delete this.askedAt[d.thread_id] }
           }
         }
+      } else if (type === 'projectNote') {
+        this.planTick = { ...this.planTick, [d.threadId]: (this.planTick[d.threadId] || 0) + 1 }
       } else if (type === 'thread') {
         // (merged: a status-only event carries no folder, the thread keeps the one it has)
         if (d.id === this.mainThread?.id) this.mainThread = { ...this.mainThread, ...d }

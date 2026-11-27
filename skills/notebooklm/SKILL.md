@@ -3,6 +3,7 @@ name: notebooklm
 description: Google NotebookLM(노트북 LM, Gemini Notebook) 웹사이트에서 링크·유튜브 영상·파일을 소스로 넣어 슬라이드 자료와 오디오 오버뷰(팟캐스트)를 만들고 파일로 받아 온다. 사람이 NotebookLM 으로 슬라이드나 팟캐스트를 만들어 달라고 할 때 서버 브라우저에서 쓴다.
 metadata:
   runs_in: browser
+  label: NotebookLM
   start_url: https://notebook.google.com/
   sign_in: accounts.google.com
 ---
