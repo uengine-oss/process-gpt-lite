@@ -202,15 +202,17 @@ watch(phone, (p) => { app.docSide = side.value && !p })
 onBeforeUnmount(() => { document.body.classList.remove('craft-side', 'doc-side'); app.docSide = false; if (craft.value || office.value) app.dockOpen = dockWas })
 
 // a panel app's spreadsheet (lib/panelApps): the saved copy becomes the folder's file. In the sheet's chain of saves (savedChain): closing
-// waits for it, and one that did not go through is said and tried again (panelFail — saveLanded); d0: the sheet the save was made in —
-// only that sheet, while it is open, follows the new version (closed or replaced meanwhile, nothing is put back on the screen)
-let panelFail = null // {url, why, appId}
-async function savedPanelSheet(url, d0) {
-  const here = () => !!app.officeDoc && app.officeDoc.panelAppId === d0.panelAppId
+// waits for it, and one that did not go through is said and tried again, in this opening only and on the version it was made from
+// (panelFail.sha — a version that moved meanwhile is refused by the server, not overwritten); d0: the sheet the save was made in — only
+// that opening, while it is open, follows the new version (closed or replaced meanwhile, nothing is put back on the screen)
+let panelFail = null // {url, why, sha, opening}
+async function savedPanelSheet(url, d0, base = null) {
+  const here = () => !!app.officeDoc && app.officeDoc.opening === d0.opening
   const d = here() ? app.officeDoc : d0
+  const sha = base ?? d.sha
   try {
-    const r = await api(`/panel-apps/${d.panelAppId}/sheet-saved`, { method: 'POST', body: { url, sha: d.sha } })
-    panelFail = null
+    const r = await api(`/panel-apps/${d.panelAppId}/sheet-saved`, { method: 'POST', body: { url, sha } })
+    if (panelFail?.opening === d0.opening) panelFail = null
     if (!here()) return
     app.officeDoc = { ...app.officeDoc, url, sha: r.sha }
     // a db/event app applies what this person may change and says what it refused
@@ -218,7 +220,7 @@ async function savedPanelSheet(url, d0) {
     const head = r.changed || !no.length ? `'${d.title}' 패널에 반영했어요${r.changed ? ` · ${r.changed}건` : ''}` : `'${d.title}'에 반영할 새 기록이 없어요`
     flash(no.length ? 'err' : 'ok', `${head}${no.length ? ` · 거절 ${no.length}건: ${no[0].row} — ${no[0].reason}` : ''}`)
   } catch (e) {
-    panelFail = { url, why: e.message || '', appId: d.panelAppId }
+    if (here()) panelFail = { url, why: e.message || '', sha, opening: d0.opening }
     if (here()) flash('err', `'${d.title}' 패널에 반영하지 못했어요: ${e.message}`, 8000)
   }
 }
@@ -239,7 +241,9 @@ let closeArmed = false
 let sessionUrl = ''
 // a 「다른 이름으로 저장」 under way (one at a time)
 let savingAs = false
-watch(() => app.officeDoc?.msgId, () => { session = newSession(); lastFail = null; cardFail = null; closeArmed = false; sessionUrl = '' })
+// what belongs to one opening (app.setOfficeDoc gives each its own `opening`): a new one starts clean — a failure, a 「한 번 더 닫으면」, the
+// session of the one before never carry over (review #107: a panel save that failed was replayed into the next opening)
+watch(() => app.officeDoc?.opening, () => { session = newSession(); lastFail = null; lastFailWhy = ''; cardFail = null; panelFail = null; closeArmed = false; sessionUrl = '' })
 // A mail's attachment opened from its own private copy (src/mailAttach.js — not a folder's: that one is the folder's file above): its first
 // save becomes my own private file card in my chat (server lib/mailAttachments.js saved), later saves keep that card on the newest copy.
 // No address is ever put on it — the sheet keeps the signed one it opened with.
@@ -251,7 +255,7 @@ async function savedMailAtt(job) {
   try {
     const r = await api(`/mail/attachments/${encodeURIComponent(att.actionId)}/${att.i}/saved`, { method: 'POST', body: { session: job.sid } })
     cardFail = null
-    if (app.officeDoc === d) app.officeDoc = { ...d, msgId: r.message.id }
+    if (app.officeDoc?.opening === d?.opening) app.officeDoc = { ...app.officeDoc, msgId: r.message.id }
     flash('ok', '편집본을 내 채팅에 파일로 저장했어요 · 나만 볼 수 있어요', 6000)
   } catch (e) { cardFail = { job, why: e.message, mail: true, key: docKey(d) }; flash('err', `편집본을 저장하지 못했어요: ${e.message}`, 8000) }
 }
@@ -269,7 +273,7 @@ function saved({ url, name, copy = false }) {
     return savedChain
   }
   if (!url || !app.officeDoc?.msgId) return
-  const job = { id: app.officeDoc.msgId, url, name, sid: session }
+  const job = { id: app.officeDoc.msgId, url, name, sid: session, opening: app.officeDoc.opening }
   savedChain = savedChain.then(() => postSave(job))
   return savedChain
 }
@@ -277,7 +281,8 @@ async function postSave(job) {
   const m = await api(`/messages/${job.id}/file`, { method: 'POST', body: { url: job.url, name: job.name, session: job.sid } }).catch((e) => ({ error: e.message }))
   const fs = m?.content?.folder_save
   const failed = m?.error != null ? m.error : fs && !fs.ok ? fs.error || '' : null
-  const here = app.officeDoc?.msgId === job.id
+  // (this opening's: a save of a document closed — or opened again — meanwhile is not this one's)
+  const here = app.officeDoc?.msgId === job.id && (!job.opening || app.officeDoc.opening === job.opening)
   lastFail = failed != null && (here ? app.officeDoc.folder : true) ? job : null
   lastFailWhy = lastFail ? failed || '' : ''
   // a chat's card (mine, private or not) that did not take the save: it still opens the version before — said, and tried again
@@ -323,8 +328,7 @@ async function leaveUnsaved(f) {
 async function leave() {
   if (closeArmed) return true
   const f = officeFrame.value
-  // (the editor's own 저장 switched off says there is nothing to save — an undone edit, a search typed)
-  if (office.value && !autoSave.value && !pic.value && f?.ask && !f.syncClean?.() && (f.edited || f.agentEdits || f.saving)) return leaveUnsaved(f)
+  if (office.value && !autoSave.value && !pic.value && f?.ask && (f.saving || f.dirty?.())) return leaveUnsaved(f)
   // a document the person saves, with nothing new to ask about: a save of it that has not landed yet (the card, the panel) is waited for
   // and tried again — still not landed, the sheet stays open once and says so
   if (office.value && !autoSave.value && !pic.value) {
@@ -336,7 +340,7 @@ async function leave() {
     return false
   }
   let r = { clean: true }
-  if (autoSave.value && !pic.value && f?.flush && (f.edited || f.saving)) {
+  if (autoSave.value && !pic.value && f?.flush && (f.saving || f.dirty?.())) {
     flash('info', '닫기 전에 저장하는 중…', 25000)
     r = await f.flush(20000)
   }
@@ -357,10 +361,10 @@ async function saveLanded() {
   // (only this document's: a save of a document closed meanwhile is the close's business)
   const mine = () => lastFail && lastFail.id === app.officeDoc?.msgId
   const card = () => (cardFail && cardFail.key === docKey(app.officeDoc) ? cardFail : null)
-  const panel = () => (panelFail && app.officeDoc?.panelAppId && panelFail.appId === app.officeDoc.panelAppId ? panelFail : null)
+  const panel = () => (panelFail && app.officeDoc && panelFail.opening === app.officeDoc.opening ? panelFail : null)
   if (mine()) { const job = lastFail; savedChain = savedChain.then(() => postSave(job)); await savedChain }
   if (card()) { const f = cardFail; savedChain = savedChain.then(() => (f.mail ? savedMailAtt(f.job) : postSave(f.job))); await savedChain }
-  if (panel()) { const p = panelFail, d = app.officeDoc; savedChain = savedChain.then(() => savedPanelSheet(p.url, d)); await savedChain }
+  if (panel()) { const p = panelFail, d = app.officeDoc; savedChain = savedChain.then(() => savedPanelSheet(p.url, d, p.sha)); await savedChain }
   if (mine()) return { ok: false, why: lastFailWhy || '폴더에 저장하지 못했어요' }
   if (card()) return { ok: false, why: card().why || '편집본을 저장하지 못했어요' }
   if (panel()) return { ok: false, why: `'${app.officeDoc.title || '패널'}' 패널에 반영하지 못했어요${panel().why ? ` (${panel().why})` : ''}` }
@@ -378,40 +382,44 @@ async function saveAs() {
   const f = officeFrame.value
   const d = app.officeDoc
   if (!f || !d?.msgId || !canSaveAs.value || savingAs) return
+  const a = await f.ask({ title: '다른 이름으로 저장', text: '지금 내용을 이 대화에 새 파일로 저장해요. 지금 파일은 마지막으로 저장한 그대로 남아요.', input: saveAsSuggestion(d.name, { english: isEnglish }),
+    buttons: [{ id: 'save', label: '저장', kind: 'primary' }, { id: 'cancel', label: '취소' }], cancel: 'cancel' })
+  if (a.id !== 'save') return
+  const name = saveAsName(a.value, d.name)
+  if (!name) return flash('err', '파일 이름을 적어 주세요', 5000)
+  return saveAsTo(d, name)
+}
+// the document as it is now → a new card named `name` (also 다시 시도 of one that did not get through: the same name again)
+async function saveAsTo(d, name) {
+  const f = officeFrame.value
+  if (!f || savingAs || app.officeDoc?.opening !== d.opening) return
+  if (f.gone) return flash('err', '편집기와 연결이 끊겨 지금은 저장할 수 없어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요.', 8000)
   savingAs = true
+  const failed = (why) => { note.value = null; f.markFailed(`다른 이름으로 저장하지 못했어요${why ? ` — ${why}` : ''}`, { retry: () => saveAsTo(d, name) }) }
   try {
-    const a = await f.ask({ title: '다른 이름으로 저장', text: '지금 내용을 이 대화에 새 파일로 저장해요. 지금 파일은 마지막으로 저장한 그대로 남아요.', input: saveAsSuggestion(d.name, { english: isEnglish }),
-      buttons: [{ id: 'save', label: '저장', kind: 'primary' }, { id: 'cancel', label: '취소' }], cancel: 'cancel' })
-    if (a.id !== 'save') return
-    const name = saveAsName(a.value, d.name)
-    if (!name) return flash('err', '파일 이름을 적어 주세요', 5000)
-    if (f.gone) return flash('err', '편집기와 연결이 끊겨 지금은 저장할 수 없어요 — 고친 내용을 복사해 두고 「다시 열기」를 눌러 주세요.', 8000)
     flash('info', `「${name}」 이름으로 저장 중…`, 30000)
     await f.whenIdle()
     await savedChain
-    if (app.officeDoc?.msgId !== d.msgId) return
+    if (app.officeDoc?.opening !== d.opening) return
     // the card stands on this opening's copy, which the editor is about to write the new name's content into: the card keeps a copy of its own
     if (sessionUrl && app.officeDoc.url === sessionUrl) await api(`/messages/${encodeURIComponent(d.msgId)}/keep-version`, { method: 'POST' })
+    // what is copied: the editor's copy of the content now — saved for this (a copy: the card does not move), or, with nothing new since
+    // the editor's last save, that save's copy when the card did not take it; else the card's own version (url null)
     let url = null
-    if (f.edited || f.agentEdits) {
+    if (f.dirty()) {
       const r = await f.saveNow(SAVE_WAIT_MS, { any: true, copy: true })
-      if (!r.saved) {
-        note.value = null
-        const why = r.timeout ? `편집기가 ${Math.round(SAVE_WAIT_MS / 1000)}초 안에 저장을 마치지 못했어요` : r.error || ''
-        return f.markFailed(`다른 이름으로 저장하지 못했어요${why ? ` — ${why}` : ''}`)
-      }
+      if (!r.saved) return failed(r.timeout ? `편집기가 ${Math.round(SAVE_WAIT_MS / 1000)}초 안에 저장을 마치지 못했어요` : r.error || '')
       // (an earlier save of this card that did not land pointed at the same copy, which now holds this content: not retried onto the card —
       // the edits stay unsaved here, and closing asks)
       if (r.url && cardFail?.job?.url === r.url) cardFail = null
-      // (the editor's 저장 switched off: nothing new since its last save — the card's own version is the content)
-      if (!r.clean) {
-        if (!r.url) { note.value = null; return f.markFailed('다른 이름으로 저장하지 못했어요 — 편집본을 찾지 못했어요') }
-        url = r.url
-      }
+      url = r.url || null
+      if (!url && !r.clean) return failed('편집본을 찾지 못했어요')
     }
+    const last = f.lastSaved?.() || ''
+    if (!url && last && (cardFail || app.officeDoc.url !== last)) url = last
     await postSaveAs(d, { url, name })
   } catch (e) {
-    flash('err', `다른 이름으로 저장하지 못했어요: ${e.message}`, 8000)
+    failed(e.message)
   } finally { savingAs = false }
 }
 // the copy becomes the new card, which opens; when it does not, the bar says so and 다시 시도 posts the same copy again
@@ -419,12 +427,13 @@ async function postSaveAs(d, { url, name }) {
   const f = officeFrame.value
   try {
     const m = await api(`/messages/${encodeURIComponent(d.msgId)}/save-as`, { method: 'POST', body: { url, name, conversationId: app.convOf?.[d.msgId] || null } })
-    if (app.officeDoc?.msgId !== d.msgId) return
-    app.officeDoc = officeDocOf(m.id, m.content)
+    if (app.officeDoc?.opening !== d.opening) return
+    // (a new opening of the new card: this one's edits are in it)
+    app.officeDoc = { ...officeDocOf(m.id, m.content), opening: newSession() }
     flash('ok', `「${name}」 이름으로 저장했어요 · 이 대화에 새 파일로 남았어요`, 6000)
   } catch (e) {
     note.value = null
-    if (app.officeDoc?.msgId === d.msgId) f?.markFailed(`다른 이름으로 저장하지 못했어요 — ${e.message}`, { retry: () => postSaveAs(d, { url, name }) })
+    if (app.officeDoc?.opening === d.opening) f?.markFailed(`다른 이름으로 저장하지 못했어요 — ${e.message}`, { retry: () => postSaveAs(d, { url, name }) })
   }
 }
 // what 「내려받기」 saves, once the saves in flight are through: a folder's document from the folder's main (a save commits to it; a failed

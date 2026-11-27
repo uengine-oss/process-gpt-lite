@@ -20,6 +20,8 @@ const BUCKET = 'files'
 const MAX = 50 * 1024 * 1024
 const fail = (status, message) => Object.assign(new Error(message), { status })
 const dirOf = (key) => String(key).replace(/[^/]*$/, '')
+// a stored object by its address — on this server's storage address or the one the office host hands out (config.supabasePublicUrl)
+const storageObject = (url) => objectOfUrl(url) || (config.supabasePublicUrl ? objectOfUrl(url, config.supabasePublicUrl) : null)
 const baseOf = (key) => String(key).split('/').pop()
 const publicUrl = (key) => `${config.supabaseUrl}/storage/v1/object/public/${BUCKET}/${key.split('/').map(encodeURIComponent).join('/')}`
 // the editor's edited copy of a stored object: edited-<stem>_<yyyymmddhhmmss>.<ext> (office host documents.mjs editedObjectPath)
@@ -39,7 +41,7 @@ export function copyName(name, original) {
 
 // where a card's own copies are: bucket + folder of its address and of the versions it stood on
 function cardDirs(c) {
-  return new Set([c?.url, ...(Array.isArray(c?.versions) ? c.versions : [])].map((u) => objectOfUrl(u)).filter(Boolean).map((o) => `${o.bucket}/${dirOf(o.key)}`))
+  return new Set([c?.url, ...(Array.isArray(c?.versions) ? c.versions : [])].map((u) => storageObject(u)).filter(Boolean).map((o) => `${o.bucket}/${dirOf(o.key)}`))
 }
 
 /**
@@ -47,7 +49,7 @@ function cardDirs(c) {
  * card's own file (or a version it stood on), or a file of this person's own (an ArtCraft app's save goes up as their attachment).
  */
 export function savedCopyOk(user, card, url) {
-  const o = objectOfUrl(url)
+  const o = storageObject(url)
   if (!o) return false
   if (own(user, o)) return true
   return EDITED.test(baseOf(o.key)) && cardDirs(card?.content).has(`${o.bucket}/${dirOf(o.key)}`)
@@ -60,7 +62,7 @@ async function plainCard(user, id) {
   const c = m.content || {}
   const no = () => fail(400, L('이 파일은 여기서 다른 이름으로 저장할 수 없어요.', "This file can't be saved under another name here."))
   if (c.private || c.folder?.slug || c.branch) throw no()
-  const o = objectOfUrl(c.url)
+  const o = storageObject(c.url)
   if (!o || o.bucket !== BUCKET) throw no()
   // (the format the card says it is, and the file it stands on)
   const ext = extOf(c.name || '')
@@ -111,7 +113,7 @@ export async function saveCardAs(user, id, { url, name, conversationId } = {}) {
   const { m, c, o, ext } = await plainCard(user, id)
   const n = copyName(name, c.name)
   if (!n) throw fail(400, L(`같은 형식(.${ext})의 파일 이름을 적어 주세요.`, `Give it a file name of the same format (.${ext}).`))
-  const src = url ? objectOfUrl(url) : o
+  const src = url ? storageObject(url) : o
   if (!src || src.bucket !== BUCKET || extOf(src.key) !== ext || (url && !savedCopyOk(user, m, url))) throw fail(400, L('저장한 편집본을 찾지 못했어요.', "I couldn't find the saved copy."))
   const key = await copyToOwn(user, src.key, ext)
   const conv = conversationId && (await ownsConversation(user.id, conversationId)) ? { conversationId: String(conversationId) } : null

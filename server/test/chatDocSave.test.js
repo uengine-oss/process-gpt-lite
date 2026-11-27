@@ -212,6 +212,17 @@ test('카드의 저장(POST /api/messages/:id/file)이 받는 주소: 카드 옆
   // a file of mine (an ArtCraft app's save goes up as my attachment)
   assert.equal(C.savedCopyOk(me, c, url(`pgpt-pro/${me.id}/att/${crypto.randomUUID()}.docx`)), true)
   assert.equal(C.savedCopyOk(me, c, url(`pgpt-pro/${me.id}/../${other.id}/att/x.docx`)), false)
+  // the address the office host hands out for its own documents, when it is another one (PRO_SUPABASE_PUBLIC_URL): the same object
+  const pub = 'https://files.example.test'
+  const onPub = (k) => `${pub}/storage/v1/object/public/files/${k}`
+  const agentDoc = { content: { name: '안내문.docx', url: onPub(`agent-docs/${id}.docx`), versions: [] } }
+  assert.equal(C.savedCopyOk(me, agentDoc, onPub(`agent-docs/edited-${id}_20261127110000.docx`)), false)
+  config.supabasePublicUrl = pub
+  try {
+    assert.equal(C.savedCopyOk(me, agentDoc, onPub(`agent-docs/edited-${id}_20261127110000.docx`)), true)
+    assert.equal(C.savedCopyOk(me, agentDoc, onPub(`agent-docs/${crypto.randomUUID()}.docx`)), false)
+    assert.equal(C.savedCopyOk(me, agentDoc, `https://elsewhere.example.test/storage/v1/object/public/files/agent-docs/edited-${id}_20261127110000.docx`), false)
+  } finally { config.supabasePublicUrl = '' }
 })
 
 test('거절: 다른 형식의 이름 · 카드 옆이 아닌 사본 · 남의 카드 · 폴더 · 비공개 · 받은 공유 · 형식이 다른 원본', { skip: !store && '로컬 Supabase 없음' }, async () => {

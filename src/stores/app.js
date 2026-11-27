@@ -51,6 +51,9 @@ export function officeDocOf(msgId, c) {
   return { msgId, url: c.url, name: c.name, ...(folder ? { folder, readOnly: folder.editable !== true } : {}), ...(c?.private ? { private: true } : {}), ...(c?.branch ? { branch: true } : {}) }
 }
 
+// one opening of a document in the office sheet (setOfficeDoc)
+const newOpening = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+
 // an attachment's upload, to stop it (not in the store's state: an AbortController is no data to watch)
 const abortOf = new Map()
 
@@ -188,7 +191,8 @@ export const useApp = defineStore('app', {
         const ok = await Promise.resolve(officeLeave()).catch(() => true)
         if (!ok) return false
       }
-      this.officeDoc = doc
+      // (each opening its own: what the sheet keeps about one — a failed save, a 「한 번 더 닫으면」 — ends with it, OfficeSheet)
+      this.officeDoc = doc ? { ...doc, opening: newOpening() } : null
       return true
     },
     async boot() {

@@ -62,6 +62,10 @@ export function saveAsHideCss({ saveAs = false } = {}) {
   return `${sel.join(', ')} { display: none !important; }`
 }
 
+// The editors' own controls around the document (IeumOffice: the ribbon and its quick-access row, the search panel, the status bar; the
+// 한글 studio: its style bar, menu and status bar; any toolbar or dialog)
+export const EDITOR_CHROME = '.ribbon, .ribbon-tabs, .ribbon-collapsible, .find-panel, .status-bar, #status-bar, #style-bar, .md-menu, [role="toolbar"], [role="dialog"], [role="menu"]'
+
 // press 저장 in the editor; false when the frame is not there. force: also when the editor's button says there is nothing to save
 // (a retry after the editor's upload failed — the editor took that save as done): its own ⌘S writes the file again.
 export function pressSave(frame, { force = false } = {}) {
@@ -85,7 +89,8 @@ export function pressSave(frame, { force = false } = {}) {
 // hooks.onSave: the person pressed the editor's 저장 (its button or ⌘S); hooks.onSaveAs: its 「다른 이름으로 저장」 — a press on the
 // control, or ⌘⇧S, is taken here (the 한글 studio's own handler, on its text box, never sees it; the text editor's, on its window,
 // sees ⌘⇧S first and does nothing with it in the web host); hooks.onDoc(doc): each page watched (the 한글 studio's comes later).
-// What is typed in the editor's own fields (<input>: its search box, font size, zoom) is not an edit of the document.
+// What is typed in the editor's own controls (its ribbon, search box, status bar, the 한글 studio's style bar — EDITOR_CHROME) is not an
+// edit of the document; a field of the document itself (a form field on a 한글 page, a spreadsheet's formula bar) is.
 export function watchEdits(frame, onEdit, hooks = {}) {
   const offs = []
   const seen = new WeakSet()
@@ -103,7 +108,7 @@ export function watchEdits(frame, onEdit, hooks = {}) {
     seen.add(doc)
     let down = null
     const on = (type, fn) => { doc.addEventListener(type, fn, true); offs.push(() => doc.removeEventListener(type, fn, true)) }
-    const field = (e) => /^(INPUT|SELECT)$/.test(e.target?.tagName || '')
+    const field = (e) => !!e.target?.closest?.(EDITOR_CHROME)
     for (const t of ['input', 'paste', 'cut', 'drop', 'compositionend']) on(t, (e) => { if (!field(e)) onEdit(t) })
     on('keydown', (e) => {
       if (editingKey(e)) return field(e) ? undefined : onEdit('key')

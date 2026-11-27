@@ -91,6 +91,9 @@ cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright t
 | 패널 앱의 시트를 고친 채 닫는다 | F-CS-09(시험용 시트 편집기) |
 | 편집기는 저장됐다고 여기는데 올리기에 실패했다 | F-CS-11(고친 호스트 `RT_FIXED_HOST_DIR`, 저장소 앞에 한 번 거절하는 중계) · office host `host/documents.test.mjs` |
 | Shift+→ 다섯 번과 Shift+End · Shift+클릭 | F-CS-12 — 고치기 전(운영 이미지 그대로, Lite 의 CSS 없이)에는 「그 줄에서 고른 것과 안 고른 것이 같아 보임」으로 실패 |
+| 시트의 칸을 치고 ↓ 나 다른 칸 누르기로 마친 뒤 닫는다 | F-CS-13(시험용 시트 편집기 — 칸을 치는 동안 저장 단추가 꺼져 있는 IeumOffice 시트처럼, 1차 검토판에서는 실패) · F-CS-16(실제 엑셀 편집기, `RT_REAL_SHEETS=1`) |
+| 시트의 칸을 치고 ↓ 로 마친다(폴더 자동 저장) | F-CS-14 |
+| 반영하지 못한 시트를 닫고 다시 연다 | F-CS-09 뒷부분 |
 
 `results/` (채팅의 문서):
 - `chat-doc-save-server.txt` · `chat-doc-save-e2e.txt`: 서버 · 화면 시험 출력.
@@ -104,3 +107,4 @@ cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright t
 - `f-cs-10-save-as-failed.png`: 「다른 이름으로 저장」의 새 카드를 만들지 못함 — 막대 「저장하지 못했어요 · 다시 시도」.
 - `f-cs-11-real-upload-failed.png`: 실제로 올리기에 실패한 저장(편집기 단추는 꺼짐).
 - `f-cs-12-shift-selection.png`: Shift+End 로 고른 첫 줄이 그 줄에서도 보임.
+- `f-cs-16-real-sheet-committed.png`: 실제 엑셀 편집기 — 칸을 치고 ↓ 로 마친 뒤(막대 「저장 안 됨」).

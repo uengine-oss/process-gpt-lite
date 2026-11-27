@@ -16,6 +16,12 @@
 //   F-CS-09 패널 앱의 시트(시험용 시트 편집기): 저장하고 닫기 → 패널 반영이 실패하면 닫지 않고 까닭, 다시 닫으면 반영한 뒤 닫히고 다시 열리지 않음
 //   F-CS-10 「다른 이름으로 저장」의 새 카드가 만들어지지 않으면: 막대 「저장하지 못했어요 · 다시 시도」, 원래 카드 그대로, 닫으면 묻고, 다시 시도는 같은 편집본으로
 //   F-CS-11 (고친 호스트 RT_FIXED_HOST_DIR) 실제로 올리기에 실패한 저장: 편집기는 저장됐다고 여기고 단추가 꺼지지만, 다시 시도(⌘S)로 다시 올라감
+//   F-CS-12 PC 의 텍스트 편집기: Shift+→ · Shift+End · Shift+클릭으로 캐럿부터 고르고 그 줄에서도 보임, 치면 바뀜
+//   F-CS-13 시트(시험용 편집기 — 칸을 치는 동안 저장 꺼짐)의 칸을 치고 ↓ · 다른 칸 누르기로 마친 뒤 닫으면 묻는다
+//   F-CS-14 공유 폴더의 시트: 칸을 치고 ↓ 로 마치면 손을 멈춘 뒤 저절로 편집기의 저장을 누른다
+//   F-CS-15 「다른 이름으로 저장」에서 편집기가 답하지 않으면 다시 시도는 같은 이름으로 다시(원래 카드에 쓰지 않음)
+//   F-CS-16 (RT_REAL_SHEETS=1) 실제 엑셀 편집기: 칸을 치고 ↓ 로 마친 뒤 닫으면 묻는다
+//   (F-CS-09 안에서) 패널 반영 실패는 그 열기의 것만 — 다시 연 시트를 닫아도 옛 사본을 다시 보내지 않고, 고쳤으면 묻는다
 // 자기 스택(lib/localStack.js — 회사 chat-save, BFF 8983 · Vite 5383 부터 빈 포트), 실제 이음오피스 편집기: RT_OFFICE_HOST_URL(운영 이미지 컨테이너,
 // 스펙 e2e/README) 또는 빌드된 호스트(lib/officeHost.js, 5403 부터). 모델 · deepagents 는 부르지 않는다. 사람은 지어낸 이름(정하윤 · 김서연).
 //   cd e2e && RT_OFFICE_HOST_URL=http://127.0.0.1:5403 RT_WORKERS=1 npx playwright test --project=feature tests/feature/chat-doc-save.spec.js
@@ -42,11 +48,21 @@ const DRAFT = '김서연 님께\n\n요청하신 일정 확인했습니다.\n\n1.
 const FOLDERS = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-chat-save-folders-'))
 process.env.PRO_FOLDERS_ROOT = FOLDERS
 process.env.PRO_TENANT_ID = TENANT
-// a spreadsheet editor stand-in (as file-download.spec.js): its 저장 says it saved the copy the test hands it (window.__saveUrl)
+// A spreadsheet editor stand-in that keeps a cell's text to itself while the cell is being typed in, as IeumOffice's does (its 저장 is
+// `disabled={!canSave}`, canSave counting committed edits only — apps/sheets App.tsx): 저장 stays off while typing, and comes on when
+// the cell is left (↓, a click elsewhere, focus leaving the page). 저장 says it saved the copy the test hands it (window.__saveUrl) and
+// counts its presses (window.__saveClicks); window.__answer = false: it says nothing.
 const SHEETS_STUB = `<!doctype html><html><head><meta charset="utf-8"><title>시트 편집기(시험용)</title></head><body style="margin:0;font:14px sans-serif">
-<div id="root"><div class="ribbon-tabs" style="padding:8px"><button class="qa-btn" aria-label="저장 (⌘S)">저장</button></div>
-<div id="cell" contenteditable="true" style="margin:12px;padding:8px;border:1px solid #bbb">사용일수 3</div></div>
-<script>const q=new URLSearchParams(location.search);document.querySelector('.qa-btn').addEventListener('click',()=>{const url=window.__saveUrl||q.get('src');
+<div id="root"><div class="ribbon-tabs" style="padding:8px"><button class="qa-btn" aria-label="저장 (⌘S)" disabled>저장</button></div>
+<div id="cell" contenteditable="true" style="margin:12px;padding:8px;border:1px solid #bbb">사용일수 3</div>
+<div id="other" tabindex="0" style="margin:12px;padding:8px;border:1px dashed #bbb">다른 칸</div></div>
+<script>const q=new URLSearchParams(location.search);const btn=document.querySelector('.qa-btn');const cell=document.getElementById('cell');
+let typing=false;window.__saveClicks=0;
+cell.addEventListener('input',()=>{typing=true});
+const commit=()=>{if(typing){typing=false;btn.disabled=false}};
+cell.addEventListener('keydown',(e)=>{if(e.key==='ArrowDown'||e.key==='Enter'){e.preventDefault();commit();document.getElementById('other').focus()}});
+cell.addEventListener('blur',commit);
+btn.addEventListener('click',()=>{window.__saveClicks++;if(window.__answer===false)return;const url=window.__saveUrl||q.get('src');btn.disabled=true;
 setTimeout(()=>parent.postMessage({source:'ieum-office',type:'saved',name:q.get('name'),url},'*'),300)});
 parent.postMessage({source:'ieum-office',type:'ready',editor:'sheets'},'*')</script></body></html>`
 
@@ -95,6 +111,12 @@ async function draftCard(name, text = DRAFT, content = {}) {
   const [m] = await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2) returning id`, [mainId, { name, url: a.url, type: 'text/plain', ...content }])
   return { id: m.id, name, url: a.url }
 }
+async function XLSX_OF(rows) {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('시트1')
+  for (const r of rows) ws.addRow(r)
+  return Buffer.from(await wb.xlsx.writeBuffer())
+}
 const cardOf = async (id) => (await S.q('select content from pro_messages where id=$1', [id]))[0]?.content || {}
 const textAt = async (u) => (await fetch(u)).text()
 async function page(browser, opts = DESK, { theme = 'light' } = {}) {
@@ -110,6 +132,19 @@ async function page(browser, opts = DESK, { theme = 'light' } = {}) {
   p.on('pageerror', (e) => p.errors.push(String(e?.message || e)))
   p.on('dialog', (d) => d.dismiss().catch(() => {}))
   return p
+}
+// the panel's 시트 열기 in Home (a document open beside the chat folds Home; it stays folded after the sheet closes)
+async function openPanelSheet(p, panel) {
+  if (!(await panel.isVisible())) await p.locator('button.home[aria-label="Home 펼치기"]').click()
+  await panel.locator('.foot button', { hasText: '시트 열기' }).click()
+  await sheetReady(p)
+}
+const stubSheets = (p) => p.context().route(/\/office\/sheets\/\?/, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: SHEETS_STUB }))
+const sheetFrame = (p) => p.frames().find((fr) => fr.url().includes('/office/sheets/'))
+async function sheetReady(p) {
+  await expect(oef(p).locator('iframe.frm')).toHaveAttribute('src', /\/office\/sheets\/\?src=/, { timeout: 30_000 })
+  await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 30_000 })
+  await p.waitForTimeout(1500)
 }
 const shot = async (p, name) => { await p.waitForTimeout(400); await p.screenshot({ path: path.join(SHOTS, `${name}.png`) }) }
 const oef = (p) => p.locator('.oef')
@@ -480,16 +515,12 @@ test('F-CS-09 패널 앱의 시트: 저장하고 닫기 → 패널 반영이 실
   const used = async () => (await S.api(ME.token, `/panel-apps/${app.id}/rows`)).rows[0].used
 
   const p = await page(browser)
-  await p.context().route(/\/office\/sheets\/\?/, (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: SHEETS_STUB }))
+  await stubSheets(p)
   await openChat(p)
   const panel = p.locator('.pa').filter({ hasText: app.title }).first()
   await expect(panel).toBeVisible({ timeout: 20_000 })
-  await panel.locator('.foot button', { hasText: '시트 열기' }).click()
-  await expect(oef(p).locator('iframe.frm')).toHaveAttribute('src', /\/office\/sheets\/\?src=/, { timeout: 30_000 })
-  await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 30_000 })
-  await p.waitForTimeout(1500)
-  const stub = p.frames().find((fr) => fr.url().includes('/office/sheets/'))
-  await stub.evaluate((u) => { window.__saveUrl = u }, saved.url)
+  await openPanelSheet(p, panel)
+  await sheetFrame(p).evaluate((u) => { window.__saveUrl = u }, saved.url)
   await ed(p).locator('#cell').click()
   await p.keyboard.type(' 6', { delay: 30 })
   // the panel's server does not take it (yet)
@@ -509,6 +540,41 @@ test('F-CS-09 패널 앱의 시트: 저장하고 닫기 → 패널 반영이 실
   await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
   await p.waitForTimeout(3000)
   await expect(oef(p)).toHaveCount(0)
+  expect(await used()).toBe(6)
+
+  // a failure is this opening's only: refused again and closed for good (the second close), then the sheet opened anew — its close does
+  // not send the old copy again, and it asks about its own edits
+  const posted = []
+  refuse = true
+  await p.unroute('**/api/panel-apps/*/sheet-saved')
+  await p.route('**/api/panel-apps/*/sheet-saved', (r) => { posted.push(r.request().postDataJSON()); return refuse ? r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: '데이터가 바뀌었어요(시험)' }) }) : r.continue() })
+  await openPanelSheet(p, panel)
+  await sheetFrame(p).evaluate((u) => { window.__saveUrl = u }, saved.url)
+  await ed(p).locator('#cell').click()
+  await p.keyboard.type(' 7', { delay: 30 })
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(p.locator('.office-sheet .pnote')).toContainText('패널에 반영하지 못했어요', { timeout: 30_000 })
+  // (closing again: tried once more, still refused — 「한 번 더 닫으면 저장하지 않고 닫아요」; and once more closes)
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(p.locator('.office-sheet .pnote')).toContainText('한 번 더 닫으면 저장하지 않고 닫아요', { timeout: 30_000 })
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
+  // every retry of that opening went with the version it was made from
+  expect(new Set(posted.map((b) => b.sha)).size).toBe(1)
+  const before = posted.length
+  await openPanelSheet(p, panel)
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
+  expect(posted.length).toBe(before)
+  await openPanelSheet(p, panel)
+  await ed(p).locator('#cell').click()
+  await p.keyboard.type(' 8', { delay: 30 })
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요')
+  await ask(p).locator('[data-testid="oef-ask-discard"]').click()
+  await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
+  expect(posted.length).toBe(before)
   expect(await used()).toBe(6)
   expect(p.errors).toEqual([])
   await p.context().close()
@@ -649,5 +715,114 @@ test('F-CS-12 PC 의 텍스트 편집기: Shift+→ ×5 · Shift+End 로 캐럿�
   await p.keyboard.up('Shift')
   expect(await picked()).toMatch(/^요청하신 일정 확인했습니다\.\n\n1\. 일정/)
   expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-13 시트의 칸을 치고 ↓ 나 다른 칸 누르기로 마친 뒤 닫으면 묻는다(칸을 치는 동안 편집기의 저장은 꺼져 있음)', async ({ browser }) => {
+  const xlsx = await XLSX_OF([['이름', '사용일수'], ['김서연', 3]])
+  const a = await rawPost(ME.token, '/attachments', xlsx, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'X-File-Name': encodeURIComponent('휴가_시험.xlsx') })
+  await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2)`, [mainId, { name: '휴가_시험.xlsx', url: a.url }])
+  const p = await page(browser)
+  await stubSheets(p)
+  await openChat(p)
+  for (const finish of ['ArrowDown', 'click']) {
+    await card(p, '휴가_시험.xlsx').click()
+    await sheetReady(p)
+    await ed(p).locator('#cell').click()
+    await p.keyboard.type(' 6', { delay: 30 })
+    // a while in the cell: the editor's 저장 is off all along (the edit is still the cell's)
+    await p.waitForTimeout(1500)
+    await expect(ed(p).locator('.qa-btn')).toBeDisabled()
+    if (finish === 'ArrowDown') await p.keyboard.press('ArrowDown')
+    else await ed(p).locator('#other').click()
+    await expect(ed(p).locator('.qa-btn')).toBeEnabled()
+    await oef(p).locator('.tb.ic[title="닫기"]').click()
+    await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요')
+    await ask(p).locator('[data-testid="oef-ask-discard"]').click()
+    await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
+  }
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-14 공유 폴더의 시트: 칸을 치고 ↓ 로 마치면 손을 멈춘 뒤 저절로 편집기의 저장을 누른다', async ({ browser }) => {
+  const xlsx = await XLSX_OF([['이름', '사용일수'], ['김서연', 3]])
+  const fo = await S.api(ME.token, '/folders', { method: 'POST', body: { name: '시험 시트 폴더', description: '자동 저장' } })
+  panelCleanup.push(() => S.q('delete from pro_folders where slug=$1', [fo.slug]))
+  await rawPost(ME.token, `/folders/${fo.slug}/files?path=${encodeURIComponent('휴가.xlsx')}`, xlsx, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const p = await page(browser)
+  await stubSheets(p)
+  await p.goto(`/folders/${fo.slug}`)
+  await p.getByText('휴가.xlsx', { exact: true }).first().click()
+  await sheetReady(p)
+  await sheetFrame(p).evaluate(() => { window.__answer = false })
+  await ed(p).locator('#cell').click()
+  await p.keyboard.type(' 6', { delay: 30 })
+  await p.keyboard.press('ArrowDown')
+  // the pause (6 s): the frame presses the editor's own 저장, now on
+  await expect.poll(() => sheetFrame(p).evaluate(() => window.__saveClicks), { timeout: 20_000 }).toBeGreaterThan(0)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-15 「다른 이름으로 저장」에서 편집기가 답하지 않으면 다시 시도는 같은 이름으로 다시 — 원래 카드에 쓰지 않는다', async ({ browser }) => {
+  test.setTimeout(240_000)
+  const c = await draftCard('답장초안_무응답_김서연.txt')
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, c.name).click()
+  await textReady(p)
+  await typeAtEnd(p, ' 이름바꿔서')
+  // the editor's 저장 does not get the press (its answer never comes)
+  const editorPage = p.frames().find((fr) => fr.url().includes('/office/markdown/'))
+  await editorPage.evaluate(() => {
+    window.__block = true
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest?.('.qa-btn')
+      if (window.__block && b && /^저장/.test(b.getAttribute('aria-label') || '')) { e.stopImmediatePropagation(); e.preventDefault() }
+    }, true)
+  })
+  await ed(p).locator('.qa-save-as').click()
+  await ask(p).locator('[data-testid="oef-ask-name"]').fill('김서연 회신 재시도')
+  await ask(p).locator('[data-testid="oef-ask-save"]').click()
+  await expect(badge(p)).toHaveAttribute('data-state', 'failed', { timeout: 45_000 })
+  await expect(badge(p)).toHaveAttribute('title', /다른 이름으로 저장하지 못했어요/)
+  // 다시 시도: the 「다른 이름으로 저장」 again, with the same name — not a save of this card
+  await editorPage.evaluate(() => { window.__block = false })
+  await badge(p).click()
+  await expect(oef(p).locator('.bar .name')).toHaveText('김서연 회신 재시도.txt', { timeout: 40_000 })
+  expect((await cardOf(c.id)).url).toBe(c.url)
+  const [made] = await S.q(`select content from pro_messages where thread_id=$1 and content->>'name'=$2`, [mainId, '김서연 회신 재시도.txt'])
+  expect(await textAt(made.content.url)).toContain('이름바꿔서')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-CS-16 (실제 엑셀 편집기, RT_REAL_SHEETS=1) 칸을 치고 ↓ 로 마친 뒤 닫으면 묻는다', async ({ browser }) => {
+  test.skip(process.env.RT_REAL_SHEETS !== '1', '실제 엑셀 편집기 시험은 RT_REAL_SHEETS=1 일 때만(이 PC 의 빌드된 호스트에서는 시트 화면이 멈출 수 있음 — file-download.spec.js)')
+  test.setTimeout(240_000)
+  const xlsx = await XLSX_OF([['이름', '사용일수'], ['김서연', 3]])
+  const a = await rawPost(ME.token, '/attachments', xlsx, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'X-File-Name': encodeURIComponent('휴가_실제.xlsx') })
+  await S.q(`insert into pro_messages(thread_id, role, kind, content) values ($1, 'agent', 'file', $2)`, [mainId, { name: '휴가_실제.xlsx', url: a.url }])
+  const p = await page(browser)
+  await openChat(p)
+  await card(p, '휴가_실제.xlsx').click()
+  await expect(p.locator('[data-testid="oef-opening"]')).toHaveCount(0, { timeout: 120_000 })
+  const shown = async () => (await Promise.all(p.frames().filter((f) => f.url().includes('/office/')).map((f) => f.evaluate(() => document.body?.innerText || '').catch(() => '')))).join(' ')
+  await expect.poll(shown, { timeout: 120_000 }).toContain('통합 문서를 모두 로드했습니다')
+  await p.waitForTimeout(2500)
+  // a cell of the grid (its own canvas): a click selects it, typing opens the cell editor
+  const grid = ed(p).locator('canvas').first()
+  const box = await grid.boundingBox()
+  await p.mouse.click(box.x + 150, box.y + 45)
+  await p.keyboard.type('6', { delay: 60 })
+  await p.waitForTimeout(1500)
+  await p.keyboard.press('ArrowDown')
+  await p.waitForTimeout(800)
+  await shot(p, 'f-cs-16-real-sheet-committed')
+  await oef(p).locator('.tb.ic[title="닫기"]').click()
+  await expect(ask(p)).toContainText('저장하지 않은 내용이 있어요', { timeout: 10_000 })
+  await ask(p).locator('[data-testid="oef-ask-discard"]').click()
+  await expect(oef(p)).toHaveCount(0, { timeout: 30_000 })
   await p.context().close()
 })

@@ -264,7 +264,6 @@ const edited = ref(false)   // an edit not saved yet
 const saving = ref(false)
 let editSeq = 0
 let idleTimer = null
-let cleanTimer = null
 let unwatch = null
 let hinted = false
 let settle = null           // the save in flight: answered by the editor's saved / save-failed
@@ -280,9 +279,6 @@ function onEdit() {
   edited.value = true
   // (a 「다른 이름으로 저장」 that did not become a card is not tried again with older content: the bar goes back to 「저장 안 됨」)
   if (retryFn) { retryFn = null; if (saveState.value.kind === 'failed') saveState.value = { kind: 'idle' } }
-  // (a key the editor took for something else — nothing of the document changed: its 저장 stays off)
-  clearTimeout(cleanTimer)
-  cleanTimer = setTimeout(syncClean, 400)
   if (!props.autoSave) return
   clearTimeout(idleTimer)
   idleTimer = setTimeout(idleSave, IDLE_MS)
@@ -301,11 +297,11 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
   if ((!props.autoSave && !any) || props.readOnly || !frame.value) return Promise.resolve({ saved: false })
   // (the editor's connection is gone: its save would never be answered)
   if (gone.value) { if (!copy) failSave(GONE); return Promise.resolve({ saved: false, error: GONE }) }
-  if (inFlight) return inFlight.then(() => (edited.value || agentEdits.value ? saveNow(timeoutMs, { any, force, copy }) : { saved: true, clean: true }))
+  if (inFlight) return inFlight.then(() => (dirty() ? saveNow(timeoutMs, { any, force, copy }) : { saved: true, clean: true }))
   // the editor has nothing new since its save for 「다른 이름으로 저장」, which is up (the new card was not made): that copy is this card's save
   if (unsavedCopy && lastSaved && editorClean(frame.value?.contentDocument) === true) return copy ? Promise.resolve({ saved: true, url: lastSaved }) : saveFromCopy()
-  // (the editor's 저장 is switched off: nothing changed since its last save — it would write nothing and say nothing)
-  if (!force && syncClean()) return Promise.resolve({ saved: true, clean: true })
+  // (nothing to save — the editor would write nothing and say nothing)
+  if (!force && !dirty()) return Promise.resolve({ saved: true, clean: true })
   clearTimeout(idleTimer)
   const seq = editSeq
   const aseq = agentSeq
@@ -318,7 +314,7 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
       const wasCopy = copySave
       copySave = false
       // (a copy whose answer comes after all is still the copy's — not a save of the card)
-      if (wasCopy && r.timeout) copyLate = Date.now()
+      if (wasCopy && r.timeout) copyLate = true
       if (!wasCopy) {
         if (r.saved && editSeq === seq) { edited.value = false; emit('edited', false) }
         if (r.saved && agentSeq === aseq) agentEdits.value = false
@@ -328,19 +324,33 @@ function saveNow(timeoutMs = 25000, { any = false, force = false, copy = false }
     }
     settle = done
     copySave = copy
-    if (!pressSave(frame.value, { force })) done({ saved: false, error: '편집기가 열려 있지 않아요' })
+    // (this press is the frame's own: not the person's 저장 — pressed() leaves it alone)
+    selfPress = true
+    let pressedOk = false
+    try { pressedOk = pressSave(frame.value, { force }) } finally { selfPress = false }
+    if (!pressedOk) done({ saved: false, error: '편집기가 열려 있지 않아요' })
   })
   return inFlight
 }
-// The editor says it has nothing to save (its own 저장 is switched off — an edit undone, a search typed): nothing is waiting to be saved.
-// → true when so (edited cleared), false otherwise or when the editor does not say (no such button)
-function syncClean() {
-  // (after a save for 「다른 이름으로 저장」 the editor is clean, but this card has not taken those edits; while a save waits for its
-  // answer the editor is clean before the host has the copy — that save's answer settles it)
-  if (unsavedCopy || inFlight || pressTimer || editorClean(frame.value?.contentDocument) !== true) return false
-  if (edited.value) { edited.value = false; emit('edited', false) }
-  agentEdits.value = false
-  return true
+// Is there something to save? Our own count of edits, the agent's, or the editor's own 저장 switched on (every IeumOffice editor turns
+// it off while it has nothing new). The editor's word that it is clean is taken over our count only where its flag follows every edit
+// (the text · html · mind-map editors) and nothing is being typed in: a spreadsheet's cell being typed in, a slide's text box being
+// written in, hold their text until they are left — their 저장 is off meanwhile (review #107: a cell typed and left by ↓ was lost).
+// Asked where it matters (closing, flush, 내려받기, 다른 이름으로 저장, 저장) — never on a timer.
+const LIVE_DIRTY = new Set(['markdown', 'html', 'mindmap'])
+function editingNow(doc) {
+  const el = doc?.activeElement
+  return !!el && el !== doc.body && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || ''))
+}
+function dirty() {
+  const doc = frame.value?.contentDocument
+  const clean = editorClean(doc)
+  if (clean === false || agentEdits.value) return true
+  if (!edited.value) return false
+  if (clean !== true || unsavedCopy || inFlight || pressTimer || !LIVE_DIRTY.has(editor()) || editingNow(doc)) return true
+  edited.value = false
+  emit('edited', false)
+  return false
 }
 // this card takes the copy saved for 「다른 이름으로 저장」 (its content is the editor's now): as a save of the editor's own
 function saveFromCopy() {
@@ -364,9 +374,11 @@ const GONE = '편집기와 연결이 끊겼어요 — 고친 내용을 복사해
 const gone = ref(false)
 const saveState = ref({ kind: 'idle' }) // {kind: 'idle'|'saving'|'saved'|'failed', at?, why?, where?}
 let pressTimer = null
-// the save in flight is a copy (saveNow copy) · a copy gave up waiting at this time (its late answer is still the copy's, for 2 minutes)
+// the save in flight is a copy (saveNow copy) · a copy gave up waiting: the next answer nobody waits for is that copy's
 let copySave = false
-let copyLate = 0
+let copyLate = false
+// the frame is pressing 저장 itself (saveNow): not the person's press
+let selfPress = false
 // a copy for 「다른 이름으로 저장」 went up and this card has not taken it (the editor is clean; the edits are unsaved here)
 let unsavedCopy = false
 // the sheet's own 다시 시도 for a failure it reported (markFailed — 「다른 이름으로 저장」 posts its copy again)
@@ -378,11 +390,11 @@ const badge = computed(() => {
 })
 // the person pressed the editor's 저장 (its button or ⌘S): the answer is awaited (the frame's own saves wait in saveNow)
 function pressed() {
-  if (props.readOnly || props.autoSave || inFlight) return
+  if (props.readOnly || props.autoSave || inFlight || selfPress) return
   if (gone.value) return failSave(GONE)
   if (unsavedCopy && lastSaved && editorClean(frame.value?.contentDocument) === true) { saveFromCopy(); return }
   // nothing new: the editor writes nothing and says nothing
-  if (syncClean() || (!edited.value && !agentEdits.value)) return
+  if (!dirty()) return
   retryFn = null
   saveState.value = { kind: 'saving' }
   clearTimeout(pressTimer)
@@ -470,7 +482,7 @@ function onSaveAs() {
 // before the sheet closes: save what is left; {clean:true} when there was nothing to save
 async function flush(timeoutMs) {
   clearTimeout(idleTimer)
-  if (!edited.value && !inFlight) return { saved: false, clean: true }
+  if (!inFlight && !dirty()) return { saved: false, clean: true }
   return saveNow(timeoutMs)
 }
 // ---- 「내려받기」 ----
@@ -482,7 +494,7 @@ let lastSaved = ''
 async function prepareDownload() {
   if (props.readOnly) return { ok: true, version: 'current' }
   let version = 'current'
-  if (!syncClean() && (edited.value || agentEdits.value || inFlight)) {
+  if (inFlight || dirty()) {
     const r = await saveNow(25000, { any: true })
     if (!r.saved) return { ok: false, why: r.timeout ? '편집기가 답하지 않았어요' : r.error || '' }
     if (!r.clean) version = 'saved'
@@ -500,7 +512,7 @@ async function downloadSource({ last = false } = {}) {
 }
 const onHide = () => { if (document.visibilityState === 'hidden' && edited.value && !inFlight) saveNow() }
 // leaving the page with edits not saved (any editable document — a chat's one is saved only by 저장): the browser asks first
-const onLeave = (e) => { if (!props.readOnly && !syncClean() && (edited.value || agentEdits.value || inFlight)) { e.preventDefault(); e.returnValue = '' } }
+const onLeave = (e) => { if (!props.readOnly && (inFlight || dirty())) { e.preventDefault(); e.returnValue = '' } }
 function startWatching() {
   unwatch?.()
   unwatch = watchEdits(frame.value, onEdit, { onSave: pressed, onSaveAs, onDoc: dressSaving })
@@ -526,8 +538,10 @@ defineExpose({
   agentEdits,
   gone,
   saveNow,
-  syncClean,
+  dirty,
   whenIdle,
+  // the editor's copy saved last in this opening ('' when none) — 「다른 이름으로 저장」 copies it when the card did not take it
+  lastSaved: () => lastSaved,
   markFailed,
   ask: askPerson,
   editor,
@@ -544,7 +558,7 @@ async function load() {
   // (a save of the page being replaced is not this one's: it ends quietly, before the new page's state is set)
   settle?.({ saved: false, error: '문서를 다시 열었어요', reloaded: true })
   stopKeepAlive(); gone.value = false; clearTimeout(pressTimer); pressTimer = null; saveState.value = { kind: 'idle' }; answer()
-  copySave = false; copyLate = 0; retryFn = null; unsavedCopy = false; clearTimeout(cleanTimer)
+  copySave = false; copyLate = false; retryFn = null; unsavedCopy = false
   pagePictures.value = false
   // with an expired token the host refuses every editor call — the UI language too, so its menus
   // fall back to the editor's built-in default (Chinese)
@@ -620,8 +634,8 @@ function onMessage(event) {
     if (m.name) link?.rename(m.name)
     // 「다른 이름으로 저장」's save — or its late answer, unless the person pressed 저장 since: a copy for the sheet; the card and the bar stay
     let copy = !!settle && copySave
-    if (!settle && copyLate && !pressTimer && Date.now() - copyLate < 120_000) copy = true
-    if (!settle || !copySave) copyLate = 0
+    if (!settle && copyLate && !pressTimer) copy = true
+    if (!settle || !copySave) copyLate = false
     if (!settle && !copy) agentEdits.value = false
     // saved by the editor's own 저장 too: everything up to now is in
     if (settle) settle({ saved: true, url: m.url || '', ...(m.unchanged && !m.url ? { clean: true } : {}) })
@@ -668,7 +682,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('message', onMessage); document.removeEventListener('fullscreenchange', onFs); clearTimeout(timer); clearTimeout(busyTimer); alive = false; stopLive()
   document.removeEventListener('visibilitychange', onHide); window.removeEventListener('beforeunload', onLeave); unwatch?.(); clearTimeout(idleTimer); opened()
   coarseMq?.removeEventListener?.('change', onCoarse); boxObserver?.disconnect(); stopDeck()
-  stopKeepAlive(); clearTimeout(pressTimer); clearTimeout(cleanTimer); answer()
+  stopKeepAlive(); clearTimeout(pressTimer); answer()
 })
 </script>
 
