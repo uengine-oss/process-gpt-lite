@@ -114,6 +114,19 @@ test('DR-U-07 이미 있는 파일 · 폴더와 대소문자만 다른 이름은
   assert.deepEqual(untracked(f), [])
 })
 
+test('DR-U-09 이미 대소문자만 다른 두 이름(「Docs/」 · 「docs/」)을 가진 폴더도 각자의 이름으로는 쓸 수 있다', { skip }, async () => {
+  const repo = fsSync.mkdtempSync(path.join(os.tmpdir(), 'dr-u-09-'))
+  const git = (...a) => execFileSync('git', a, { cwd: repo, input: a[0] === 'hash-object' ? 'x' : undefined }).toString().trim()
+  git('init', '-q')
+  const blob = git('hash-object', '-w', '--stdin')
+  // (the index holds both, as a tree from a server that keeps case apart does)
+  git('update-index', '--add', '--cacheinfo', `100644,${blob},Docs/a.md`)
+  git('update-index', '--add', '--cacheinfo', `100644,${blob},docs/b.md`)
+  const out = await S.caseClashes(repo, ['Docs/a.md', 'Docs/c.md', 'docs/d.md', 'DOCS/e.md', `${'Docs'.normalize('NFD')}/f.md`])
+  assert.deepEqual([...out.keys()], ['DOCS/e.md'], '각자의 이름으로 쓰는 것은 충돌이 아니다')
+  fsSync.rmSync(repo, { recursive: true, force: true })
+})
+
 test('DR-U-04 커밋이 실패하면 쓴 경로를 되돌린다 — 새 파일은 지우고, 있던 파일은 마지막 커밋대로', { skip }, async () => {
   const f = await folder('되돌리기')
   await S.uploadMany(f, owner, [{ path: 'keep.md', buf: b('first\n') }], { session: sid() })

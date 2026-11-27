@@ -325,18 +325,26 @@ export async function ignoredOf(repo, paths) {
 // the paths of `paths` (or a folder on their way) that differ only in case from a file or folder main's work tree already has → Map(path →
 // the name there). Refused on every server: a checkout on a Mac or Windows could not hold both.
 export async function caseClashes(repo, paths) {
+  // (lower case → every name the tree has for it: a tree that already holds both 「Docs/」 and 「docs/」 — from a server that keeps case
+  // apart — still takes writes into either one by its own name)
+  const key = (x) => x.normalize('NFC').toLowerCase()
   const have = new Map()
   for (const f of (await G.git(repo, ['ls-files', '-z'])).split('\0').filter(Boolean)) {
-    const segs = f.split('/')
-    for (let i = 1; i <= segs.length; i++) { const x = segs.slice(0, i).join('/'); have.set(x.toLowerCase(), x) }
+    const segs = f.normalize('NFC').split('/')
+    for (let i = 1; i <= segs.length; i++) {
+      const x = segs.slice(0, i).join('/')
+      const k = key(x)
+      if (!have.has(k)) have.set(k, new Set())
+      have.get(k).add(x)
+    }
   }
   const out = new Map()
   for (const p of paths) {
-    const segs = p.split('/')
+    const segs = p.normalize('NFC').split('/')
     for (let i = 1; i <= segs.length; i++) {
       const x = segs.slice(0, i).join('/')
-      const there = have.get(x.toLowerCase())
-      if (there && there !== x) { out.set(p, there); break }
+      const there = have.get(key(x))
+      if (there && !there.has(x)) { out.set(p, [...there][0]); break }
     }
   }
   return out
@@ -358,7 +366,8 @@ async function commitWritten(folder, written, author, message) {
     await G.git(repo, ['reset', '-q', '--', ...written.map((x) => `:(literal)${x}`)], { check: false }).catch(() => {})
     const before = await namesAt(repo, 'HEAD')
     for (const p of written) {
-      const there = before.get(p.toLowerCase())
+      // (the exact name when the last commit has it, otherwise its name there in another case)
+      const there = before.exact.has(p) ? p : before.get(p.toLowerCase())
       if (there) await G.git(repo, ['checkout', '-q', 'HEAD', '--', `:(literal)${there}`], { check: false }).catch(() => {})
       else await dropWritten(repo, [p])
     }
@@ -368,7 +377,8 @@ async function commitWritten(folder, written, author, message) {
 // the files of a commit, by their names in any case → Map(lower case → the name)
 async function namesAt(repo, ref) {
   const out = await G.git(repo, ['ls-tree', '-r', '-z', '--name-only', ref], { check: false }).catch(() => '')
-  return new Map(String(out || '').split('\0').filter(Boolean).map((x) => [x.toLowerCase(), x]))
+  const names = String(out || '').split('\0').filter(Boolean)
+  return Object.assign(new Map(names.map((x) => [x.toLowerCase(), x])), { exact: new Set(names) })
 }
 
 // ---------- a folder going up from the page (a dropped folder, 「폴더 올리기」 — src/folderDrop.js, POST /folders/:slug/files/batch) ----------
