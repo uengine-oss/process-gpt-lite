@@ -8,6 +8,9 @@
 //                                                     people told; a person: the conversation of two with them (made when there is none)
 //   saveDoc      POST /messages/:id/share/doc         the answer as a Markdown file card under it (once): from then on the file's own share,
 //                                                     download and IeumOffice open
+//   textFor      GET  /messages/:id/share/text        the cleaned words for the sheet's 「글 복사」 (the whole answer, Markdown) and 「다른 앱으로
+//                                                     보내기」 (plain: the room's 12,000 characters as plain text, a cut one ends in 「…(이어짐)」 —
+//                                                     the page hands them to navigator.share)
 // Who may get it is the messenger's rule (lib/team/messenger.js post · lib/team/access.js): a room the owner is in whose people are all still
 // on the team, or a teammate of the same company — never oneself. The room sees the answer's words only: no file of the chat, no mail body,
 // no address of the workspace. Where it went stays on the answer's own row (content.answerShares {<room>: {at, message}}, content.answerDoc).
@@ -17,6 +20,9 @@ import { L, lang } from './lang.js'
 import { addMessage } from './store.js'
 // what leaves the chat: no workspace · host path, no signed or storage address (their names only — lib/hidePaths.js)
 import { cleanShared } from './hidePaths.js'
+// Markdown's marks off for another app (headings, bold, code, links as 「label (address)」, tables as lines, bullets as •) — the one the Telegram
+// messages use
+import { toPlain } from './telegram.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const fail = (status, message, code) => Object.assign(new Error(message), { status, ...(code && { code }) })
@@ -55,6 +61,12 @@ export function titleOf(msg) {
 // a longer one says so (truncated: the sheet before 보내기, the room's card)
 export const sharedText = (msg) => answerText(msg).slice(0, LIMITS.text)
 export const truncated = (msg) => answerText(msg).length > LIMITS.text
+// the answer as another app gets it (「다른 앱으로 보내기」 — the phone's share sheet, 2026-11-28): the room's words as plain text — a messenger,
+// a mail or a note shows Markdown's marks as they are, so they come off (toPlain; a link keeps its address only when the cleaning left it —
+// a private one is its label already) — and a cut one says so at its end: there is no card around it there to say it. (toPlain reads at most
+// the room's 12,000 characters.)
+export const cutMark = () => L('…(이어짐)', '…(continued)')
+export const outText = (msg) => { const t = toPlain(sharedText(msg)); return truncated(msg) ? `${t}\n\n${cutMark()}` : t }
 // the first lines as words (the sheet's preview of what goes): Markdown's marks off
 export function previewOf(msg, n = 220) {
   const lines = answerText(msg).split('\n').map((l) => l.trim()).filter(Boolean).slice(msg?.kind === 'doc' ? 1 : 0, (msg?.kind === 'doc' ? 1 : 0) + 4)
@@ -176,6 +188,17 @@ export async function roomsFor(user, id, deps = {}) {
   const people = (team || []).filter((p) => String(p.id) !== String(user.id) && !paired.has(String(p.id))).map((p) => ({ id: String(p.id), name: p.name, email: p.email || null }))
   return { answer: { title: titleOf(msg), chars: sharedText(msg).length, preview: previewOf(msg), truncated: truncated(msg), limit: LIMITS.text }, rooms: rankRooms(view, posted), people,
     shared: await sharedOf(user, msg, M) }
+}
+
+// ---------- to another app · the clipboard ----------
+// GET /messages/:id/share/text → {title, text, plain, truncated, limit}: the answer's words as they may leave the chat, for the sheet's
+// 「글 복사」 (text: the whole answer, cleaned, its Markdown as it is) and 「다른 앱으로 보내기」 (plain: what the phone's share sheet gets —
+// outText). The page never hands out the answer's raw words when it has these: a path, a signed or storage address and a key go as they
+// would to a room. Nothing leaves from here: the person's own phone or clipboard takes it, to wherever they pick — so no team rule, only that
+// it is their own answer.
+export async function textFor(user, id) {
+  const msg = await answerOf(user, id)
+  return { title: titleOf(msg), text: answerText(msg), plain: outText(msg), truncated: truncated(msg), limit: LIMITS.text }
 }
 
 // ---------- sharing ----------
