@@ -53,7 +53,8 @@ export const folders = {
   // may this kept folder be downloaded (within the download limits — a refusal says which file or how much): asked before the download
   keptCheck: (slug, vid, id) => call(`/folders/${enc(slug)}/variations/${vid}/kept/${enc(id)}?check=1`),
   // 「이 PC 에서 작업」 (desktop 0.2.6): the seat to one of my linked computers — it makes the working copy and says ready (src/desktopSeats.js)
-  openOnPc: (slug, vid, deviceId) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'POST', body: { to: 'device', deviceId } }),
+  // (head: the commit the trust check looked at — the server refuses with why 'moved' when the variation changed since)
+  openOnPc: (slug, vid, deviceId, head = null) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'POST', body: { to: 'device', deviceId, ...(head ? { head } : {}) } }),
   // before 「이 PC 에서 작업」: the files of the variation that run things by themselves on a computer, and who changed each last
   seatTrust: (slug, vid) => call(`/folders/${enc(slug)}/variations/${vid}/trust`),
   seatPrefs: (slug, vid, body) => call(`/folders/${enc(slug)}/variations/${vid}/seat`, { method: 'PATCH', body }),

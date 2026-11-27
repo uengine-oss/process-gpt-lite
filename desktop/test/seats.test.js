@@ -1285,6 +1285,125 @@ test('흔들림 3 — 앱이 막 띄우는 자기 프로세스(fork 와 exec 사
   assert.equal((await w.release(v)).ok, true)
 })
 
+// ---------- review of PR #112 (11-27): each failed before its fix ----------
+const appRepo = () => path.join(path.dirname(wtRoot()), 'repo')
+const whyOf = (w, v) => w.list().find((x) => x.variationId === v)?.why ?? null
+
+test('5차 검토 1 — 끝나지 않은 병합 · cherry-pick · rebase 는 커밋하지도 올리지도 않는다(「병합 중」) · merge --abort 는 그대로 된다 · CLI 의 턴 가운데 조용해져도 안 올림', async () => {
+  const w = wc || make()
+  const v = variation('병합 중', { '계획.md': '첫 줄\n' })
+  const e = await prepared(w, v)
+  const branch = vars.get(v).branch
+  // the person's own git in their terminal: a side line of work, then a merge of it that conflicts
+  git(e.dir, 'checkout', '-q', '-b', `side-${v.slice(0, 8)}`)
+  put(e.dir, '계획.md', '옆 줄\n'); git(e.dir, 'commit', '-qam', '옆')
+  git(e.dir, 'checkout', '-q', branch)
+  put(e.dir, '계획.md', '내 줄\n'); git(e.dir, 'commit', '-qam', '내 것')
+  const mine = git(e.dir, 'rev-parse', 'HEAD').trim()
+  assert.throws(() => git(e.dir, 'merge', `side-${v.slice(0, 8)}`), '충돌')
+  assert.ok(git(e.dir, 'ls-files', '-u').trim(), '충돌이 색인에')
+  const server = rev(branch)
+  const tokens = sentOf('seat:token', v).length
+  assert.deepEqual(await w.saveNow(v), { ok: false, why: 'in_progress' })
+  assert.equal(git(e.dir, 'rev-parse', 'HEAD').trim(), mine, '병합을 대신 끝내지 않는다')
+  assert.equal(sentOf('seat:token', v).length, tokens, '올리지 않는다')
+  assert.equal(rev(branch), server)
+  assert.equal(whyOf(w, v), 'in_progress', '화면에 「병합 중이라 올리지 않았어요」')
+  // resolved in the index but not committed: still a merge under way (MERGE_HEAD)
+  put(e.dir, '계획.md', '합친 줄\n'); git(e.dir, 'add', '계획.md')
+  assert.equal(git(e.dir, 'ls-files', '-u').trim(), '')
+  assert.equal((await w.saveNow(v)).why, 'in_progress')
+  // 돌려놓기 waits for it too — the working copy stays
+  assert.equal((await w.release(v)).why, 'in_progress')
+  assert.ok(fs.existsSync(e.dir))
+  // the person aborts: their branch as it was — and the next save point takes it
+  git(e.dir, 'merge', '--abort')
+  assert.equal(git(e.dir, 'status', '--porcelain').trim(), '')
+  assert.equal(fs.readFileSync(path.join(e.dir, '계획.md'), 'utf8'), '내 줄\n')
+  assert.equal((await w.saveNow(v)).ok, true)
+  assert.equal(rev(branch), mine)
+  assert.equal(whyOf(w, v), null)
+  // a cherry-pick that stopped (CHERRY_PICK_HEAD), a rebase under way (rebase-merge/ — no branch checked out then): the same
+  assert.throws(() => git(e.dir, 'cherry-pick', `side-${v.slice(0, 8)}`))
+  assert.equal((await w.saveNow(v)).why, 'in_progress')
+  git(e.dir, 'cherry-pick', '--abort')
+  assert.throws(() => git(e.dir, 'rebase', `side-${v.slice(0, 8)}`))
+  assert.equal((await w.saveNow(v)).why, 'in_progress', '가지가 떨어져 있어도 「병합 중」')
+  git(e.dir, 'rebase', '--abort')
+  assert.equal(git(e.dir, 'symbolic-ref', 'HEAD').trim(), `refs/heads/${branch}`)
+  // the files going quiet in the middle of a CLI's turn there: no save point (its end makes one)
+  put(e.dir, '턴 가운데.md', '쓰는 중\n')
+  const turn = w.turnHub.get(v)
+  turn.busy = true
+  turn.startedAt = Date.now()
+  const before = sentOf('seat:token', v).length
+  w.auto(v, 'quiet')
+  await settled(w, v)
+  assert.equal(sentOf('seat:token', v).length, before, '턴이 끝나기 전에는 올리지 않는다')
+  turn.busy = false
+  w.auto(v, 'turn')
+  await waitFor(() => filesAt(branch).includes('턴 가운데.md'), 6000, 'the turn end saves')
+  await w.release(v)
+})
+
+test('5차 검토 2 — 앱 밖에서 지운 작업본: 다음 「이 PC 에서 작업」이 막히지 않고, 그 가지에만 있던 안 올린 커밋은 앱 저장소(refs/kept)에 남는다', async () => {
+  const w = wc || make()
+  const v = variation('밖에서 지움')
+  const e = await prepared(w, v)
+  put(e.dir, '메모.md', '안 올린 메모\n'); git(e.dir, 'add', '-A'); git(e.dir, 'commit', '-qm', '안 올림')
+  const unsent = git(e.dir, 'rev-parse', 'HEAD').trim()
+  fs.rmSync(e.dir, { recursive: true, force: true })
+  // the server lists it held: this PC says it is missing (보관 중 there), git here forgets the working copy
+  w.handle({ type: 'seat:list', seats: heldNow(w) })
+  await waitFor(() => !w.get(v), 6000, 'forgotten')
+  assert.equal(sentOf('seat:failed', v).at(-1)?.why, 'missing')
+  assert.ok(git(appRepo(), 'for-each-ref', '--format=%(objectname)', 'refs/kept/').includes(unsent), '안 올린 커밋은 refs/kept 에')
+  // opened on this PC again (the next epoch): it works
+  const sv = vars.get(v)
+  sv.epoch = 2; sv.state = 'moving'
+  const e2 = await prepared(w, v)
+  assert.ok(fs.existsSync(path.join(e2.dir, 'README.md')))
+  // deleted again, and the next prepare comes straight away (no list in between): it works too
+  fs.rmSync(e2.dir, { recursive: true, force: true })
+  sv.epoch = 3; sv.state = 'moving'
+  w.handle(prepareMsg(v))
+  const e3 = await waitFor(() => Number(w.get(v)?.epoch) === 3 && w.get(v).state === 'held' && w.get(v), 15000, 'held at epoch 3')
+  assert.ok(fs.existsSync(path.join(e3.dir, 'README.md')))
+  // a seat the server still has moving and this PC has no record of yet (its prepare on the way): never said to be missing
+  const ghost = crypto.randomUUID()
+  w.handle({ type: 'seat:list', seats: [...heldNow(w), { variation: ghost, folderId: FOLDER, epoch: 1, state: 'moving' }] })
+  await settled(w, v)
+  assert.equal(sentOf('seat:failed', ghost).length, 0)
+  w.handle({ type: 'seat:list', seats: [...heldNow(w), { variation: ghost, folderId: FOLDER, epoch: 1, state: 'held' }] })
+  await waitFor(() => sentOf('seat:failed', ghost).length === 1, 3000, 'a held seat it does not have is said')
+  await w.release(v)
+})
+
+test('5차 검토 7 — 폴더 저장소 자체 설정(설정 불러오기 · 주소 바꾸기 · http.*)이 있으면 서버로 보내지 않는다 · 인증서는 언제나 확인 · 가지 이름은 - 로 시작하지 않는다', async () => {
+  const w = wc || make()
+  const v = variation('설정 울타리')
+  const e = await prepared(w, v)
+  const seat = () => rev(`refs/heads/${W.seatBranch(v, vars.get(v).epoch)}`)
+  for (const [k, val] of [['include.path', path.join(ROOT, 'elsewhere.gitconfig')], [`url.http://127.0.0.1:9/.insteadOf`, srv.base], ['http.sslVerify', 'false'], ['http.proxy', 'http://127.0.0.1:9']]) {
+    git(appRepo(), 'config', k, val)
+    put(e.dir, 'a.md', `${k}\n`)
+    const before = seat()
+    assert.deepEqual(await w.saveNow(v), { ok: false, why: 'config' }, k)
+    assert.equal(seat(), before, `${k}: 올리지 않는다`)
+    assert.equal(whyOf(w, v), 'config')
+    git(appRepo(), 'config', '--unset', k)
+  }
+  calls.length = 0
+  assert.equal((await w.saveNow(v)).ok, true)
+  const push = calls.find((c) => c.sub === 'push')
+  assert.equal(push.config['http.sslVerify'], 'true')
+  assert.equal(whyOf(w, v), null)
+  const G = require('../src/runner/git')
+  for (const bad of ['-x', '--upload-pack=x']) assert.throws(() => G.checkRef(bad), bad)
+  assert.deepEqual(await w.prepare({ ...prepareMsg(v), branch: '--upload-pack=touch' }), { ok: false, why: 'invalid' })
+  await w.release(v)
+})
+
 test('createLocalRunner: caps.seats 를 알리고 seat:* 를 넘긴다 · 페이지는 open 으로 기다린다', async () => {
   wc.stop()
   const { createLocalRunner } = require('../src/runner')

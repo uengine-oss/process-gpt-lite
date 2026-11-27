@@ -308,7 +308,7 @@ function backend(req, res, folder, pathInfo, body, { hold = false, hide = [], ch
 // The desktops' own branches of a folder, as git's hidden-ref entries: git hides whole ref path parts, so each part is named —
 //   refs/heads/pgpt-agent/sync-<device 8>/…           a computer's champion folder upload (lib/folders/sources.js)
 //   refs/heads/pgpt-agent/seat-<variation id>-<epoch>/… a computer's working copy of a variation at one epoch (lib/folders/seatLink.js)
-//   refs/heads/pgpt-agent/left-<variation id>-<device 8>/… what a computer that lost a variation's seat still had (seatLink.js)
+//   refs/heads/pgpt-agent/left-<variation id>-<device id>/… what a computer that lost a variation's seat still had (seatLink.js)
 // those there now, and those about to be (every computer bound to the folder; every computer's seat on it): a branch is never there
 // unhidden. A desktop token's own part is left out (a sync token sees its device's, a seat token its variation and epoch's, a left token its
 // variation and device's). → ['refs/heads/pgpt-agent/sync-…', …]
@@ -337,15 +337,8 @@ export async function syncHidden(folder, claims) {
   parts.delete(ownPart(claims))
   return [...parts]
 }
-// The person a desktop job's token works for (its job's person, when the job is of this folder) — and a desktop working copy's (scope
-// 'seat') or leftover (scope 'left') token's: its linked computer's person, when the token's variation is of this folder (a project's
-// workspace can be on its person's computer too — seatLink.js fetches and pushes on it, so it must be theirs to see). null for any other token
+// The person a desktop job's token works for (its job's person, when the job is of this folder) — null for any other token
 export async function personOf(folder, claims) {
-  if ((claims?.scope === 'seat' || claims?.scope === 'left') && claims.seat && claims.device) {
-    const [d] = await q(`select d.user_id::text as user_id from pro_local_devices d join pro_folder_variations v on v.id::text=$2 and v.folder_id=$3
-                         where d.id::text=$1 and d.tenant_id=$4 and d.revoked_at is null`, [String(claims.device), String(claims.seat), folder.id, String(claims.tenant || folder.tenant_id)]).catch(() => [])
-    return d?.user_id || null
-  }
   if (claims?.scope !== 'device' || !claims.job) return null
   const [job] = await q('select user_id::text as user_id, folder_id::text as folder_id, chat from pro_local_jobs where id::text=$1', [String(claims.job)]).catch(() => [])
   if (!job?.user_id || String(job.folder_id || job.chat?.folderId || '') !== String(folder.id)) return null
@@ -398,10 +391,23 @@ export async function runHidden(folder, claims, person) {
   }
   return out
 }
-// everything this token may not see: other desktops' sync branches, other people's runs, workspaces not its person's
+// A desktop working copy's token (scope 'seat') or its leftover token (scope 'left') is for one variation: when that variation is a project's
+// workspace (folders/templates.js), that one branch is shown to it — the working copy fetches it and its save points stand on it — and only
+// while it is its computer's person's workspace in this folder, that computer still linked. Nothing else of anyone's workspaces or runs.
+// → the branch | null
+export async function seatWorkspace(folder, claims) {
+  if (!['seat', 'left'].includes(claims?.scope) || !claims.seat || !claims.device) return null
+  const [v] = await q(`select v.branch from pro_folder_variations v join pro_local_devices d on d.id::text=$2 and d.tenant_id=$4 and d.revoked_at is null
+                       where v.id::text=$1 and v.folder_id=$3 and v.source ? 'template' and v.holder_type='user' and v.holder_id::text=d.user_id::text
+                         and v.status not in ('merged','discarded')`, [String(claims.seat), String(claims.device), folder.id, String(claims.tenant || folder.tenant_id)]).catch(() => [])
+  return v && S.isWorkspaceBranch(v.branch) ? v.branch : null
+}
+// everything this token may not see: other desktops' sync branches, other people's runs, workspaces not its person's (a working copy's
+// token: all but its own variation's — seatWorkspace — git reads the entries in order, the last `!ref` shows that one branch)
 export async function hiddenFor(folder, claims) {
   const who = await personOf(folder, claims)
-  return [...await syncHidden(folder, claims), ...await runHidden(folder, claims, who), ...await workspaceHidden(folder, claims, who)]
+  const own = await seatWorkspace(folder, claims)
+  return [...await syncHidden(folder, claims), ...await runHidden(folder, claims, who), ...await workspaceHidden(folder, claims, who), ...(own ? [`!refs/heads/${own}`] : [])]
 }
 
 // ---------- the pre-receive check (pushCheck.js) ----------
@@ -504,10 +510,14 @@ export function gitRoutes({ maxPush = MAX_PUSH, device = false, check = null, af
           if (!parsed.caps.has('report-status') && !parsed.caps.has('report-status-v2')) return deny(res, 403, refused[0].why)
           return res.status(200).set({ 'Content-Type': 'application/x-git-receive-pack-result', 'Cache-Control': 'no-cache' }).end(rejectionReport(parsed.commands, refused, parsed.caps))
         }
+        const access = device ? check : null
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pgpt-push-'))
         try {
           const check = { hooks: await hooks(), hide: path.join(dir, 'hide.json'), reason: path.join(dir, 'reason'), count: parsed.count }
           await S.serial(folder.id, async () => {
+            // (a desktop's token is looked at again inside the lock: a one-push leftover token the push just before this one used up, a
+            // seat that moved while this one waited — refused here, before git takes anything)
+            if (access) { const no = await access(claims, { push: true }); if (no) { deny(res, 403, no); return } }
             // (what this token may not see, as it is now — inside the lock, where nothing moves a ref meanwhile)
             const hide = await hiddenFor(folder, claims)
             await fs.writeFile(check.hide, JSON.stringify(hide), { mode: 0o600 })

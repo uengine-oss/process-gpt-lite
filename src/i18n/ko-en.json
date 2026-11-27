@@ -3510,7 +3510,14 @@
   "서버에 묻지 못했어요. 이 변형에 훅 · MCP 서버 같은 설정이 있을 수 있어요 — 폴더의 파일을 확인한 뒤에 여세요.": "The server couldn't be asked. This variation may have settings such as hooks or MCP servers — check the folder's files before you open it.",
   "이 PC 의 터미널에서 Claude Code · Codex · 편집기를 열면 아래 파일이 명령을 실행할 수 있어요.": "When you open Claude Code, Codex or an editor in a terminal on this PC, the files below can run commands.",
   "누가 바꿨는지 확인할 수 없어요 — 커밋에 적힌 이름은 누구나 적을 수 있어요. 내용을 확인한 뒤에 여세요.": "Who changed them can't be verified — anyone can write any name in a commit. Check their contents before you open it.",
-  "이 작업본 폴더에서 터미널이나 프로그램이 열려 있어요. 닫은 뒤 다시 시도해 주세요.": "A terminal or program is open in this working copy's folder. Close it, then try again."
+  "이 작업본 폴더에서 터미널이나 프로그램이 열려 있어요. 닫은 뒤 다시 시도해 주세요.": "A terminal or program is open in this working copy's folder. Close it, then try again.",
+  "병합 중이라 올리지 않았어요 — 터미널에서 병합(cherry-pick · revert · rebase)을 마치거나 취소하면 다시 올라가요.": "Not uploaded — a merge is in progress. Finish or abort the merge (cherry-pick, revert or rebase) in the terminal and it uploads again.",
+  "작업본의 git 설정에 앱이 쓰지 않는 항목(프록시 · 주소 바꾸기 · 설정 불러오기 같은 것)이 있어 올리지 않았어요 — 터미널에서 그 설정을 지운 뒤 다시 올려 주세요.": "Not uploaded — the working copy's git settings have entries the app does not use (a proxy, an address rewrite, an included settings file and the like). Remove them in the terminal, then upload again.",
+  "Claude Code 설정 — 명령을 실행하거나 권한 · MCP 서버를 미리 허락해요": "Claude Code settings — run commands or allow permissions and MCP servers in advance",
+  "Codex 설정 — 명령 · MCP 서버를 실행할 수 있어요": "Codex settings — may run commands and MCP servers",
+  "VS Code 설정 · 실행 구성 — 명령을 실행할 수 있어요": "VS Code settings · launch configurations — may run commands",
+  "도구 버전 설정(mise · asdf) — 폴더에 들어가면 도구를 받거나 실행해요": "Tool version settings (mise · asdf) — fetch or run tools when you enter the folder",
+  "폴더 맨 위의 실행 파일 — Windows 터미널에서 같은 이름의 명령 대신 실행될 수 있어요": "A program at the top of the folder — a Windows terminal may run it instead of a command of the same name"
  },
  "patterns": [
   [
@@ -8000,6 +8007,10 @@
   [
    "확인이 필요한 파일({0})은 앱 휴지통에 30일 동안 남아 있어요.",
    "The files to check ({0}) stay in the app's trash for 30 days."
+  ],
+  [
+   "{0}의 작업본에서 병합(cherry-pick · revert · rebase)이 끝나지 않아 가져오지 못했어요 — 그 PC 의 터미널에서 마치거나 취소한 뒤 다시 「여기로 가져오기」를 눌러 주세요.",
+   "A merge (cherry-pick, revert or rebase) is unfinished in the working copy on {0}, so it could not be brought here — finish or abort it in a terminal on that PC, then press \"Bring it here\" again."
   ]
  ],
  "context": [

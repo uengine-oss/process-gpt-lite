@@ -633,6 +633,10 @@ function seatNotice(n) {
     // (「여기로 가져오기」 from elsewhere while a pair this PC shows as one file is changed: only its person can say which name was meant)
     title = ko ? `「${t}」 작업본을 다른 곳에서 가져가려고 해요` : `"${t}" is being taken elsewhere`
     body = ko ? `확인이 필요한 파일(${names})이 있어 돌려놓지 않았어요. 파일을 확인한 뒤 작업실에서 「돌려놓기」를 눌러 주세요.` : `Files to check (${names}) are here, so it was not given back. Check them, then press "Give back" in the workroom.`
+  } else if (n.kind === 'recall' && n.inProgress) {
+    // (「여기로 가져오기」 from elsewhere while a merge the person started there is unfinished: nothing went up, nothing moved)
+    title = ko ? `「${t}」 작업본을 다른 곳에서 가져가려고 해요` : `"${t}" is being taken elsewhere`
+    body = ko ? '작업본에서 병합(cherry-pick · revert · rebase)이 끝나지 않아 돌려놓지 않았어요. 터미널에서 마치거나 취소한 뒤 다시 가져와 주세요.' : 'A merge (cherry-pick, revert or rebase) is unfinished in the working copy, so it was not given back. Finish or abort it in the terminal, then take it again.'
   } else if (n.kind === 'recall' && n.inUse) {
     // (「여기로 가져오기」 from elsewhere, while a terminal or a program is in the working copy: nothing moved — the person closes it first)
     title = ko ? `「${t}」 작업본을 다른 곳에서 가져가려고 해요` : `"${t}" is being taken elsewhere`
@@ -676,8 +680,9 @@ function terminalAt(dir) {
   if (process.platform === 'win32') {
     const wt = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'wt.exe')
     if (process.env.LOCALAPPDATA && fs.existsSync(wt)) return go(wt, ['-d', dir])
-    // (a detached child gets a console window of its own on Windows: cmd in the folder)
-    return go(process.env.ComSpec || 'cmd.exe', ['/K'], { cwd: dir })
+    // (a detached child gets a console window of its own on Windows: cmd in the folder — told not to run a program of that folder for a
+    // command typed there: a git.bat or a claude.cmd in the working copy never stands in for the real one)
+    return go(process.env.ComSpec || 'cmd.exe', ['/K'], { cwd: dir, env: { ...process.env, NoDefaultCurrentDirectoryInExePath: '1' } })
   }
   return (async () => {
     for (const [cmd, args] of [['x-terminal-emulator', ['--working-directory', dir]], ['gnome-terminal', ['--working-directory', dir]], ['konsole', ['--workdir', dir]]]) {

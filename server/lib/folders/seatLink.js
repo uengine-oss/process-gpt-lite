@@ -8,7 +8,8 @@
 // that branch while the seat is there, so a head that is not ahead means the rules were broken somewhere and it is refused. Giving the seat
 // back (「돌려놓기」) pushes what is there as it is first. A computer that lost the seat (taken while it was off, put away meanwhile) never
 // pushes into the variation again: its old token is refused, and what it still had comes in as a variation of its own (seats.leftover —
-// 「<title> — <PC>에 남아 있던 변경」) through a one-push token on pgpt-agent/left-<variation id>-<device 8>/head.
+// 「<title> — <PC>에 남아 있던 변경」) through a one-push token on pgpt-agent/left-<variation id>-<device id>/head. The branches of epochs a
+// seat left behind go in the nightly pass (dropOldSeatBranches — gc.js).
 // Every message is looked up in the link's company and for the link's person only; nothing here takes a path from a computer or sends one.
 //   PC → server   seat:ready · seat:failed · seat:token {for: push | left} · seat:pushed · seat:release · seat:status · seat:prefs · seat:left ·
 //                 seat:refused {re: 'seat:recall'} (what the server asked it cannot do now — pcSays)
@@ -38,15 +39,39 @@ const ZERO = /^0{40}$/
 const legacyNone = (e) => { if (e?.code === '42P01' || e?.code === '42703') return []; throw e }
 
 // ---------- names ----------
-// (the whole variation id: two variations whose ids start alike never share a branch)
+// (the whole variation id and the whole device id: two variations — or two computers — whose ids start alike never share a branch)
 export const seatPrefix = (vid, epoch) => `pgpt-agent/seat-${String(vid)}-${Number(epoch) || 0}/`
 export const seatBranch = (vid, epoch) => `${seatPrefix(vid, epoch)}head`
-export const leftPrefix = (vid, deviceId) => `pgpt-agent/left-${String(vid)}-${String(deviceId).slice(0, 8)}/`
+export const leftPrefix = (vid, deviceId) => `pgpt-agent/left-${String(vid)}-${String(deviceId)}/`
 export const leftBranch = (vid, deviceId) => `${leftPrefix(vid, deviceId)}head`
 export const handles = (msg) => typeof msg?.type === 'string' && msg.type.startsWith('seat:')
 const isAncestor = async (repo, a, b) => !!a && !!b && (await G.mergeBase(repo, a, b)) === a
 const gitPath = (folder) => `/api/local-git/${folder.id}.git`
 const publicUrl = (p) => { const pub = String(process.env.PRO_GIT_PUBLIC_URL || '').trim().replace(/\/+$/, ''); return pub ? `${pub}${p}` : null }
+
+// The branches of epochs a seat left behind (pgpt-agent/seat-<variation id>-<epoch>/…): a seat that moved off its computer, ran out of time
+// or was taken while the computer was off keeps none of them — every one but the epoch a computer holds the variation at now goes (the
+// nightly pass, gc.js, inside the folder's lock). What the variation took is on its own branch; a computer that still had more brings it
+// the leftover way, on a branch of its own. → how many went
+const SEAT_REF = /^refs\/heads\/pgpt-agent\/seat-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-(\d+)\//
+export async function dropOldSeatBranches(folder) {
+  const refs = (await G.git(folder.repo_path, ['for-each-ref', '--format=%(refname)', 'refs/heads/pgpt-agent/'], { check: false })).split('\n').map((x) => x.trim())
+  const found = refs.map((ref) => { const m = SEAT_REF.exec(ref); return m ? { ref, vid: m[1], epoch: Number(m[2]) } : null }).filter(Boolean)
+  if (!found.length) return 0
+  // (before sql/063 there is no table, and no seat branch either: nothing is taken for gone)
+  const rows = await q(`select variation_id::text as v, epoch from pro_variation_seats where variation_id = any($1::uuid[]) and place='device' and job_id is null`,
+    [[...new Set(found.map((f) => f.vid))]]).catch((e) => { if (e.code === '42P01') return null; throw e })
+  if (!rows) return 0
+  const live = new Set(rows.map((r) => `${r.v}:${Number(r.epoch)}`))
+  let n = 0
+  for (const f of found) {
+    if (live.has(`${f.vid}:${f.epoch}`)) continue
+    await G.git(folder.repo_path, ['update-ref', '-d', f.ref], { check: false })
+    n++
+  }
+  if (n) console.log(`[seats] ${folder.slug}: ${n} branch(es) of earlier epochs dropped`)
+  return n
+}
 
 // ---------- a link's pace ----------
 // a link may ask this often: a working copy reports its counts at most every 10 s and a person has up to 20 of them; past it the link is
@@ -354,10 +379,11 @@ async function status(link, vid, msg) {
   if (f) await told(f, vid, link.userId)
 }
 // The computer cannot do now what the server asked of it — 「여기로 가져오기」 (seat:recall auto) while a terminal or a program is open in the
-// working copy, files there need its person's check (unsure), or another branch is checked out there: the page that waits says so (the seat's view, pcSays) for a few minutes, until the
+// working copy, files there need its person's check (unsure), another branch is checked out there, or a merge (cherry-pick · revert · rebase)
+// started there is unfinished (in_progress): the page that waits says so (the seat's view, pcSays) for a few minutes, until the
 // seat moves on or the person tries again. Kept in memory: the link and the page's poll are this server's.
 // (unsure: a pair the PC shows as one file is changed there — only its person can say which name was meant; the names never come here)
-const PC_SAYS = new Set(['in_use', 'unsure', 'branch', 'remove', 'failed', 'offline'])
+const PC_SAYS = new Set(['in_use', 'unsure', 'branch', 'remove', 'failed', 'offline', 'in_progress'])
 const PC_SAYS_MS = 10 * 60_000
 const pcSaid = new Map() // variation → {why, at, epoch, device}
 async function pcRefused(link, vid, msg) {

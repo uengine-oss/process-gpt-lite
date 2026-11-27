@@ -53,6 +53,8 @@ const WHY = {
   remove: '돌려놓았지만 이 PC 의 작업본을 옮기지 못했어요 — 터미널 · 편집기를 닫은 뒤 「남은 변경」에서 다시 해 주세요.',
   busy: '서버가 이 변형을 옮기거나 저장하는 중이에요 — 잠시 뒤에 다시 해 주세요.',
   in_use: '이 작업본 폴더에서 터미널이나 프로그램이 열려 있어요. 닫은 뒤 다시 시도해 주세요.',
+  in_progress: '병합 중이라 올리지 않았어요 — 터미널에서 병합(cherry-pick · revert · rebase)을 마치거나 취소하면 다시 올라가요.',
+  config: '작업본의 git 설정에 앱이 쓰지 않는 항목(프록시 · 주소 바꾸기 · 설정 불러오기 같은 것)이 있어 올리지 않았어요 — 터미널에서 그 설정을 지운 뒤 다시 올려 주세요.',
   cancelled: '취소했어요.',
 }
 // what a file of a variation runs by itself on a computer (server lib/folders/seatTrust.js reasons)
@@ -62,5 +64,10 @@ export const TRUST = {
   envrc: 'direnv — 폴더에 들어가면 실행돼요',
   tasks: 'VS Code 작업 — 명령을 실행해요',
   shell: 'Windows 바로 가기 · 폴더 설정',
+  claude: 'Claude Code 설정 — 명령을 실행하거나 권한 · MCP 서버를 미리 허락해요',
+  codex: 'Codex 설정 — 명령 · MCP 서버를 실행할 수 있어요',
+  vscode: 'VS Code 설정 · 실행 구성 — 명령을 실행할 수 있어요',
+  tools: '도구 버전 설정(mise · asdf) — 폴더에 들어가면 도구를 받거나 실행해요',
+  run: '폴더 맨 위의 실행 파일 — Windows 터미널에서 같은 이름의 명령 대신 실행될 수 있어요',
 }
 export const seatWhy = (w) => WHY[w] || '지금은 할 수 없어요 — 잠시 뒤에 다시 해 주세요.'

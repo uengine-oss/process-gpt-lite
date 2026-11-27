@@ -39,7 +39,8 @@ test('WL-P-01 이름 · 토큰: 회차 가지와 남은 변경 가지, 한 번�
   // (the whole variation id: two variations whose ids start alike never share a branch — review 11-26 #12)
   assert.equal(SL.seatPrefix(vid, 4), `pgpt-agent/seat-${vid}-4/`)
   assert.equal(SL.seatBranch(vid, 4), `pgpt-agent/seat-${vid}-4/head`)
-  assert.equal(SL.leftPrefix(vid, dev), `pgpt-agent/left-${vid}-99887766/`)
+  // (the whole device id too: two computers whose ids start alike never share a leftover branch — review of #112)
+  assert.equal(SL.leftPrefix(vid, dev), `pgpt-agent/left-${vid}-${dev}/`)
   assert.equal(H.seatPart(vid, 4), `refs/heads/pgpt-agent/seat-${vid}-4`)
   // git http-backend never takes the protocol from the server's own environment (v2 would hand out hidden objects by id)
   assert.equal('GIT_PROTOCOL' in H.backendEnv({ GIT_PROTOCOL: 'version=2', PATH: '/bin' }), false)
@@ -444,17 +445,44 @@ test('WL-P-10 PC 로 받기 전에: 실행되는 설정 파일(훅이 든 Claude
   await S.upload(f, mate, '.vscode/tasks.json', Buffer.from('{"tasks":[]}\n'))
   await S.upload(f, mate, '문서/바로 가기.url', Buffer.from('[InternetShortcut]\nURL=https://example.test\n'))
   await S.upload(f, mate, 'desktop.ini', Buffer.from('[.ShellClassInfo]\n'))
+  // (review of #112: more that runs or allows things by itself — Claude Code's other commands and permissions, Codex, VS Code's settings and
+  // launch configurations, mise · asdf, and programs at the folder's top a Windows terminal runs before a command of the same name)
+  await S.upload(f, mate, '보고/.claude/settings.json', Buffer.from('{"statusLine":{"type":"command","command":"sh x.sh"}}\n'))
+  await S.upload(f, mate, '키/.claude/settings.json', Buffer.from('{"apiKeyHelper":"sh key.sh"}\n'))
+  await S.upload(f, mate, '허락/.claude/settings.json', Buffer.from('{"permissions":{"allow":["Bash(*)"]}}\n'))
+  await S.upload(f, mate, '모드/.claude/settings.json', Buffer.from('{"permissions":{"defaultMode":"bypassPermissions"}}\n'))
+  await S.upload(f, mate, '엠씨피/.claude/settings.json', Buffer.from('{"enableAllProjectMcpServers":true}\n'))
+  await S.upload(f, mate, '조용/.claude/settings.json', Buffer.from('{"permissions":{"defaultMode":"plan","allow":[]},"model":"x"}\n'))
+  await S.upload(f, mate, '.codex/config.toml', Buffer.from('[mcp_servers.x]\ncommand = "node"\n'))
+  await S.upload(f, mate, '.vscode/settings.json', Buffer.from('{}\n'))
+  await S.upload(f, mate, '.vscode/launch.json', Buffer.from('{}\n'))
+  await S.upload(f, mate, 'mise.toml', Buffer.from('[tools]\nnode = "22"\n'))
+  await S.upload(f, mate, '.tool-versions', Buffer.from('nodejs 22\n'))
+  await S.upload(f, mate, 'git.bat', Buffer.from('@echo off\n'))
+  await S.upload(f, mate, '도구/build.cmd', Buffer.from('@echo off\n'))
   const v = await personVar(f, owner, '설정 보기')
   const t = await T.trustOf(await S.folderById(f.id), await S.variationById(v.id), owner)
   const got = t.files.map((x) => [x.path, x.reason, x.author])
   assert.deepEqual(got.sort(), [
     ['.claude/settings.json', 'hooks', '김동료'],
+    ['.codex/config.toml', 'codex', '김동료'],
     ['.envrc', 'envrc', '김동료'],
     ['.mcp.json', 'mcp', '김동료'],
+    ['.tool-versions', 'tools', '김동료'],
+    ['.vscode/launch.json', 'vscode', '김동료'],
+    ['.vscode/settings.json', 'vscode', '김동료'],
     ['.vscode/tasks.json', 'tasks', '김동료'],
     ['desktop.ini', 'shell', '김동료'],
+    ['git.bat', 'run', '김동료'],
+    ['mise.toml', 'tools', '김동료'],
     ['문서/바로 가기.url', 'shell', '김동료'],
-  ].sort(), '훅이 없는 settings.local.json 은 아니다')
+    ['모드/.claude/settings.json', 'claude', '김동료'],
+    ['보고/.claude/settings.json', 'claude', '김동료'],
+    ['엠씨피/.claude/settings.json', 'claude', '김동료'],
+    ['키/.claude/settings.json', 'claude', '김동료'],
+    ['허락/.claude/settings.json', 'claude', '김동료'],
+  ].sort(), '훅도 명령도 허락도 없는 설정(settings.local.json · plan 모드) · 하위 폴더의 .cmd 는 아니다')
+  assert.equal(t.head, await G.head(f.repo_path, `refs/heads/${(await S.variationById(v.id)).branch}`), '본 판을 함께 준다')
   assert.equal(t.warn, true)
   assert.equal(t.verified, false, '커밋에 적힌 이름은 누구든 적을 수 있다 — 확인한 사람이라고 하지 않는다')
   // a commit that names me (anyone can write any name in a commit): still listed and still warned about (review 11-26 2nd #3)
@@ -534,11 +562,23 @@ test('WL-P-13 프로젝트의 작업 공간(템플릿에서 시작)도 그 사�
     holder: { type: 'user', id: owner.id, name: owner.name }, createdBy: owner.id,
     source: { label: '프로젝트', thread_id: crypto.randomUUID(), project: true, template: { folder_id: f.id, slug: f.slug, name: f.name, commit: await G.head(f.repo_path, f.default_branch), outputs: '산출물' } } })
   assert.ok(S.isWorkspaceBranch(v.branch))
+  // (another workspace of the same person in this folder, and a run branch of theirs)
+  const other = await S.createVariation(f, { title: '다른 프로젝트', kind: 'person', branch: `${S.WORKSPACE_PREFIX}${crypto.randomBytes(8).toString('hex')}`,
+    holder: { type: 'user', id: owner.id, name: owner.name }, createdBy: owner.id,
+    source: { label: '프로젝트', thread_id: crypto.randomUUID(), project: true, template: { folder_id: f.id, slug: f.slug, name: f.name, commit: await G.head(f.repo_path, f.default_branch), outputs: '산출물' } } })
+  const run = `pgpt-agent/local/${owner.id}/abcdef12-${Date.now().toString(36)}`
+  await G.git(f.repo_path, ['branch', run, f.default_branch])
   const d = await device(owner)
   const pc = await onPc(f, v, d)
   const c = claimsOf(pc.prep.token)
   const shown = await H.hiddenFor(f, c)
   assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, ['refs/heads/var/t/']) && !H.hiddenBy(`refs/heads/${v.branch}`, shown), '그 사람의 작업본 토큰에는 그 작업 공간이 보인다')
+  // …only that one: not the person's other workspace, not their runs (review of #112)
+  assert.ok(H.hiddenBy(`refs/heads/${other.branch}`, shown), '같은 사람의 다른 작업 공간은 숨은 채로')
+  assert.ok(H.hiddenBy(`refs/heads/${run}`, shown), '그 사람의 실행 가지도 숨은 채로')
+  const lsOwn = await git(pc.dir, ['ls-remote', remote(f)], pc.prep.token)
+  assert.equal(lsOwn.code, 0, lsOwn.err)
+  assert.deepEqual(lsOwn.out.split('\n').map((l) => l.split('\t')[1]).filter((r) => /var\/t\/|pgpt-agent\/local\//.test(r || '')), [`refs/heads/${v.branch}`])
   // a save point: through git's own pre-receive check (pushCheck.js) — everything it stands on is the token's to see — and into the workspace
   const t = await pushToken(pc, v)
   const one = await commitIn(pc.dir, { '산출물/견적서.md': '# 견적서\n\n합계: 120만 원\n' })
@@ -557,4 +597,63 @@ test('WL-P-13 프로젝트의 작업 공간(템플릿에서 시작)도 그 사�
   assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, await H.hiddenFor(f, { scope: null })))
   // (a token whose variation is of another folder sees nothing of this one's workspaces)
   assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, await H.hiddenFor(await folderWith('다른 폴더'), c)))
+  // the leftover token of that computer for that workspace: the same one branch
+  const left = { scope: 'left', device: d.id, seat: v.id, once: 'x1', tenant: TENANT, folder: f.id, push: SL.leftPrefix(v.id, d.id) }
+  const leftShown = await H.hiddenFor(f, left)
+  assert.ok(!H.hiddenBy(`refs/heads/${v.branch}`, leftShown) && H.hiddenBy(`refs/heads/${other.branch}`, leftShown))
+  // …but not for a variation of the person's that is not a workspace, nor on another person's computer
+  assert.equal(await H.seatWorkspace(f, { ...left, seat: mv.id }), null)
+  assert.equal(await H.seatWorkspace(f, { ...left, device: (await device(mate, '동료의 둘째 PC')).id }), null)
+  // the computer let go in the settings: the workspace is hidden from its tokens again
+  await q('update pro_local_devices set revoked_at=now() where id=$1', [d.id])
+  assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, await H.hiddenFor(f, c)), '연결을 끊으면 다시 숨는다')
+  assert.ok(H.hiddenBy(`refs/heads/${v.branch}`, await H.hiddenFor(f, left)))
+})
+
+test('WL-P-14 데스크톱 토큰은 폴더 잠금 안에서 다시 본다 — 바깥 검사를 지난 밀어 넣기도 그사이 쓰인 한 번짜리 토큰 · 옮겨 간 자리면 git 에 닿기 전에 403', { skip: !db && 'no database' }, async () => {
+  const express = (await import('express')).default
+  const f = await folderWith('잠금 안 검사')
+  const v = await personVar(f, owner)
+  const pc = await onPc(f, v, await device(owner))
+  const t = await pushToken(pc, v)
+  const asked = []
+  // (the access check says yes outside the lock — the push's advertisement and its request — and no inside it: what a push just before this
+  // one did there, a leftover token used up)
+  const app = express()
+  app.use('/api/local-git', H.gitRoutes({ device: true, check: async (cl, o) => { asked.push(o.push); return asked.filter(Boolean).length >= 3 ? 'this leftover token was used already' : D.gitAccess(cl, o) } }))
+  const sv = await new Promise((r) => { const x = app.listen(0, '127.0.0.1', () => r(x)) })
+  try {
+    await commitIn(pc.dir, { '잠금.md': '잠금 안에서\n' })
+    const before = await G.head(f.repo_path, `refs/heads/${t.branch}`)
+    const p = await git(pc.dir, ['push', `http://127.0.0.1:${sv.address().port}/api/local-git/${f.id}.git`, `HEAD:refs/heads/${t.branch}`], t.token)
+    assert.notEqual(p.code, 0)
+    assert.match(p.err, /403|used already/)
+    assert.equal(asked.filter(Boolean).length, 3, '밀어 넣기는 바깥에서(광고 · 요청), 그리고 잠금 안에서 한 번 더 본다')
+    assert.equal(await G.head(f.repo_path, `refs/heads/${t.branch}`), before, '가지는 그대로')
+  } finally { await new Promise((r) => sv.close(r)) }
+})
+
+test('WL-P-15 지난 회차의 가지는 밤 정리에서 지운다 — 지금 PC 가 쥔 회차의 가지는 그대로', { skip: !db && 'no database' }, async () => {
+  const f = await folderWith('지난 회차')
+  const v = await personVar(f, owner)
+  const d = await device(owner)
+  const pc = await onPc(f, v, d)
+  const t = await pushToken(pc, v)
+  await commitIn(pc.dir, { '하나.md': '하나\n' })
+  assert.equal((await git(pc.dir, ['push', '-q', remote(f), `HEAD:refs/heads/${t.branch}`], t.token)).code, 0)
+  // taken from the web while the PC is off: its epoch's branch stays behind
+  await SE.take(f, await S.variationById(v.id), owner, { role: 'owner' })
+  assert.ok(await G.head(f.repo_path, `refs/heads/${t.branch}`))
+  // another variation held on the PC right now, with a push on its epoch's branch
+  const v2 = await personVar(f, owner, '지금 것')
+  const pc2 = await onPc(f, v2, d)
+  const t2 = await pushToken(pc2, v2)
+  await commitIn(pc2.dir, { '둘.md': '둘\n' })
+  assert.equal((await git(pc2.dir, ['push', '-q', remote(f), `HEAD:refs/heads/${t2.branch}`], t2.token)).code, 0)
+  const GC = await import('../lib/folders/gc.js')
+  const r = await GC.gcFolder(await S.folderById(f.id))
+  assert.equal(r.seatBranches, 1)
+  assert.equal(await G.head(f.repo_path, `refs/heads/${t.branch}`), null, '지난 회차의 가지는 지움')
+  assert.ok(await G.head(f.repo_path, `refs/heads/${t2.branch}`), '지금 회차의 가지는 그대로')
+  assert.equal(await SL.dropOldSeatBranches(await S.folderById(f.id)), 0, '두 번째는 할 일 없음')
 })

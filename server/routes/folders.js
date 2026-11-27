@@ -443,6 +443,11 @@ export function folderRoutes(auth) {
     const link = H.linkOf(config.tenantId, String(d.id))
     if (!link) throw seatErr(409, L(`${iga(d.name)} 꺼져 있거나 서버에 이어져 있지 않아요.`, `${d.name} is off or not connected to the server.`), 'offline')
     if (!link.caps?.seats) throw seatErr(409, L('데스크톱 앱을 새 판(0.2.6)으로 바꿔 주세요 — 이 PC 에서 작업본을 열 수 있어요.', 'Update the desktop app (0.2.6) to open working copies on this PC.'), 'old_app')
+    // (head: the commit the sheet showed the run-by-itself files of — …/trust: the variation moved since, so the sheet looks again first)
+    const asked = /^[0-9a-f]{40}$/.test(String(req.body?.head || '')) ? String(req.body.head) : null
+    if (asked && asked !== await G.head(folder.repo_path, `refs/heads/${v.branch}`)) {
+      throw seatErr(409, L('그사이 이 변형이 바뀌었어요 — 받기 전에 다시 확인할게요.', 'The variation changed meanwhile — it is checked again before it comes here.'), 'moved')
+    }
     const cur = await SE.seatOf(v.id, { v })
     const me = { ...user(req), id: req.user.id }
     let epoch
@@ -455,11 +460,13 @@ export function folderRoutes(auth) {
       if (out.legacy) throw seatErr(409, L('이 서버에는 아직 작업본 자리가 없어요(sql/063).', 'This server has no working-copy seats yet (sql/063).'), 'legacy')
       epoch = out.epoch
     }
-    await q(`update pro_folder_variations set status='open' where id=$1 and status='ready'`, [v.id])
+    const opened = (await q(`update pro_folder_variations set status='open' where id=$1 and status='ready' returning id`, [v.id])).length > 0
     const now = await S.variationById(v.id)
     const seat = await SE.seatOf(v.id, { v: now })
     if (!(await SL.prepare(link, folder, now, { epoch, autoSave: seat?.auto_save !== false }))) {
       await SE.transition(v.id, (vv, s) => (s && s.place === 'device' && Number(s.epoch) === Number(epoch) ? { ok: true, next: null, bump: true, action: 'fail' } : { ok: false, why: 'none' }), { by: req.user.id, note: 'the PC did not take it' })
+      // (it was ready to review before this: it is again — nothing was opened)
+      if (opened) await q(`update pro_folder_variations set status='ready', updated_at=now() where id=$1 and status='open'`, [v.id])
       throw seatErr(409, L(`${d.name}에 보내지 못했어요 — 잠시 뒤에 다시 해 주세요.`, `Couldn't reach ${d.name} — try again in a moment.`), 'offline')
     }
     emit(req.user.id, 'folders', { slug: folder.slug, variation: v.id })

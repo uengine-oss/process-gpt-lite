@@ -26,7 +26,9 @@ const first = ref(null)
 // files of the variation that run things by themselves once on this PC (hooks · MCP · .envrc · VS Code tasks · Windows shell files): every
 // one said before it comes here, with the name its commit gives (anyone can write any name in a commit — not who it really was). A check
 // that could not be made is said as such, never taken for 「nothing there」. 「그래도 열기」 goes on, nothing is blocked (spec variation-seats)
-const trust = ref(null) // {v, files, more, failed}
+const trust = ref(null) // {v, files, more, failed, head}
+// (the commit the last check looked at, per variation — 「이 PC 에서 작업」 sends it; the server says 'moved' when the variation changed since)
+const checked = new Map()
 
 const desktop = inDesktop()
 const old = oldDesktop()
@@ -49,6 +51,8 @@ onMounted(async () => {
 const seatOf = (v) => v.seat || null
 const here = (v) => pcSeatOf(v.id)
 const mayPc = (v) => { const s = seatOf(v); return !s?.place || (s.mine && s.state === 'held' && s.place === 'server' && s.run === 'workroom') || (!!here(v) && s?.place === 'device') }
+// (this PC's option cannot be pressed now — not linked, off, the seat elsewhere: the server workroom is the default instead)
+const pcOff = (v) => !pcReady.value || !mayPc(v)
 const mayServer = (v) => { const s = seatOf(v); return !s?.place || !!s.can?.open || !!s.can?.release || (!!here(v) && s?.place === 'device') }
 function elsewhere(v) {
   const s = seatOf(v)
@@ -59,20 +63,25 @@ function elsewhere(v) {
   return `${s.who?.name || ''} 님이 고치는 중이에요.`
 }
 
-async function onPc(v, { anyway = false } = {}) {
+async function onPc(v, { anyway = false, again = 0 } = {}) {
   err.value = ''
   if (here(v) && ['held', 'blocked'].includes(here(v).state)) { emit('close'); return router.push(`/workroom/variation/${v.id}`) }
   busy.value = { vid: v.id, what: 'pc' }
   try {
     if (!anyway) {
       const t = await F.seatTrust(props.slug, v.id).catch(() => ({ failed: true }))
-      if (t?.failed || !Array.isArray(t?.files)) { trust.value = { v, files: [], more: 0, failed: true }; return }
+      if (t?.failed || !Array.isArray(t?.files)) { trust.value = { v, files: [], more: 0, failed: true }; checked.delete(v.id); return }
+      if (t.head) checked.set(v.id, t.head); else checked.delete(v.id)
       if (t.files.length) { trust.value = { v, files: t.files, more: t.more || 0 }; return }
     }
     trust.value = null
     dev.value = await thisDevice()
     if (!dev.value?.deviceId) throw new Error(seatWhy('not_linked'))
-    await F.openOnPc(props.slug, v.id, dev.value.deviceId)
+    try { await F.openOnPc(props.slug, v.id, dev.value.deviceId, checked.get(v.id) || null) } catch (e) {
+      // (the variation changed after its files were shown: shown again — the person decides on what would come here now)
+      if (e.why === 'moved' && again < 3) { busy.value = null; return onPc(v, { again: again + 1 }) }
+      throw e
+    }
     // (the server told this app to make the working copy: wait for it here — the app answers once it holds it)
     const r = await bridge().open(v.id)
     if (!r?.ok) throw new Error(seatWhy(r?.why))
@@ -109,7 +118,8 @@ async function onNew() {
   return pcReady.value ? onPc(row) : onServer(row)
 }
 const openMain = () => { emit('close'); router.push(`/workroom/folder/${props.slug}`) }
-// the default option takes the focus (Enter opens it): this PC in the app, the server workroom in a browser
+// the default option takes the focus (Enter opens it): this PC in the app, the server workroom in a browser — or in the app when this PC's
+// option cannot be pressed now
 const setFirst = (el, i, mine) => { if (el && i === 0 && mine) first.value = el }
 const working = (v, what) => busy.value?.vid === v.id && busy.value.what === what
 </script>
@@ -146,12 +156,12 @@ const working = (v, what) => busy.value?.vid === v.id && busy.value.what === wha
           <div class="vh"><b class="vt">{{ v.title }}</b><SeatPill v-if="seatOf(v)?.place" :seat="seatOf(v)" :here="here(v)" compact /></div>
           <p v-if="elsewhere(v)" class="why">{{ elsewhere(v) }}</p>
           <div v-else class="opts">
-            <button v-if="desktop" :ref="(el) => setFirst(el, i, true)" class="opt main press" data-test="seat-sheet-pc" :disabled="!pcReady || !mayPc(v) || !!busy" @click="onPc(v)">
+            <button v-if="desktop" :ref="(el) => setFirst(el, i, !pcOff(v))" class="opt press" :class="{ main: !pcOff(v) }" data-test="seat-sheet-pc" :disabled="pcOff(v) || !!busy" @click="onPc(v)">
               <FIcon name="pc" :size="20" />
               <span><b>{{ here(v) ? '이 PC 의 작업본 열기' : working(v, 'pc') ? '이 PC 에 받는 중…' : '이 PC 에서 작업' }}</b>
                 <small>{{ pcWhy || (here(v) ? '이미 이 PC 에 있어요.' : '앱 데이터 폴더에 받아 두고 Finder · 내 터미널 · 내 CLI 로 고쳐요. 고친 것은 저절로 이 변형에 올라가요.') }}</small></span>
             </button>
-            <button :ref="(el) => setFirst(el, i, !desktop)" class="opt press" :class="{ main: !desktop }" data-test="seat-sheet-server" :disabled="!mayServer(v) || !!busy" @click="onServer(v)">
+            <button :ref="(el) => setFirst(el, i, !desktop || pcOff(v))" class="opt press" :class="{ main: !desktop || pcOff(v) }" data-test="seat-sheet-server" :disabled="!mayServer(v) || !!busy" @click="onServer(v)">
               <FIcon name="terminal" :size="20" />
               <span><b>{{ working(v, 'server') ? '여는 중…' : '서버 작업실에서 열기' }}</b><small>웹의 파일 · 셸에서 고쳐요.{{ here(v) ? ' 이 PC 의 작업본은 먼저 올리고 치워요.' : '' }}</small></span>
             </button>

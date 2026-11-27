@@ -37,6 +37,8 @@ const warn = computed(() => {
   const p = pc.value
   if (!p) return ''
   if (p.branchOk === false) return seatWhy('branch')
+  // (a merge the person has not finished there · settings the app does not reach the server with: nothing went up — said until it is cleared)
+  if (['in_progress', 'config'].includes(p.why)) return seatWhy(p.why)
   if (p.why && p.why !== 'flagged' && p.state === 'blocked') return seatWhy(p.why)
   if (p.flagged) return `확인이 필요한 파일 ${p.flagged}개는 올리지 않았어요 — 비밀로 보이는 내용 · 링크 · 큰 파일은 이 PC 에만 둬요.`
   // (a pair this PC shows as one file — README.md · readme.md: which name was changed is not known, so it never goes up as it is)
