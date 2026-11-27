@@ -14,6 +14,9 @@
 //   · a chat turn's answer the server did not get — made, or not made yet — is said (made) again after the restart
 //   · a chat cut off mid-turn keeps its folder (what the turn wrote stays) · the record says not taken but the CLI's own record has the
 //     message → the same session goes on · a failed run's record goes, old records are swept · words added to a live run go in
+//   · a template run keeps its left-off files out of its commits after a restart · a week-old record keeps what the run needs to go on
+//   · only the run's first message counts in the CLI's record (not a /command) · unconfirmed answers go before the report · a folder another
+//     run used meanwhile is brought back to the line, and the CLI is told
 // Run: cd desktop && node --test test/restart.test.js
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -23,6 +26,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { Runner } = require('../src/runner/runner')
+const { tookFirst } = require('../src/runner/session')
 const { gitServer, makeRepo } = require('./helpers/gitServer')
 const { fakeBin, systemPath } = require('./helpers/fakeBin')
 
@@ -315,6 +319,8 @@ test('LA-TERM-RESUME-08 무엇을 먼저 넣나: 실행 기록으로만 정한�
   assert.deepEqual(first(step, { cli: 'c', own: true }), { prompt: GO_ON, wait: false })
   // the CLI never took the first message (a session that went on from the chat's earlier one)
   assert.deepEqual(first(chat, { cli: 'c', own: true, given: false, resumed: true }), { prompt: chat.message, wait: false })
+  // (its own new session, kept because the CLI's record changed under it: the whole prompt, as it was given)
+  assert.deepEqual(first(chat, { cli: 'c', own: true, given: false, resumed: false, keepSession: true }), { prompt: chat.prompt, wait: false })
   // it was working · its turn had ended
   assert.deepEqual(first(chat, { cli: 'c', own: true, given: true, turn: 'working', msg: mark(chat.message) }), { prompt: GO_ON, wait: false })
   assert.deepEqual(first(step, { cli: 'c', own: true, given: true, turn: 'working' }), { prompt: GO_ON, wait: false })
@@ -483,7 +489,7 @@ test('LA-TERM-RESUME-13 실행 기록에는 받았다는 표시가 없어도 CLI
   await r2.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
 })
 
-test('LA-TERM-RESUME-14 실패한 실행의 기록은 지운다 · 7일 넘게 아무것도 쓰지 않은 실행 기록과 세션 폴더는 앱이 켜질 때 지운다(채팅의 세션 기록은 둔다) · 기록은 통째로만 쓴다', async () => {
+test('LA-TERM-RESUME-14 실패한 실행의 기록은 지운다 · 7일 넘게 아무것도 쓰지 않은 실행 기록은 이어 가는 데 필요한 것만 남기고(CLI 의 말은 지움) 세션 폴더는 지우며, 90일이 지나면 기록도 지운다(채팅의 세션 기록은 둔다) · 기록은 통째로만 쓴다', async () => {
   const r = runner()
   const j = chatJob('claude-code', 'WRITE 실패전.md :: x\nFAIL 일부러 실패')
   r.handle({ type: 'job', job: j })
@@ -493,20 +499,27 @@ test('LA-TERM-RESUME-14 실패한 실행의 기록은 지운다 · 7일 넘게 �
   await r.handle({ type: 'finished', jobId: j.id, state: 'failed' })
   const sdir = path.join(dataDir, 'sessions')
   assert.ok(!fs.readdirSync(sdir).some((x) => x.endsWith('.tmp')), 'no half-written file left beside a record')
-  // the app starts with records nothing wrote for 8 days (a run never offered again), one of today, a chat's own record
+  // the app starts with a record nothing wrote for 8 days, one for 91 days, one of today, a chat's own record
   const old = crypto.randomUUID()
+  const older = crypto.randomUUID()
   const fresh = crypto.randomUUID()
-  fs.writeFileSync(path.join(sdir, `${old}.json`), JSON.stringify({ cli: 'x', summary: '오래된 마지막 말' }))
+  fs.writeFileSync(path.join(sdir, `${old}.json`), JSON.stringify({ cli: 'x', agent: 'claude-code', dir: '/w', start: 'a'.repeat(40), given: true, turn: 'ended', turns: 2,
+    summary: '오래된 마지막 말', msg: { n: 3, h: 'abc' }, replies: [{ turn: 2, text: '확인받지 못한 답' }] }))
+  fs.writeFileSync(path.join(sdir, `${older}.json`), JSON.stringify({ cli: 'w', given: true }))
   fs.mkdirSync(path.join(sdir, old))
   fs.writeFileSync(path.join(sdir, old, 'hooks.jsonl'), 'Stop {"last_assistant_message":"오래된 마지막 말"}\n')
   fs.writeFileSync(path.join(sdir, `${fresh}.json`), JSON.stringify({ cli: 'y' }))
   const chatRec = path.join(sdir, 'chat-0123456789abcdef-claude-code.json')
   fs.writeFileSync(chatRec, JSON.stringify({ cli: 'z' }))
   const eight = (Date.now() - 8 * 86400_000) / 1000
+  const ninetyOne = (Date.now() - 91 * 86400_000) / 1000
   for (const f of [`${old}.json`, path.join(old, 'hooks.jsonl'), old, path.basename(chatRec)]) fs.utimesSync(path.join(sdir, f), eight, eight)
-  runner()
-  assert.ok(!fs.existsSync(path.join(sdir, `${old}.json`)), 'the old record')
+  fs.utimesSync(path.join(sdir, `${older}.json`), ninetyOne, ninetyOne)
+  const r2 = runner()
+  assert.deepEqual(r2.record(old), { cli: 'x', agent: 'claude-code', dir: '/w', start: 'a'.repeat(40), given: true, turn: 'ended', turns: 2 }, 'only what the run needs to go on — no words')
+  assert.ok(Math.abs(fs.statSync(path.join(sdir, `${old}.json`)).mtimeMs - eight * 1000) < 2000, 'when it was last written stays')
   assert.ok(!fs.existsSync(path.join(sdir, old)), 'its session folder (hooks — the CLI\'s last words)')
+  assert.ok(!fs.existsSync(path.join(sdir, `${older}.json`)), 'after 90 days the record goes')
   assert.ok(fs.existsSync(path.join(sdir, `${fresh}.json`)), 'today\'s stays')
   assert.ok(fs.existsSync(chatRec), 'a chat\'s own record stays')
 })
@@ -529,4 +542,172 @@ test('LA-TERM-RESUME-15 살아 있는 실행을 서버가 덧붙인 말과 함�
   const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0])
   assert.equal(done.type, 'done', JSON.stringify(done))
   await r.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
+})
+
+test('LA-TERM-RESUME-16 템플릿을 고칠 수 없는 사람의 채팅(projectSettings false)이 다시 켜진 뒤에도: 꺼 둔 스킬의 머리말이 바뀐 채 올라가지 않는다', async () => {
+  const SKILL = '---\nname: 양식\ndescription: 회사 양식\nhooks:\n  PreToolUse: []\nallowed-tools: Bash\n---\n# 양식\n'
+  origin.git('checkout', '-q', '-b', 'tpl-restart', 'main')
+  fs.mkdirSync(path.join(origin.dir, '.claude/skills/양식'), { recursive: true })
+  fs.writeFileSync(path.join(origin.dir, '.claude/skills/양식/SKILL.md'), SKILL)
+  origin.git('add', '-A', '-f'); origin.git('commit', '-qm', 'template'); origin.git('checkout', '-q', 'main')
+  const r1 = runner()
+  const j = chatJob('claude-code', 'WRITE 산출물/가.md :: 1', { projectSettings: false })
+  j.git = { ...j.git, line: 'tpl-restart', base: 'tpl-restart' }
+  r1.handle({ type: 'job', job: j })
+  const reply1 = await waitFor(() => of(j.id, 'reply')[0])
+  assert.deepEqual(reply1.files, ['산출물/가.md'])
+  await waitFor(() => of(j.id, 'idle').some((m) => m.until))
+  const cli = opens(j.id)[0].cli
+  const rec = r1.record(j.id)
+  await quit(r1, j.id)
+  const r2 = runner()
+  const from = sent.length
+  r2.handle({ type: 'job', job: again(j, cli) })
+  await settledBack(j.id, cli, 1, from)
+  // (on this PC the skill stays left off — its front matter without the run keys — and is not committed)
+  assert.doesNotMatch(fs.readFileSync(path.join(r2.dirFor(j), '.claude/skills/양식/SKILL.md'), 'utf8'), /hooks|allowed-tools/)
+  assert.equal(r2.steer(j.id, 's16', 'WRITE 산출물/나.md :: 2', '윤태호', USER), true)
+  const reply2 = await waitFor(() => of(j.id, 'reply').find((m) => m.turn === 2))
+  assert.deepEqual(reply2.files, ['산출물/나.md'])
+  await r2.handle({ type: 'finish', jobId: j.id })
+  const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0])
+  assert.equal(done.type, 'done', JSON.stringify(done))
+  assert.equal(show(j.git.branch, '.claude/skills/양식/SKILL.md'), SKILL, 'the template skill as it is')
+  assert.ok(rec.leftOff?.includes('.claude/skills/양식/SKILL.md'), 'the record says which files the run leaves off')
+  await r2.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
+})
+
+test('LA-TERM-RESUME-17 앱이 8일 동안 꺼져 있다가 같은 일을 다시 받아도: 기록의 이어 가는 부분은 남아 첫 말을 다시 넣지 않는다(CLI 의 말과 세션 폴더만 지움)', async () => {
+  const r1 = runner()
+  const j = chatJob('claude-code', 'WRITE 여드레.md :: 한 번')
+  r1.handle({ type: 'job', job: j })
+  await waitFor(() => of(j.id, 'reply')[0])
+  await waitFor(() => of(j.id, 'idle').some((m) => m.until))
+  const cli = opens(j.id)[0].cli
+  await quit(r1, j.id)
+  const sdir = path.join(dataDir, 'sessions')
+  const eight = (Date.now() - 8 * 86400_000) / 1000
+  fs.utimesSync(path.join(sdir, `${j.id}.json`), eight, eight)
+  for (const f of fs.readdirSync(path.join(sdir, j.id))) fs.utimesSync(path.join(sdir, j.id, f), eight, eight)
+  fs.utimesSync(path.join(sdir, j.id), eight, eight)
+  const r2 = runner()
+  const rec = r2.record(j.id)
+  assert.equal(rec.cli, cli)
+  assert.equal(rec.given, true)
+  assert.equal(rec.turn, 'ended')
+  assert.equal(rec.summary, undefined, 'the CLI\'s last words went')
+  assert.ok(!fs.existsSync(path.join(sdir, j.id)), 'its session folder (hooks) went')
+  const from = sent.length
+  r2.handle({ type: 'job', job: again(j, cli) })
+  await settledBack(j.id, cli, 1, from)
+  assert.equal(took(cli).length, 1, 'nothing pasted again')
+  await r2.handle({ type: 'finish', jobId: j.id })
+  const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0])
+  assert.equal(done.type, 'done', JSON.stringify(done))
+  await r2.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
+})
+
+test('LA-TERM-RESUME-18 CLI 의 기록에서 받은 것으로 치는 것은 그 실행의 첫 말뿐: 터미널에 친 명령(/cost)만 있으면 받지 않은 것 — 첫 말을 한 번 넣는다 · 기록 파일이 바뀌었거나 줄었으면 알 수 없음', async () => {
+  process.env.FAKE_TUI_DROP_ENTER = '20'
+  let r1
+  let j
+  let cli
+  try {
+    r1 = runner()
+    j = chatJob('claude-code', 'WRITE 명령.md :: 첫 말')
+    r1.handle({ type: 'job', job: j })
+    cli = await waitFor(() => opens(j.id)[0]?.cli)
+    await waitFor(() => fakeLog().some((x) => x.session === cli && x.droppedEnter))
+    await quit(r1, j.id)
+  } finally { delete process.env.FAKE_TUI_DROP_ENTER }
+  // what Claude Code records for a local slash command typed in its terminal (its transcript had nothing of this session before)
+  const root = path.join(ENV.CLAUDE_CONFIG_DIR, 'projects')
+  const real = fs.realpathSync(r1.dirFor(j))
+  const tx = path.join(root, real.replace(/[^a-zA-Z0-9]/g, '-'), `${cli}.jsonl`)
+  fs.mkdirSync(path.dirname(tx), { recursive: true })
+  fs.appendFileSync(tx, `${JSON.stringify({ type: 'user', message: { role: 'user', content: '<command-name>/cost</command-name>\n<command-message>cost</command-message>\n<command-args></command-args>' }, sessionId: cli })}\n`)
+  const r2 = runner()
+  r2.handle({ type: 'job', job: { ...j, resume: { sessionId: cli } } })
+  const reply = await waitFor(() => of(j.id, 'reply')[0])
+  assert.deepEqual(reply.files, ['명령.md'])
+  const last = opens(j.id).at(-1).cli
+  assert.ok(took(last).some((w) => w.includes('WRITE 명령.md')), 'the first message went in')
+  await r2.handle({ type: 'finish', jobId: j.id })
+  await waitFor(() => of(j.id, 'done')[0])
+  await r2.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
+  // the judgment itself: the first message counts, a command does not; a file not the one at the start, or shorter than where it stood: unknown
+  const env = { CLAUDE_CONFIG_DIR: ENV.CLAUDE_CONFIG_DIR }
+  const id = crypto.randomUUID()
+  const f = path.join(root, 'unit', `${id}.jsonl`)
+  fs.mkdirSync(path.dirname(f), { recursive: true })
+  fs.writeFileSync(f, `${JSON.stringify({ type: 'user', message: { content: '<command-name>/cost</command-name>' } })}\n`)
+  const texts = ['[윤태호 님의 메시지]\nWRITE 판정.md :: y']
+  assert.deepEqual(tookFirst({ agent: 'claude-code', cli: id, env, from: 0, texts }), { took: 'not', exists: true })
+  fs.appendFileSync(f, `${JSON.stringify({ type: 'user', message: { content: [{ type: 'text', text: '[윤태호 님의 메시지]\nWRITE 판정.md :: y' }] } })}\n`)
+  assert.deepEqual(tookFirst({ agent: 'claude-code', cli: id, env, from: 0, texts }), { took: 'took', exists: true })
+  assert.deepEqual(tookFirst({ agent: 'claude-code', cli: id, env, from: 0, texts, file: path.join(root, 'elsewhere', `${id}.jsonl`) }), { took: 'unknown', exists: true })
+  assert.deepEqual(tookFirst({ agent: 'claude-code', cli: id, env, from: fs.statSync(f).size + 10, texts }), { took: 'unknown', exists: true })
+  assert.deepEqual(tookFirst({ agent: 'claude-code', cli: crypto.randomUUID(), env, from: 0, texts }), { took: 'not', exists: false })
+})
+
+test('LA-TERM-RESUME-19 실행이 끝났는데 서버가 그 턴의 답을 받았다고 하기 전이면: 답을 보고(done)보다 앞에 두어, 다시 이어질 때(앱을 다시 켜도) 답을 먼저 보낸다', async () => {
+  const r1 = runner()
+  const base = linkFor(r1)
+  // (the link went down at the turn's end: neither the answer nor the report reached the server)
+  r1.setLink({ send: (m) => (['reply', 'done'].includes(m.type) ? false : base.send(m)) })
+  const j = chatJob('claude-code', 'WRITE 끝답.md :: 보고보다 먼저')
+  r1.handle({ type: 'job', job: j })
+  await waitFor(() => r1.record(j.id)?.replies?.some((x) => x.type === 'reply'))
+  await waitFor(() => of(j.id, 'idle').some((m) => m.until))
+  await r1.handle({ type: 'finish', jobId: j.id })
+  await waitFor(() => r1.outbox.some((m) => m.jobId === j.id && m.type === 'done'))
+  assert.deepEqual(r1.outbox.filter((m) => m.jobId === j.id).map((m) => [m.type, m.turn ?? null]), [['reply', 1], ['done', null]])
+  assert.equal(r1.record(j.id), null)
+  r1.stop()
+  // the app is back: what waits in its outbox goes in order — the answer, then the report
+  const from = sent.length
+  const r2 = runner()
+  const said = sent.slice(from).filter((m) => m.jobId === j.id).map((m) => m.type)
+  assert.deepEqual(said.filter((t) => t === 'reply' || t === 'done'), ['reply', 'done'])
+  const reply = sent.slice(from).find((m) => m.jobId === j.id && m.type === 'reply')
+  assert.deepEqual(reply.files, ['끝답.md'])
+  // (the server confirms it: it leaves the outbox; the report stays until 'finished')
+  await waitFor(() => !r2.outbox.some((m) => m.jobId === j.id && m.type === 'reply'))
+  await r2.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
+  assert.equal(r2.outbox.filter((m) => m.jobId === j.id).length, 0)
+})
+
+test('LA-TERM-RESUME-20 그 사이 다른 실행이 작업 폴더를 썼으면(같은 채팅의 다른 CLI): 폴더를 서버의 상태로 다시 맞추고, CLI 는 다음 말과 함께 그 사실을 듣는다', async () => {
+  const r1 = runner()
+  const j = chatJob('claude-code', 'WRITE 원본.md :: 첫 턴')
+  r1.handle({ type: 'job', job: j })
+  await waitFor(() => of(j.id, 'reply')[0])
+  await waitFor(() => of(j.id, 'idle').some((m) => m.until))
+  const cli = opens(j.id)[0].cli
+  await quit(r1, j.id)
+  // another run of the chat (its Codex) used the folder meanwhile: its own branch, its own file
+  const dir = r1.dirFor(j)
+  execFileSync('git', ['checkout', '-q', '-b', 'pgpt-agent/local-other'], { cwd: dir })
+  fs.writeFileSync(path.join(dir, '남의것.md'), '다른 실행\n')
+  execFileSync('git', ['add', '남의것.md'], { cwd: dir })
+  execFileSync('git', ['-c', 'user.name=시험', '-c', 'user.email=t@example.test', 'commit', '-qm', 'other run'], { cwd: dir })
+  const r2 = runner()
+  const from = sent.length
+  r2.handle({ type: 'job', job: again(j, cli) })
+  await settledBack(j.id, cli, 1, from)
+  assert.equal(took(cli).length, 1, 'nothing pasted while it waits')
+  assert.equal(execFileSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: dir }).toString().trim(), j.git.branch, 'on the run\'s branch again')
+  assert.ok(!fs.existsSync(path.join(dir, '남의것.md')), 'the other run\'s file is not in this run')
+  assert.equal(fs.readFileSync(path.join(dir, '원본.md'), 'utf8'), '첫 턴\n', 'what this run pushed is there (from the line)')
+  assert.equal(r2.steer(j.id, 's20', 'WRITE 다음.md :: 둘', '윤태호', USER), true)
+  const second = await waitFor(() => of(j.id, 'reply').find((m) => m.turn === 2))
+  assert.deepEqual(second.files, ['다음.md'])
+  const words = took(cli).at(-1)
+  assert.match(words, /^\[알림\] 앱이 다시 켜지는 사이 이 작업 폴더를 다른 실행이 썼어요/)
+  assert.match(words, /WRITE 다음\.md :: 둘$/)
+  assert.deepEqual(of(j.id, 'steered').filter((m) => m.steerId === 's20').map((m) => m.how), ['live'], 'the steer is still known as taken')
+  await r2.handle({ type: 'finish', jobId: j.id })
+  const done = await waitFor(() => of(j.id, 'done')[0] || of(j.id, 'failed')[0])
+  assert.equal(done.type, 'done', JSON.stringify(done))
+  await r2.handle({ type: 'finished', jobId: j.id, state: 'done', line: 'main' })
 })

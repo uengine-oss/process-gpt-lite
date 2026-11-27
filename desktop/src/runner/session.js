@@ -166,20 +166,29 @@ function cliRecordOf({ agent, cli, env = process.env }) {
   return null
 }
 const sizeOf = (f) => { try { return f ? fs.statSync(f).size : 0 } catch { return 0 } }
-// Whether the CLI took a person's message into the session after the first `from` bytes of its own record — a user message there (not a
-// tool's result, not its own notes; Codex: a user_message). Read from the CLI's record only, never from the screen.
-function tookSince({ agent, cli, env = process.env, from = 0 }) {
+// Whether the CLI took the run's first message into the session after the first `from` bytes of its own record (Claude Code's transcript ·
+// Codex's rollout) → {took: 'took' | 'not' | 'unknown', exists}. Only a person's message that begins as one of `texts` (what the runner
+// gives first: the prompt, the person's words, Codex's pointer to the prompt file) counts — not a command typed in its terminal (/cost,
+// ! …), a tool's result, its own notes. 'unknown': the record is not the file it was at the start (`file`), or is shorter than `from` —
+// what the CLI took cannot be told from it. Read from the CLI's record only, never from the screen.
+function tookFirst({ agent, cli, env = process.env, from = 0, file = null, texts = [] }) {
   const f = cliRecordOf({ agent, cli, env })
-  if (!f) return false
+  if (!f) return { took: file ? 'unknown' : 'not', exists: false }
+  const at = Math.max(0, Number(from) || 0)
+  if ((file && !samePath(file, f)) || sizeOf(f) < at) return { took: 'unknown', exists: true }
+  const want = texts.map((t) => String(t || '')).filter((t) => t.trim())
   const t = new Tail(f)
-  t.offset = Math.max(0, Number(from) || 0)
+  t.offset = at
   for (const e of t.read()) {
-    if (agent === 'codex') { if (e?.type === 'event_msg' && e.payload?.type === 'user_message' && String(e.payload.message || '').trim()) return true; continue }
-    if (e?.type !== 'user' || e.isMeta || e.isSidechain) continue
-    const c = e.message?.content
-    if (typeof c === 'string' ? c.trim() : Array.isArray(c) && !c.some((b) => b?.type === 'tool_result') && c.some((b) => b?.type === 'text' && String(b.text || '').trim())) return true
+    let text = ''
+    if (agent === 'codex') { if (e?.type === 'event_msg' && e.payload?.type === 'user_message') text = String(e.payload.message || '') } else if (e?.type === 'user' && !e.isMeta && !e.isSidechain) {
+      const c = e.message?.content
+      if (typeof c === 'string') text = c
+      else if (Array.isArray(c) && !c.some((b) => b?.type === 'tool_result')) text = c.filter((b) => b?.type === 'text').map((b) => b.text || '').join('\n')
+    }
+    if (text.trim() && want.some((w) => sameStart(text, w))) return { took: 'took', exists: true }
   }
-  return false
+  return { took: 'not', exists: true }
 }
 
 class CliSession extends EventEmitter {
@@ -584,4 +593,4 @@ function briefOf(input = {}, rel = (s) => s) {
   return short(rel(String(i.file_path || i.path || i.command || i.pattern || i.description || i.url || '')), 120)
 }
 
-module.exports = { CliSession, Tail, inputLine, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, codexRolloutOf, cliRecordOf, sizeOf, tookSince, samePath, hookProgram, PROMPT_POINTER }
+module.exports = { CliSession, Tail, inputLine, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, codexRolloutOf, cliRecordOf, sizeOf, tookFirst, samePath, hookProgram, PROMPT_POINTER }
