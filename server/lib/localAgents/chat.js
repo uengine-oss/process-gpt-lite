@@ -73,7 +73,11 @@ export async function availability(user) {
       if (!has.length) continue
       const ok = has.filter((l) => l.caps.clis[id].runnable !== false && l.prefs?.enabled !== false && l.caps.chat)
       const loggedOut = has.every((l) => l.caps.clis[id].loggedIn === false)
-      if (ok.length) out.push({ ...base, available: true, ...(loggedOut ? { note: L(`${label} 에 로그인이 필요할 수 있어요 — 터미널에서 로그인해요`, `${label} may need a sign-in — sign in in its terminal`) } : {}) })
+      // (a desktop before 0.2.8: its CLI cannot propose this PC's skills or folders from the chat — pcTools.js; the app's update is offered)
+      const noTools = !ok.some((l) => l.caps.liteTools)
+      const notes = [...(loggedOut ? [L(`${label} 에 로그인이 필요할 수 있어요 — 터미널에서 로그인해요`, `${label} may need a sign-in — sign in in its terminal`)] : []),
+        ...(noTools ? [L(TOOLS_UPDATE_KO, TOOLS_UPDATE_EN)] : [])]
+      if (ok.length) out.push({ ...base, available: true, ...(notes.length ? { note: notes.join(' · ') } : {}), ...(noTools ? { update: true, tools: false } : { tools: true }) })
       else if (has.some((l) => l.prefs?.enabled === false)) out.push({ ...base, available: false, why: L('PC 앱에서 에이전트 실행이 꺼져 있어요 — 설정 › 계정 › 내 컴퓨터의 에이전트에서 켜요', 'Agent runs are off in the desktop app — turn them on in Settings › Account › Agents on my computer') })
       // (a desktop before 0.2.2 runs steps but not chat messages)
       else if (has.every((l) => !l.caps.chat)) out.push({ ...base, available: false, why: L('PC 앱을 새 판(0.2.2 이상)으로 올리면 채팅에서 쓸 수 있어요', 'Update the desktop app (0.2.2 or later) to use it from the chat'), update: true })
@@ -90,6 +94,9 @@ export async function availability(user) {
   // latest: the newest desktop app — a page inside an older one offers it (desktopRelease.js)
   return { agents: out, desktop: { linked: devices.length, online: links.length, names: links.map((l) => l.name), latest: latestDesktop() }, download: DOWNLOAD }
 }
+
+const TOOLS_UPDATE_KO = 'PC 앱을 0.2.8 이상으로 업데이트하면 채팅에서 이 PC 의 스킬을 등록하거나 폴더를 올릴 수 있어요'
+const TOOLS_UPDATE_EN = 'Update the desktop app to 0.2.8 or later to register this PC\'s skills and folders from the chat'
 
 // the agent the person chose for a chat (one row per chat; none: 기본)
 export async function choiceOf(user, key) {
@@ -391,9 +398,18 @@ export async function prepare(job, link = null) {
   const scope = link?.id ? { scope: 'device', device: link.id, job: job.id, hours: Math.min(24, Number(config.gitTokenHours) || 24) } : {}
   // (this run's own branch — pgpt-agent/local/<person>/<job>-…, gitHttp.js; a run resumed keeps the branch it had, an old name too)
   const branch = runBranchFor(job, own ? job.run_branch : null)
+  // the Process GPT tools for its CLI (pcTools.js — desktop 0.2.8): this run's own token; a desktop without them gets a note in the prompt
+  // instead, so its CLI can say what to do when the person asks for it (its own judgement of what they asked — nothing reads their words)
+  const PT = await import('./pcTools.js')
+  const tools = PT.forRun(job, link)
+  let prompt = job.prompt
+  if (link && !tools) {
+    const note = await withLang(lang, () => toolsMissing(link)).catch(() => '')
+    if (note && !String(prompt || '').includes(note)) prompt = `${prompt}\n\n${note}`
+  }
   return {
     kind: KIND, todoId: String(job.todo_id), instId: null, instName: c.title || '', activity: c.title || L('채팅', 'Chat'), agent: job.agent, label: A.LABEL[job.agent] || job.agent,
-    mode: 'complete', prompt: job.prompt, message: c.message || '', person, lang, skills: [], projectSettings,
+    mode: 'complete', prompt, message: c.message || '', person, lang, skills: [], projectSettings, ...(tools ? { tools } : {}),
     chat: { key: c.key, threadId: String(job.thread_id), title: c.title || '' },
     git: {
       path: `/api/local-git/${folder.id}.git`, url: gitPublic() ? `${gitPublic()}/api/local-git/${folder.id}.git` : null,
@@ -403,6 +419,13 @@ export async function prepare(job, link = null) {
     },
     ...(resume ? { resume: { sessionId: resume } } : {}),
   }
+}
+
+// the note for a desktop before 0.2.8 (the bundled skill's prompt — a company may change it)
+async function toolsMissing(link) {
+  let tpl = ''
+  try { tpl = await (await import('../ontology/discovery.js')).prompt('local-tools-missing') } catch { return '' }
+  return String(tpl || '').replace(/\{version\}/g, link?.device?.app_version || link?.appVersion || '').replace(/\{download\}/g, DOWNLOAD).trim()
 }
 
 // ---------- each turn's answer ----------

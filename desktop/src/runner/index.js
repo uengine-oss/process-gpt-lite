@@ -9,6 +9,7 @@ const C = require('./clis')
 const { BrowserService } = require('../browser/protocol')
 const { FolderSync } = require('./sync')
 const { WorkingCopies } = require('./seats')
+const { ToolDesk } = require('./tools')
 
 // mode: 'auto' (the CLI in a terminal when node-pty loads) | 'headless' · sessionEnv: extra environment for the CLIs (tests: their config folders)
 // browser: this PC's browser the server's browser agent may drive (../browser/host.js — the app's main process makes it; none in a plain
@@ -17,12 +18,17 @@ const { WorkingCopies } = require('./seats')
 // server and person (settings.folderStore) — their messages (sync:*) go over this same link, for the person the pairing is for (userId)
 // seats: the variations' working copies this computer holds (작업본 — ./seats.js; 0.2.7): the app's record of them for this server and person
 // (settings.seatStore) — their messages (seat:*) go over this same link too · seatOpts: the engine's timings (tests)
+// tools: the Process GPT tools a chat run's CLI gets (./tools.js — 0.2.8): its own MCP server lists this PC's skills and proposes a skill or
+// a folder to the server (a card in the chat; the person's press there registers or uploads it) · toolOpts: tests (home, fetchImpl)
+// toolSearch: Claude Code's ENABLE_TOOL_SEARCH for chat runs (default 'false' — runner.js toolSearchEnv; the app's PGL_TOOL_SEARCH too)
 function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, log = () => {}, searchPath = C.augmentedPath(), WS, maxJobs = 2, runMs, mode, sessionEnv, settleMs, browser = null,
-  folders: folderStore = null, seats: seatStore = null, seatOpts = {}, userId = '' } = {}) {
+  folders: folderStore = null, seats: seatStore = null, seatOpts = {}, userId = '', tools: withTools = true, toolOpts = {}, toolSearch } = {}) {
   const ev = new EventEmitter()
   let caps = {}
   let state = { connected: false, refused: null, user: null, device: null }
-  const runner = new Runner({ dataDir, server, prefs, ask, searchPath, maxJobs, log, runMs, caps, ...(mode ? { mode } : {}), ...(sessionEnv ? { sessionEnv } : {}), ...(settleMs ? { settleMs } : {}) })
+  let desk = null
+  const runner = new Runner({ dataDir, server, prefs, ask, searchPath, maxJobs, log, runMs, caps, ...(mode ? { mode } : {}), ...(sessionEnv ? { sessionEnv } : {}), ...(settleMs ? { settleMs } : {}),
+    ...(toolSearch !== undefined ? { toolSearch } : {}) })
   const hello = () => ({
     device: { name: device.name || os.hostname().replace(/\.local$/, ''), platform: device.platform || process.platform, appVersion: device.appVersion || '' },
     // terminal: steps run in the person's interactive CLI (else headless — node-pty did not load here) · conversation: it relays the CLI's
@@ -35,7 +41,10 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
       // (0.2.7: a variation's working copy on this PC — 「이 PC 에서 작업」)
       browser: !!browser, browserGuard: !!browser, folders: !!folderStore, seats: !!seatStore,
       // (a folder's own run settings — hooks · permissions · MCP servers — left off for a person who may not edit it: runSettings.js)
-      leaveOffSettings: true },
+      leaveOffSettings: true,
+      // (0.2.8: a chat run's CLI gets the Process GPT tools — 「스킬을 등록할까요?」 · 「폴더를 올릴까요?」; liteFolders: it can upload the
+      // folder a card names — the champion folders' engine is on)
+      liteTools: !!desk, liteFolders: !!(desk && folderStore) },
     prefs: prefs(),
     active: runner.activeIds(),
   })
@@ -45,6 +54,8 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
   const web = browser ? new BrowserService({ driver: browser, send: (m) => link.send(m), user: () => state.user, log }) : null
   const folders = folderStore ? new FolderSync({ dataDir, server, userId, store: folderStore, send: (m) => link.send(m), device, user: () => state.user, log }) : null
   if (folders) folders.on('state', (list) => ev.emit('folders', list))
+  desk = withTools ? new ToolDesk({ dataDir, server, folders, send: (m) => link.send(m), log, ...toolOpts }) : null
+  if (desk) { runner.tools = desk; desk.on('notice', (n) => ev.emit('notice', n)) }
   const seats = seatStore ? new WorkingCopies({ dataDir, server, userId, store: seatStore, send: (m) => link.send(m), device, user: () => state.user, log, ...seatOpts }) : null
   if (seats) {
     seats.on('state', (list) => ev.emit('seats', list))
@@ -67,6 +78,7 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     if (web?.handles(m)) { web.handle(m).catch((e) => log('[browser]', e.message)); return }
     if (folders?.handles(m)) { folders.handle(m); return }
     if (seats?.handles(m)) { seats.handle(m); return }
+    if (desk?.handles(m)) { desk.handle(m).catch((e) => log('[tools]', e.message)); return }
     runner.handle(m).catch((e) => log('[runner]', e.message))
   })
   runner.on('state', changed)
@@ -90,9 +102,9 @@ function createLocalRunner({ server, token, dataDir, device = {}, prefs, ask, lo
     return caps
   }
   return {
-    ev, runner, link, status, detect, browser: web, folders, seats,
+    ev, runner, link, status, detect, browser: web, folders, seats, tools: desk,
     async start() { await detect(); link.start(); changed(); return this },
-    stop() { runner.stop(); web?.stop(); folders?.stop(); seats?.stop(); link.stop() },
+    stop() { runner.stop(); web?.stop(); folders?.stop(); seats?.stop(); desk?.stop(); link.stop() },
     // the person turned local runs on/off or asking first: the server knows at once (it stops sending, or sends again)
     prefsChanged() { link.send({ type: 'caps', caps: hello().caps, prefs: prefs(), active: runner.activeIds() }); changed() },
   }
