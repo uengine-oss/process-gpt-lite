@@ -85,10 +85,11 @@ export async function holdsWorkspace(room) {
   const slugs = await fs.readdir(path.join(room.root, 'folders')).catch((e) => (e.code === 'ENOENT' ? [] : null))
   if (slugs === null) return true
   if (!slugs.length) return false
-  // (by the workspace rows themselves, not the folder's template mark: a template no longer marked still has its projects' workspaces)
+  // (by the folders' own workspace rows as well as the template mark: a folder checked out here that holds a live project workspace counts,
+  // marked or not — a template no longer marked still has its projects' workspaces; the room's id is a conversation, never a thread)
   const rows = await q(`select 1 from pro_folders f where f.tenant_id=$1 and f.slug = any($2::text[])
                         and (f.settings ? 'template' or exists (select 1 from pro_folder_variations v where v.folder_id=f.id and v.source ? 'template'
-                             and v.status not in ('merged','discarded') and v.source->>'thread_id'=$3)) limit 1`, [T(), slugs, String(room.id)]).catch(() => null)
+                             and v.status not in ('merged','discarded'))) limit 1`, [T(), slugs]).catch(() => null)
   return rows === null ? true : rows.length > 0
 }
 // a step's assignee (a comma list of ids or emails) or a participant of its process instance

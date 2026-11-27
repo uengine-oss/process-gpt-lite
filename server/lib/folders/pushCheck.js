@@ -2,15 +2,17 @@
 // pre-receive hook, when the pushed objects are still in git's quarantine (GIT_QUARANTINE_PATH) and no ref has changed. A hook that says no
 // makes git drop what came and update nothing, so nothing unchecked is ever fetched, listed or brought in.
 // A token reads only part of a folder (gitHttp.js hidden refs: other desktops' sync and run branches, projects' workspaces). A push may
-// not use what its token cannot read:
-//   1. every object a new tip takes in that the refs the token sees do not already hold came with the push — a commit, tree or blob
-//      named only by its id (a new commit over a hidden tree) is refused
-//   2. an object of the push that was here before (the base of a delta git copied in from the repository) is not one that only refs
-//      hidden from the token hold
-// The checks are a fixed handful of git processes, whatever the number of refs (no git per command, no ref list on a command line).
+// not use what its token cannot read. What the client sent is the start of the pack git kept (receive.unpackLimit=1: always a pack);
+// what index-pack --fix-thin added after it are the bases of a thin pack's deltas, copied in from the repository:
+//   1. every object a new tip takes in that the refs the token sees do not already hold is one the client sent
+//   2. every base git added is held by a ref the token sees: in the tree of a commit the push stands on (step 1 showed those are the
+//      token's to see) or of a ref the token was shown
+// An object the client sent whole is its own, whatever else holds the same bytes. The checks are a fixed handful of git processes, whatever
+// the number of refs, with no walk of the folder's history (no git per command, no ref list on a command line); the hook has a time limit.
 // Only node's own modules: git starts this file as a process of its own (gitHttp.js hooks()).
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ZERO = /^0{40}$|^0{64}$/
@@ -46,10 +48,30 @@ const idsOf = (text, { missing = null } = {}) => text.split('\n').map((l) => l.t
   .filter((l) => missing === null || / missing$/.test(l) === missing).map((l) => l.split(' ')[0]).filter((x) => OID.test(x))
 const lines = (list) => (list.length ? `${list.join('\n')}\n` : '')
 
-// commands: [{old, new, ref}]; hide: the token's hidden-ref entries; env: the hook's (quarantine included) → null, or why it may not stand
-export async function check({ commands, hide, cwd = process.cwd(), env = process.env }) {
+// The objects of the push's pack in the order git wrote them → [{id, at}] by offset, or null when that cannot be told (more than one pack,
+// objects outside it)
+async function packedOf(quarantine, { cwd, env }) {
+  const dir = path.join(quarantine, 'pack')
+  const idx = (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((f) => f.endsWith('.idx'))
+  if (idx.length > 1) return null
+  const out = []
+  if (idx.length) {
+    const text = await run(['show-index'], { cwd, env, input: fs.readFileSync(path.join(dir, idx[0])) })
+    for (const l of text.split('\n')) {
+      const [at, id] = l.trim().split(' ')
+      if (OID.test(id || '') && /^\d+$/.test(at || '')) out.push({ id, at: Number(at) })
+    }
+  }
+  out.sort((a, b) => a.at - b.at)
+  return out
+}
+
+// commands: [{old, new, ref}]; hide: the token's hidden-ref entries; sent: where the client's own pack data ended (its length without
+// the trailer — gitHttp.js reads it from the request); env: the hook's (quarantine included) → null, or why it may not stand
+export async function check({ commands, hide, sent, cwd = process.cwd(), env = process.env }) {
   const tips = [...new Set((commands || []).filter((c) => !ZERO.test(c.new)).map((c) => c.new))]
   if (!tips.length) return null
+  if (!Number.isInteger(sent) || sent < 0) return 'the push could not be checked (no pack length)'
   const refs = (await run(['for-each-ref', '--format=%(refname)'], { cwd, env })).split('\n').map((x) => x.trim()).filter(Boolean)
   const seen = refs.filter((r) => !hiddenBy(r, hide))
   const quarantine = env.GIT_QUARANTINE_PATH || ''
@@ -58,33 +80,30 @@ export async function check({ commands, hide, cwd = process.cwd(), env = process
   delete came.GIT_ALTERNATE_OBJECT_DIRECTORIES
   const here = { ...env }
   for (const k of ['GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_QUARANTINE_PATH']) delete here[k]
-  // 1. what the new tips take in beyond what the token already sees
-  const taken = idsOf(await run(['rev-list', '--objects', '--stdin'], { cwd, env, input: lines([...tips, ...seen.map((r) => `^${r}`)]) }))
-  if (taken.length) {
-    if (!quarantine) return 'it names objects that did not come with it'
-    const absent = idsOf(await run(['cat-file', '--batch-check=%(objectname)'], { cwd, env: came, input: lines(taken) }), { missing: true })
-    if (absent.length) return `it names ${absent.length} object(s) that did not come with it and that this token cannot read`
+  const packed = quarantine ? await packedOf(quarantine, { cwd, env: came }) : []
+  if (!packed) return 'the push could not be checked (more than one pack)'
+  if (quarantine && idsOf(await run(['cat-file', '--batch-all-objects', '--batch-check=%(objectname)'], { cwd, env: came })).length > packed.length) {
+    return 'the push could not be checked (objects outside its pack)'
   }
-  // 2. what came that was here already: only what the token sees (a thin pack's delta bases from the refs it was shown)
-  if (!quarantine) return null
-  const brought = idsOf(await run(['cat-file', '--batch-all-objects', '--batch-check=%(objectname)'], { cwd, env: came }))
-  if (!brought.length) return null
-  const had = idsOf(await run(['cat-file', '--batch-check=%(objectname)'], { cwd, env: here, input: lines(brought) }), { missing: false })
-  if (!had.length) return null
-  const rest = new Set(had)
-  // (the tips' own trees first — where a thin pack's bases are)
-  for (const id of idsOf(await run(['rev-list', '--objects', '--no-walk', '--stdin'], { cwd, env: here, input: lines(seen) }))) rest.delete(id)
-  if (!rest.size) return null
-  // what is left counts only when a hidden ref holds it: an object no ref holds (what an earlier push left when it was put back — the
-  // same desktop sends it again) is anyone's to send. The hidden refs' own objects first; the whole history the token sees only for those
-  const hidden = refs.filter((r) => hiddenBy(r, hide))
-  if (!hidden.length) return null
-  const behind = new Set(idsOf(await run(['rev-list', '--objects', '--stdin'], { cwd, env: here, input: lines([...hidden, ...seen.map((r) => `^${r}`)]) })))
-  const suspect = [...rest].filter((id) => behind.has(id))
-  if (!suspect.length) return null
-  const all = new Set(idsOf(await run(['rev-list', '--objects', '--stdin'], { cwd, env: here, input: lines(seen) })))
-  const bad = suspect.filter((id) => !all.has(id))
-  return bad.length ? `it is built on ${bad.length} object(s) this token cannot read` : null
+  const client = new Set(packed.filter((o) => o.at < sent).map((o) => o.id))
+  const added = packed.filter((o) => o.at >= sent).map((o) => o.id)
+  // 1. what the new tips take in beyond what the token already sees: only what the client sent
+  const taken = idsOf(await run(['rev-list', '--objects', '--stdin'], { cwd, env, input: lines([...tips, ...seen.map((r) => `^${r}`)]) }))
+  const absent = taken.filter((id) => !client.has(id))
+  if (absent.length) return `it names ${absent.length} object(s) that did not come with it and that this token cannot read`
+  // 2. the bases git added for a thin pack: held by a ref the token sees
+  if (!added.length) return null
+  const rest = new Set(added)
+  const types = (await run(['cat-file', '--batch-check=%(objectname) %(objecttype)'], { cwd, env: came, input: lines([...client]) })).split('\n')
+  const commits = types.map((l) => l.trim().split(' ')).filter(([id, t]) => t === 'commit' && OID.test(id)).map(([id]) => id)
+  const parents = commits.length ? (await run(['rev-list', '--parents', '--no-walk', '--stdin'], { cwd, env, input: lines(commits) })).split('\n')
+    .flatMap((l) => l.trim().split(' ').slice(1)).filter((id) => OID.test(id) && !client.has(id)) : []
+  // (the trees of the commits the push stands on — where git takes a thin pack's bases from — then those of the refs it was shown)
+  for (const from of [[...new Set(parents)], seen]) {
+    if (!rest.size || !from.length) continue
+    for (const id of idsOf(await run(['rev-list', '--objects', '--no-walk', '--stdin'], { cwd, env: here, input: lines(from) }))) rest.delete(id)
+  }
+  return rest.size ? `it is built on ${rest.size} object(s) this token cannot read` : null
 }
 
 // ---------- as git's pre-receive hook ----------
@@ -97,14 +116,23 @@ async function hook() {
   // (nothing asked: the server's own probe that the hook can run — gitHttp.js hooks())
   if (!commands.length) return 0
   let why
+  // (a check that runs out of time refuses: the folder's lock is held while it runs)
+  const limit = setTimeout(() => refuse('the push could not be checked in time').finally(() => process.exit(1)), Number(process.env.PGPT_PUSH_CHECK_MS) || CHECK_MS)
+  limit.unref?.()
   try {
     const hide = JSON.parse(fs.readFileSync(String(process.env.PGPT_PUSH_HIDE || ''), 'utf8'))
-    why = await check({ commands, hide: Array.isArray(hide) ? hide : [] })
+    const sent = /^\d+$/.test(String(process.env.PGPT_PUSH_SENT || '')) ? Number(process.env.PGPT_PUSH_SENT) : null
+    why = await check({ commands, hide: Array.isArray(hide) ? hide : [], sent })
   } catch (e) { why = `the push could not be checked (${e.message})` }
+  clearTimeout(limit)
   if (!why) return 0
+  await refuse(why)
+  return 1
+}
+export const CHECK_MS = 120_000
+async function refuse(why) {
   try { if (process.env.PGPT_PUSH_REASON) fs.writeFileSync(process.env.PGPT_PUSH_REASON, why) } catch { /* the refusal stands */ }
   process.stderr.write('Process GPT Lite: this push is refused — it refers to objects this token may not use\n')
-  return 1
 }
 const self = (() => { try { return fs.realpathSync(fileURLToPath(import.meta.url)) } catch { return '' } })()
 const started = (() => { try { return process.argv[1] ? fs.realpathSync(process.argv[1]) : '' } catch { return '' } })()

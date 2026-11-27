@@ -574,7 +574,7 @@ test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으�
   const oid = (type, body) => crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`${type} ${body.length}\0`), body])).digest('hex')
   const commitOf = (tree, parent, msg) => { const body = Buffer.from(`tree ${tree}\nparent ${parent}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\n${msg}\n`); return { body, sha: oid('commit', body) } }
   const refused = (r, ref) => { assert.equal(r.status, 200, r.text); assert.match(r.text, new RegExp(`ng ${ref.replace(/\//g, '\\/')} `), r.text) }
-  const made = ['pgpt-agent/steal-1', 'pgpt-agent/steal-2', 'pgpt-agent/steal-3', 'pgpt-agent/steal-4', 'pgpt-agent/steal-5', 'pgpt-agent/fine-1', 'pgpt-agent/fine-2']
+  const made = ['pgpt-agent/steal-1', 'pgpt-agent/steal-2', 'pgpt-agent/steal-3', 'pgpt-agent/steal-4', 'pgpt-agent/steal-5', 'pgpt-agent/steal-6', 'pgpt-agent/steal-7', 'pgpt-agent/fine-1', 'pgpt-agent/fine-2', 'pgpt-agent/fine-3']
   // a hidden run branch of someone with a file only it holds (an 8 KB file: big enough for git to make a delta of it)
   const secret = Array.from({ length: 64 }, () => crypto.randomBytes(64).toString('hex')).join('\n') + '\n'
   const hiddenRun = `pgpt-agent/local/${pd.id}/dead0000-1`
@@ -635,6 +635,35 @@ test('TF-U-22 git: 다른 토큰에는 실행 가지가 보이지 않고 판으�
     const t7 = await thinPush('refs/heads/pgpt-agent/fine-2', formBlob, formLen, '제안서 양식.md')
     assert.match(t7.r.text, /ok refs\/heads\/pgpt-agent\/fine-2/, t7.r.text)
     assert.equal(await G.head(tpl.repo_path, 'refs/heads/pgpt-agent/fine-2'), t7.c.sha)
+    // a file sent whole is the sender's own, even when the same bytes are in a workspace it cannot see (an empty file, a logo)
+    const draftBody = await G.git(tpl.repo_path, ['cat-file', 'blob', draft], { buffer: true })
+    const t8 = Buffer.concat([Buffer.from('100644 copy.md\0'), Buffer.from(draft, 'hex')])
+    const c8 = commitOf(oid('tree', t8), await G.head(tpl.repo_path, 'main'), 'same bytes')
+    const r8 = await push('refs/heads/pgpt-agent/fine-3', c8.sha, [{ type: 1, body: c8.body }, { type: 2, body: t8 }, { type: 3, body: draftBody }])
+    assert.match(r8.text, /ok refs\/heads\/pgpt-agent\/fine-3/, r8.text)
+    // …but a delta on an object no ref holds (left in the repository by something that stopped half way) is not a base anyone may use
+    const loose = (await G.git(tpl.repo_path, ['hash-object', '-w', '--stdin'], { input: secret.replace(/^/, 'left over\n') })).trim()
+    const t9 = await thinPush('refs/heads/pgpt-agent/steal-6', loose, Buffer.byteLength(secret) + Buffer.byteLength('left over\n'), 'loose.md')
+    refused(t9.r, 'refs/heads/pgpt-agent/steal-6')
+    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/steal-6')))
+    // a new commit on the hidden one, with a delta whose base is that commit (git copies the commit in): what git copied is not what was sent
+    const hBody = await G.git(tpl.repo_path, ['cat-file', 'commit', h], { buffer: true })
+    const c10 = commitOf(tree, h, 'over a copied base')
+    const r10 = await send([{ ref: 'refs/heads/pgpt-agent/steal-7', sha: c10.sha }], pack([{ type: 1, body: c10.body }, { type: 7, base: h, body: deltaOf(hBody.length, Buffer.from('more\n')) }]))
+    refused(r10, 'refs/heads/pgpt-agent/steal-7')
+    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/steal-7')))
+    // a check or a push that runs out of time refuses (the folder's lock is held meanwhile)
+    process.env.PGPT_PUSH_CHECK_MS = '1'
+    try {
+      const c11 = commitOf(tree, await G.head(tpl.repo_path, 'main'), 'slow check')
+      refused(await push('refs/heads/pgpt-agent/slow-1', c11.sha, [{ type: 1, body: c11.body }]), 'refs/heads/pgpt-agent/slow-1')
+    } finally { delete process.env.PGPT_PUSH_CHECK_MS }
+    process.env.PRO_GIT_PUSH_SECONDS = '0.001'
+    try {
+      const c12 = commitOf(tree, await G.head(tpl.repo_path, 'main'), 'slow push')
+      await push('refs/heads/pgpt-agent/slow-2', c12.sha, [{ type: 1, body: c12.body }]).catch(() => null)
+    } finally { delete process.env.PRO_GIT_PUSH_SECONDS }
+    assert.ok(!(await G.branchExists(tpl.repo_path, 'pgpt-agent/slow-1')) && !(await G.branchExists(tpl.repo_path, 'pgpt-agent/slow-2')), '시간이 다하면 가지 없음')
     // at most 20 refs in one push: 20 go through, 21 are refused before git (no ref changes)
     const main = await G.head(tpl.repo_path, 'main')
     const twenty = Array.from({ length: 20 }, (_, i) => ({ ref: `refs/heads/pgpt-agent/many-${i}`, sha: main }))
@@ -702,6 +731,52 @@ test('TF-U-27 내 PC 실행 가지: 새 이름은 pgpt-agent/local/<사람>/<일
     const wsList = (await q(`select branch from pro_folder_variations where folder_id=$1 and source ? 'template' and holder_id::text=$2 and status not in ('merged','discarded')`, [tpl.id, ks.id])).map((r) => r.branch)
     assert.ok(wsList.length >= 1 && wsList.every(seenBy(all)), JSON.stringify(wsList))
     assert.ok(!wsList.some(seenBy(await H.hiddenFor(tpl, claims(jp, pdNew)))))
+    // as the desktop sees it (the public path, its device check stood in for): its person's other work in this folder is listed and may
+    // be built on; someone else's is neither
+    const express = (await import('express')).default
+    const { execFile } = await import('node:child_process')
+    const app = express()
+    app.use('/api/local-git', H.gitRoutes({ device: true, check: async () => null }))
+    const server = await new Promise((r) => { const sv = app.listen(0, '127.0.0.1', () => r(sv)) })
+    const url = `http://127.0.0.1:${server.address().port}/api/local-git/${tpl.id}.git`
+    const token = H.mintToken({ tenant: TENANT, folderId: tpl.id, push: H.runPushFor(jk, nb), scope: 'device', device: crypto.randomUUID(), job: jk.id })
+    const gitc = (args) => new Promise((resolve) => execFile('git', ['-c', 'credential.helper=', '-c', `http.extraHeader=Authorization: Bearer ${token}`, ...args],
+      { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (e, out, errOut) => resolve({ code: e ? 1 : 0, out: String(out), err: String(errOut) })))
+    const tree = (await G.git(tpl.repo_path, ['rev-parse', 'main^{tree}'])).trim()
+    const on = async (b, msg) => { const c = (await G.git(tpl.repo_path, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit-tree', tree, '-p', b, '-m', msg])).trim(); await G.git(tpl.repo_path, ['update-ref', `refs/heads/${b}`, c]); return c }
+    const ksWork = await on(ks2, '김서연의 다른 일'), pdWork = await on(pdNew, '박도윤의 일')
+    try {
+      const ls = await gitc(['ls-remote', url])
+      assert.equal(ls.code, 0, ls.err)
+      for (const b of [nb, old, ks2, ...wsList]) assert.ok(ls.out.includes(`refs/heads/${b}\n`), `보임: ${b}`)
+      for (const b of [pdNew, pdOld]) assert.ok(!ls.out.includes(b), `안 보임: ${b}`)
+      const dir = await fs.mkdtemp(path.join(ROOT, 'pc-'))
+      await G.git(dir, ['init', '-q'])
+      const fetched = await gitc(['-C', dir, 'fetch', '-q', url, `refs/heads/${ks2}:refs/heads/base`])
+      assert.equal(fetched.code, 0, fetched.err)
+      await G.git(dir, ['checkout', '-q', 'base'])
+      await fs.writeFile(path.join(dir, '이어서.md'), '# 김서연의 다른 일 위에\n')
+      await G.git(dir, ['add', '-A']); await G.git(dir, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'on my own work'])
+      const mine = H.runBranchFor(jk)
+      const pushed = await gitc(['-C', dir, 'push', '-q', url, `HEAD:refs/heads/${mine}`])
+      assert.equal(pushed.code, 0, pushed.err)
+      assert.ok(await G.branchExists(tpl.repo_path, mine), '그 사람의 다른 일 위에 쌓은 밀어 넣기')
+      made.push(mine)
+      // on someone else's run (a commit it may not use, named by id): refused, nothing stands
+      assert.ok(ksWork && pdWork)
+      const pdRef = `${H.runPrefix(jk)}on-pd`
+      const body = Buffer.from(`tree ${tree}\nparent ${pdWork}\nauthor t <t@t> 1700000000 +0000\ncommitter t <t@t> 1700000000 +0000\n\non pd\n`)
+      const sha = crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`commit ${body.length}\0`), body])).digest('hex')
+      const zlib = await import('node:zlib')
+      const head = Buffer.alloc(12); head.write('PACK'); head.writeUInt32BE(2, 4); head.writeUInt32BE(1, 8)
+      let size = body.length; const hb = [(1 << 4) | (size & 15)]; size >>= 4; while (size) { hb[hb.length - 1] |= 0x80; hb.push(size & 0x7f); size >>= 7 }
+      const packed = Buffer.concat([head, Buffer.from(hb), zlib.deflateSync(body)])
+      const line = Buffer.from(`${'0'.repeat(40)} ${sha} refs/heads/${pdRef}\0report-status\n`)
+      const r = await fetch(`${url}/git-receive-pack`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-git-receive-pack-request' },
+        body: Buffer.concat([Buffer.from((line.length + 4).toString(16).padStart(4, '0')), line, Buffer.from('0000'), packed, crypto.createHash('sha1').update(packed).digest()]) })
+      assert.match(await r.text(), new RegExp(`ng refs/heads/${pdRef.replace(/\//g, '\\/')} `))
+      assert.ok(!(await G.branchExists(tpl.repo_path, pdRef)), '남의 일 위에 쌓은 밀어 넣기는 서지 않음')
+    } finally { await new Promise((r) => server.close(r)) }
   } finally {
     for (const b of made) await G.git(tpl.repo_path, ['branch', '-D', b], { check: false })
     await q('delete from pro_local_jobs where id = any($1::uuid[])', [[jk.id, jk2.id, jp.id]]).catch(() => {})
@@ -778,6 +853,15 @@ test('TF-U-24 가져오기는 연결형 폴더의 pgpt-agent/ 가지만, 정확�
   assert.equal(await holdsWorkspace({ kind: 'chat', root: room2 }), false)
   assert.equal(await holdsWorkspace({ kind: 'chat', root: path.join(ROOT, 'room-none') }), false)
   assert.equal(await holdsWorkspace({ kind: 'todo', root: room }), false)
+  // a template no longer marked: its projects' workspaces are still there, so a room with its checkout still holds one — whatever the
+  // room's id (a conversation, a project's sub-topic)
+  const mark = (await S.folderById(tpl.id)).settings.template
+  await q(`update pro_folders set settings = settings - 'template' where id=$1`, [tpl.id])
+  try {
+    assert.equal(TPL.isTemplate(await S.folderById(tpl.id)), false)
+    assert.equal(await holdsWorkspace({ kind: 'chat', id: crypto.randomUUID().replace(/-/g, ''), root: room }), true, '지정을 풀어도')
+    assert.equal(await holdsWorkspace({ kind: 'chat', id: 'x', root: room2 }), false)
+  } finally { await q(`update pro_folders set settings = jsonb_set(settings, '{template}', $2::jsonb) where id=$1`, [tpl.id, JSON.stringify(mark)]) }
 })
 
 test('TF-U-25 보내는 파일: 이름에 pathspec 기호가 있어도 그 파일 · 작업 공간이 바꾼 실행 권한은 합친 결과에도 · PATCH 와 같은 지정 규칙', { skip: !db }, async () => {
