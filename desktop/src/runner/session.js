@@ -148,6 +148,50 @@ function codexMeta(file) {
   return null
 }
 
+// a Codex session's rollout by its id, whatever day it began (a session resumed days later) → path or null
+function codexRolloutOf(env, id) {
+  const root = path.join(codexHome(env), 'sessions')
+  const ls = (d) => { try { return fs.readdirSync(d).sort().reverse() } catch { return [] } }
+  for (const y of ls(root)) for (const m of ls(path.join(root, y))) for (const d of ls(path.join(root, y, m))) {
+    const f = ls(path.join(root, y, m, d)).find((x) => x.endsWith(`-${id}.jsonl`))
+    if (f) return path.join(root, y, m, d, f)
+  }
+  return null
+}
+// the CLI's own record of a session (Claude Code's transcript · Codex's rollout), by the session's id → path or null
+function cliRecordOf({ agent, cli, env = process.env }) {
+  if (!cli) return null
+  if (agent === 'codex') return codexRolloutOf(env, cli)
+  const root = path.join(claudeHome(env), 'projects')
+  try { for (const d of fs.readdirSync(root)) { const f = path.join(root, d, `${cli}.jsonl`); if (fs.existsSync(f)) return f } } catch { /* none yet */ }
+  return null
+}
+const sizeOf = (f) => { try { return f ? fs.statSync(f).size : 0 } catch { return 0 } }
+// Whether the CLI took the run's first message into the session after the first `from` bytes of its own record (Claude Code's transcript ·
+// Codex's rollout) → {took: 'took' | 'not' | 'unknown', exists}. Only a person's message that begins as one of `texts` (what the runner
+// gives first: the prompt, the person's words, Codex's pointer to the prompt file) counts — not a command typed in its terminal (/cost,
+// ! …), a tool's result, its own notes. 'unknown': the record is not the file it was at the start (`file`), or is shorter than `from` —
+// what the CLI took cannot be told from it. Read from the CLI's record only, never from the screen.
+function tookFirst({ agent, cli, env = process.env, from = 0, file = null, texts = [] }) {
+  const f = cliRecordOf({ agent, cli, env })
+  if (!f) return { took: file ? 'unknown' : 'not', exists: false }
+  const at = Math.max(0, Number(from) || 0)
+  if ((file && !samePath(file, f)) || sizeOf(f) < at) return { took: 'unknown', exists: true }
+  const want = texts.map((t) => String(t || '')).filter((t) => t.trim())
+  const t = new Tail(f)
+  t.offset = at
+  for (const e of t.read()) {
+    let text = ''
+    if (agent === 'codex') { if (e?.type === 'event_msg' && e.payload?.type === 'user_message') text = String(e.payload.message || '') } else if (e?.type === 'user' && !e.isMeta && !e.isSidechain) {
+      const c = e.message?.content
+      if (typeof c === 'string') text = c
+      else if (Array.isArray(c) && !c.some((b) => b?.type === 'tool_result')) text = c.filter((b) => b?.type === 'text').map((b) => b.text || '').join('\n')
+    }
+    if (text.trim() && want.some((w) => sameStart(text, w))) return { took: 'took', exists: true }
+  }
+  return { took: 'not', exists: true }
+}
+
 class CliSession extends EventEmitter {
   // id: this session's own id (the runner's; relayed to the server) · agent: 'claude-code' | 'codex' · cwd: the repo or worktree it works in
   // resume: the CLI's session id to go on with · prompt: the first message (given once the CLI is ready, as a person would paste it)
@@ -185,6 +229,11 @@ class CliSession extends EventEmitter {
     this.realCwd = fs.realpathSync(this.cwd)
     const env = C.cliEnv({ TERM: 'xterm-256color', COLORTERM: 'truecolor', ...NO_ACCOUNT_SWITCH, ...this.extraEnv }, this.searchPath)
     this.env = env
+    // (a resumed Codex session: its rollout as it is now — what it holds is history; what Codex writes after is this session's)
+    if (this.agent === 'codex' && this.resume) {
+      const f = codexRolloutOf(env, this.resume)
+      if (f) { try { this.rolloutFrom = { file: f, size: fs.statSync(f).size } } catch { /* gone */ } }
+    }
     const spec = this.agent === 'codex' ? this.codexArgs() : this.claudeArgs()
     const bin = C.which(spec.bin, this.searchPath)
     if (!bin) throw new Error(`${spec.bin} not found`)
@@ -249,6 +298,8 @@ class CliSession extends EventEmitter {
       this.firstPrompt = ''
       this.codexFirst = true
     }
+    // (a resumed session is the one it names: said now, as Claude Code's is — its rollout's session_meta is history)
+    if (this.resume) this.emit('session', this.resume)
     return { bin: C.CLIS.codex.bin, args }
   }
 
@@ -471,7 +522,7 @@ class CliSession extends EventEmitter {
   pollCodex() {
     if (!this.tx) {
       // its rollout: by the session id when resuming, else the first new one in this folder
-      const files = codexRollouts(this.env, this.startedAt)
+      const files = this.rolloutFrom ? [this.rolloutFrom.file] : codexRollouts(this.env, this.startedAt)
       let hit = null
       for (const f of files) {
         if (this.cli && f.endsWith(`-${this.cli}.jsonl`)) { hit = f; break }
@@ -484,8 +535,9 @@ class CliSession extends EventEmitter {
       }
       if (!hit) return
       this.tx = new Tail(hit)
-      // (a resumed rollout: what it already holds is history, not this session's turns)
-      if (this.resume) { this.tx.read() }
+      // (a resumed rollout: what it held when the session started is history, not this session's turns — read from there, so a message
+      // Codex took before this first look is not skipped; a rollout not found at the start: what it holds at this first look)
+      if (this.resume) { if (this.rolloutFrom?.file === hit) this.tx.offset = this.rolloutFrom.size; else this.tx.read() }
     }
     for (const e of this.tx.read()) this.onCodexEntry(e)
   }
@@ -563,4 +615,4 @@ function briefOf(input = {}, rel = (s) => s) {
   return short(rel(String(i.file_path || i.path || i.command || i.pattern || i.description || i.url || '')), 120)
 }
 
-module.exports = { CliSession, codexMcp, Tail, inputLine, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, samePath, hookProgram, PROMPT_POINTER }
+module.exports = { CliSession, codexMcp, Tail, inputLine, trustClaudeFolder, claudeConfigFile, claudeKey, codexRollouts, codexMeta, codexRolloutOf, cliRecordOf, sizeOf, tookFirst, samePath, hookProgram, PROMPT_POINTER }

@@ -277,6 +277,103 @@ test('데스크톱이 거절하면 서버로, 바쁘면 다시 대기, 받지 �
   await H.gone(a.link)
 })
 
+// (2026-11-28 PR #121 re-review: an app restarted with a run's answer and report in its outbox — the server re-offers the run it no
+// longer holds while the app says hello, then reads the outbox: the answer came while 'offered' and was dropped, the report taken)
+test('다시 켠 데스크톱이 남겨 둔 턴의 답과 보고를 보낼 때: 서버가 그 실행을 다시 내준(offered) 뒤에도 답을 받아 올린다 — 보고보다 먼저', { skip: !db }, async () => {
+  H.reset()
+  const seen = []
+  J.setKindHooks('restart-test', { prepare: record('prepare'), complete: async (job) => { seen.push(['complete', job.id]); return {} }, note: async () => {}, fail: record('fail'),
+    delegate: record('delegate'), cancelled: async () => false, reply: async (job, msg) => { seen.push(['reply', job.id, msg.turn, msg.text]) } })
+  let a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  await q(`update pro_local_jobs set kind='restart-test' where id=$1`, [j.id])
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  assert.equal((await J.byId(j.id)).state, 'running')
+  // the app quits; it comes back without the run (it was over — its answer and report wait in its outbox)
+  await H.gone(a.link)
+  a = await desktop(userA, { active: [], again: a })
+  assert.equal((await J.byId(j.id)).state, 'offered', 'the server offered it again while the app said hello')
+  // the outbox, in order: the answer the server never confirmed, then the report
+  await H.receive(a.link, { type: 'reply', jobId: j.id, turn: 1, text: '꺼지기 전에 만든 답', branch: 'pgpt-agent/x', commit: 'abc', pushed: true, files: ['답.md'] })
+  await H.receive(a.link, { type: 'done', jobId: j.id, branch: 'pgpt-agent/x', commit: 'abc', pushed: true, files: ['답.md'], summary: '끝' })
+  assert.deepEqual(seen, [['reply', j.id, 1, '꺼지기 전에 만든 답'], ['complete', j.id]], 'the answer is posted, before the run completes')
+  assert.deepEqual(a.got.filter((m) => m.type === 'replied').map((m) => [m.turn, m.state ?? null]), [[1, null]], 'taken — not answered with the run\'s state')
+  assert.equal((await J.byId(j.id)).state, 'done')
+  // (a run that is over takes no answer)
+  await H.receive(a.link, { type: 'reply', jobId: j.id, turn: 2, text: '늦은 답' })
+  assert.equal(seen.filter(([n]) => n === 'reply').length, 1)
+  await H.gone(a.link)
+})
+
+// (PR #121 final check: an earlier attempt's report — its 'finished' lost when the app closed — said again by the app's outbox. Answered
+// with 'finished' while the job is over, so the app lets it go; never applied to the step's retry — the same job, a new attempt)
+test('지난 시도의 늦은 보고(failed): 끝난 일이면 「finished」로 놓게 하고, 「다시 시도」로 새로 내준 같은 일에는 적용하지 않는다', { skip: !db }, async () => {
+  H.reset()
+  const a = await desktop(userA)
+  const s = spec(userA)
+  const j = await J.enqueue(s)
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  await H.receive(a.link, { type: 'failed', jobId: j.id, error: '지난번 실패' })
+  assert.equal((await J.byId(j.id)).state, 'failed')
+  const fin = () => a.got.filter((m) => m.type === 'finished' && m.jobId === j.id).length
+  assert.equal(fin(), 1)
+  // (the app was closed before that 'finished' reached it: its outbox says the report again — answered, so it lets it go)
+  await H.receive(a.link, { type: 'failed', jobId: j.id, error: '지난번 실패' })
+  const finAgain = fin()
+  // 「다시 시도」: the same job, a new attempt offered to the desktop — the earlier report, said again, does not touch it
+  const r = await J.enqueue(s)
+  assert.equal(r.id, j.id)
+  const retry = await J.byId(j.id)
+  assert.equal(retry.state, 'offered')
+  assert.equal(retry.started_at, null)
+  await H.receive(a.link, { type: 'failed', jobId: j.id, error: '지난번 실패' })
+  await H.receive(a.link, { type: 'done', jobId: j.id, branch: 'pgpt-agent/old', commit: 'old', pushed: true, files: [], summary: '지난 시도' })
+  const after = await J.byId(j.id)
+  assert.equal(after.state, 'offered', 'the retry is not closed by the earlier attempt\'s report')
+  assert.equal(finAgain, 2, 'a report of an attempt that is over: finished')
+  assert.equal(fin(), 2, 'no finished that would end the retry on the desktop')
+  // the retry itself: accepted, done
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  await H.receive(a.link, { type: 'done', jobId: j.id, branch: 'pgpt-agent/x', commit: 'abc', pushed: true, files: ['산출물/01/견적서.md'], summary: '이번엔 됨' })
+  const done = await J.byId(j.id)
+  assert.equal(done.state, 'done')
+  assert.equal(done.result.summary, '이번엔 됨')
+  await H.gone(a.link)
+})
+
+test('턴의 답(reply)은 대화로 답하는 종류만, 그 시도가 시작된 뒤에만: 단계에는 답이 없고(오류 없이 놓게 함), 새로 내준 일에는 받지 않는다 · 다른 기기로 넘어간 일에 옛 기기의 답은 받지 않는다', { skip: !db }, async () => {
+  H.reset()
+  const a = await desktop(userA)
+  const j = await J.enqueue(spec(userA))
+  assert.equal((await J.byId(j.id)).state, 'offered')
+  // a step: offered (not begun), then running — no reply hook: answered with its state, nothing thrown
+  await H.receive(a.link, { type: 'reply', jobId: j.id, turn: 1, text: '단계에는 답이 없음' })
+  await H.receive(a.link, { type: 'accept', jobId: j.id })
+  await H.receive(a.link, { type: 'reply', jobId: j.id, turn: 1, text: '단계에는 답이 없음' })
+  assert.deepEqual(a.got.filter((m) => m.type === 'replied' && m.jobId === j.id).map((m) => m.state), ['offered', 'running'])
+  assert.equal((await J.byId(j.id)).state, 'running')
+  await H.gone(a.link)
+  // a run offered to the person's other desktop: the first one's kept answer and report are not its
+  H.reset()
+  const seen = []
+  J.setKindHooks('handover-test', { prepare: record('prepare'), complete: async () => ({}), note: async () => {}, fail: record('fail'), delegate: record('delegate'), cancelled: async () => false,
+    reply: async (job, msg) => { seen.push([msg.turn, msg.text]) } })
+  let a1 = await desktop(userA)
+  const k = await J.enqueue(spec(userA))
+  await q(`update pro_local_jobs set kind='handover-test' where id=$1`, [k.id])
+  await H.receive(a1.link, { type: 'accept', jobId: k.id })
+  await H.gone(a1.link)
+  const a2 = await desktop(userA)
+  a1 = await desktop(userA, { again: a1, active: [], prefs: { enabled: false } })
+  const moved = await J.byId(k.id)
+  assert.equal(String(moved.device_id), String(a2.link.id))
+  await H.receive(a1.link, { type: 'reply', jobId: k.id, turn: 1, text: '옛 기기에 남은 답' })
+  await H.receive(a1.link, { type: 'done', jobId: k.id, branch: 'pgpt-agent/x', commit: 'abc', pushed: false, files: [], summary: '' })
+  assert.deepEqual(seen, [])
+  assert.equal((await J.byId(k.id)).state, 'offered')
+  for (const x of [a1, a2]) await H.gone(x.link)
+})
+
 test('조종: 실행 중이면 바로 데스크톱으로, 연결이 끊겨 있으면 다시 붙을 때 보낸다', { skip: !db }, async () => {
   H.reset()
   let a = await desktop(userA)

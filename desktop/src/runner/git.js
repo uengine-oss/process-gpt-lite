@@ -150,4 +150,21 @@ async function follow(dir, { token, base }) {
   return head(dir)
 }
 
-module.exports = { git, gitPath, authEnv, checkUrl, checkRef, sync, branch, ahead, commit, changed, push, follow, head, originOf, GitError, NEUTRAL }
+// whether the folder is still a run's: on its branch `name`, with `from` (where the run began) in its history — nothing checked out another
+// branch or reset it since
+async function stillOn(dir, name, from) {
+  checkRef(name)
+  if (!/^[0-9a-f]{40,64}$/.test(String(from || ''))) return false
+  const at = (await git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { check: false })).trim()
+  if (at !== name) return false
+  return (await git(dir, ['merge-base', from, 'HEAD'], { check: false })).trim() === from
+}
+
+// the run's branch under the name the server gives it now (the same run, named anew): the folder as it is, nothing reset
+async function rename(dir, name) {
+  checkRef(name)
+  await git(dir, ['branch', '-M', name])
+  return head(dir)
+}
+
+module.exports = { git, gitPath, authEnv, checkUrl, checkRef, sync, branch, ahead, commit, changed, push, follow, head, stillOn, rename, originOf, GitError, NEUTRAL }
