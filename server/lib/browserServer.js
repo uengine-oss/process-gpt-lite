@@ -17,7 +17,7 @@
 // sent, in every tab of this browser (guardSignIn).
 import { chromium } from 'playwright'
 import { signInPlaces, isSignInStep, stepPatterns } from './signInSteps.js'
-import { allowedPrivate, privateRefusal, privatePatterns, hostRules } from './privateNet.js'
+import { allowedPrivate, privateRefusal, privatePatterns, hostRules, proxyHosts } from './privateNet.js'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -144,8 +144,10 @@ export class ServerDriver {
     const freed = await releaseProfile(dir, { pid: this.pid })
     if (freed.stopped || freed.cleared.length) console.log('[browser] freed the profile', this.userId, freed.stopped ? `stopped ${freed.stopped}` : '', freed.cleared.join(','))
     // (names of one label resolve to nothing in this browser but the allowed ones: lib/privateNet.js hostRules)
+    // (its own forward proxy, by however short a name, still resolves: lib/privateNet.js proxyHosts)
     this.allow = allowedPrivate()
-    const options = { headless: true, viewport: VIEW, locale: 'ko-KR', args: [...LAUNCH_ARGS, `--host-resolver-rules=${hostRules(this.allow)}`], timeout: STEP.launchMs }
+    const options = { headless: true, viewport: VIEW, locale: 'ko-KR', args: LAUNCH_ARGS, timeout: STEP.launchMs }
+    options.args = [...LAUNCH_ARGS, `--host-resolver-rules=${hostRules(this.allow, { proxies: proxyHosts({ args: LAUNCH_ARGS, proxy: options.proxy }) })}`]
     let ctx
     try { ctx = await chromium.launchPersistentContext(dir, options) } catch (e) {
       console.warn('[browser] launch failed, once more:', String(e.message).split('\n')[0])

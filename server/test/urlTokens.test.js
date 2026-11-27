@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import { maskUrl, maskTitle, withoutMasked } from '../lib/urlTokens.js'
 import { signInPlaces, isSignInStep, stepPatterns, onPlaces } from '../lib/signInSteps.js'
 import { config } from '../config.js'
-import { allowedPrivate, privateRefusal, privatePatterns, hostRules, isMailbox, forgetResolved } from '../lib/privateNet.js'
+import { allowedPrivate, privateRefusal, privatePatterns, hostRules, proxyHosts, isMailbox, forgetResolved } from '../lib/privateNet.js'
 import { startSignIn, takeSignIn, doneStep, subjectOf, fromSupabase, SIGN_IN_MS } from '../../src/signInNonce.js'
 
 const require = createRequire(import.meta.url)
@@ -216,7 +216,55 @@ test('BT-U-08 서버 브라우저는 이 서버의 망을 열지 않는다: 루�
     assert.equal(await privateRefusal('https://wiki:8443/a', { allow }), null)
     assert.equal(await privateRefusal('http://hr.corp.example/', { allow, document: true, lookup: inside }), null)
     // names of one label resolve to nothing in this browser but localhost and the allowed ones — never a mailbox
-    assert.equal(hostRules(allowedPrivate('intranet,http://wiki:8080,*.corp.example,mailpit')), 'MAP * ~NOTFOUND, EXCLUDE *.*, EXCLUDE *:*, EXCLUDE localhost, EXCLUDE intranet, EXCLUDE wiki')
+    assert.equal(hostRules(allowedPrivate('intranet,http://wiki:8080,*.corp.example,mailpit'), { proxies: [] }), 'MAP * ~NOTFOUND, EXCLUDE *.*, EXCLUDE *:*, EXCLUDE localhost, EXCLUDE intranet, EXCLUDE wiki')
+  } finally { Object.assign(config, was); forgetResolved() }
+})
+
+test('BT-U-10 허용 목록은 주소 · 호스트 · *.접미사(두 칸 이상, 끝은 이름)로 읽히는 것만 — 나머지는 버리고 로그에 남기며, Chromium 규칙에 닿지 않는다', () => {
+  const warned = []
+  const keep = console.warn
+  console.warn = (...a) => warned.push(a.join(' '))
+  try {
+    const got = allowedPrivate('*, w*, web exclude *, *.0.5, *.corp, http://wiki:8080/path, ftp://x, http://u:p@wiki, intranet, 10.0.0.5, [fd00::1], *.corp.example, http://wiki:8080, Web-1')
+    assert.deepEqual(got, [{ host: 'intranet' }, { host: '10.0.0.5' }, { host: 'fd00::1' }, { suffix: '.corp.example' }, { origin: 'http://wiki:8080' }, { host: 'web-1' }])
+    for (const bad of ['"*"', '"w*"', '"web exclude *"', '"*.0.5"', '"*.corp"', '"http://wiki:8080/path"', '"ftp://x"', '"http://u:p@wiki"']) assert.ok(warned.some((w) => w.includes(bad)), `logged ${bad}`)
+    const rules = hostRules(got, { proxies: [] })
+    assert.equal(rules, 'MAP * ~NOTFOUND, EXCLUDE *.*, EXCLUDE *:*, EXCLUDE localhost, EXCLUDE intranet, EXCLUDE wiki, EXCLUDE web-1')
+    assert.doesNotMatch(rules.replace(/^MAP \* ~NOTFOUND, EXCLUDE \*\.\*, EXCLUDE \*:\*/, ''), /[*?\s,][^ ]*[*?]/, 'no glob from the allowlist')
+  } finally { console.warn = keep }
+})
+
+test('BT-U-11 서버 브라우저의 전달 프록시는 한 칸 이름이어도 풀린다(환경 변수 · --proxy-server · wpad · Playwright proxy)', () => {
+  assert.deepEqual(proxyHosts({ env: { HTTPS_PROXY: 'http://squid:3128', http_proxy: 'http://proxy.corp:8080', ALL_PROXY: 'socks5://socks:1080' } }), ['squid', 'proxy.corp', 'socks'])
+  assert.deepEqual(proxyHosts({ env: {}, args: ['--proxy-server=http=cache:3128;https=cache2:3128', '--proxy-auto-detect'] }), ['cache', 'cache2', 'wpad'])
+  assert.deepEqual(proxyHosts({ env: {}, proxy: { server: 'http://egress:8080' } }), ['egress'])
+  assert.deepEqual(proxyHosts({ env: {} }), [])
+  assert.equal(hostRules(allowedPrivate(''), { proxies: proxyHosts({ env: { HTTPS_PROXY: 'http://squid:3128', HTTP_PROXY: 'http://proxy.corp:8080' }, args: ['--proxy-auto-detect'] }) }),
+    'MAP * ~NOTFOUND, EXCLUDE *.*, EXCLUDE *:*, EXCLUDE localhost, EXCLUDE squid, EXCLUDE wpad', 'a one-label proxy resolves; one with a dot already does')
+  // a proxy named like a mailbox is not let through
+  assert.equal(hostRules(allowedPrivate(''), { proxies: ['mailpit'] }), 'MAP * ~NOTFOUND, EXCLUDE *.*, EXCLUDE *:*, EXCLUDE localhost')
+})
+
+test('BT-U-12 이름 확인이 늦으면 막되, 몇 초 뒤에는 다시 묻는다(1분 동안 기억하지 않음)', async () => {
+  const was = { publicUrl: config.publicUrl }
+  Object.assign(config, { publicUrl: DOCKER.publicUrl })
+  forgetResolved()
+  try {
+    let asked = 0
+    const slow = () => { asked++; return new Promise(() => {}) }
+    const fast = async () => { asked++; return [{ address: '93.184.216.34', family: 4 }] }
+    const realNow = Date.now
+    // (the 5 s limit is waited out by a lookup that never answers: the test lets the clock run ahead instead)
+    const t0 = realNow()
+    let shift = 0
+    Date.now = () => realNow() + shift
+    const pending = privateRefusal('https://slow.example/', { allow: [], document: true, lookup: slow })
+    assert.equal(await pending, 'private', 'not answered in time: not opened')
+    shift = 6000
+    assert.equal(await privateRefusal('https://slow.example/', { allow: [], document: true, lookup: fast }), null, 'asked again after a few seconds')
+    assert.equal(asked, 2)
+    Date.now = realNow
+    void t0
   } finally { Object.assign(config, was); forgetResolved() }
 })
 

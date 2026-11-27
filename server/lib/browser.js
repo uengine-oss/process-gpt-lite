@@ -96,10 +96,18 @@ export const mediaType = (name) => MEDIA[String(name).split('.').pop().toLowerCa
 // A file the page downloads during a task goes to the person as a file card. Its link is the storage
 // copy (lib/attachments.js), which opens from anywhere: the agent's pods and this server share no disk —
 // and a browser on the person's PC sends its downloads here over the link (lib/browserRemote.js).
-// file: { name, read() → its bytes } from the driver
+// file: { name, read() → its bytes } from the driver. While it is being kept it is the task's pending (downloadsKept: the next look
+// and the task's end wait a moment for it, so the agent and the result know of it)
 async function keepDownload(userId, s, file) {
   const task = s.task
   if (!task) return
+  const job = keepDownloadFor(userId, task, file)
+  ;(task.pending ||= new Set()).add(job)
+  try { await job } finally { task.pending.delete(job) }
+}
+// the downloads a task is still keeping, waited for at most ms
+const downloadsKept = (task, ms = 2000) => (task?.pending?.size ? within(Promise.allSettled([...task.pending]), ms, null) : null)
+async function keepDownloadFor(userId, task, file) {
   let name = file.name
   try {
     const data = await file.read()
@@ -569,6 +577,8 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   if (skills) messages.push({ role: 'user', content: skills })
 
   let { result, ended } = await drive(s, task, { messages, onAction })
+  // (a file the last action started to download is in the result's account: at most two seconds for it)
+  await downloadsKept(task)
   // its turns are over: words said from now on are not for it (they go the way of an ended task — lib/agent.js readResume)
   task.over = true
   if (task.cancelled) result = { state: 'cancelled', summary: task.cancelWhy || L('작업을 취소했어요.', 'I canceled the task.') }
@@ -726,7 +736,8 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
       snap = g.snap
       hint += g.hint
     }
-    // a file the page downloaded since the last look
+    // a file the page downloaded since the last look (one still being kept: a moment's wait)
+    await downloadsKept(task)
     const got = (task.downloads || []).splice(0)
     if (got.length) hint += `\nDownloaded and shown to the person as file cards: ${got.join(', ')}`
     // what the person said in the chat since the last look (steering, an answer to a wait on the screen): it goes before the plan

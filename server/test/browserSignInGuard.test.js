@@ -19,7 +19,7 @@ import path from 'node:path'
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pgl-signin-guard-'))
 process.env.PRO_BROWSER_PROFILES = tmp
 // (the made-up sites run on this machine: the server's browser may open them — but BT-E-12, which shows it does not by default)
-const LOCAL = '127.0.0.1,localhost,*.localhost'
+const LOCAL = '127.0.0.1,localhost,auth.localhost,lite.localhost,other.localhost'
 process.env.PRO_BROWSER_PRIVATE_ALLOW = LOCAL
 const { config } = await import('../config.js')
 const { ServerDriver, LAUNCH_ARGS } = await import('../lib/browserServer.js')

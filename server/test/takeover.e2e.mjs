@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 // (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
-process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

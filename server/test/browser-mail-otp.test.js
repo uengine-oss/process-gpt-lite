@@ -16,7 +16,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startShop, SHOP } from './fixtures/shop.mjs'
 // (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
-process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 // ---- scripted model: signs in with the vault, asks for the one-time code, reads the account page ----
 const llmBodies = []

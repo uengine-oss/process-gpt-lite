@@ -13,7 +13,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { startHeavy, STAYS, CAFES } from './fixtures/heavy.mjs'
 // (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
-process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 // ---- scripted model: the plan, then per goal a list of moves: a tool call, a function of the request, or 'hang' ----
 const scripts = {}

@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { startFakeGoogle, SPOTS, TITLES } from './fixtures/fake-google.mjs'
 import { startJudge } from './fixtures/walls.mjs'
 // (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
-process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const BFF = Number(process.env.GC_BFF_PORT || 8796)

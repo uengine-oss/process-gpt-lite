@@ -18,7 +18,7 @@ import { execFileSync } from 'node:child_process'
 import { startJudge } from './fixtures/walls.mjs'
 import { routeLoginWall, LW, LW_TITLES, LW_SPOTS } from './fixtures/loginWall.mjs'
 // (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
-process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 // everything the server prints, to look for a secret in it afterwards (it is still printed)
 const printed = []

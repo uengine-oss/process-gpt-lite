@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import { startStudio } from './fixtures/studio.mjs'
 import { dropFiles } from './fixtures/walls.mjs'
 // (this test's made-up sites run on this machine: the server's browser may open them — lib/privateNet.js)
-process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost,*.localhost'
+process.env.PRO_BROWSER_PRIVATE_ALLOW ??= '127.0.0.1,localhost'
 
 const scripts = {}
 const bodies = []
@@ -91,8 +91,9 @@ test('생성을 기다렸다가 받은 파일이 파일 카드로 온다. 기다
   ], { query: '?ms=1200' })
   assert.equal(r.state, 'done', JSON.stringify(r))
   assert.equal(r.stats.turns, 5, '기다리는 동안 모델을 부르지 않는다')
-  await sleep(800)
-  const files = await rows('file')
+  // (the file card comes when the file is kept: up to about five seconds)
+  let files = []
+  for (const end = Date.now() + 5000; Date.now() < end; await sleep(100)) if ((files = await rows('file')).length) break
   assert.equal(files.length, 1)
   assert.match(files[0].content.name, /보고서\.pdf$/)
   assert.match(files[0].content.url, /^https?:/)
