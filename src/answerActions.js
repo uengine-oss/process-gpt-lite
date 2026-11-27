@@ -11,6 +11,10 @@ export function isAnswer(m) {
 }
 export const showsActions = (m) => isAnswer(m) && (m.kind === 'doc' || String(m.content.text).trim().length >= ANSWER_MIN_CHARS)
 
+// 「다른 앱으로 보내기」 (spec answer-share, 2026-11-28): the phone's own share sheet (navigator.share) — not in a browser without one (most
+// computers) nor in the desktop app (its window has none to open): there 「글 복사」 does it
+export const canShareOut = () => typeof navigator !== 'undefined' && typeof navigator.share === 'function' && !(typeof window !== 'undefined' && window.pglDesktop?.app)
+
 export function openOffer(app, msg) {
   return (app.messages[msg.thread_id] || []).find((m) => m.kind === 'project_offer' && m.content?.state === 'offered' && m.content?.source?.answer?.messageId === msg.id) || null
 }

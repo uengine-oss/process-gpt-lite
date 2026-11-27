@@ -14,6 +14,8 @@ import { L } from './lang.js'
 
 export const SITE = 'telegram'
 export const TG_LIMIT = 4096
+// the most of a text a delivery reads (ten messages' worth)
+export const TG_TEXT_MAX = TG_LIMIT * 10
 const apiBase = () => String(process.env.PRO_TELEGRAM_API || 'https://api.telegram.org').replace(/\/+$/, '')
 
 function tgError(message, status = 400, code) {
@@ -33,31 +35,78 @@ export function cleanToken(input) {
   return /(?<![\w-])\d{5,}:[\w-]{35}/.exec(s)?.[0] || ''
 }
 
-// Markdown the agents write → plain text Telegram shows as it is (no parse_mode).
+// Markdown the agents write → plain text Telegram (and another app — an answer shared through the phone's share sheet, lib/answerShare.js)
+// shows as it is (no parse_mode). Code is kept as it was written: fenced blocks (their fence lines dropped) and inline code step aside while
+// the other rules run — `- name:`, `# comment`, `**kwargs` in code are code, not a list, a heading or bold — and come back at the end.
+// Every rule reads a bounded stretch (a line, a label of 500, an address of 8,192, a bold run of 2,000 characters), so no shape of text — a run
+// of 「[a](」 with no 「)」, of 「**a 」, of 「```x」 — costs more than a few passes over it (one froze the server before, PR #123).
+const ASIDE = /[\uE000\uE001]/g
+// inline code on a line: a run of backticks to the next run of the same length (so ``a `b` c`` holds a backtick), one space each side taken off
+// when both are there — every run read once
+function inlineCode(line, aside) {
+  if (!line.includes('`')) return line
+  const runs = [...line.matchAll(/`+/g)].map((m) => ({ at: m.index, n: m[0].length }))
+  const next = new Array(runs.length).fill(-1)
+  const later = new Map()
+  for (let i = runs.length - 1; i >= 0; i--) { next[i] = later.get(runs[i].n) ?? -1; later.set(runs[i].n, i) }
+  let out = '', from = 0
+  for (let i = 0; i < runs.length; i++) {
+    if (next[i] < 0) continue
+    const open = runs[i], close = runs[next[i]]
+    let code = line.slice(open.at + open.n, close.at)
+    if (code.length > 2 && code[0] === ' ' && code[code.length - 1] === ' ' && code.trim()) code = code.slice(1, -1)
+    out += line.slice(from, open.at) + aside(code)
+    from = close.at + close.n
+    i = next[i]
+  }
+  return out + line.slice(from)
+}
+const BACK = /\uE000(\d+)\uE001/g
 export function toPlain(md) {
-  let s = String(md ?? '').replace(/\r\n?/g, '\n')
-  s = s.replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code) => code.replace(/\n$/, ''))     // code fences: keep the code
+  let s = String(md ?? '').replace(/\r\n?/g, '\n').replace(ASIDE, '')
+  const codes = []
+  const aside = (code) => `\uE000${codes.push(code) - 1}\uE001`
+  // fenced code, line by line: ``` (no ` after it on the line) or ~~~, closed by a fence of the same mark at least as long on a line of its own;
+  // one never closed runs to the end
+  const kept = []
+  let fence = null, body = []
+  for (const line of s.split('\n')) {
+    if (fence) {
+      const c = /^[ \t]*(`{3,}|~{3,})[ \t]*$/.exec(line)
+      if (c && c[1][0] === fence[0] && c[1].length >= fence.length) { kept.push(aside(body.join('\n'))); fence = null; body = [] } else body.push(line)
+      continue
+    }
+    // (a fence at any indent — a code block nested in a list item is one too)
+    const o = /^[ \t]*(`{3,}(?![^`]*`)|~{3,})/.exec(line)
+    if (o) { fence = o[1]; body = [] } else kept.push(line)
+  }
+  if (fence) kept.push(aside(body.join('\n')))
+  s = kept.join('\n')
+  s = s.split('\n').map((line) => inlineCode(line, aside)).join('\n')
   s = s.replace(/<br\s*\/?>/gi, '\n')
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, (_, alt, url) => (alt ? `${alt} (${url})` : url))
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, (_, text, url) => (text === url ? url : `${text} (${url})`))
+  // (the address read once — a lookahead takes it whole, so nothing goes back over it — and at most 8,192 characters: a signed S3 address is
+  // longer than 2,048; the title after a space at most 300)
+  s = s.replace(/!\[([^[\]\n]{0,500})\]\((?=([^)\s]{1,8192}))\2(?:\s[^)\n]{0,300})?\)/g, (_, alt, url) => (alt ? `${alt} (${url})` : url))
+  s = s.replace(/\[([^[\]\n]{1,500})\]\((?=([^)\s]{1,8192}))\2(?:\s[^)\n]{0,300})?\)/g, (_, text, url) => (text === url ? url : `${text} (${url})`))
   const lines = []
   for (let line of s.split('\n')) {
     if (/^[\s|:-]+$/.test(line) && line.includes('-') && line.includes('|')) continue                                  // |---|---|
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { lines.push(''); continue }                                         // --- / ***
     if (/^\s*\|.*\|\s*$/.test(line)) line = line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()).filter(Boolean).join(' · ')
-    line = line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/\s+#+\s*$/, '')                                             // # headings
+    line = line.replace(/^\s{0,3}#{1,6}\s+/, '').replace(/(?<!\s)\s+#+\s*$/, '')                                     // # headings
     line = line.replace(/^(\s*)>\s?/, '$1')                                                                           // > quotes
     line = line.replace(/^(\s*)[-*+]\s+\[( |x|X)\]\s+/, (_, sp, x) => `${sp}${x.trim() ? '☑' : '☐'} `)                // - [ ] tasks
     line = line.replace(/^(\s*)[-*+]\s+/, '$1• ')                                                                     // - bullets
     lines.push(line)
   }
   s = lines.join('\n')
-  s = s.replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '$1')            // **bold**
-  s = s.replace(/(^|\W)__(?=\S)([^\n]*?\S)__(?!\w)/g, '$1$2')    // __bold__ (not __init__ inside a word)
-  s = s.replace(/~~(?=\S)([\s\S]*?\S)~~/g, '$1')               // ~~strike~~
-  s = s.replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?!\w)/g, '$1$2') // *italic* (not snake_case or 2*3*4)
-  s = s.replace(/`([^`\n]+)`/g, '$1')                          // `code`
-  return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  s = s.replace(/\*\*(?=\S)([^\n]{0,2000}?\S)\*\*/g, '$1')              // **bold** (on a line)
+  s = s.replace(/(^|\W)__(?=\S)([^\n]{0,2000}?\S)__(?!\w)/g, '$1$2')     // __bold__ (not __init__ inside a word)
+  s = s.replace(/~~(?=\S)([^\n]{0,2000}?\S)~~/g, '$1')                  // ~~strike~~
+  s = s.replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?!\w)/g, '$1$2')       // *italic* (not snake_case or 2*3*4)
+  s = s.replace(/(?<![ \t])[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  // the code back, as it was written
+  return s.replace(BACK, (_, i) => codes[Number(i)] ?? '')
 }
 
 // Pieces of at most `limit` characters, cut at a blank line, else a line end, else a space;
@@ -215,7 +264,11 @@ export async function sendTelegram(userId, text, { title } = {}) {
   const sec = await saved(userId)
   if (!sec?.key) throw notConnected()
   if (!sec.chat_id) throw notLinked()
-  const body = toPlain([title && `# ${title}`, text].filter(Boolean).join('\n\n'))
+  // (at most ten messages' worth goes in — a longer text ends in 「…」: what is read stays bounded, PR #123)
+  const raw = [title && `# ${title}`, text].filter(Boolean).join('\n\n')
+  // (never ending on half of an emoji: a high surrogate at the cut goes too)
+  const cut = raw.length > TG_TEXT_MAX ? raw.slice(0, TG_TEXT_MAX).replace(/[\uD800-\uDBFF]$/, '') : null
+  const body = toPlain(cut != null ? `${cut}\n…` : raw)
   const pieces = splitMessage(body)
   if (!pieces.length) throw tgError(L('보낼 내용이 없어요.', 'There is nothing to send.'), 400, 'telegram_empty')
   const ids = []

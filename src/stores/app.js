@@ -772,6 +772,8 @@ export const useApp = defineStore('app', {
     answerRooms(id) { return api(`/messages/${id}/share/rooms`) },
     shareAnswer(id, body) { return api(`/messages/${id}/share/room`, { method: 'POST', body }) },
     saveAnswerDoc(id) { return api(`/messages/${id}/share/doc`, { method: 'POST' }) },
+    // the words of the sheet's 「글 복사」 (text) and 「다른 앱으로 보내기」 (plain — the phone's share sheet): cleaned as the room's are, never the raw answer
+    answerOutText(id) { return api(`/messages/${id}/share/text`) },
     // 대화를 프로젝트로 (server lib/chatProject.js): the confirm card for an answer, then 「만들기」 · 「아니요」 on it
     projectOffer(id) { return api(`/messages/${id}/project-offer`, { method: 'POST' }) },
     makeProject(offerId, body) { return api(`/project-offers/${offerId}/make`, { method: 'POST', body }) },

@@ -17,6 +17,8 @@
 //   (PR #118 후속 · PR #122 검토) AP-U-01c 줄 가운데 서명 조각은 값만 「…」 · 평범한 key 주소는 그대로 · 덧붙이기 직전에 다시 확인(한 문장) — AP-U-04c 문서 카드 ·
 //   AP-U-05c 확인 카드 · AP-U-06c 「프로젝트로 옮겼어요」(대화가 그 사람 것이 아니게 되면 404, 이어받혔으면 그쪽 카드) · AP-U-07d 버리는 프로젝트의 작업 공간도 버림 ·
 //   AP-U-04d 확인과 덧붙이기 사이에 대화가 사라지면 404(500 아님) · 답의 글은 행마다 한 번 · AP-U-05d 카드를 쓰는 동안 답이 사라지면 곧바로 404, 모델 한 번
+//   (11-28 「다른 앱으로 보내기」 · 「글 복사」) AP-U-11a 공유 시트에 넘길 글은 방과 같은 정리의 평문(12,000자에서 「…(이어짐)」, 코드는 쓴 그대로) ·
+//   AP-U-11 복사할 글은 정리한 전체 Markdown · 남의 답 404 · 답이 아닌 메시지 400 · 1분 한도 429
 // Run: node --test --test-concurrency=1 test/answerShareProject.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -46,6 +48,8 @@ process.env.PRO_LLM_FAST_MODEL = 'fake'
 process.env.PRO_PROJECT_OFFERS_PER_MIN = '200'
 // (a 「만들기」 nobody refreshed for 1.5 s may be taken over — AP-U-07c holds one that long)
 process.env.PRO_PROJECT_MAKING_STALE_MS = '1500'
+// (the words for 「글 복사」 · 「다른 앱으로 보내기」: a small budget here — AP-U-11 runs into it)
+process.env.PRO_ANSWER_TEXT_PER_MIN = '30'
 
 const { config } = await import('../config.js')
 const { q, pool, admin } = await import('../lib/supa.js')
@@ -839,4 +843,70 @@ test('AP-U-05d 「프로젝트로 시작」: 모델이 카드를 쓰는 동안 �
   assert.equal(calls, 1, '모델은 한 번')
   assert.ok(Date.now() - t0 < 10_000, `기다리지 않음: ${Date.now() - t0} ms`)
   assert.equal((await msgs(t.id)).filter((m) => m.kind === 'project_offer').length, 0)
+})
+
+// ---------- AP-U-11 to another app · the clipboard (「다른 앱으로 보내기」 — the phone's share sheet, 「글 복사」, 2026-11-28) ----------
+test('AP-U-11a 순수: 보낼 글은 방과 같은 정리의 평문(링크는 주소가 남은 것만 「글자 (주소)」 · 표는 줄 · 코드는 쓴 그대로) · 12,000자에서 「…(이어짐)」', async () => {
+  // (Markdown's marks off — a link keeps its address only when the cleaning left one; a cut one says so at its end, in the request's language;
+  // the slow shapes are telegram.test.js's, in a child with a deadline)
+  const { withLang } = await import('../lib/lang.js')
+  const md = { kind: 'text', content: { text: ['# 결과 요약', '', '**납기**: 2주 이내 · `견적서.xlsx` 참고', '- 첫째 항목', '1. 번호 항목',
+    '[견적 안내](https://www.example.com/quote) · [서명된 견적](https://bucket.s3.amazonaws.com/a/q.pdf?X-Amz-Signature=deadbeef&X-Amz-Credential=c)',
+    '', '| 품목 | 수량 |', '|---|---|', '| 센서 키트 | 3 |'].join('\n') } }
+  const plain = AS.outText(md)
+  for (const mark of ['# ', '**', '`', '|', '](', 'X-Amz', 'bucket.s3']) assert.ok(!plain.includes(mark), `${mark} left in:\n${plain}`)
+  for (const kept of ['결과 요약\n', '납기: 2주 이내 · 견적서.xlsx 참고', '• 첫째 항목', '1. 번호 항목', '견적 안내 (https://www.example.com/quote) · 서명된 견적\n', '품목 · 수량\n센서 키트 · 3']) {
+    assert.ok(plain.includes(kept), `missing 「${kept}」:\n${plain}`)
+  }
+  const long = { kind: 'text', content: { text: `# 결과\n\n${'가'.repeat(AS.LIMITS.text)}\n끝 문장` } }
+  assert.equal(AS.outText(long), `결과\n\n${'가'.repeat(AS.LIMITS.text - '# 결과\n\n'.length)}\n\n…(이어짐)`)
+  assert.ok(!AS.outText(long).includes('끝 문장'))
+  assert.ok(withLang('en', () => AS.outText(long)).endsWith('\n\n…(continued)'))
+  assert.equal(AS.outText({ kind: 'text', content: { text: '짧은 답이에요.' } }), '짧은 답이에요.')
+  // code stays as written: a fenced block (its fence lines off) and inline code are not a list, a heading or bold
+  const code = { kind: 'text', content: { text: '설정 예시예요.\n\n```yaml\n- name: build\n# comment\nrun: f(**kwargs)\n```\n\n`**kwargs` 는 그대로 넘겨요.' } }
+  assert.equal(AS.outText(code), '설정 예시예요.\n\n- name: build\n# comment\nrun: f(**kwargs)\n\n**kwargs 는 그대로 넘겨요.')
+})
+
+test('AP-U-11 다른 앱으로 보낼 글 · 복사할 글: 방과 같은 정리(경로 · 비공개 주소 없음) · 보낼 글은 평문 · 12,000자에서 「…(이어짐)」 · 복사는 전체 Markdown · 남의 답 404 · 답이 아닌 메시지 400 · 1분 한도', { skip: !db && 'no database' }, async () => {
+  const { me, chat, answer, question, kAnswer } = await setup()
+  // the document answer: its title, the whole cleaned answer to copy (Markdown), the plain words to send — the workspace link only its label
+  const r = await call(me, 'GET', `/messages/${answer.id}/share/text`)
+  assert.equal(r.status, 200, r.text)
+  const [row] = await q('select * from pro_messages where id=$1', [answer.id])
+  assert.deepEqual(r.body, { title: '데이터 분석 실무 교육안', text: AS.answerText(row), plain: AS.outText(row), truncated: false, limit: AS.LIMITS.text })
+  assert.ok(r.body.text.startsWith('# 데이터 분석 실무 교육안') && r.body.text.includes('**1일차**'), '복사할 글은 Markdown 그대로')
+  assert.ok(r.body.plain.startsWith('데이터 분석 실무 교육안\n') && r.body.plain.includes('1. 1일차 — 스프레드시트 기초') && !r.body.plain.includes('**'), r.body.plain)
+  for (const t of [r.body.text, r.body.plain]) assert.ok(!t.includes('/workspace/') && t.includes('초안 파일: 교육안.md'), t)
+  // a long answer with a path and a signed address: the same cleaning as the room in both; the plain words cut, said so at their end — the copy whole
+  const host = new URL(config.supabaseUrl).host
+  const text = `# /workspace/.bpmn/c/견적비교.md 정리\n\n원본: /Users/someone/Downloads/요청서.pdf\n첨부는 https://${host}/storage/v1/object/sign/private/a/견적서.pdf?token=SECRET 에 있어요.\n${'나'.repeat(AS.LIMITS.text)}\n마지막 줄`
+  const [a] = await q(`insert into pro_messages(thread_id,role,kind,content) values ($1,'agent','text',$2) returning *`, [chat.id, { text }])
+  const o = await call(me, 'GET', `/messages/${a.id}/share/text`)
+  assert.equal(o.status, 200, o.text)
+  assert.equal(o.body.title, '견적비교.md 정리')
+  for (const t of [o.body.text, o.body.plain]) {
+    for (const bad of ['SECRET', 'token=', '/workspace/', '/Users/', '/storage/v1/', host]) assert.ok(!t.includes(bad), `남은 것: ${bad}`)
+    assert.ok(t.includes('원본: 요청서.pdf') && t.includes('첨부는 견적서.pdf 에 있어요.'), t.slice(0, 200))
+  }
+  assert.equal(o.body.truncated, true)
+  assert.ok(o.body.plain.endsWith('\n\n…(이어짐)') && !o.body.plain.includes('마지막 줄'))
+  assert.equal(o.body.plain, `${(await import('../lib/telegram.js')).toPlain(AS.sharedText(a))}\n\n…(이어짐)`, '방에 가는 글의 평문 + 이어짐 표시')
+  assert.ok(o.body.text.endsWith('마지막 줄') && o.body.text.length > AS.LIMITS.text, '복사할 글은 자르지 않음')
+  // only one's own answer in words
+  assert.equal((await call(me, 'GET', `/messages/${kAnswer.id}/share/text`)).status, 404, '남의 답')
+  assert.equal((await call(me, 'GET', `/messages/${question.id}/share/text`)).status, 400, '내 말은 답이 아님')
+  assert.equal((await call(me, 'GET', '/messages/not-an-id/share/text')).status, 404)
+  // (nothing goes to a teammate from here — the person's own phone or clipboard takes it: their own answer, whether or not still on the team)
+  await q('delete from pro_team_members where tenant_id=$1 and user_id=$2', [TENANT, me.id])
+  try {
+    assert.equal((await call(me, 'GET', `/messages/${answer.id}/share/text`)).status, 200)
+  } finally { await q(`insert into pro_team_members(tenant_id,user_id,added_by) values ($1,$2,$2) on conflict do nothing`, [TENANT, me.id]) }
+  // a budget of its own per person (PRO_ANSWER_TEXT_PER_MIN — 30 here): the next ask in that minute is 429, another person's are not counted
+  const busy = await person('윤도현')
+  const codes = []
+  for (let i = 0; i < 31; i++) codes.push((await call(busy, 'GET', `/messages/${crypto.randomUUID()}/share/text`)).status)
+  assert.deepEqual([...new Set(codes.slice(0, 30))], [404])
+  assert.equal(codes[30], 429)
+  assert.equal((await call(me, 'GET', `/messages/${kAnswer.id}/share/text`)).status, 404, '다른 사람의 한도는 따로')
 })

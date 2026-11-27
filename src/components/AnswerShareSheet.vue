@@ -1,7 +1,7 @@
 <script setup>
 // 답을 공유 (2026-11-27 22:33 휴대폰 녹화: 「텍스트 결과가 나왔을 때 이것을 어딘가에 … 공유한다든지 하는 기능이 지금 존재하지 않아」 — spec answer-share,
 // server lib/answerShare.js). Opened by an answer's 「공유」 (Message.vue) or by holding / right-clicking the answer (its message menu):
-//   menu   대화방 · 사람에게 보내기 · 문서로 남기기 · 프로젝트로 시작 · 복사
+//   menu   대화방 · 사람에게 보내기 · 다른 앱으로 보내기(the phone's share sheet — where there is one) · 문서로 남기기 · 프로젝트로 시작 · 복사
 //   room   the conversations (the ones answers of this chat went to before first, with why) and the teammates with no conversation yet
 //   send   where it goes, what that room will see (the answer's title and words — no file, no mail body), a word to say, 보내기
 //   sent   「…」에 공유했어요 · 방 열기
@@ -15,7 +15,7 @@ import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
 import { openArtifact } from '../artifacts.js'
 import { hidePaths } from '../paths.js'
-import { startProjectFrom } from '../answerActions.js'
+import { startProjectFrom, canShareOut } from '../answerActions.js'
 
 const app = useApp()
 const team = useTeam()
@@ -41,6 +41,8 @@ const sheet = ref(null)
 const close = () => { app.answerShare = null }
 onMounted(async () => {
   if (step.value === 'room') loadRooms()
+  // (the words as they may leave the chat — 「글 복사」 and 「다른 앱으로 보내기」 alike: asked for at once, on every screen)
+  loadOut().catch(() => {})
   await nextTick()
   ;(sheet.value?.querySelector('[role="menuitem"], input, textarea, button') || sheet.value)?.focus?.()
 })
@@ -56,9 +58,36 @@ async function saveDoc() {
   try { doc.value = (await app.saveAnswerDoc(msg.value.id)).message } catch (e) { err.value = e.message } finally { docBusy.value = false }
 }
 function openDoc() { const d = doc.value; close(); if (d) openArtifact(app, router, d).catch(() => {}) }
+// 「글 복사」: the server's cleaned words (out.text — the whole answer, its Markdown as it is: no signed or storage address, no key on the
+// clipboard), never the page's own reading of the answer. Pressed before they came, it waits for them (3 s at most) — and keeps the press:
+// where the clipboard takes a ClipboardItem whose words are still coming (Safari asks the write to start in the press itself), it starts there
+// with the words to come; elsewhere it writes once they are here. They did not come (a slow line, the server failing): nothing is copied and
+// the sheet says so — a press again asks again (PR #123 review).
+const COPY_WAIT_MS = 3000
+const within = (p, ms) => new Promise((ok, no) => {
+  const t = setTimeout(() => no(new Error('timeout')), ms)
+  p.then((v) => { clearTimeout(t); ok(v) }, (e) => { clearTimeout(t); no(e) })
+})
+const copyBusy = ref(false)
 async function copy() {
+  if (copyBusy.value) return
   err.value = ''
-  try { await navigator.clipboard.writeText(text.value); copied.value = true; setTimeout(() => { copied.value = false }, 2000) } catch { err.value = '복사하지 못했어요.' }
+  copyBusy.value = true
+  // (asked once per press: the ClipboardItem and the write after it wait on the same words)
+  let asked = null
+  const words = () => (asked ||= within(loadOut(), COPY_WAIT_MS).then((o) => o.text))
+  try {
+    const cb = navigator.clipboard
+    if (out.value) await cb.writeText(out.value.text)
+    else if (typeof ClipboardItem === 'function' && typeof cb.write === 'function') {
+      // (a browser that takes no words still coming: the words once here — and nothing when they did not come)
+      try { await cb.write([new ClipboardItem({ 'text/plain': words().then((t) => new Blob([t], { type: 'text/plain' })) })]) } catch { await cb.writeText(await words()) }
+    } else await cb.writeText(await words())
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  } catch {
+    err.value = out.value ? '복사하지 못했어요.' : '정리한 글을 받지 못했어요. 다시 눌러 주세요.'
+  } finally { copyBusy.value = false }
 }
 // 「글 선택」 (opened by holding the answer — a long press opens this menu, not the browser's selection): the answer's words selected, the
 // browser's own handles and copy menu from there
@@ -79,6 +108,48 @@ function selectText() {
   setTimeout(() => document.addEventListener('selectionchange', done), 0)
 }
 function toProject() { const m = msg.value; close(); startProjectFrom(app, m).catch((e) => team.say(e.message || '프로젝트 카드를 만들지 못했어요.')) }
+
+// ---------- to another app ----------
+// 「다른 앱으로 보내기」 (2026-11-28 — 「웹 앱으로 공유」 of the recording, the phone's share sheet): navigator.share with the answer's words as a
+// room gets them (server lib/answerShare.js textFor — paths, signed and storage addresses and keys taken out, cut at 12,000 characters with
+// 「…(이어짐)」, Markdown's marks off), never the raw answer. They are asked for as the sheet opens: a phone opens its share sheet only right
+// after a press, so the press hands over words already here. Cancelled there: nothing said. No share sheet (most computers, the desktop app):
+// no item — 「글 복사」.
+const shareOut = canShareOut()
+const out = ref(null)        // {title, text (「글 복사」), plain (the share sheet's), truncated, limit}
+const outBusy = ref(false)
+const outDone = ref(false)
+let outAsk = null, doneTimer = null
+function loadOut() {
+  if (out.value) return Promise.resolve(out.value)
+  outAsk ||= app.answerOutText(msg.value.id).then((r) => { out.value = r; return r }).finally(() => { outAsk = null })
+  return outAsk
+}
+const outCut = computed(() => (out.value?.truncated ? `글이 길어서 앞부분 ${Number(out.value.limit || 12000).toLocaleString('ko-KR')}자만 보내요.` : ''))
+async function sendOut() {
+  if (outBusy.value) return
+  // (a press again: what the last one said goes — 「보냈어요」 never stands beside a failure)
+  err.value = ''
+  outDone.value = false
+  clearTimeout(doneTimer)
+  outBusy.value = true
+  const waited = !out.value
+  try {
+    // (words already here: handed over in the press itself — no await before navigator.share, which some phones ask to be the press's own)
+    let o = out.value
+    if (!o) { try { o = await loadOut() } catch (e) { err.value = e.message || '보낼 글을 준비하지 못했어요.'; return } }
+    try {
+      // (plain text: a messenger, a mail or a note would show Markdown's marks as they are)
+      await navigator.share({ title: o.title, text: o.plain })
+      outDone.value = true
+      doneTimer = setTimeout(() => { outDone.value = false }, 2000)
+    } catch (e) {
+      // (the person closed the phone's sheet: nothing to say; the press came too long before the words did: once more opens it)
+      if (e?.name === 'AbortError') return
+      err.value = e?.name === 'NotAllowedError' && waited ? '글을 준비했어요. 한 번 더 눌러 주세요.' : '다른 앱으로 보내지 못했어요. 「글 복사」로 복사해 붙여 넣어 주세요.'
+    }
+  } finally { outBusy.value = false }
+}
 
 // ---------- the rooms ----------
 const data = ref(null)
@@ -137,6 +208,12 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
         <div v-if="step === 'menu'" class="menu" role="menu">
           <button class="mi press" role="menuitem" data-test="answer-share-room" @click="toRooms">
             <span class="ic"><Icon name="team" :size="18" /></span><span class="mt"><b>대화방 · 사람에게 보내기</b><small>대화방이나 팀원을 골라 이 답을 보내요</small></span><Icon name="chevron" :size="14" />
+          </button>
+          <button v-if="shareOut" class="mi press" role="menuitem" data-test="answer-share-apps" :disabled="outBusy" @click="sendOut">
+            <span class="ic"><Icon :name="outDone ? 'check' : 'share'" :size="18" /></span>
+            <span class="mt"><b>{{ outDone ? '다른 앱으로 보냈어요' : outBusy && !out ? '보낼 글을 준비하고 있어요…' : '다른 앱으로 보내기' }}</b>
+              <small>이 답의 글을 메신저 · 메일 · 메모 앱으로 보내요. 파일 경로와 비공개 주소는 빼요.</small>
+              <small v-if="outCut" class="cut" data-test="answer-apps-truncated">{{ outCut }}</small></span>
           </button>
           <button class="mi press" role="menuitem" data-test="answer-share-doc" :disabled="docBusy" @click="doc ? openDoc() : saveDoc()">
             <span class="ic"><Icon name="doc" :size="18" /></span>
@@ -220,6 +297,7 @@ h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .mt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mt b { font-size: 14.5px; font-weight: 600; }
 .mt small { font-size: 12px; color: var(--text-secondary); line-height: 1.35; overflow-wrap: anywhere; }
+.mt small.cut { color: var(--color-warning, #b26a00); }
 .find { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 12px; border-radius: 12px; background: var(--field-bg); border: 1px solid var(--hairline); color: var(--text-secondary); }
 .find input { flex: 1; min-width: 0; border: 0; background: transparent; outline: 0; color: var(--text-primary); font: inherit; font-size: 14px; }
 .list { flex: 1; min-height: 120px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }

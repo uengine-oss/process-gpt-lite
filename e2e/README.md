@@ -1952,8 +1952,8 @@ miner 가 없으면 F-MN-02.
 휴대폰 녹화 11-27 22:33: 「텍스트 결과가 나왔을 때 이것을 어딘가에 우리는 공유한다든지 하는 기능이 지금 존재하지 않아」 · 「이 내용을 기반으로 프로젝트를 하나 만들자」(채팅 안의 계획으로만 끝남) · 「여기로 프로젝트로 승격하겠다는 거거든」 · 「교육과정 만드는 템플릿 폴더가 있을 수 있겠지」. 시험 파일이 자기 스택(회사 `answer-project-ui`, BFF 8997 · Vite 5397 — 다른 것이 듣고 있으면 멈춤, `RT_AP_API_PORT` · `RT_AP_WEB_PORT`)과 가짜 모델 · 가짜 deepagents(빈 포트)를 띄운다. 라우터의 `start_project` 는 가짜 모델이 그 말에만 부른다(실제 모델이 고르는지는 아래 ✗). 사람 · 회사 · 메일은 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀 이준호).
 
 ```bash
-cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js test/conversations.test.js test/chatArtifacts.test.js   # AP-U-01~10 · 01c · 04c~07d · 04d · 05d · AS-U-05b · 실제 DB · git · 저장소, 가짜 모델 · 경로 · 대화 · 더미 규칙
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~03 · F-CP-01~04
+cd server && node --test --test-concurrency=1 test/answerShareProject.integration.test.js test/hidePaths.test.js test/conversations.test.js test/chatArtifacts.test.js   # AP-U-01~11 · 01c · 04c~07d · 04d · 05d · AS-U-05b · 실제 DB · git · 저장소, 가짜 모델 · 경로 · 대화 · 더미 규칙
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # F-AS-01~05 · F-CP-01~04 (F-AS-04 는 가짜 navigator.share)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -1962,7 +1962,8 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answe
 | 「대화방 · 사람에게 보내기」 → 방 고르기(이 채팅의 답을 올린 방이 먼저 · 팀원에게 바로) → 받는 곳 · 미리 보기 · 「무엇이 보일지」 · 한마디 → 「보내기」 → 방에 「AI 답」 카드 · 알림 · 답 아래 「「…」에 공유했어요」 | 녹화 0:18 | F-AS-01 · AP-U-02 · AP-U-03 | feature · DB | ✅ |
 | 같은 회사 팀원에게만: 팀원이 아닌 사람 · 나 403, 내가 없는 방 404, 팀에서 빠진 사람이 있는 방 403(아무것도 올라가지 않음), 남의 답 404, 답이 아닌 메시지 400, 작업 공간 주소는 이름만 | 브리프 A1 | AP-U-02 · AP-U-03 | DB | ✅ |
 | 「문서로 남기기」 → `<제목>.md` 파일 카드(한 번만) — 그 뒤로 파일 공유 · 내려받기 · 이음오피스 | 브리프 A1(b) | F-AS-02 · AP-U-04 | feature · DB | ✅ |
-| 「웹 앱으로 공유」: 맞는 기존 기능이 없어 넣지 않음(패널 앱은 홈 위젯, pro_shares 주소는 받은 사람 전용 서명 주소, 공개 링크 없음) | 브리프 A1(c) | — | — | — |
+| 「웹 앱으로 공유」: 처음에는 해당하는 기존 기능이 없어 미포함(패널 앱은 홈 위젯 · pro_shares 주소는 받는 사람 전용 서명 주소 · 공개 링크 없음) → 11-28 사용자가 휴대폰 공유 시트로 결정(아래 칸) | 브리프 A1(c) | — | — | — |
+| (11-28) 「다른 앱으로 보내기」 → 휴대폰 공유 시트(`navigator.share`)로 제목 · 정리된 평문 전달(서버 `share/text`의 `plain` — 대화방에 보내는 것과 같은 글에서 Markdown 기호 제거 · 링크는 「글자 (주소)」 · 표는 줄 · 12,000자까지 · 초과 시 끝에 「…(이어짐)」) · 취소 시 안내 없음 · 공유 시트가 없는 PC 브라우저 · 데스크톱 앱에서는 항목 숨김 · 「글 복사」는 서버가 정리한 전체 글 복사(`text`, Markdown 그대로 · 서명 주소 없음) · 도착 전에 눌러도 최대 3초 대기(`ClipboardItem`은 누른 순간에 쓰기 시작) · 수신 실패 시 복사 없이 안내 · 다시 누르면 다시 요청 · 평문 변환 시 코드 블록 · 인라인 코드 그대로 유지 · 잘못된 형식의 글도 200 ms 이내 처리 · 글 요청은 1분에 60번까지 | 녹화 0:18 · 11-28 사용자 결정 「Phone share sheet」 | F-AS-04 · F-AS-05 · AP-U-11 · AP-U-11a · `telegram.test.js` | feature · DB · 단위 | ✅ |
 | 말로 「이 내용을 기반으로 프로젝트를 하나 만들자」 → 라우터 `start_project` → 확인 카드(이름 · 목적 · 배경 · 출처 메일 · 첫 문서), 아직 아무것도 만들지 않음 | 녹화 0:33 · 0:55 | F-CP-01 · AP-U-05 | feature · DB | ✅ |
 | 「만들기」 → 「프로젝트」 탭에 생김 · 계획(목적 · 만들 것 · 배경 · 출처 고정) · 첫 문서 · 「채팅에서 이어 온 프로젝트예요 · 원래 대화 열기」 · 채팅에 「프로젝트로 옮겼어요」 · 원래 대화 그대로 · 두 번째 409 | 녹화 1:15 | F-CP-01 · AP-U-06 | feature · DB | ✅ |
 | 답의 「프로젝트로 시작」 → 같은 카드(열려 있으면 그 카드) | 브리프 A2 | F-CP-02 · F-CP-03 · AP-U-05 | feature · DB | ✅ |
