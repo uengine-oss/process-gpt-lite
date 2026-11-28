@@ -18,6 +18,8 @@ const props = defineProps({
   name: { type: String, default: '' },
   compact: { type: Boolean, default: false },  // a messenger bubble: smaller
   type: { type: String, default: '' },         // the stored type, when the name says nothing (a TIFF named 「download」)
+  // a chat file card's (Message.vue): the thumbnail keeps its tap, its long press · right-click is the card's menu (components/holdMenu.js)
+  holdTap: { type: Boolean, default: false },
 })
 // play: a sound or a video started here (a file a teammate shared: its sender's card says it was opened — team/Messenger.vue)
 const emit = defineEmits(['open', 'failed', 'loaded', 'play'])
@@ -35,10 +37,10 @@ function onTiffFail(e) { if (e?.fetch) onError(); else tiffBad.value = true }
   <div v-if="src" class="mp" :class="[kind, { compact }]" data-test="media-preview" :data-kind="kind" :data-file="name">
     <p v-if="failed" class="calm" data-test="media-fallback">미리 볼 수 없어요 · <a :href="src" target="_blank" rel="noopener">새 창에서 열기</a></p>
     <p v-else-if="tiff && tiffBad" class="calm" data-test="tiff-error">이 TIFF 는 열 수 없어요 · <DownloadButton class="lnk" data-test="tiff-download" :source="{ url: src, name, type: type || 'image/tiff' }">내려받기</DownloadButton></p>
-    <button v-else-if="tiff" type="button" class="thumb press" :title="name" :aria-label="`${name} 크게 보기`" data-test="media-thumb" @click="emit('open')">
+    <button v-else-if="tiff" type="button" class="thumb press" :data-hold-tap="holdTap ? '' : null" :title="name" :aria-label="`${name} 크게 보기`" data-test="media-thumb" @click="emit('open')">
       <TiffView mode="thumb" :src="src" :name="name" @loaded="emit('loaded')" @failed="onTiffFail" />
     </button>
-    <button v-else-if="kind === 'image'" type="button" class="thumb press" :title="name" :aria-label="`${name} 크게 보기`" data-test="media-thumb" @click="emit('open')">
+    <button v-else-if="kind === 'image'" type="button" class="thumb press" :data-hold-tap="holdTap ? '' : null" :title="name" :aria-label="`${name} 크게 보기`" data-test="media-thumb" @click="emit('open')">
       <img :src="src" :alt="name" loading="lazy" decoding="async" data-testid="file-image" @error="onError" @load="emit('loaded')" />
     </button>
     <!-- hark: a sound the work made plays right here, on the phone too (recording 2026-11-21) -->

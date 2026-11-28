@@ -3,6 +3,7 @@
 // 메신저 위로 끈 파일을 아래 채팅 입력창이 가져가지 않는다(채팅 화면 전체 놓기는 그대로).
 // 그리고 대화로 들어온 문서(채팅 첨부 · 에이전트가 만든 파일 · 팀원이 보낸 파일 · 메일 첨부)에 판정 모델이 고른 폴더를
 // 「‘견적서’에 정리할까요? (확신 N%)」로 권하고, 누르면 그 폴더 main 에 내 이름으로 들어간다. 맞는 폴더가 없으면 「새 폴더 만들기」.
+// (2026-11-28 부터 채팅의 파일 카드는 줄 대신 카드의 메뉴 — 카드에 점, 메뉴에 「새 폴더를 만들어 정리: …」. 메신저 · 메일 시트는 그대로 줄)
 // 이 묶음의 서버는 가짜 모델로 띄운다: PRO_LLM_BASE_URL=http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59998>/v1 (이 파일이 그 포트에
 // 가짜 모델을 띄움 — 보기 글자의 확률을 돌려줌). 같은 포트를 쓰는 mail-reply · mail-thread-flow 와 동시에 돌리지 않는다.
 // 스펙 openspec/specs/messenger-drop-folder, 서버 시험 server/test/filing.integration.test.js
@@ -214,9 +215,17 @@ test.describe('메신저에서 컴퓨터의 파일 보내기 · 들어온 문서
     fake.name = `거래처 계약서 ${tag}`
     await page.goto('/chat')
     const card = page.locator('.row.k-file').filter({ hasText: doc.name })
-    await expect(card.locator('[data-test="filing-say"]')).toHaveText(`새 폴더 만들기: 거래처 계약서 ${tag}`)
+    // (2026-11-28 「… 폴더 정리 등 모든 것들 콘텍스트 메뉴로」) a chat card has no line under it: a dot while the suggestion waits, the
+    // suggestion in the card's menu — right-clicked here (F-CM-02 · F-CM-03 hold it on a phone, its ⋯, the keyboard)
+    await expect(card.locator('[data-test="filing-dot"]')).toBeVisible()
+    await expect(card.locator('[data-test="folder-suggest"], [data-test="filing-say"]')).toHaveCount(0)
+    await card.locator('button.file').click({ button: 'right' })
+    const menu = page.locator('[data-test="file-menu"]')
+    await expect(menu.locator('[data-test="file-menu-new-label"]')).toHaveText(`새 폴더를 만들어 정리: 거래처 계약서 ${tag}`)
+    await settled(menu)
     await shot(page, 'f-md-03d-new-folder')
-    await card.locator('[data-test="filing-new"]').click()
+    await menu.locator('[data-test="file-menu-new"]').click()
+    await expect(menu).toHaveCount(0)
     await expect(card.locator('[data-test="filing-done"]')).toHaveText(`‘거래처 계약서 ${tag}’에 정리했어요`)
     const [made] = await db.q(`select f.id, f.slug, m.role from pro_folders f join pro_folder_members m on m.folder_id=f.id and m.principal_id=$2 where f.tenant_id=$1 and f.name=$3`, [db.tenant, b.id, `거래처 계약서 ${tag}`])
     cleanup(() => db.q('delete from pro_folders where id=$1', [made.id]))

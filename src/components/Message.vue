@@ -22,7 +22,10 @@ import PcProposalCard from './PcProposalCard.vue'
 // 팀원에게 물어 채우기: 「○○님께 메신저로 물어볼까요?」 and what came back (server lib/askTeammate.js)
 import AskTeamCard from './AskTeamCard.vue'
 import ShareButton from './team/ShareButton.vue'
-import FolderSuggest from './folders/FolderSuggest.vue'
+// 폴더에 정리 (server lib/folders/filing.js): a file card's — offered in its menu, a dot on the card while a suggestion waits
+import { useFiling } from './folders/useFiling.js'
+import FileCardMenu from './FileCardMenu.vue'
+import HoldHint from './HoldHint.vue'
 import ImproveCard from './improve/ImproveCard.vue'
 import ReferChips from './context/ReferChips.vue'
 import RepeatCard from './context/RepeatCard.vue'
@@ -41,9 +44,12 @@ import MediaPreview from './MediaPreview.vue'
 // 대화를 프로젝트로: 「프로젝트로 시작할까요?」 (server lib/chatProject.js)
 import ProjectOfferCard from './ProjectOfferCard.vue'
 import ConvMoveCard from './ConvMoveCard.vue'
-// 답을 공유 · 프로젝트로 시작 — the answer's own buttons and its message menu (a long press · a right-click opens the same 공유 sheet)
+// 답을 공유 · 프로젝트로 시작 · 폴더에 정리 … — in the message's menu: held on a phone, right-clicked or its ⋯ on a computer (2026-11-28 「화면이
+// 정신없으니 하단의 공유, 프로젝트로 등록, 폴더 정리 등 모든 것들 콘텍스트 메뉴로. 모바일에선 길게 누를때」 — nothing under an answer or a file
+// card but what it did and how)
 import { hold } from './holdMenu.js'
-import { showsActions, isAnswer, startProjectFrom } from '../answerActions.js'
+import { showsActions, isAnswer } from '../answerActions.js'
+import { holdHint, claimHint, closeHint, touchOnly } from '../holdHint.js'
 import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { useTeam } from '../stores/team.js'
@@ -182,23 +188,40 @@ const hint = computed(() => {
   const ed = officeEditorFor(c.value.name)
   return ed && c.value.url && !craftMissing(ed) ? (c.value.edited ? '편집본 · 눌러서 이어 편집' : '눌러서 바로 편집') : openHint(c.value)
 })
-// 답을 공유 · 프로젝트로 시작 (spec answer-share · chat-to-project): an AI answer in words gets 「공유」 and 「프로젝트로 시작」 under it, and the
-// same in its message menu — held on a phone, right-clicked on a computer (components/holdMenu.js)
+// 답을 공유 · 프로젝트로 시작 (spec answer-share · chat-to-project): an AI answer's message menu (AnswerShareSheet.vue — 대화방 · 사람에게
+// 보내기 · 문서로 남기기 · 프로젝트로 시작 · 글 선택 · 글 복사) — held on a phone, right-clicked on a computer (components/holdMenu.js), or its ⋯
+// (a computer: shown by the answer under the pointer, and to the keyboard). No buttons under the answer.
 // (only an answer takes the hold — the directive reads the binding at each press: an answer that stops being one, or becomes one, follows;
 // the others keep the browser's own long press — text selection)
 const vHold = hold
-const actions = computed(() => showsActions(props.msg))
 const holdable = computed(() => isAnswer(props.msg))
+const bubbleEl = ref(null)
+const docEl = ref(null)
+// the focus goes back where it was when the menu closes (Esc · ✕): the ⋯ it was opened from, what had it before a right-click — none after a
+// long press (a phone's keyboard would come up on the composer)
+const focusBack = () => { const a = document.activeElement; return a && a !== document.body ? a : null }
 // held: the bubble goes along (the menu's 「글 선택」 selects its words for the browser's own handles — a long press no longer does)
-const openShare = (step = 'menu', el = null) => { app.answerShare = { msg: props.msg, step, ...(el ? { el: markRaw(el) } : {}) } }
-const onHold = (el) => openShare('menu', el)
-const offerBusy = ref(false)
-const offerErr = ref('')
-async function startProject() {
-  if (offerBusy.value) return
-  offerBusy.value = true; offerErr.value = ''
-  try { await startProjectFrom(app, props.msg) } catch (e) { offerErr.value = e.message || '프로젝트 카드를 만들지 못했어요.' } finally { offerBusy.value = false }
+const openShare = (step = 'menu', el = null, from = null) => {
+  app.answerShare = { msg: props.msg, step, ...(el ? { el: markRaw(el) } : {}), ...(from ? { from: markRaw(from) } : {}) }
 }
+const onHold = (el, at) => { closeHint(); openShare('menu', el, at?.touch ? null : focusBack()) }
+const onMore = (e, el) => openShare('menu', el, e.currentTarget)
+
+// a file card's menu (FileCardMenu.vue): 열기 · 팀원에게 공유 · 폴더에 정리 — pressing the card still opens the file; held (a phone) or
+// right-clicked · its ⋯ (a computer) it opens the menu. A document that came in (attached, made by the agent, sent by a teammate — not one
+// opened from a folder) is offered a folder: the judge is asked once the card is on screen, the card shows a dot while it waits.
+const fileRow = ref(null)
+const canFile = computed(() => props.msg.kind === 'file' && !!(c.value.url || c.value.path) && !c.value.folder)
+const filing = props.msg.kind === 'file' ? useFiling(() => (canFile.value ? { messageId: props.msg.id } : null), () => c.value.filing, () => fileRow.value) : null
+const fileMenu = ref(null)
+const openFileMenu = (from = null) => { closeHint(); fileMenu.value = { from: from ? markRaw(from) : null } }
+const onFileHold = (el, at) => openFileMenu(at?.touch ? null : focusBack())
+// (dragging a card is a computer's — on a phone a long press is the card's menu, never a drag)
+const draggable = !touchOnly()
+
+// 「길게 누르면 …」 once on a phone (src/holdHint.js): under the newest answer worth acting on or file card drawn
+const menuHere = computed(() => (holdable.value && showsActions(props.msg)) || props.msg.kind === 'file')
+const hintHere = computed(() => holdHint.host === props.msg.id && !holdHint.closed)
 // where this answer went (server lib/answerShare.js keeps it on the answer): 「「…」에 공유했어요」 — the newest
 const sharedTo = computed(() => {
   const s = c.value.answerShares || {}
@@ -214,6 +237,7 @@ const sharedLine = computed(() => {
 })
 const openRoom = (id) => team.openMessenger(id)
 onMounted(async () => {
+  if (menuHere.value) claimHint(props.msg.id)
   if (!media.value || c.value.url || !c.value.path) return
   try { resolved.value = (await api(`/messages/${encodeURIComponent(props.msg.id)}/open-file`, { method: 'POST' }))?.url || '' } catch (e) { mediaErr.value = `${media.value === 'image' ? '미리 볼' : '재생할'} 파일을 가져오지 못했어요 · ${e.message}` }
 })
@@ -269,7 +293,10 @@ onMounted(async () => {
     <template v-else-if="msg.kind === 'text'">
       <!-- the answer of a CLI on my PC (its last words at the end of a turn) -->
       <small v-if="c.localAgent?.label" class="via" data-test="msg-local-answer">{{ c.localAgent.label }} · {{ c.localAgent.where || '내 PC' }}</small>
-      <div v-hold="holdable ? onHold : null" class="bubble agent md" :class="{ holdable }" v-html="md(replies ? replies.body : c.text)" />
+      <div class="hbox">
+        <div ref="bubbleEl" v-hold="holdable ? onHold : null" class="bubble agent md" :class="{ holdable }" v-html="md(replies ? replies.body : c.text)" />
+        <button v-if="holdable" class="mbtn press" data-test="msg-more" aria-haspopup="dialog" aria-label="이 답의 메뉴 열기" title="공유 · 프로젝트로 시작 · 복사" @click="onMore($event, bubbleEl)"><Icon name="more" :size="16" /></button>
+      </div>
       <LinkPreviews :text="replies ? replies.body : c.text" />
       <MailChips v-if="mailRefs.length" :refs="mailRefs" :event="c.mailEvent || ''" />
       <!-- 회사 프로세스 지도의 업무 에이전트: 일 정의의 점검 항목마다 지켰는지(근거는 마우스를 올리면) -->
@@ -321,21 +348,20 @@ onMounted(async () => {
       <div v-if="replies" class="replies">
         <button v-for="o in replies.options" :key="o.label" class="reply press" :title="o.hint" @click="app.send(o.label, msg.thread_id)">{{ o.label }}</button>
       </div>
-      <div v-if="actions" class="aacts" data-test="answer-actions">
-        <button class="aact press" data-test="answer-share-btn" @click="openShare('menu')"><Icon name="share" :size="14" /><span>공유</span></button>
-        <button class="aact press" :disabled="offerBusy" data-test="answer-project-btn" @click="startProject"><Icon name="folder" :size="14" /><span>{{ offerBusy ? '카드를 준비하는 중…' : '프로젝트로 시작' }}</span></button>
-        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
-          <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></span>
-      </div>
-      <p v-if="offerErr" class="aerr" role="alert">{{ offerErr }}</p>
+      <!-- what it did (no buttons — they are in its menu): 「「…」에 공유했어요 · 방 열기」 -->
+      <p v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
+        <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></p>
     </template>
 
-    <div v-else-if="doc" v-hold="holdable ? onHold : null" class="doc" :class="{ open: expanded, holdable }">
-      <h3 class="serif">{{ doc.title }}</h3>
-      <div class="inner md" v-html="doc.body" />
-      <button class="more press" :aria-label="expanded ? '접기' : '펼치기'" @click="expanded = !expanded">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :style="{ rotate: expanded ? '180deg' : '0deg' }"><path d="M6 9l6 6 6-6" /></svg>
-      </button>
+    <div v-else-if="doc" class="hbox">
+      <div ref="docEl" v-hold="holdable ? onHold : null" class="doc" :class="{ open: expanded, holdable }">
+        <h3 class="serif">{{ doc.title }}</h3>
+        <div class="inner md" v-html="doc.body" />
+        <button class="more press" :aria-label="expanded ? '접기' : '펼치기'" @click="expanded = !expanded">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :style="{ rotate: expanded ? '180deg' : '0deg' }"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+      </div>
+      <button v-if="holdable" class="mbtn press" data-test="msg-more" aria-haspopup="dialog" aria-label="이 답의 메뉴 열기" title="공유 · 프로젝트로 시작 · 복사" @click="onMore($event, docEl)"><Icon name="more" :size="16" /></button>
     </div>
 
     <!-- 대화를 프로젝트로: the confirm card (name · the template folders that fit · 만들기) -->
@@ -394,19 +420,28 @@ onMounted(async () => {
     </div>
 
     <div v-else-if="msg.kind === 'file'" class="filecol" :class="media ? `m-${media}` : ''">
-      <div class="filerow" draggable="true" data-test="file-card" :data-file="c.name" @dragstart="dragCard">
-        <button class="file press" @click="openFile">
+      <div ref="fileRow" class="filerow" :draggable="draggable" data-test="file-card" :data-file="c.name" :data-filing="filing?.pending ? 'suggested' : filing?.filed ? 'filed' : null" @dragstart="dragCard">
+        <!-- pressed: opens the file; held · right-clicked: its menu (data-hold-tap — components/holdMenu.js) -->
+        <button v-hold="onFileHold" data-hold-tap class="file press" @click="openFile">
           <span class="fic" :class="fk">{{ kindLabel[fk] || 'FILE' }}</span>
           <span class="fmeta"><b>{{ c.name }}</b><small><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span><template v-if="c.shared">{{ c.shared.by }}님이 공유 · </template>{{ hint }}</small></span>
+          <!-- a folder suggestion waits in the menu -->
+          <span v-if="filing?.pending" class="fdot" data-test="filing-dot" role="img" aria-label="폴더 정리 제안이 있어요" title="폴더 정리 제안이 있어요" />
         </button>
         <!-- 팀원에게 공유 (components/team) — not a private card (a mail's attachment, its edit: mine only) -->
         <ShareButton v-if="!c.private" :msg="msg" compact />
+        <button class="mbtn press" data-test="file-more" aria-haspopup="dialog" :aria-label="`${c.name} 메뉴 열기`" title="파일 메뉴" @click="openFileMenu($event.currentTarget)"><Icon name="more" :size="16" /></button>
       </div>
       <!-- a picture to look at, a sound or a video that plays right here (on the phone too) -->
-      <MediaPreview v-if="media && mediaUrl" :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" @play="sawShare(c.shared?.shareId)" />
+      <!-- (held · right-clicked, the preview is the card too: its menu — never the phone's own callout on the picture) -->
+      <MediaPreview v-if="media && mediaUrl" v-hold="onFileHold" hold-tap :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" @play="sawShare(c.shared?.shareId)" />
       <small v-else-if="media && mediaErr" class="playerr">{{ mediaErr }}</small>
-      <!-- 폴더에 정리: a document that came in (attached, or made by the agent, or sent by a teammate) — not one opened from a folder -->
-      <FolderSuggest v-if="(c.url || c.path) && !c.folder" :message-id="msg.id" :filing="c.filing" />
+      <!-- 폴더에 정리 — what it did (the suggestion itself is in the card's menu): 「‘견적서’에 정리했어요 · 열기」 -->
+      <p v-if="filing?.filed" class="ashared filed" data-test="filing-line"><Icon name="check" :size="12" />
+        <span data-test="filing-done">{{ filing.filed.already ? `이미 ‘${filing.filed.name}’에 있어요` : `‘${filing.filed.name}’에 정리했어요` }}</span>
+        <button class="alink press" data-test="filing-open" @click="filing.openFolder()">열기</button></p>
+      <FileCardMenu v-if="fileMenu" :msg="msg" :filing="canFile ? filing : null" :hint="hint" :from="fileMenu.from" @close="fileMenu = null" @open="openFile" />
+      <HoldHint v-if="hintHere" />
     </div>
 
     <!-- an agent's change in a shared folder: a variation to review and merge (lib/folders/work.js) -->
@@ -487,15 +522,10 @@ onMounted(async () => {
         <li v-for="(w, i) in work" :key="i"><b>{{ w.phase || w.tool }}</b><template v-if="w.n > 1"> ×{{ w.n }}</template><small v-if="workWhere(w)">{{ workWhere(w) }}</small></li>
       </ol>
     </div>
-    <template v-if="msg.kind === 'doc'">
-      <div v-if="actions" class="aacts" data-test="answer-actions">
-        <button class="aact press" data-test="answer-share-btn" @click="openShare('menu')"><Icon name="share" :size="14" /><span>공유</span></button>
-        <button class="aact press" :disabled="offerBusy" data-test="answer-project-btn" @click="startProject"><Icon name="folder" :size="14" /><span>{{ offerBusy ? '카드를 준비하는 중…' : '프로젝트로 시작' }}</span></button>
-        <span v-if="sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
-          <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></span>
-      </div>
-      <p v-if="offerErr" class="aerr" role="alert">{{ offerErr }}</p>
-    </template>
+    <p v-if="msg.kind === 'doc' && sharedTo" class="ashared" data-test="answer-shared"><Icon name="check" :size="12" /><span>{{ sharedLine }}</span>
+      <button class="alink press" data-test="answer-shared-open" @click="openRoom(sharedTo.room)">방 열기</button></p>
+    <!-- 「길게 누르면 …」 — once, on a phone (src/holdHint.js) -->
+    <HoldHint v-if="hintHere && msg.kind !== 'file'" />
   </div>
 </template>
 
@@ -642,14 +672,34 @@ button.uref { text-align: left; }
 .sched { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 16px; border-radius: 9999px; background: var(--regular-solid-bg); color: var(--text-primary); font-size: 14px; font-weight: 500; box-shadow: 0 2px 10px rgba(0 0 0 / .06); margin-top: 6px; }
 .row.k-divider { align-items: center; }
 .divider { align-self: stretch; text-align: center; font-size: 14px; color: var(--text-tertiary); padding-top: 18px; border-top: 1px solid var(--hairline); margin-top: 10px; }
-.aacts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; max-width: 100%; }
-.aact { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 12px; border-radius: 16px; font-size: 13px; font-weight: 500;
-  color: var(--text-primary); background: var(--field-bg, rgba(127, 127, 127, .12)); border: 1px solid var(--hairline); }
-.aact:disabled { opacity: .6; }
-.ashared { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.ashared { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: min(424px, 100%); min-width: 0; margin: 6px 0 0 8px; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.ashared.filed { margin-top: 0; }
+/* an answer (its bubble · its document card) and the ⋯ beside it */
+.hbox { display: flex; align-items: flex-start; gap: 6px; max-width: 100%; min-width: 0; }
+.hbox > .bubble, .hbox > .doc { min-width: 0; }
+/* what follows a document answer clears its ⌄ (it hangs 14px below the card — a long 「「…」에 공유했어요 · 방 열기」 ran under it) */
+.row.k-doc > .hbox + * { margin-top: 20px; }
+/* ⋯ — the message's menu on a computer: shown by the message under the pointer, and to the keyboard */
+.mbtn { flex: none; align-self: center; width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; color: var(--text-secondary);
+  background: var(--regular-solid-bg); border: 1px solid rgba(127, 127, 127, .2); opacity: 0; transition: opacity .12s; }
+.row:hover .mbtn, .mbtn:focus-visible { opacity: 1; }
+.mbtn:hover { color: var(--text-primary); }
+/* a phone: a long press — the ⋯ takes no room and no look, but stays for a screen reader, a switch, a tablet's keyboard (PR #126 review);
+   with the keyboard's focus it shows over the answer's · card's corner */
+@media (hover: none) {
+  .hbox, .filerow { position: relative; }
+  .mbtn:not(:focus-visible) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; pointer-events: none; }
+  .mbtn:focus-visible { position: absolute; top: 6px; right: 6px; z-index: 2; width: 36px; height: 36px; border-radius: 18px; box-shadow: var(--shadow-card); }
+  /* (a card's: in its row after 👥 — over the card's corner it would cover 👥) */
+  .filerow .mbtn:focus-visible { position: static; }
+}
+/* a folder suggestion waits in the card's menu */
+.file { position: relative; }
+.fdot { position: absolute; top: 9px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: #3b8cf0; box-shadow: 0 0 0 2px #1d1d1f; }
 .ashared > :deep(svg) { color: var(--color-success); flex: none; }
 .alink { margin-left: 4px; font-size: 12px; font-weight: 600; color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
 .chip.link .cgo { flex: none; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
-/* a phone's long press opens the answer's menu, not the text selection (as the messenger's bubbles — its 「글 선택」 gives the selection back) */
-@media (pointer: coarse) { .holdable:not([data-selecting]) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
+/* a phone's long press opens the answer's menu, not the text selection (as the messenger's bubbles — its 「글 선택」 gives the selection back);
+   a file card's opens its menu, never the system's own callout (an audio · video player keeps its own — PR #126 last check) */
+@media (pointer: coarse) { .holdable:not([data-selecting]), .file, .filecol :deep(.mp img) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
 </style>
