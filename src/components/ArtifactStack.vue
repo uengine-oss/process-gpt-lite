@@ -9,6 +9,8 @@ import { useRouter } from 'vue-router'
 import { useApp } from '../stores/app.js'
 import { kindOf, kindLabel, openArtifact } from '../artifacts.js'
 import { CAPTION } from '../artifactScope.js'
+// same-named files with their folder, the grid by work folder and version (src/fileGroups.js — spec chat-artifacts)
+import { artifactSections } from '../fileGroups.js'
 import ShareButton from './team/ShareButton.vue'
 import { useTeam } from '../stores/team.js'
 // each file (and the closed pile, all of them) is dragged like any file of the app (src/fileDrag.js): a messenger conversation, a folder,
@@ -28,6 +30,12 @@ fit()
 window.addEventListener('resize', fit)
 
 const items = computed(() => app.artifacts.items.map((x) => x.msg))
+const sections = computed(() => artifactSections(app.artifacts.items))
+const hints = computed(() => new Map(sections.value.flatMap((sec) => sec.items.map((x) => [x.msg.id, x.hint]))))
+// 「README.md · starter/」 — a name the pile has more than once, with its folder ('' — at the top; null — its name is alone)
+const hintOf = (m) => (hints.value.has(m.id) ? hints.value.get(m.id) : null)
+const nameOf = (m) => { const h = hintOf(m); return h == null ? m.content.name : `${m.content.name} · ${h || '/'}` }
+const foldered = computed(() => sections.value.some((sec) => sec.folder))
 const caption = computed(() => CAPTION[app.artifacts.scope] || '산출물')
 const small = computed(() => props.place.size < 64)
 const pile = computed(() => items.value.slice(0, 3).reverse())
@@ -44,7 +52,8 @@ function pick(m) { open.value = false; openArtifact(app, router, m) }
 const drag = (e, list) => startDrag(e, list.slice(0, MAX).map(cardItem))
 const onKey = (e) => { if (e.key === 'Escape') open.value = false }
 watch(open, (v) => (v ? window.addEventListener('keydown', onKey) : window.removeEventListener('keydown', onKey)))
-watch(() => [app.artifacts.scope, app.activeId, app.convFilter, app.topicFilter], () => { open.value = false })
+// (closed when the view changes — compared as one key: a new array each time a message changed, e.g. a card's folder suggestion came, closed it)
+watch(() => [app.artifacts.scope, app.activeId, app.convFilter, app.topicFilter].join('\u0000'), () => { open.value = false })
 onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', fit) })
 </script>
 
@@ -58,7 +67,7 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
       <div v-for="(m, i) in open ? items : []" :key="m.id" class="fitem" :style="fanStyle(i)" draggable="true" data-test="pile-item" :data-file="m.content.name" @dragstart="drag($event, [m])">
         <ShareButton :msg="m" compact class="fshare" />
         <button class="fopen press" @click="pick(m)">
-          <span class="label">{{ m.content.name }}<em v-if="m.content.edited">편집본</em></span>
+          <span class="label">{{ m.content.name }}<template v-if="hintOf(m) != null"> · <span v-if="hintOf(m)" data-no-i18n>{{ hintOf(m) }}</span><span v-else>맨 위</span></template><em v-if="m.content.edited">편집본</em></span>
           <span class="tile" :class="kindOf(m.content.name)">{{ kindLabel[kindOf(m.content.name)] || 'FILE' }}</span>
         </button>
       </div>
@@ -68,13 +77,16 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
       <div v-if="open && grid" class="grid glass">
         <p class="cap">{{ caption }} {{ items.length }}개<button class="allshare press" @click="open = false; team.startShare(items)">모두 공유</button></p>
         <div class="cells">
-          <div v-for="m in items" :key="m.id" class="cellw" draggable="true" data-test="pile-item" :data-file="m.content.name" @dragstart="drag($event, [m])">
-            <button class="cell press" @click="pick(m)">
-              <span class="tile" :class="kindOf(m.content.name)">{{ kindLabel[kindOf(m.content.name)] || 'FILE' }}</span>
-              <small>{{ m.content.name }}</small>
-            </button>
-            <ShareButton :msg="m" compact class="cshare" />
-          </div>
+          <template v-for="sec in foldered ? sections : [{ key: 'all', folder: null, items: app.artifacts.items }]" :key="sec.key">
+            <p v-if="sec.folder" class="gsec" data-test="pile-folder" data-no-i18n>{{ sec.folder }}<template v-if="sec.version != null"> · v{{ sec.version }}</template></p>
+            <div v-for="x in sec.items" :key="x.msg.id" class="cellw" draggable="true" data-test="pile-item" :data-file="x.msg.content.name" @dragstart="drag($event, [x.msg])">
+              <button class="cell press" :title="nameOf(x.msg)" @click="pick(x.msg)">
+                <span class="tile" :class="kindOf(x.msg.content.name)">{{ kindLabel[kindOf(x.msg.content.name)] || 'FILE' }}</span>
+                <small>{{ x.msg.content.name }}<template v-if="x.hint != null"> · <span v-if="x.hint" data-no-i18n>{{ x.hint }}</span><span v-else>맨 위</span></template></small>
+              </button>
+              <ShareButton :msg="x.msg" compact class="cshare" />
+            </div>
+          </template>
         </div>
       </div>
     </Transition>
@@ -131,6 +143,8 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); window.rem
 .grid { position: absolute; right: 0; bottom: 92px; width: min(420px, calc(100vw - 32px)); max-height: 56vh; overflow: auto; border-radius: 20px; padding: 10px 12px 14px; box-shadow: 0 16px 48px rgba(0, 0, 0, .2); }
 .cap { margin: 4px 4px 10px; font-size: 12.5px; color: var(--text-secondary); }
 .cells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 8px; }
+/* a work folder's name over its files (a row of the grid of its own) */
+.gsec { grid-column: 1 / -1; margin: 6px 4px -4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 2px; border-radius: 12px; }
 .cell:hover { background: rgba(0, 0, 0, .05); }
 .cell small { width: 100%; font-size: 11.5px; text-align: center; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }

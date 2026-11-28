@@ -64,6 +64,9 @@
   "편집본": "Edited copy",
   "모두 공유": "Share all",
   "접기": "Collapse",
+  "모두 접기": "Fold all",
+  "모두 펼치기": "Unfold all",
+  "맨 위": "top level",
   "펼치기": "Expand",
   "산출물": "Outputs",
   "이 프로세스에는 저장된 BPMN 다이어그램이 없어요.": "This process has no saved BPMN diagram.",
@@ -4690,6 +4693,14 @@
   [
    " 외 {0}개",
    " and {0} more"
+  ],
+  [
+   "파일 {0}개 · 폴더 {1}개",
+   "{0} files · {1} folders"
+  ],
+  [
+   "{0}개 더 보기",
+   "{0} more"
   ],
   [
    "파일 {0}개",

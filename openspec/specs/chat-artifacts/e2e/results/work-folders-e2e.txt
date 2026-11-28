@@ -1,0 +1,10 @@
+# 2026-11-28 21:40 · cd e2e && reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1 (branch feat/work-folders-versions, uncommitted)
+Running 6 tests using 1 worker
+[work-folders] stack on BFF 8941 · web 5341
+  ✓  1 [feature] › tests/feature/work-folders.spec.js:201:1 › F-WF-01 PC 1280(밝은): 21개를 만든 턴은 카드 하나 — 폴더는 접힌 한 줄, 펼치고 접기, 같은 이름엔 폴더, 줄은 카드처럼 열리고 「⋯」은 카드의 메뉴 (9.4s)
+  ✓  2 [feature] › tests/feature/work-folders.spec.js:282:3 › F-WF-02 휴대폰 390(밝은): 카드는 화면 안, 옆으로 밀리지 않음, 줄을 길게 누르면 카드의 메뉴 (5.7s)
+  ✓  3 [feature] › tests/feature/work-folders.spec.js:282:3 › F-WF-02 휴대폰 390(어두운): 카드는 화면 안, 옆으로 밀리지 않음, 줄을 길게 누르면 카드의 메뉴 (5.5s)
+  ✓  4 [feature] › tests/feature/work-folders.spec.js:318:1 › F-WF-03 PC 1440: 산출물 목록은 작업 폴더 · 버전으로 묶이고(새 버전은 펼침 · 옛 버전은 접힘) 같은 이름엔 폴더, 찾기는 폴더도 읽음 (2.0s)
+  ✓  5 [feature] › tests/feature/work-folders.spec.js:353:1 › F-WF-04 휴대폰 390: 산출물 더미의 격자도 작업 폴더 · 버전 이름 아래, 같은 이름엔 폴더 (3.1s)
+  ✓  6 [feature] › tests/feature/work-folders.spec.js:381:1 › F-WF-05 실제 턴: 에이전트는 작업 폴더 · 버전을 듣고, 6개는 카드 하나 — 「처음부터 다시」는 v1 을 두고 v2 (4.3s)
+  6 passed (33.0s)

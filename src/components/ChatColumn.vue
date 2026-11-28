@@ -10,6 +10,9 @@ import RoomRuleBar from './RoomRuleBar.vue'
 import BrowserDock from './BrowserDock.vue'
 import TurnPlanCard from './TurnPlanCard.vue'
 import TurnProgress from './TurnProgress.vue'
+// one turn's many files are one card (spec chat-artifacts 「한 턴의 많은 파일은 카드 하나」 — src/fileGroups.js): drawn at the run's first file
+import FileGroupCard from './FileGroupCard.vue'
+import { fileRuns } from '../fileGroups.js'
 import { useApp } from '../stores/app.js'
 import { dur, elapsed } from '../turnView.js'
 
@@ -21,6 +24,7 @@ const app = useApp()
 const scroller = ref(null)
 // (a project's plan is a row of its room, never a chat message — server lib/projectNote.js; the plan chip opens it)
 const list = computed(() => (app.thread || []).filter((m) => m.kind !== 'note'))
+const runs = computed(() => fileRuns(list.value))
 const draft = computed(() => app.drafts[app.activeId])
 const status = computed(() => app.status[app.activeId] || (app.active?.status === 'working' ? '작업하는 중' : null))
 // (raw HTML in it reads as text; only plain document elements reach the page — src/safeMarkdown.js)
@@ -188,7 +192,8 @@ watch(() => app.activeId, () => toBottom(!props.keepTop), { immediate: true })
         <p v-if="!list.length && emptyText" class="empty serif">{{ emptyText }}</p>
         <template v-for="(m, i) in list" :key="m.id">
           <div v-if="newDay(i)" class="day">{{ dayOf(m) }}</div>
-          <Message :msg="m" :narrowed="!!narrowed" @connect="emit('connect')" />
+          <FileGroupCard v-if="runs.lead.has(m.id)" :msgs="runs.lead.get(m.id)" />
+          <Message v-else-if="!runs.member.has(m.id)" :msg="m" :narrowed="!!narrowed" @connect="emit('connect')" />
           <div v-if="seen(m)" class="seen">··· 읽음</div>
           <TurnPlanCard v-for="t in cardsUnder(m.id)" :key="t.turnId" :turn="t" :now="now" @details="app.turnPanel = $event" />
         </template>

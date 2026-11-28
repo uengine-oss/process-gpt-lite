@@ -56,6 +56,7 @@ import { sendMail, demoFiles } from './scenarios/mail.js'
 import * as TP from './turnPlan.js'
 import * as PG from './planGuard.js'
 import * as PN from './projectNote.js'
+import * as WF from './workFolder.js'
 import * as ASK from './askPerson.js'
 // a value only a teammate knows: the agent's ask_teammate → the card 「○○님께 메신저로 물어볼까요?」 (lib/askTeammate.js)
 import * as AT from './askTeammate.js'
@@ -1840,7 +1841,13 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // agent's own model calls go out with this person's key
   const llmAuth = await llmKeys.admit()
   // the plan the person was shown (lib/turnPlan.js §1.4): the agent records it with write_todos and does only that work
+  // 작업 폴더 · 버전(lib/workFolder.js): where this turn's files go — <folder>/v<n>/, a new version for a redo, the latest edited in place ('' as
+  // before); read while the front plan is still coming (its promise — the view's `ready`), so it adds no wait of its own
+  const folderNoteP = adopted && mode !== 'skill' && !silent && !divider && !narrow && !pin?.folder
+    ? WF.turnNote({ threadId, conv: turn.conv || thread?.conversation_id, projectWork, request: asked, plan: TP.viewOf(turn)?.ready || TP.viewOf(turn)?.plan || null })
+    : Promise.resolve('')
   const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
+  const folderNote = await folderNoteP
   // 프로젝트 계획(lib/projectNote.js): every turn of a project, in whichever sub-topic — a sub-topic has its own history, and the plan changes
   // (design §4.3); background — the message decides
   const planMsg = thread?.kind === 'project' && mode !== 'skill' && !narrow ? planForAgent(turn.conv || thread?.conversation_id, await PN.noteRow(user.id, threadId).catch(() => null)) : { text: '', commit: () => {} }
@@ -1861,7 +1868,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}`, 'X-Tenant-Id': config.tenantId, ...llmKeys.agentHeaders(llmAuth) },
       body: JSON.stringify({
         // English mode: the language instruction goes last, after what the person said and the hints
-        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + (narrow ? '' : connectorHint(text) + marketHint(text)) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + (projectPlan ? `\n\n${projectPlan}` : '') + planText + langInstruction({ said: asked }), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
+        message: (refer?.context ? `${refer.context}\n\n[지금 메시지]\n` : '') + text + (narrow ? '' : connectorHint(text) + marketHint(text)) + officeHint(text, hwpxTemplateUrl || config.hwpxTemplateUrl) + liveHint(live) + attachmentHint(sent) + workspaceHint(user, turn.conv) + (projectPlan ? `\n\n${projectPlan}` : '') + planText + folderNote + langInstruction({ said: asked }), message_uuid: crypto.randomUUID(), tenant_id: config.tenantId,
         files: chatFiles(sent),
         user_uid: user.id, user_email: user.email, user_name: user.name, user_jwt: session.access_token,
         conversation_id: conv, stream: true,
