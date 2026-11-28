@@ -62,9 +62,12 @@ export const google = {
     {
       name: 'drive_search',
       description: 'Search the user\'s Google Drive — My Drive, files shared with them and the shared drives they belong to — by file name and by contents. '
-        + 'query is a few words (split on spaces): a file matches when every word is in its name or its text; when none does, files with any of the words come back and match says "any_word". '
-        + 'Files with more of the words in the name come first. Each result has id, name, mimeType, modifiedTime, webViewLink, owner or shared drive, and folder. '
-        + 'If nothing is found, search again with fewer or other words before saying the file is not there. Read a result with drive_read.',
+        + 'query is a few words (split on spaces). Files with every word in the name or the text and files with only some of the words are both looked for; '
+        + 'files with more of the words in the name come first, and each result says words_in_name and all_words (match: all_words, mixed, any_word or none). '
+        + 'Drive matches a name from the start of its words and the contents by whole words, so use short base words without particles or endings '
+        + '(자료를 → 자료), and try compound words split apart as well (교육과정 → 교육 과정). '
+        + 'Each result has id, name, mimeType, modifiedTime, webViewLink, owner or shared drive, and folder. '
+        + 'If nothing fits, search again with fewer or other words before saying the file is not there. Read a result with drive_read.',
       input: { query: z.string(), max: z.number().int().max(30).optional() },
       run: (u, a) => g.driveSearch(u, a),
     },

@@ -2190,7 +2190,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/plan-
 2026-11-28 20:49 휴대폰 녹화: 사용자가 「구글 드라이브를 뒤져 보면 최근에 했던 … 교육이 있어 … 그거를 참고해서」라고 요청했지만, 에이전트는 「구글 드라이브에서 … 자료는 찾지 못해 참고하지 못했어요」라고 답하고 다른 자료를 기준으로 삼았다. 실제로는 내 드라이브에 해당 과정의 제안서 슬라이드(.pptx)가 있었다. 원인은 검색 방식에 있었다. 요청 문장 전체를 `fullText contains '…'` 한 구절로 묶어 내 드라이브에서만 검색했기 때문에, 이름에 낱말 하나가 빠진 파일과 공유 드라이브의 파일은 결과에 나오지 않았다. 찾은 .pptx도 「(binary file)」로만 읽혔다. 이번 수정으로 검색할 때는 낱말마다 `(name contains … or fullText contains …)`로 묶는다. 모든 낱말이 일치하는 파일이 없으면 낱말 하나라도 일치하는 파일로 검색을 넓히고, 결과의 `match`에 어느 방식으로 검색했는지 적는다. 검색 범위는 `corpora=allDrives`와 공유 드라이브 매개변수 셋으로 넓혔다. 읽을 때는 Office · PDF · 한글 파일을 50MB까지 내려받는다. 글은 공유 폴더 색인에 사용하는 추출기로 추출한다. 시험에서는 Google과 DB를 호출하지 않는다. fetch를 가짜로 바꾸고, Google에 보낸 주소와 질의를 확인한다.
 
 ```bash
-cd server && node --test test/driveSearch.test.js    # DS-01~08 — 결과 openspec/specs/google-connect/e2e/results/drive-search.txt
+cd server && node --test test/driveSearch.test.js    # DS-01~14 — 결과 openspec/specs/google-connect/e2e/results/drive-search.txt
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2212,6 +2212,12 @@ cd server && node --test test/driveSearch.test.js    # DS-01~08 — 결과 opens
 | 시험 안에서 jszip으로 만든 .pptx를 내려받아 장 순서대로 글과 장 수를 반환한다. 메타데이터 조회와 내려받기 모두 `supportsAllDrives=true`로 수행하며, 「(binary file)」로 반환하지 않는다 | 녹화 20:49 | DS-06 | server-unit | ✅ |
 | 50MB를 넘는 파일은 내려받지 않고 `too_big`으로 알린다. 크기를 모르는 본문은 받는 도중 한도에 도달하면 멈춘다. 그림만 있는 슬라이드 · 사진은 `no_text`로 알린다 | — | DS-07 | server-unit | ✅ |
 | Google 슬라이드는 text/plain으로 내보낸다. 바로 가기는 원본을 읽는다. 2만 자를 넘는 글은 `truncated`와 전체 글자 수를 함께 반환한다. Drive의 거절 사유(예: 내보내기에 너무 큰 파일)를 그대로 전달한다 | — | DS-08 | server-unit | ✅ |
+| 「모든 낱말」 질의와 「하나라도」 질의를 함께 보내 id 로 합친다. 순서는 이름의 낱말 수, 모든 낱말이 있는지, Drive 순서. 내용에 넷이 모두 든 관계없는 회의록이 이름에 넷 중 셋이 든 제안서를 가리지 않는다. `match: mixed` 와 파일마다 `all_words` 를 적는다 | PR #133 검토 1 | DS-09 | server-unit | ✅ |
+| 이름의 낱말 수를 Drive 처럼 센다(이름 낱말의 앞부분부터, 문장 부호에서 나눔): 「교육」은 「교육과정」에서 찾지만 「과정」 · 「자료를」은 찾지 않는다. 도구 설명은 조사를 뺀 짧은 낱말과 붙은 말을 나눈 낱말(교육과정 → 교육 과정)로 찾으라고 안내한다 | PR #133 검토 2 | DS-10 | server-unit | ✅ |
+| 토큰은 찾기 · 읽기마다 한 번만 얻는다. 드라이브 · 폴더 이름은 id 마다 한 번, 한꺼번에 다섯 개까지 묻는다. 공유 드라이브 맨 위의 파일은 폴더를 묻지 않는다(이름 조회 수를 셈) | PR #133 검토 3 | DS-11 | server-unit | ✅ |
+| 내려받은 조각을 복사하지 않고 모은다. 60초 안에 다 받지 못하면 멈추고 알린다 | PR #133 검토 4 | DS-12 | server-unit | ✅ |
+| 큰따옴표를 지우고, 글자 · 숫자가 없는 토막(-, ·, ...)은 낱말로 치지 않는다 | PR #133 검토 5 | DS-13 | server-unit | ✅ |
+| 글이 나오지 않은 PDF 는 스캔본이거나 이 설치에 PDF 글 꺼내기 도구(pdftotext)가 없을 수 있다고 알린다 | PR #133 검토 6 | DS-14 | server-unit | ✅ |
 | 실제 Google Drive(내 드라이브 · 공유 드라이브)에서 검색하고 읽는다 | 녹화 20:49 | — (시험은 가짜 fetch) | — | ◐ |
 
 ## 남은 공백(다음에 채울 것)

@@ -1,27 +1,36 @@
-# Google Drive 찾기 · 읽기 — 단위 시험 (가짜 fetch, 실제 Google · DB 없음)
-# 2026-11-28 21:12 KST · node v25.2.1 · branch fix/drive-search-read (origin/main 8655096 기준)
+# Google Drive 찾기 · 읽기 — 단위 시험 (가짜 fetch, 실제 Google · DB 없음), PR #133 검토 반영(DS-09~14)
+# 2026-11-28 21:32 KST · node v25.2.1 · branch fix/drive-search-read
 
-$ cd server && node --test test/driveSearch.test.js
-✔ DS-01 낱말마다 이름 또는 내용 — 모두 있어야 하고, 휴지통은 빼고, 공유 드라이브 · 공유받은 파일까지 (3.304ms)
-✔ DS-02 모두 든 파일이 없으면 하나라도 든 파일로 — 결과가 어느 쪽인지 말하고, 이름에 낱말이 많은 파일이 먼저 (0.5835ms)
-✔ DS-03 낱말 하나는 넓히지 않고, 아무것도 없으면 그렇게 말한다 (0.400708ms)
-✔ DS-04 따옴표 · 역슬래시는 Drive 질의 안에서 이스케이프된다 (0.326959ms)
-✔ DS-05 공유 드라이브 이름 · 상위 폴더 이름 · 개수 제한 (0.692625ms)
-✔ DS-06 슬라이드 파일(.pptx)을 내려받아 장 순서대로 글을 돌려준다 (공유 드라이브 파일도) (13.455875ms)
-✔ DS-07 너무 큰 파일은 내려받지 않고, 크기를 모를 때는 받다가 멈춘다 · 글이 없으면 그렇게 말한다 (2.590083ms)
-✔ DS-08 Google 슬라이드는 글로 내보내고, 바로 가기는 원본을 읽고, 긴 글은 잘렸다고 말한다 (0.684ms)
-ℹ tests 8
+$ cd server && node --test test/driveSearch.test.js test/google.test.js test/google-connect.test.js
+✔ DS-01 낱말마다 이름 또는 내용 — 모두 있어야 하고, 휴지통은 빼고, 공유 드라이브 · 공유받은 파일까지 (5.297583ms)
+✔ DS-02 모두 든 파일이 없으면 하나라도 든 파일만 — 결과가 어느 쪽인지 말하고, 이름에 낱말이 많은 파일이 먼저 (0.662625ms)
+✔ DS-03 낱말 하나는 넓히지 않고, 아무것도 없으면 그렇게 말한다 (0.564083ms)
+✔ DS-04 따옴표 · 역슬래시는 Drive 질의 안에서 이스케이프된다 (0.335208ms)
+✔ DS-05 공유 드라이브 이름 · 상위 폴더 이름 · 개수 제한 (0.717875ms)
+✔ DS-06 슬라이드 파일(.pptx)을 내려받아 장 순서대로 글을 돌려준다 (공유 드라이브 파일도) (12.658208ms)
+✔ DS-07 너무 큰 파일은 내려받지 않고, 크기를 모를 때는 받다가 멈춘다 · 글이 없으면 그렇게 말한다 (1.967625ms)
+✔ DS-08 Google 슬라이드는 글로 내보내고, 바로 가기는 원본을 읽고, 긴 글은 잘렸다고 말한다 (0.683584ms)
+✔ DS-09 (검토 1) 내용에 낱말이 다 든 엉뚱한 문서가, 이름에 넷 중 셋이 든 제안서를 가리지 않는다 (0.288084ms)
+✔ DS-10 (검토 2) 이름의 낱말 수는 Drive 처럼 센다 — 낱말의 앞에서부터, 조사가 붙은 말은 다른 낱말 (0.101959ms)
+✔ DS-11 (검토 3) 폴더 · 드라이브 이름은 id 마다 한 번, 다섯 개씩, 공유 드라이브 맨 위의 파일은 폴더를 묻지 않는다 (33.116375ms)
+✔ DS-12 (검토 4) 내려받기가 정해진 시간 안에 끝나지 않으면 멈추고 그렇게 말한다 (62.3655ms)
+✔ DS-13 (검토 5) 큰따옴표는 지우고, 글자나 숫자가 없는 토막은 낱말로 치지 않는다 (0.140792ms)
+✔ DS-14 (검토 6) 글이 안 나온 PDF 는 스캔본이거나 PDF 글 꺼내기 도구가 없을 수 있다고 말한다 (21.380417ms)
+[local-agents] no screen model: @xterm/headless did not load — Cannot find module '@xterm/headless'
+✔ 회사 주체: 테넌트마다 다르고 늘 같은 UUID, 사람의 v4 UUID 와 겹치지 않는 v5 꼴 (0.755167ms)
+✔ 게이트웨이: 회사 주소에서만 시작하고, 리디렉션·쿠키 경로는 공개 경로(/lite) 기준 (0.816292ms)
+✔ 설치형: 페이지 주소와 상관없이 이 설치의 주소(PRO_PUBLIC_URL) (0.081333ms)
+✔ 상태: 같은 브라우저의 쿠키와 같은 테넌트일 때 한 번만 쓰인다 (0.372542ms)
+✔ BT-A-03 설치형 로그인은 시작한 페이지의 값과 함께 /auth/done 으로 돌아온다(그 값이 아니면 붙이지 않음) (0.423333ms)
+✔ 회사 클라이언트: 보관함에 봉투 암호화, 비밀값은 화면에도 DB 행에도 없고, 회사 값 → env 순서 (138.838292ms)
+✔ login requests identity only and binds authorization to PKCE (1.020625ms)
+✔ mail connection explicitly requests offline Gmail access (0.129917ms)
+✔ code exchange rejects unverified identity and forwards PKCE verifier (1.3895ms)
+ℹ tests 23
 ℹ suites 0
-ℹ pass 8
+ℹ pass 23
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 224.011209
-
-$ cd server && node --test test/google.test.js test/google-connect.test.js test/agentTools.test.js test/youtube.test.js test/folderFindOpen.test.js
-ℹ tests 45
-ℹ pass 45
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
+ℹ duration_ms 691.119541

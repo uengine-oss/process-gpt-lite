@@ -3,13 +3,15 @@ import { config } from '../config.js'
 import { googleAccessToken } from './mail.js'
 import { L } from './lang.js'
 
-// token: an access token given by the caller (the unit tests) instead of the person's from the vault
-async function gapi(userId, url, { method = 'GET', body, raw, token } = {}) {
+// token: an access token the caller already has (Drive resolves it once per call; the unit tests give one) instead of
+// the person's from the vault on every request
+async function gapi(userId, url, { method = 'GET', body, raw, token, signal } = {}) {
   const at = token || await googleAccessToken(userId)
   const res = await fetch(url, {
     method,
     headers: { Authorization: `Bearer ${at}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
+    ...(signal ? { signal } : {}),
   })
   if (raw) return res
   const text = await res.text()
@@ -105,8 +107,10 @@ const FILE_FIELDS = 'id,name,mimeType,modifiedTime,webViewLink,size,owners(displ
 
 // a value inside a Drive query's single quotes: backslash and quote escaped
 export const driveQuoted = (s) => `'${String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-// the agent's words as given, split on white space — nothing is read into them
-export const driveWords = (query) => [...new Set(String(query ?? '').trim().split(/\s+/).filter(Boolean))].slice(0, DRIVE_SEARCH.maxWords)
+// the agent's words as given, split on white space — nothing is read into them. Format only: double quotes go (inside
+// a Drive value they would make a phrase), and a token with no letter or digit (a lone dash, "·") is not a word.
+export const driveWords = (query) => [...new Set(String(query ?? '').replace(/["\u201C\u201D]/g, ' ').trim().split(/\s+/)
+  .filter((w) => /[\p{L}\p{N}]/u.test(w)))].slice(0, DRIVE_SEARCH.maxWords)
 // 'all': every word is in the name or the contents; 'any': at least one of them is
 export function driveQuery(words, mode = 'all') {
   const terms = words.map((w) => `(name contains ${driveQuoted(w)} or fullText contains ${driveQuoted(w)})`)
@@ -118,62 +122,88 @@ export function driveListUrl(q, pageSize) {
   const p = new URLSearchParams({ q, pageSize: String(pageSize), corpora: 'allDrives', includeItemsFromAllDrives: 'true', supportsAllDrives: 'true', fields: `incompleteSearch,files(${FILE_FIELDS})` })
   return `${DR}/files?${p}`
 }
-// how many of the words the name holds (ignoring case): files with more of them in the name come first, Drive's
-// own order (relevance; it takes no orderBy with fullText) breaks ties
-const nameHits = (name, words) => { const n = String(name || '').toLocaleLowerCase(); return words.filter((w) => n.includes(w.toLocaleLowerCase())).length }
+// How many of the words the name holds, counted the way Drive matches a name: `name contains` matches from the start
+// of a word of the name (words split at anything that is not a letter or digit), so 「교육」 is in 「교육과정」 but
+// 「과정」 is not, and 「자료를」 is not in 「자료」. (fullText matches whole words of the contents; that is not counted here.)
+const nameTokens = (name) => String(name || '').toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+export const nameHits = (name, words) => {
+  const toks = nameTokens(name)
+  return words.filter((w) => { const x = w.toLocaleLowerCase(); return toks.some((t) => t.startsWith(x)) }).length
+}
 
-// the shared drive's name and the parent folder's name, one call per distinct id; a failed lookup leaves it out
+// at most `limit` calls at a time
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length)
+  let next = 0
+  const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]) } }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
+// the shared drive's name and the parent folder's name, one call per distinct id, five at a time; a failed lookup
+// leaves it out. A file at the top of a shared drive has the drive itself as its parent: no folder lookup for it.
+export const DRIVE_NAME_LOOKUPS = 5
 async function placeNames(userId, files, token) {
   const one = (url) => gapi(userId, url, { token }).then((r) => r?.name || null, () => null)
   const drives = [...new Set(files.map((f) => f.driveId).filter(Boolean))]
-  const parents = [...new Set(files.map((f) => f.parents?.[0]).filter(Boolean))]
-  const [dn, pn] = await Promise.all([
-    Promise.all(drives.map((id) => one(`${DR}/drives/${encodeURIComponent(id)}?fields=name`))),
-    Promise.all(parents.map((id) => one(`${DR}/files/${encodeURIComponent(id)}?fields=name&supportsAllDrives=true`))),
-  ])
-  return { drive: new Map(drives.map((id, i) => [id, dn[i]])), folder: new Map(parents.map((id, i) => [id, pn[i]])) }
+  const parents = [...new Set(files.filter((f) => f.parents?.[0] && f.parents[0] !== f.driveId).map((f) => f.parents[0]))]
+  const jobs = [...drives.map((id) => ['d', id, `${DR}/drives/${encodeURIComponent(id)}?fields=name`]),
+    ...parents.map((id) => ['f', id, `${DR}/files/${encodeURIComponent(id)}?fields=name&supportsAllDrives=true`])]
+  const names = await mapLimit(jobs, DRIVE_NAME_LOOKUPS, ([, , url]) => one(url))
+  const drive = new Map(), folder = new Map()
+  jobs.forEach(([kind, id], i) => (kind === 'd' ? drive : folder).set(id, names[i]))
+  return { drive, folder }
 }
 
 // deps.token: see gapi
+// Every word (all_words) and any of the words (any_word) are asked at the same time: a file whose contents hold all of
+// them must not hide one that has most of them in its name (11-28: the deck had three of the four words in its name).
+// The two lists are merged by id and ordered by words in the name, then files with every word, then Drive's order.
 export async function driveSearch(userId, { query, max = 10 } = {}, { token } = {}) {
   const words = driveWords(query)
   if (!words.length) throw new Error(L('찾을 낱말을 주세요.', 'Give the words to search for.'))
   const n = Math.max(1, Math.min(DRIVE_SEARCH.maxResults, Math.trunc(Number(max)) || 10))
-  let match = 'all_words'
-  let r = await gapi(userId, driveListUrl(driveQuery(words, 'all'), Math.min(DRIVE_SEARCH.fetch, n * 3)), { token })
-  // nothing has every word: files with any of them, more fetched so the ones with most words in the name can come first
-  if (!(r.files || []).length && words.length > 1) {
-    match = 'any_word'
-    r = await gapi(userId, driveListUrl(driveQuery(words, 'any'), DRIVE_SEARCH.fetch), { token })
-  }
-  const found = (r.files || []).map((f) => ({ f, hits: nameHits(f.name, words) })).sort((a, b) => b.hits - a.hits).slice(0, n)
-  if (!found.length) match = 'none'
-  const { drive, folder } = await placeNames(userId, found.map((x) => x.f), token)
+  const tok = token || await googleAccessToken(userId)
+  const [all, any] = await Promise.all([
+    gapi(userId, driveListUrl(driveQuery(words, 'all'), Math.min(DRIVE_SEARCH.fetch, n * 3)), { token: tok }),
+    words.length > 1 ? gapi(userId, driveListUrl(driveQuery(words, 'any'), DRIVE_SEARCH.fetch), { token: tok }) : null,
+  ])
+  const seen = new Map()
+  for (const f of all.files || []) seen.set(f.id, { f, every: true })
+  for (const f of any?.files || []) if (!seen.has(f.id)) seen.set(f.id, { f, every: false })
+  // (a file from the second list whose name alone holds every word has them all: the first list's page just ended before it)
+  const found = [...seen.values()].map((x, i) => { const hits = nameHits(x.f.name, words); return { ...x, every: x.every || hits === words.length, i, hits } })
+    .sort((a, b) => b.hits - a.hits || Number(b.every) - Number(a.every) || a.i - b.i).slice(0, n)
+  const everyCount = found.filter((x) => x.every).length
+  const match = !found.length ? 'none' : everyCount === found.length ? 'all_words' : everyCount ? 'mixed' : 'any_word'
+  const { drive, folder } = await placeNames(userId, found.map((x) => x.f), tok)
   const note = {
     all_words: L('낱말이 모두 이름이나 내용에 있는 파일이에요(내 드라이브 · 공유받은 파일 · 공유 드라이브). 이름에 낱말이 많은 파일이 먼저예요.',
       'Files with every word in the name or the contents (My Drive, shared with me, shared drives). Files with more of the words in the name come first.'),
+    mixed: L('낱말이 모두 든 파일(all_words: true)과 일부만 든 파일(all_words: false)이 섞여 있어요. 이름에 낱말이 많은 파일이 먼저예요.',
+      'Files with every word (all_words: true) and files with only some of them (all_words: false). Files with more of the words in the name come first.'),
     any_word: L('낱말이 모두 들어 있는 파일은 없어서, 낱말이 하나라도 있는 파일을 보여 줘요. 이름에 낱말이 많은 파일이 먼저예요.',
       'No file has every word, so these have at least one of them. Files with more of the words in the name come first.'),
-    none: L('내 드라이브 · 공유받은 파일 · 공유 드라이브의 이름과 내용에서 찾지 못했어요. 파일 이름에 있을 법한 다른 낱말로 다시 찾아보세요.',
-      'Nothing in the names or contents of My Drive, files shared with me or shared drives. Try other words that would be in the file\'s name.'),
+    none: L('내 드라이브 · 공유받은 파일 · 공유 드라이브의 이름과 내용에서 찾지 못했어요. 조사를 뺀 짧은 낱말, 붙은 말은 나눈 낱말(교육과정 → 교육 과정)로 다시 찾아보세요.',
+      'Nothing in the names or contents of My Drive, files shared with me or shared drives. Try again with short base words, and with compound words split apart.'),
   }[match]
   return {
     match, words, note,
-    ...(r.incompleteSearch ? { incomplete: true } : {}),
-    files: found.map(({ f, hits }) => ({
+    ...(all.incompleteSearch || any?.incompleteSearch ? { incomplete: true } : {}),
+    files: found.map(({ f, hits, every }) => ({
       id: f.id, name: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime, webViewLink: f.webViewLink,
       ...(f.size ? { size: Number(f.size) } : {}),
       ...(f.driveId ? { drive: drive.get(f.driveId) || f.driveId } : { owner: f.owners?.[0]?.displayName }),
       ...(folder.get(f.parents?.[0]) ? { folder: folder.get(f.parents[0]) } : {}),
       ...(f.shortcutDetails?.targetId ? { target: f.shortcutDetails.targetId } : {}),
-      words_in_name: hits,
+      words_in_name: hits, all_words: every,
     })),
   }
 }
 
 // Google's own files are exported as text; Office · PDF · Hangul files are downloaded (up to maxBytes) and their
 // text is taken out the way the shared folders' index does (lib/folders/indexer.js extract)
-export const DRIVE_READ = { maxBytes: 50 * 1024 * 1024, maxChars: 20000 }
+export const DRIVE_READ = { maxBytes: 50 * 1024 * 1024, maxChars: 20000, timeoutMs: 60_000 }
 const EXPORT = { 'application/vnd.google-apps.document': 'text/plain', 'application/vnd.google-apps.spreadsheet': 'text/csv', 'application/vnd.google-apps.presentation': 'text/plain' }
 const MIME_EXT = {
   'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
@@ -196,22 +226,26 @@ async function readCapped(res, cap) {
   const parts = []
   let n = 0
   for await (const c of res.body || []) {
-    n += c.length
+    n += c.byteLength
     if (n > cap) return null
-    parts.push(Buffer.from(c))
+    parts.push(Buffer.from(c.buffer, c.byteOffset, c.byteLength))
   }
-  return Buffer.concat(parts)
+  return Buffer.concat(parts, n)
 }
 
 export async function driveRead(userId, { fileId } = {}, { token } = {}) {
-  const metaOf = (id) => gapi(userId, `${DR}/files/${encodeURIComponent(id)}?fields=${encodeURIComponent(FILE_FIELDS)}&supportsAllDrives=true`, { token })
+  const tok = token || await googleAccessToken(userId)
+  const metaOf = (id) => gapi(userId, `${DR}/files/${encodeURIComponent(id)}?fields=${encodeURIComponent(FILE_FIELDS)}&supportsAllDrives=true`, { token: tok })
   let meta = await metaOf(fileId)
   if (meta.mimeType === SHORTCUT && meta.shortcutDetails?.targetId) meta = await metaOf(meta.shortcutDetails.targetId)
   const base = { id: meta.id, name: meta.name, mimeType: meta.mimeType, modifiedTime: meta.modifiedTime, webViewLink: meta.webViewLink }
   const size = Number(meta.size || 0)
-  const out = (text, extra = {}) => {
+  const out = (text, extra = {}, ext = '') => {
     const t = String(text || '')
-    if (!t.trim()) return { ...base, ...extra, text: '', no_text: true, note: L('이 파일에서는 글을 찾지 못했어요(그림으로만 된 슬라이드나 스캔한 PDF 일 수 있어요).', 'No text was found in this file (it may be image-only slides or a scanned PDF).') }
+    if (!t.trim()) return { ...base, ...extra, text: '', no_text: true, note: ext === 'pdf'
+      ? L('이 PDF 에서는 글을 찾지 못했어요. 스캔한 PDF 이거나, 이 설치에 PDF 글 꺼내기 도구(poppler 의 pdftotext)가 없을 수 있어요.',
+        'No text was found in this PDF. It may be a scanned PDF, or this install may not have the PDF text tool (poppler\'s pdftotext).')
+      : L('이 파일에서는 글을 찾지 못했어요(그림으로만 된 슬라이드일 수 있어요).', 'No text was found in this file (it may be image-only slides).') }
     const cut = t.length > DRIVE_READ.maxChars
     return { ...base, ...extra, text: t.slice(0, DRIVE_READ.maxChars),
       ...(cut ? { truncated: true, chars: t.length, note: L(`앞의 ${DRIVE_READ.maxChars}자만 실었어요(전체 ${t.length}자).`, `Only the first ${DRIVE_READ.maxChars} characters are here (of ${t.length}).`) } : {}) }
@@ -221,21 +255,33 @@ export async function driveRead(userId, { fileId } = {}, { token } = {}) {
       `The file is too large to read (${size ? mb(size) : `over ${mb(DRIVE_READ.maxBytes)}`}; the limit is ${mb(DRIVE_READ.maxBytes)}). Open it in Drive: ${meta.webViewLink || ''}`) })
 
   if (meta.mimeType === FOLDER) return { ...base, text: '', note: L('폴더예요 — 안의 파일은 drive_search 로 찾아 읽으세요.', 'This is a folder: find the files in it with drive_search.') }
+  // a download that has not finished in timeoutMs is cut off (the stream errors with a TimeoutError)
+  const signal = AbortSignal.timeout(DRIVE_READ.timeoutMs)
+  const slow = (e) => {
+    if (e?.name !== 'TimeoutError' && e?.name !== 'AbortError') throw e
+    throw new Error(L(`Drive 에서 파일을 ${Math.round(DRIVE_READ.timeoutMs / 1000)}초 안에 받지 못했어요. 잠시 뒤 다시 읽어 보세요: ${meta.webViewLink || ''}`,
+      `Drive did not send the file within ${Math.round(DRIVE_READ.timeoutMs / 1000)} seconds. Try reading it again later: ${meta.webViewLink || ''}`))
+  }
   const exportAs = EXPORT[meta.mimeType]
   if (exportAs) {
-    const res = await gapi(userId, `${DR}/files/${encodeURIComponent(meta.id)}/export?mimeType=${encodeURIComponent(exportAs)}`, { raw: true, token })
-    if (!res.ok) throw await driveFail(res)
-    return out(await res.text())
+    const text = await (async () => {
+      const res = await gapi(userId, `${DR}/files/${encodeURIComponent(meta.id)}/export?mimeType=${encodeURIComponent(exportAs)}`, { raw: true, token: tok, signal })
+      if (!res.ok) throw await driveFail(res)
+      return res.text()
+    })().catch(slow)
+    return out(text)
   }
   const { extract, kindOf } = await import('./folders/indexer.js')
   const ext = READABLE.has(kindOf(meta.name)) ? kindOf(meta.name) : MIME_EXT[meta.mimeType] || (/^text\/|json$/.test(meta.mimeType || '') ? 'txt' : null)
   if (!ext) return { ...base, text: '', no_text: true, note: L(`이 형식(${meta.mimeType})의 파일에서는 글을 읽을 수 없어요. 읽을 수 있는 것: Google 문서 · 시트 · 슬라이드, PowerPoint · Word · Excel(.pptx · .docx · .xlsx), PDF, 한글(.hwpx), 글 파일.`,
     `Text can't be read from this kind of file (${meta.mimeType}). Readable: Google Docs, Sheets and Slides, PowerPoint, Word and Excel (.pptx, .docx, .xlsx), PDF, Hangul (.hwpx) and text files.`) }
   if (size > DRIVE_READ.maxBytes) return tooBig()
-  const res = await gapi(userId, `${DR}/files/${encodeURIComponent(meta.id)}?alt=media&supportsAllDrives=true`, { raw: true, token })
-  if (!res.ok) throw await driveFail(res)
-  const buf = await readCapped(res, DRIVE_READ.maxBytes)
+  const buf = await (async () => {
+    const res = await gapi(userId, `${DR}/files/${encodeURIComponent(meta.id)}?alt=media&supportsAllDrives=true`, { raw: true, token: tok, signal })
+    if (!res.ok) throw await driveFail(res)
+    return readCapped(res, DRIVE_READ.maxBytes)
+  })().catch(slow)
   if (!buf) return tooBig()
   const { text, pages } = await extract(`file.${ext}`, buf)
-  return out(text, ext === 'pptx' || ext === 'pdf' ? { pages } : {})
+  return out(text, ext === 'pptx' || ext === 'pdf' ? { pages } : {}, ext)
 }
