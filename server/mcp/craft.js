@@ -14,7 +14,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { config } from '../config.js'
 import { liveFor, liveEvents } from '../lib/craftLive.js'
-import { userFromJwt } from '../lib/supa.js'
+import { mcpRoute } from '../lib/mcpAuth.js'
 import { craftRoot, prepareArgs, pushChanged, roomsOf, roomsWorked, forgetRooms, roomGate } from '../lib/craftWork.js'
 
 const IDLE_MS = 20 * 60 * 1000
@@ -239,17 +239,13 @@ function buildServer(app, user, { agentNoToken = false } = {}) {
 
 // mounted before the generic /mcp/:connector route
 export function mountCraft(app) {
-  app.post(Object.keys(CRAFT_APPS).map((a) => `/mcp/${a}`), async (req, res) => {
+  // (the person by the screen API's rules — lib/mcpAuth.js; placeholder: {{user_jwt}} left as it is)
+  app.post(Object.keys(CRAFT_APPS).map((a) => `/mcp/${a}`), mcpRoute(async (req, res, { user, placeholder }) => {
     const name = req.path.split('/').pop()
-    let jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    const agentNoToken = /^\{\{\s*user_jwt\s*\}\}$/.test(jwt)
-    if (agentNoToken) jwt = ''
-    const user = jwt ? await userFromJwt(jwt) : null
-    if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
-    const server = buildServer(name, user, { agentNoToken })
+    const server = buildServer(name, user, { agentNoToken: placeholder })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
-  })
+  }))
 }

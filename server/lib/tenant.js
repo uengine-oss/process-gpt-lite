@@ -159,7 +159,8 @@ export function jwtSubject(jwt) {
 //            deepagents, so there the tenant in the caller's JWT (the token is verified where it is used)
 //   hosts:   the token's person when there is a token, else the host's
 const bearer = (req) => (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || (typeof req.query?.token === 'string' ? req.query.token : '')
-const jwtTenant = (jwt) => { try { return JSON.parse(Buffer.from(String(jwt).split('.')[1], 'base64url')).app_metadata?.tenant_id || '' } catch { return '' } }
+// (the tenant claim of a token, read without checking it — lib/mcpAuth.js reads it of a token it has checked)
+export const jwtTenant = (jwt) => { try { return JSON.parse(Buffer.from(String(jwt).split('.')[1], 'base64url')).app_metadata?.tenant_id || '' } catch { return '' } }
 export function tenantMiddleware() {
   return (req, res, next) => {
     if (gateway()) {
