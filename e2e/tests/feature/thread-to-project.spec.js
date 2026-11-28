@@ -403,7 +403,8 @@ test('F-TM-05 긴 대화의 맨 아래에서도 대화 막대가 위에 붙어 �
   test.setTimeout(180_000)
   // the newest message of the conversation brought into view (a filtered view opens there — PR #124), the list's own scroll
   const bottom = async (p, last = '12일차는 오전에 이론') => {
-    const row = p.locator('.row').filter({ hasText: last })
+    // (a message's row — the bar's menu rows are .row too, and one fading out after the pick shows the same last request: PR #129 check)
+    const row = p.locator('.row[data-id]').filter({ hasText: last })
     await row.scrollIntoViewIfNeeded()
     await p.evaluate(() => { for (const el of document.querySelectorAll('.scroll.msgs')) el.scrollTop = el.scrollHeight })
     await expect(row).toBeInViewport()
@@ -569,6 +570,7 @@ test('F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트
   expect(await alphaOf(row.locator('.line'))).toBeGreaterThanOrEqual(0.5)
   expect(await alphaOf(tlist(p).locator('.cap'))).toBeGreaterThanOrEqual(0.5)
   await expect(tlist(p).getByTestId('thread-move-hint')).toHaveText('길게 누르면 프로젝트로 옮길 수 있어요.')
+  await expect(tlist(p).locator('.cap')).toContainText('줘요. 길게 누르면')
   const meta = row.locator('.meta')
   await expect(meta.locator('.when')).not.toHaveText('')
   expect(await meta.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
@@ -604,9 +606,11 @@ test('F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트
   await expect.poll(() => new URL(p.url()).pathname).toMatch(/^\/chat\/c\//)
   await p.waitForTimeout(500)
   await expect(sheet(p)).toHaveCount(0)
-  // 「새 프로젝트로 옮기기」 from the list (PR #129 review 1): the list sheet goes, the chat shows that conversation with the card under it
-  await bar(p).getByTestId('cbar-other').click()
-  await bar(p).getByTestId('cbar-open-list').click()
+  // 「새 프로젝트로 옮기기」 from the list (PR #129 review 1): the list sheet goes, the chat shows that conversation with the card under it —
+  // from the whole chat, so the page really goes there
+  await bar(p).getByTestId('cbar-all').click()
+  await expect.poll(() => new URL(p.url()).pathname).toBe('/chat')
+  await openThreadList(p)
   await expect(tlist(p)).toBeVisible()
   const other = tlist(p).locator('.rowwrap.movable').last()
   const conv = await other.getByTestId('thread-row').getAttribute('data-conv')
@@ -665,6 +669,22 @@ test('F-TM-09 1280(어두운): 대화 목록의 행에 포인터를 올리면 �
   await tlist(p).getByTestId('thread-all').click({ button: 'right' })
   await p.waitForTimeout(400)
   await expect(sheet(p)).toHaveCount(0)
+  // 「새 프로젝트로 옮기기」, then closed while its card is being drafted (a model's few seconds): the late card stays in the chat, the page
+  // is not pulled to that conversation, the list stays (PR #129 last check 1)
+  let release2
+  const gate2 = new Promise((ok) => { release2 = ok })
+  await p.route(/\/api\/conversations\/[^/]+\/move\/offer$/, async (r) => { await gate2; await r.continue().catch(() => {}) })
+  const before = new URL(p.url()).pathname
+  await mv.click()
+  await expect(sheet(p).locator('[data-test="move-new"]')).toBeVisible({ timeout: 15000 })
+  await sheet(p).locator('[data-test="move-new"]').click()
+  await p.keyboard.press('Escape')
+  await expect(sheet(p)).toHaveCount(0)
+  release2()
+  await p.waitForTimeout(1500)
+  expect(new URL(p.url()).pathname).toBe(before)
+  await expect(tlist(p)).toBeVisible()
+  await p.unroute(/\/api\/conversations\/[^/]+\/move\/offer$/)
   // a click still picks it
   await row.getByTestId('thread-row').click()
   await expect.poll(() => new URL(p.url()).pathname).toMatch(/^\/chat\/c\//)

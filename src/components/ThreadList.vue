@@ -51,7 +51,7 @@ onMounted(() => nextTick(() => el.value?.querySelector('.item.on:not(.all)')?.sc
         <Icon name="close" :size="18" />
       </button>
     </div>
-    <p class="cap">판단 모델이 주제별로 나눈 대화예요. 고르면 채팅이 그 대화만 보여 줘요.<template v-if="anyMovable"> <span data-testid="thread-move-hint">{{ touch ? '길게 누르면 프로젝트로 옮길 수 있어요.' : '오른쪽 단추로 누르면 프로젝트로 옮길 수 있어요.' }}</span></template></p>
+    <p class="cap">판단 모델이 주제별로 나눈 대화예요. 고르면 채팅이 그 대화만 보여 줘요.<template v-if="anyMovable">{{ ' ' }}<span data-testid="thread-move-hint">{{ touch ? '길게 누르면 프로젝트로 옮길 수 있어요.' : '오른쪽 단추로 누르면 프로젝트로 옮길 수 있어요.' }}</span></template></p>
     <label v-if="all.length" class="find">
       <Icon name="search" :size="16" />
       <input v-model="query" type="search" placeholder="대화 찾기" aria-label="대화 찾기" data-testid="thread-search" enterkeyhint="search" @keydown.esc="query = ''" />

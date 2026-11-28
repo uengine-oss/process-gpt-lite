@@ -54,7 +54,9 @@ async function load() {
 // closed, the focus goes back to what opened it when that is still there (a row of a long list — PR #129 review)
 const opener = typeof document !== 'undefined' ? document.activeElement : null
 onMounted(() => { nextTick(() => sheet.value?.focus()); load() })
-onBeforeUnmount(() => { if (opener && opener !== document.body && opener.isConnected) opener.focus?.({ preventScroll: true }) })
+// (only a plain cancel: a move — or the card it opens — goes on to another view, and a text field opener would flash the keyboard)
+let leaving = false
+onBeforeUnmount(() => { if (!leaving && opener && opener !== document.body && opener.isConnected) opener.focus?.({ preventScroll: true }) })
 watch(() => s.value?.conv, (v, old) => { if (v && v !== old) { step.value = 'pick'; picked.value = null; load() } })
 
 function pick(p) {
@@ -78,13 +80,14 @@ async function move() {
   const id = s.value.conv
   try {
     const r = await app.moveConversation(id, { project: picked.value.id, membersOk: membersOk.value })
+    leaving = true
     close()
     go({ project: r.project, topic: r.topic || id }, movedNotice(r.project.title))
   } catch (e) {
     // members came meanwhile (or the list was old): they are said, and the box must be ticked
     if (e.code === 'confirm_members') { await load(); const p = data.value?.projects?.find((x) => x.id === picked.value.id); members.value = p?.members || members.value; membersOk.value = false }
     // moved elsewhere meanwhile (another screen): the page follows it there (PR #125 review 10)
-    if (e.code === 'moved' && e.place?.project?.id) { close(); go(e.place, followedNotice(e.place.project.title)); return }
+    if (e.code === 'moved' && e.place?.project?.id) { leaving = true; close(); go(e.place, followedNotice(e.place.project.title)); return }
     err.value = e.message
   } finally { busy.value = false }
 }
@@ -92,11 +95,15 @@ async function move() {
 async function toNew() {
   busy.value = true
   err.value = ''
+  const mine = app.moveSheet
   try {
     const conv = s.value.conv
     const { offer } = await app.moveOffer(conv)
-    const list = (app.messages[offer.thread_id] ||= [])
-    if (offer && !list.some((m) => m.id === offer.id)) list.push(offer)
+    if (offer) { const list = (app.messages[offer.thread_id] ||= []); if (!list.some((m) => m.id === offer.id)) list.push(offer) }
+    // (closed — or another conversation's sheet opened — while the card was being drafted, a model's few seconds: the card is in the
+    // chat, and the person is left where they went — PR #129 last check 1)
+    if (app.moveSheet !== mine || !offer) return
+    leaving = true
     close()
     // (opened from the conversation list — PR #129 review 1: on a phone the list is a sheet and the chat under it is not there, on a wide
     // screen another conversation may be the one shown; the card is filed in this conversation) — the chat of this conversation first
@@ -106,7 +113,8 @@ async function toNew() {
     for (let i = 0; i < 30 && !row; i++) { await nextTick(); row = document.querySelector(`.row[data-id="${offer.id}"]`); if (!row) await new Promise((ok) => setTimeout(ok, 40)) }
     row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   } catch (e) {
-    if (e.code === 'moved' && e.place?.project?.id) { close(); go(e.place, followedNotice(e.place.project.title)); return }
+    if (app.moveSheet !== mine) return
+    if (e.code === 'moved' && e.place?.project?.id) { leaving = true; close(); go(e.place, followedNotice(e.place.project.title)); return }
     err.value = e.message
   } finally { busy.value = false }
 }
