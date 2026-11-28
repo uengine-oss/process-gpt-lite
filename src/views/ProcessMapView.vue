@@ -187,7 +187,7 @@ async function loadMap() {
 async function init() {
   await ready
   try { status.value = await call('/ontology/status') } catch (e) { err.value = e.message; phase.value = 'error'; return }
-  // no map in this company (no Ontological DB): the 루틴 tab's list instead — its classic routines and 개선 분석
+  // no map in this company (no Ontological DB): the 「프로세스」 tab's list instead (the routine list) — its classic routines and 개선 분석
   if (!status.value.enabled) { phase.value = 'off'; if (app.me) app.me.ontology = false; router.replace('/routines'); return }
   if (status.value.mail?.status === 'running') return followMail(status.value.mail.id)
   if (status.value.build?.status === 'running') return followJob(status.value.build.id)
@@ -666,7 +666,7 @@ onBeforeUnmount(() => {
       <div class="head">
         <div class="ttl">
           <h1>회사 프로세스 지도</h1>
-          <!-- the 루틴 tab lands here; its list — Lite's cases and the classic ones — is one step away -->
+          <!-- the 「프로세스」 tab (once 루틴) lands here; its list — Lite's cases and the classic ones — is one step away -->
           <router-link class="rtn press" to="/routines" data-testid="onto-routines-link">
             진행 중인 루틴 {{ openRoutines }}<b v-if="routinesMine" class="rmine" :title="`내 입력이 필요한 루틴 ${routinesMine}개`">{{ routinesMine }}</b> ›
           </router-link>

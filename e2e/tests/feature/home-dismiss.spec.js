@@ -109,8 +109,8 @@ test.describe('Home 은 알림 — 메일 카드 · 업무 카드도 닫는다',
     await expect(page.locator('[data-test="todo-card"]').filter({ hasText: step })).toHaveCount(0)
     const todos = await page.user.get('/todos')
     expect(todos.body.find((t) => t.id === todo)?.home_hidden).toBe(true)
-    // still mine: 루틴 lists it under 「내 입력이 필요해요」
-    await page.locator('.seg button').filter({ hasText: '루틴' }).click()
+    // still mine: the process instances' list (「프로세스」 tab — id routine) lists it under 「내 입력이 필요해요」
+    await page.locator('.seg button[data-tab="routine"]').click()
     await expect(page.locator('.rlist section').filter({ hasText: '내 입력이 필요해요' })).toContainText(`회귀 영업활동 ${RUN}`)
     await settled(page)
     await page.screenshot({ path: test.info().outputPath('f-hd-02-routine.png') })

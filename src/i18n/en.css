@@ -3,7 +3,7 @@
    a fixed width. Only under html[lang=en] (set by src/i18n/lang.js); Korean is untouched. */
 html[lang='en'] body { overflow-wrap: break-word; }
 
-/* phone top bar: Home · Chat · Projects · Folders has to fit between the search and avatar buttons */
+/* phone top bar: Home · Chat · Projects · Team · Folders · Processes — tighter, and the pill scrolls sideways when it still does not fit */
 html[lang='en'] .top.narrow .seg button,
 html[lang='en'] .narrow .seg button { padding: 0 10px; font-size: 13px; }
 

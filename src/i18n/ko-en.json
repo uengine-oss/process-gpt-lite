@@ -157,6 +157,7 @@
   "파일 선택": "Choose file",
   "이메일": "Email",
   "보내는 중…": "Sending…",
+  "팀": "Team",
   "팀 메시지": "Team messages",
   "시작 전": "Not started",
   "진행 중": "In progress",
@@ -8316,6 +8317,11 @@
   ]
  ],
  "context": [
+  [
+   "header.top .seg",
+   "프로세스",
+   "Processes"
+  ],
   [
    ".settings p.cap",
    "연결",
