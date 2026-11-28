@@ -1,0 +1,31 @@
+◇ injected env (0) from .env
+✔ PG-U-01 판정 읽기 — off 는 missing · changed 와 무엇 · 질문이 있을 때만 (1.649709ms)
+✔ PG-U-02 단계 결과 읽기 — 모든 단계를 덮을 때만 (0.205709ms)
+[plan-guard] todos off=false kind=none step=0 confidence=0.10 tools=0
+[plan-guard] tools off=false kind=none step=0 confidence=0.10 tools=4
+[plan-guard] file off=false kind=none step=0 confidence=0.10 tools=4
+[plan-guard] note off=false kind=none step=0 confidence=0.00 tools=0
+[plan-guard] again off=false kind=none step=0 confidence=0.00 tools=0
+[plan-guard] file off=true kind=missing step=1 confidence=0.60 tools=0
+[plan-guard] file: model down
+[plan-guard] file off=true kind=missing step=1 confidence=0.90 tools=0
+[plan-guard] note off=false kind=none step=0 confidence=0.20 tools=0
+[plan-guard] final off=true step=1 confidence=0.90 outcomes=mcd
+[plan-guard] final off=false step=0 confidence=0.10 outcomes=ddd
+[plan-guard] final: down
+[plan-guard] file off=true kind=missing step=1 confidence=0.90 tools=0
+✔ PG-U-03 언제 묻나 — 할 일이 움직일 때 · 첫 파일 · 도구 4개마다 · 중간 글, 겹치면 하나 뒤에 한 번 (113.795667ms)
+✔ PG-U-04 0.7 이상이면 한 번만 멈춤, 아래 · 모델 오류는 그대로 (0.568ms)
+✔ PG-U-05 계획이 없거나 꺼져 있거나 턴이 끝났으면 묻지 않음 (0.212125ms)
+✔ PG-U-06 끝 확인 — 단계 결과와 벗어남, 멈춘 턴 · 모델 오류는 null (0.444042ms)
+✔ PG-U-07 저장된 계획의 단계 — 멈춘 단계 · 확인 중 · 확인 결과 · 예전처럼 (0.291166ms)
+✔ PG-U-08 답 앞의 짧은 딴 줄은 답에 붙지 않고, 긴 요약 뒤 맺음 한 줄은 그대로 (0.25175ms)
+✔ PG-U-09 멈춘 턴의 메시지 — 무엇이 있었나 · 질문 · 보기가 빠른 답 단추로 (0.548917ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3261.571208

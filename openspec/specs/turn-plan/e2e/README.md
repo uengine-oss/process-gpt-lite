@@ -72,7 +72,14 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/turn-
 | 처리 도중 새로고침한다 | F-TP-09(같은 문장 · 같은 단계 · 체크 · 「다음 단계를 쓰는 중」, 패널의 메모 · 할 일 · 한 일) · TP-U-08 |
 | 영어 화면 | F-TP-10(카드 · 패널 · 알약에 한글 없음, 「Writing the next step · N s」, 「Plan 3/3 · N s」, 에이전트에게 `language: en` · `[Plan]` 전달) · TP-U-04 |
 | 한국어 화면에서 링크만 보낸다 | F-TP-12(`[Instruction] 언어: 한국어`, `[계획] …` 블록이 사람의 말 뒤에 배치됨, `metadata.language` ko) · TP-U-04 |
-| 턴이 끝난다 | F-TP-11(「계획 3/3 · N초」, 펼치면 이해한 내용 · 단계 · 메모 표시) · F-TP-06(휴대폰 · 밤) |
+| 턴이 계획대로 끝난다 | F-TP-11(「계획 3/3 · N초」, 펼치면 이해한 내용 · 단계 · 메모 표시) · F-TP-06(휴대폰 · 밤) · F-PG-04(접힌 줄이 답 말풍선 위, 모든 단계 ✓) · PG-U-06 · PG-U-07 |
+| 끝까지 진행했지만 한 단계를 수행하지 못했다 | F-PG-03(「계획 1/3 · 1단계 못 함 · 2단계 바꿈」 펼침, ✗ · ↷ 와 이유, `plan.checking` 없음) · PG-U-02 · PG-U-07 |
+| 단계의 결과를 판단하는 모델이 답하지 못한다 | F-PG-04(판정 모델 500 → 「계획 3/3」, 상자 없음) · PG-U-04 · PG-U-06 · PG-U-07 |
+| 사람이 지정한 자료를 찾지 못해 다른 자료를 사용하려 한다 | F-PG-01(가짜 deepagents 의 `/chat/stop` 이 불림 · 답 = 상황 · 질문, 빠른 답 단추 3개, 「계획 0/3 · 1단계 못 함 · 물어볼 게 있어요」 펼침, 1단계 ✗ 와 이유, `content.ask` · `content.guard.stopped`, 판정 모델이 드라이브 검색 결과 `[]` 와 메모를 읽음, 홈의 「Process GPT 의 질문이 있어요」, 단추를 누르면 보내짐) · PG-U-01 · PG-U-03 · PG-U-04 · PG-U-09 |
+| 에이전트가 멈추기 요청에 응답하지 않는다 | F-PG-02(휴대폰 390 어두운 · 밝은, `/chat/stop` 이 stopped:false → 연결을 끊고 같은 질문 · 계획, 옆으로 밀리지 않음) |
+| 턴이 끝난 뒤에 요청이나 계획에서 벗어난 사실이 확인된다 | F-PG-03(답은 그대로, 「계획과 다르게 진행했어요」 상자 · 상황 · 질문 · 단추, 누르면 보내지고 「보냈어요」) · PG-U-06 |
+| 영어 화면(계획에서 벗어남) | F-PG-05(「Plan 1/3 · Step 1 not done · Step 2 done another way」, 「This went differently from the plan」, 계획 줄에 한글 없음) |
+| 긴 답 앞에 짧은 별도 문장을 쓴다 | PG-U-08(「Update README structure section.」 뒤 긴 답 → 긴 답만, 긴 요약 뒤 맺음 한 줄 → 둘 다) |
 
 ## 채팅 아래 한 줄 (F-CC, `e2e/tests/feature/compact-composer.spec.js`)
 
@@ -146,6 +153,11 @@ cd server && node --test --test-concurrency=1 test/turnPlan.integration.test.js 
   - 진행 상황 패널: `tp-panel-{desktop,phone}-{light,dark}`
   - 답 위의 접힌 계획(펼친 모습): `tp-folded-{desktop,phone}-{light,dark}`
   - 영어 화면의 카드와 패널: `tp-english-desktop`
+- 계획에서 벗어나면 멈추고 묻기(2026-11-28, `e2e/tests/feature/plan-guard.spec.js` · `server/test/planGuard.test.js`): `results/plan-guard-unit.txt` · `results/plan-guard-e2e.txt`
+  - 멈추고 물음: `f-pg-01-pc-stopped` · `f-pg-02-phone-stopped-{dark,light}`
+  - 끝까지 했지만 벗어남: `f-pg-03-pc-went-off` · 영어 `f-pg-05-pc-english`
+  - 계획대로(접힌 줄이 답 위): `f-pg-04-pc-as-planned`
+  - 실행: `cd server && node --test test/planGuard.test.js` · `cd e2e && npx playwright test --project=feature tests/feature/plan-guard.spec.js`(자기 스택 BFF 8961 · Vite 5361, 가짜 모델 8966 · 가짜 deepagents 8967)
 
 ## 알려진 것 · 확인하지 못한 것
 
@@ -154,3 +166,5 @@ cd server && node --test --test-concurrency=1 test/turnPlan.integration.test.js 
 - 실제 deepagents가 `done.content`에 마지막 답만 담는지는 코드 검토(출력 정리 함수)로만 확인했다. 운영 턴에서는 확인하지 않았다.
 - 운영 모델(`PRO_LLM_FRONT_MODEL=claude-sonnet-5-5`)의 앞단 계획 시간과 문장은 측정하지 않았다. 이 PC의 모델 게이트웨이에는 frentis만 연결된다.
 - 영어 화면에서 답 아래의 「어떻게 했나요 · 1단계 · 조회한 곳 …」 줄은 번역되지 않는다. 이 변경 전부터 있던 현상이다(사전의 `어떻게 했나요 · {0}단계{1}`가 `{1}` 앞의 공백 때문에 일치하지 않음).
+- 계획에서 벗어남 판정(2026-11-28)은 가짜 모델로만 시험했다. 실제 모델(운영 Sonnet 5.5)이 녹화의 상황 — 드라이브 검색이 비고 「공개 자료로 할게요」 — 에서 0.7 을 넘기는지, 계속 찾는 중에 멈추지 않는지는 운영 반영 뒤 로그(`[plan-guard] … off= confidence=`)로 본다. 판정은 할 일이 바뀔 때 · 첫 파일 · 도구 4번 · 메모마다 한 번씩이라 3분짜리 턴에 5~8번 부른다.
+- 멈춘 턴에서 에이전트가 그때까지 쓴 파일은 카드로 남는다(지우지 않음).

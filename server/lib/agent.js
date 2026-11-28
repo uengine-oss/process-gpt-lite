@@ -54,6 +54,7 @@ import { resolveProcess, brief as improveBrief } from './improve/service.js'
 import { L, isEn, locale, langInstruction, langOf, withLang, wordless } from './lang.js'
 import { sendMail, demoFiles } from './scenarios/mail.js'
 import * as TP from './turnPlan.js'
+import * as PG from './planGuard.js'
 import * as PN from './projectNote.js'
 import * as ASK from './askPerson.js'
 // a value only a teammate knows: the agent's ask_teammate → the card 「○○님께 메신저로 물어볼까요?」 (lib/askTeammate.js)
@@ -288,7 +289,7 @@ export function runTurn(args) {
     let state = 'failed'
     try {
       const m = await handleTurn(args)
-      state = m?.content?.stopped ? 'stopped' : 'done'
+      state = m?.content?.stopped ? 'stopped' : m?.content?.plan?.state === 'asked' ? 'asked' : 'done'
       // 프로젝트 계획(lib/projectNote.js): a project turn ended — the plan is rewritten when the front step said the message is one to keep, or
       // every few turns (in the background; a turn that already changed the plan — 계획에 넣기, a rule set — does not ask again)
       const st = turnCtx.getStore()
@@ -1514,6 +1515,20 @@ async function touchContext(user, routing, text, answer) {
 // it does not know (already over, or held elsewhere) is cut off here. With no turn in flight here
 // (e.g. after a restart of this server) the thread's conversation is still asked to stop, so a
 // turn left running in deepagents cannot keep the conversation busy.
+// After a turn's answer is out: how each step of its plan went and whether the work went off on the way (lib/planGuard.js final). The saved
+// plan gets the outcomes (or, with no answer from the model, every step done as before); work that went off gets the question under its
+// answer (content.guard.after) and the question's notice.
+async function settlePlan(user, threadId, msg, guard, body, { silent = false } = {}) {
+  const fin = await guard.final(body).catch(() => null)
+  const v = fin?.verdict || null
+  const patch = { plan: TP.settledPlan(msg.content?.plan, fin?.outcomes || null),
+    ...(v ? { guard: { kind: v.kind, step: v.step, what: v.what, question: v.question, options: v.options, after: true } } : {}) }
+  const [m] = await q(`update pro_messages set content = content || $2::jsonb where id=$1 returning *`, [msg.id, JSON.stringify(patch)])
+  if (m) emit(user.id, 'message', m)
+  if (m && v && !silent) ASK.ask(user.id, { via: 'chat', threadId, cardId: m.id, kind: 'question', text: v.question }).catch((e) => console.warn('[ask] notice', e.message))
+  return m
+}
+
 async function askStop(session, conv) {
   if (!conv) return false
   const r = await fetch(`${config.deepagentsUrl}/chat/stop`, {
@@ -1774,6 +1789,14 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     const seen = await ownExcerpt(user.id, threadId, pin.conversationId).catch(() => '')
     if (seen) text = `${seen}\n\n${text}`
   }
+  // the run stopped to ask (lib/planGuard.js): what happened and the question, its options as the chat's quick replies, and the question's
+  // notice — a Home card and a push, as for an agent's own question (lib/askPerson.js)
+  async function askOffPlan(v, extra = {}) {
+    const m = await addMessage(user.id, threadId, 'agent', 'text', { text: PG.askText(v), ask: { question: v.question, options: v.options },
+      guard: { kind: v.kind, step: v.step, what: v.what, stopped: true }, ...extra })
+    if (m && !extra.silent) ASK.ask(user.id, { via: 'chat', threadId, cardId: m.id, kind: 'question', text: v.question }).catch((e) => console.warn('[ask] notice', e.message))
+    return m
+  }
   try {
     const msg = await streamTurn()
     // the document's editor changed nothing although the agent edited (every edit call failed or changed nothing): the
@@ -1797,6 +1820,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (!idle.signal.aborted && !turn.abort.signal.aborted && !/fetch failed|ECONNREFUSED|deepagents \d/.test(e.message)) throw e
     console.warn('[delegate]', turn.reason ? 'replaced by a browser task' : turn.abort.signal.aborted ? 'stopped by the user' : idle.signal.aborted ? 'agent stream idle, aborted' : e.message)
     await setThreadStatus(user.id, threadId, idleStatus())
+    // (the guard stopped the run to ask — lib/planGuard.js — and the agent did not end its stream by itself: the question all the same)
+    if (turn.abort.signal.aborted && turn.guard) return askOffPlan(turn.guard, { partial: partial.trim().slice(0, 4000), silent, ...convTag(), ...TP.saved(turn, 'asked', '', { guard: turn.guard }) })
     if (turn.abort.signal.aborted && turn.reason) return addMessage(user.id, threadId, 'agent', 'text', { text: turn.reason, stopped: true, superseded: true, replaced: true, partial: partial.trim().slice(0, 4000), silent, ...convTag(), ...TP.saved(turn, 'stopped') })
     if (turn.abort.signal.aborted) return addMessage(user.id, threadId, 'agent', 'text', { text: [partial.trim(), `(${stoppedText()})`].filter(Boolean).join('\n\n'), stopped: true, silent, ...convTag(), ...TP.saved(turn, 'stopped') })
     return addMessage(user.id, threadId, 'agent', 'text', { ...convTag(), text: idle.signal.aborted
@@ -1858,12 +1883,18 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // followed by a tool goes to the progress panel's 메모 instead. Errors are added after it; skill authoring keeps all its text.
   let doneText = null, hitl = null, errors = '', all = ''
   let openAt = 0
+  // keeping to the request and the plan the person was shown (lib/planGuard.js): when the work goes off in a way that matters — what a
+  // step needs is not there and it goes on without it, or it does the work another way than asked — the run stops and the person is asked
+  // (2026-11-28: 「요청의 의도나 수행 방법/플래닝의 의도에 맞지 않게 돌아가는 중요한 경우는 stop 하고 HITL 이 벌어졌어야 한다.」)
+  const guard = adopted && mode !== 'skill' && !silent && !divider && !background && !pin?.agent
+    ? PG.createGuard({ view: TP.viewOf(turn), request: asked, onStop: (v) => { turn.guard = v; TP.stage(turn, 'asked'); return stopTurn(turn, session) } })
+    : null
   const segs = TP.createSegments({
     stream: mode !== 'skill',
     onDelta: (d) => onDelta?.(d),
     onPromote: () => TP.stage(turn, 'writing'),
     onRetract: () => { retract?.(); TP.stage(turn, 'working') },
-    onNote: (t) => { if (mode !== 'skill') TP.note(turn, t) },
+    onNote: (t) => { if (mode !== 'skill') { TP.note(turn, t); guard?.note(t) } },
     onOpen: (t) => { if (mode !== 'skill' && Date.now() - openAt > 400) { openAt = Date.now(); TP.note(turn, t, { open: true }) } },
   })
   const files = []
@@ -1916,7 +1947,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         const called = (Array.isArray(j.tools) ? j.tools : []).map((t) => t?.tool || t?.name || '')
         if (called.length && called.every(TP.bookkeeping)) segs.mark(); else segs.cut()
       }
-      if (j.type === 'plan_todos') TP.todos(turn, j.todos)
+      if (j.type === 'plan_todos') { TP.todos(turn, j.todos); guard?.todos(TP.todosOf(j.todos)) }
       // (the agent stopped to ask the person: its done.content is the question as JSON — kept apart, a later plain done does not
       // replace it)
       if (j.type === 'done' && typeof j.content === 'string') { if (TP.humanInput(j.content)) hitl = j.content; else doneText = j.content }
@@ -1925,7 +1956,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       const room = j.type === 'file_artifact' && /^\/workspace\/\.bpmn\/[^/]+\//.exec(j.path || '')
       if (room) runDirs.add(room[0])
       // (a url event is deepagents collecting a path the answer named — not proof the turn wrote it)
-      if (j.type === 'file_artifact' && j.path && !j.replay && !j.url) { written.add(j.path); seen.add(j.path) }
+      if (j.type === 'file_artifact' && j.path && !j.replay && !j.url) { written.add(j.path); seen.add(j.path); guard?.file(j.name || String(j.path).split('/').pop()) }
       if (art.def) workDir = art.def
       if (art.gen) workDir ||= art.gen
       else if (art.def) { /* the definition (the draft card shows it) */ }
@@ -1958,6 +1989,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         if (doc && !toolDocs.some((d) => d.doc.url === doc.url)) toolDocs.push({ doc, tool, input: inputs.get(tool) ?? null, raw: parseToolOutput(raw)?.file_name || parseToolOutput(raw)?.fileName || doc.name })
         // the next model call may write for a long while with nothing to stream: the live line counts from here
         if (j.type === 'tool_end') TP.stage(turn, 'working', { text: TP.nextStepText(), detail: 'after_tool' })
+        if (!TP.bookkeeping(tool)) guard?.result(raw)
       }
       if (j.type === 'process_result' && j.data?.processDefinition) processResult = j.data
       if (j.type === 'tool_start') {
@@ -1967,6 +1999,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
         usedTools.add(tool)
         inputs.set(tool, j.input ?? null)
         const entry = trail.add(tool, j.input, toolPhase(tool))
+        if (!TP.bookkeeping(tool)) guard?.tool(entry || { tool, phase: toolPhase(tool) })
         for (const p of workspacePaths(j.input)) seen.add(p)
         steps += 1
         const said = mode === 'skill' ? skillStatus(tool, steps) : toolPhase(tool)
@@ -2001,8 +2034,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (quietIfUnchanged && !ended && /^(변동\s*없음|no changes?)[.!]?$/i.test(body.replace(/[*_`"]/g, '').trim())) return null
   if (divider) await addMessage(user.id, threadId, 'system', 'divider', typeof divider === 'string' ? { text: divider } : divider)
   // (replaced by a correction: the reason alone — what the agent had written so far is kept, not shown)
-  const partialText = ended && turn.reason ? body.slice(0, 4000) : ''
-  if (ended) body = turn.reason || [body, `(${turn.stopped ? stoppedText() : supersededText()})`].filter(Boolean).join('\n\n')
+  // (stopped by the guard to ask — lib/planGuard.js: the question is the answer; what the agent had written so far is kept, not shown)
+  const offPlan = ended ? turn.guard || null : null
+  const partialText = ended && (turn.reason || offPlan) ? body.slice(0, 4000) : ''
+  if (offPlan) body = PG.askText(offPlan)
+  else if (ended) body = turn.reason || [body, `(${turn.stopped ? stoppedText() : supersededText()})`].filter(Boolean).join('\n\n')
   let kind = /^#\s/.test(body) ? 'doc' : 'text'
   const structured = (body.match(/^\s*([-*]|\d+\.)\s/gm) || []).length >= 4
   if (kind === 'text' && !ended && body.length > 600 && structured) {
@@ -2068,11 +2104,16 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     : [...usedTools].some((t) => t.startsWith(`${live.app}_`) && !/(inspect|read|list|render|preview|find|query|guide|documents)/.test(t)))
   // the agent stopped to ask the person (deepagents' human_input_required): the question and its options kept on the answer, and a notice
   // of it — a Home card and a push to the person's phone, whose buttons answer it (lib/askPerson.js, 2026-11-26)
-  const asks = hitl && !ended ? TP.humanInputParts(hitl) : null
+  // (the guard's question too — lib/planGuard.js)
+  const asks = hitl && !ended ? TP.humanInputParts(hitl) : offPlan ? { question: offPlan.question, options: offPlan.options } : null
+  // how each step went is read once the answer is out (lib/planGuard.js final): the plan reads 「확인하는 중」 until then
+  const checking = !!guard && !ended && !hitl && !!TP.viewOf(turn)?.plan
   const msg = await addMessage(user.id, threadId, 'agent', kind, { text: body, silent, ...(asks ? { ask: { question: asks.question, options: asks.options, ...(asks.quick ? { quick: true } : {}), ...(asks.refusal ? { refusal: asks.refusal } : {}) } } : {}), ...(work.length ? { work } : {}), ...(context ? { context } : {}), ...(convNow ? { conv: convNow } : {}), ...(refer?.refer_id ? { refer_id: refer.refer_id } : {}),
-    ...TP.saved(turn, ended ? 'stopped' : 'done', body),
+    ...TP.saved(turn, offPlan || (hitl && !ended) ? 'asked' : ended ? 'stopped' : 'done', body, { guard: offPlan, checking }),
+    ...(offPlan ? { guard: { kind: offPlan.kind, step: offPlan.step, what: offPlan.what, stopped: true }, partial: partialText } : {}),
     ...(editedDoc ? { openDoc: { file: String(live.file).slice(0, 200), app: live.app, ...(page?.msgId ? { msgId: page.msgId } : {}), ...(page?.url ? { url: page.url } : {}) } } : {}),
-    ...(ended ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
+    ...(ended && !offPlan ? { stopped: true, ...(turn.stopped && !turn.reason ? {} : { superseded: true }), ...(turn.reason ? { replaced: true, partial: partialText } : {}) } : {}) })
+  if (checking && msg) settlePlan(user, threadId, msg, guard, body, { silent }).catch((e) => console.warn('[plan-guard] settle', e.message))
   // the conversation's row: a project's sub-topic under the project (routed, or the view narrowed to it), else the main chat's
   if (topicRouted || (pin && !pin.folder && thread?.kind === 'project')) {
     await PT.fileTopic(user, { id: threadId }, topicRouted ? routing : { conversation_id: pin.conversationId, context: { title: pin.title } }, asked, body)
