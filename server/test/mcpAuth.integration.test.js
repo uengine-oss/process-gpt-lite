@@ -1,7 +1,7 @@
 // MCP 경로도 화면 API 와 같은 로그인 확인(회사 소속 포함)을 쓴다 (lib/mcpAuth.js · mcp/*.js, 스펙 agent-tools
 // 「MCP 경로도 화면 API 와 같은 로그인 확인을 쓴다」) — 실제 개발 DB · 로컬 GoTrue, 설정마다 MCP 경로만 띄운 서버 하나
 // (fixtures/mcpAuthServer.mjs, 자식 프로세스: 설정은 시작할 때 읽히므로). 사람 · 회사는 이 시험이 만들고 끝에 지운다.
-//   MA-01 한 회사 설치: 구성원도, 그 회사 users 줄이 없는 사람도 예전처럼 모든 MCP 경로가 답하고 도구가 돈다
+//   MA-01 한 회사 설치: 구성원도, 그 회사 users 행이 없는 사람도 예전처럼 모든 MCP 경로가 답하고 도구가 돈다
 //   MA-02 게이트웨이 뒤(PRO_TENANT_FROM_HEADER=1): 토큰에 든 회사의 구성원은 모든 경로가 답하고 그 회사에서 도구가 돈다 ·
 //         그 회사 구성원이 아니면 모든 경로가 403 (화면 API auth() 와 같은 규칙) · MCP 경로의 회사는 X-Tenant-Id 가 아니라 토큰의 회사
 //   MA-03 게이트웨이 뒤, 토큰에 회사가 없으면 예전과 같다 — 거절 없이 예전처럼 정해지는 회사(이 설치의 PRO_TENANT_ID)에서 돈다
@@ -153,7 +153,7 @@ after(async () => {
   await pool.end().catch(() => {})
 })
 
-test('MA-01 한 회사 설치: 구성원도, 그 회사 users 줄이 없는 사람도 예전처럼 모든 경로가 답하고 도구가 돈다 (MA-05 포함)', { skip: !db }, async () => {
+test('MA-01 한 회사 설치: 구성원도, 그 회사 users 행이 없는 사람도 예전처럼 모든 경로가 답하고 도구가 돈다 (MA-05 포함)', { skip: !db }, async () => {
   const base = await start({})
   await anonymousAndInvalid(base)
   for (const k of ['member', 'other', 'noclaimother']) {

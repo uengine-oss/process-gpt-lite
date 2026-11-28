@@ -18,6 +18,7 @@ const PLACEHOLDER = /^\{\{\s*user_jwt\s*\}\}$/
 const UNAVAILABLE = { status: 503, code: -32000, message: 'auth unavailable', retry: true }
 
 // → { user, jwt, placeholder, tenantId } (user null: the anonymous catalog) | { status, code, message, retry? }
+const noClaimSeen = new Set()
 export async function mcpUser(req) {
   const jwt = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '')
   if (!jwt || PLACEHOLDER.test(jwt)) return { user: null, jwt: '', placeholder: !!jwt, tenantId: null }
@@ -25,7 +26,12 @@ export async function mcpUser(req) {
   try { u = await userFromJwt(jwt, { unavailable: true }) } catch { return UNAVAILABLE }
   if (!u) return { status: 401, code: -32001, message: 'unauthorized: invalid or expired user JWT' }
   if (config.tenantFromHeader && !jwtTenant(jwt)) {
-    console.debug(`[mcp-auth] ${String(u.id).slice(0, 8)}: no tenant claim in the token, tenant ${config.tenantId} as before`)
+    // (once per person while the server runs — every MCP call is several requests)
+    if (!noClaimSeen.has(u.id)) {
+      if (noClaimSeen.size > 1000) noClaimSeen.clear()
+      noClaimSeen.add(u.id)
+      console.log(`[mcp-auth] ${String(u.id).slice(0, 8)}: no tenant claim in the token, tenant ${config.tenantId} as before`)
+    }
   } else if (config.tenantFromHeader) {
     let ok
     // (the membership could not be read: no answer either way, the caller retries — the call does not go on without it)
