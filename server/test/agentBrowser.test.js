@@ -134,7 +134,8 @@ test('사람이 있으면 그 사람의 작업으로(own · 사람 말 · 계획
   const runs = []
   const run = (args) => { const id = crypto.randomUUID(); runs.push({ ...args, id }); args.onCard(id); return new Promise((done) => { runs.at(-1).done = done }) }
   const user = { id: A, email: 'a@example.test', name: '시험' }
-  const rec = await AB.startTask({ user, conv, goal: 'NotebookLM 에 이 링크로 노트북을 만들고 슬라이드와 오디오 오버뷰를 만든다', startUrl: 'https://studio.example/', skill: 'fake-studio' }, { run })
+  const rec = await AB.startTask({ user, conv, goal: 'NotebookLM 에 이 링크로 노트북을 만들고 슬라이드와 오디오 오버뷰를 만든다', startUrl: 'https://studio.example/', skill: 'fake-studio' }, { run, sitesOf: async () => ['studio.example'] })
+  assert.deepEqual(runs.at(-1).sites, ['studio.example'], '사람의 말이 가리키는 사이트')
   const a = runs.at(-1)
   assert.equal(rec.attended, true)
   assert.equal(rec.id, a.id)
@@ -150,7 +151,7 @@ test('사람이 있으면 그 사람의 작업으로(own · 사람 말 · 계획
 
   // the same conversation once the turn is over: nobody is there — read only
   TP.end(t); t.finish()
-  await AB.startTask({ user, conv, goal: '목록 읽기', startUrl: '' }, { run })
+  await AB.startTask({ user, conv, goal: '목록 읽기', startUrl: '' }, { run, sitesOf: async () => ['studio.example'] })
   const b = runs.at(-1)
   assert.equal(b.unattended, true)
   assert.equal(b.own, undefined)
@@ -162,31 +163,31 @@ test('사람이 있으면 그 사람의 작업으로(own · 사람 말 · 계획
   // a composed turn (a teammate's words, a Home card, a handback) is not the person asking: read only
   const c = liveTurn(A, room, `conv-composed-${A}`, { composed: true })
   TP.begin({ turn: c, userId: A, threadId: room, msgId: null, text: 'x', plan: false })
-  await AB.startTask({ user, conv: `conv-composed-${A}`, goal: '읽기' }, { run })
+  await AB.startTask({ user, conv: `conv-composed-${A}`, goal: '읽기' }, { run, sitesOf: async () => ['studio.example'] })
   assert.equal(runs.at(-1).unattended, true)
   runs.at(-1).done({ state: 'done', summary: '', notes: [], taskId: runs.at(-1).id })
 
   // a message with no words (files or references only): read only
   const w = liveTurn(A, room, `conv-nowords-${A}`, { said: '' })
   TP.begin({ turn: w, userId: A, threadId: room, msgId: null, text: '첨부한 파일을 확인해 줘', plan: false })
-  const nw = await AB.startTask({ user, conv: `conv-nowords-${A}`, goal: '노트북엘엠에 넣기' }, { run })
+  const nw = await AB.startTask({ user, conv: `conv-nowords-${A}`, goal: '노트북엘엠에 넣기' }, { run, sitesOf: async () => ['studio.example'] })
   assert.equal(nw.attended, false)
   assert.equal(runs.at(-1).unattended, true)
   assert.equal(runs.at(-1).queue, undefined, '줄에 낼 사람의 말이 없다(목표로 대신하지 않음)')
   runs.at(-1).done({ state: 'done', summary: '', notes: [], taskId: runs.at(-1).id })
   // the company allows saved logins in runs nobody watches
   process.env.PRO_BROWSER_TOOL_LOGINS = 'unattended'
-  await AB.startTask({ user, conv: `conv-nowords-${A}`, goal: '읽기' }, { run })
+  await AB.startTask({ user, conv: `conv-nowords-${A}`, goal: '읽기' }, { run, sitesOf: async () => ['studio.example'] })
   assert.equal(runs.at(-1).noVault, false)
   runs.at(-1).done({ state: 'done', summary: '', notes: [], taskId: runs.at(-1).id })
   delete process.env.PRO_BROWSER_TOOL_LOGINS
   // someone else's conversation: refused before anything starts
   await thread(OTHER, 'chat', `conv-not-mine-${A}`)
   const n = runs.length
-  await assert.rejects(AB.startTask({ user, conv: `conv-not-mine-${A}`, goal: 'x' }, { run }), (e) => e.refused === true && e.status === 403)
+  await assert.rejects(AB.startTask({ user, conv: `conv-not-mine-${A}`, goal: 'x' }, { run, sitesOf: async () => ['studio.example'] }), (e) => e.refused === true && e.status === 403)
   assert.equal(runs.length, n)
   // a skill this server does not have: said so, with the ones it has
-  await assert.rejects(AB.startTask({ user, conv, goal: 'x', skill: 'no-such' }, { run }), /no browser skill named "no-such" — use one of: .*fake-studio/)
+  await assert.rejects(AB.startTask({ user, conv, goal: 'x', skill: 'no-such' }, { run, sitesOf: async () => ['studio.example'] }), /no browser skill named "no-such" — use one of: .*fake-studio/)
 })
 
 // ---------- 에이전트가 받는 모양 ----------
@@ -421,6 +422,9 @@ test('바깥에 영향을 주는 동작: 사람이 말한 사이트에서만 만
   assert.equal(BR.onNamedSite('accounts.google.com', ['notebooklm.google.com']), false)
   assert.equal(BR.onNamedSite('evilnotebooklm.google.com', ['notebooklm.google.com']), false)
   assert.equal(BR.onNamedSite('notebooklm.google.com', []), false)
+  // exact names: a name under a named site is another site
+  assert.equal(BR.onNamedSite('mail.google.com', ['google.com']), false)
+  assert.equal(BR.onNamedSite('google.com', ['google.com']), true)
   // nobody watching: only looking
   assert.equal(BR.effectDecision(yes('look'), { attended: false }), 'ok')
   for (const k of ['own', 'asked', 'outside']) assert.equal(BR.effectDecision(yes(k), { attended: false }), 'refuse', k)
@@ -495,16 +499,71 @@ test('판정을 기억하는 범위: 같은 페이지 · 같은 이름 · 같은
   assert.equal(cards.length, 3)
 })
 
-test('사람의 말이 가리키는 사이트: 모델이 한 번 읽어 호스트 이름으로(최대 셋) — 말이 없거나 읽지 못하면 없음', async () => {
+test('사람의 말이 가리키는 사이트: 모델이 한 번 읽어 정확한 호스트 이름으로 — 고른 브라우저 스킬의 사이트 포함, 공용 끝 이름(com · co.kr · github.io)은 사이트가 아니다', async () => {
   const asked = []
-  const ask = async (system, user) => { asked.push({ system, user }); return { sites: ['https://notebooklm.google.com/notebook/1', 'www.YouTube.com', 'not a host!', 'a.example', 'b.example', 'c.example'] } }
-  assert.deepEqual(await AB.namedSites('노트북엘엠에 이 링크를 넣고 슬라이드를 만들어 줘', { ask, skills: [{ name: 'notebooklm', label: 'NotebookLM', startUrl: 'https://notebooklm.google.com/' }] }),
-    ['notebooklm.google.com', 'youtube.com', 'a.example'])
-  assert.match(asked[0].system, /notebooklm \(NotebookLM\): https:\/\/notebooklm\.google\.com\//)
-  assert.match(asked[0].user, /노트북엘엠에 이 링크를 넣고/)
+  const NB = { name: 'notebooklm', label: 'NotebookLM', startUrl: 'https://notebook.google.com/', hosts: ['notebooklm.google.com', 'notebook.google.com'] }
+  const ask = async (system, user) => { asked.push({ system, user }); return { sites: ['https://www.YouTube.com/watch?v=1', 'not a host!', 'com', 'co.kr'], skills: ['notebooklm', 'no-such'] } }
+  const sites = await AB.namedSites('노트북엘엠에 이 유튜브 영상을 넣고 슬라이드를 만들어 줘', { ask, skills: [NB] })
+  assert.deepEqual(sites, ['youtube.com', 'notebooklm.google.com', 'notebook.google.com'])
+  assert.match(asked[0].system, /notebooklm \(NotebookLM\): notebooklm\.google\.com, notebook\.google\.com/)
+  assert.match(asked[0].user, /노트북엘엠에 이 유튜브 영상을/)
+  // the picked skill's own site is covered; mail.google.com is not (exact names only)
+  const BR = await import('../lib/browser.js')
+  assert.equal(BR.onNamedSite('notebooklm.google.com', sites), true)
+  assert.equal(BR.onNamedSite('mail.google.com', sites), false)
   assert.deepEqual(await AB.namedSites('', { ask }), [])
   assert.deepEqual(await AB.namedSites('x', { ask: async () => { throw new Error('down') } }), [])
-  assert.deepEqual(AB.cleanSites(['127.0.0.1', 'localhost', 'notes.example.']), ['127.0.0.1', 'localhost', 'notes.example'])
+  // full host names only: two labels or more, not a shared ending by itself
+  assert.deepEqual(AB.cleanSites(['com', 'co.kr']), [])
+  assert.deepEqual(AB.cleanSites(['go.kr', 'github.io', 'vercel.app', 'localhost', 'kr']), [])
+  assert.deepEqual(AB.cleanSites(['example.co.kr', 'me.github.io', '127.0.0.1', 'notes.example.']), ['example.co.kr', 'me.github.io', '127.0.0.1'])
+})
+
+test('사람이 말한 사이트 밖으로: 사람이 있는 에이전트의 작업이 다른 사이트를 열려면 판정과 상관없이 사람의 카드 — 승인하면 그 사이트만', async () => {
+  const BR = await import('../lib/browser.js')
+  const cards = []
+  let answer = 'the user declined: do not do it'
+  const approve = async (summary) => { cards.push(summary); return answer }
+  const task = { id: 't', byAgent: true, unattended: false, sites: ['notebooklm.google.com'], notes: [], stats: {} }
+  assert.equal(await BR.leaveGate(null, task, 'https://notebooklm.google.com/notebook/1', { approve }), null, '말한 사이트')
+  assert.equal(cards.length, 0)
+  assert.match(await BR.leaveGate(null, task, 'https://mail.google.com/mail/u/0/', { approve }), /^not opened: mail\.google\.com/)
+  assert.match(cards[0], /^mail\.google\.com 을\(를\) 열까요\?/)
+  answer = 'the user approved: do it now'
+  assert.equal(await BR.leaveGate(null, task, 'https://mail.google.com/mail/u/0/', { approve }), null)
+  assert.equal(await BR.leaveGate(null, task, 'https://mail.google.com/other', { approve }), null, '승인한 그 사이트는 다시 묻지 않는다')
+  assert.equal(cards.length, 2)
+  // a task nobody watches (it only reads, in a browser of its own) and a task the person started are not asked here
+  assert.equal(await BR.leaveGate(null, { ...task, unattended: true, openOk: null }, 'https://x.example/', { approve }), null)
+  assert.equal(await BR.leaveGate(null, { ...task, byAgent: false, openOk: null }, 'https://x.example/', { approve }), null)
+})
+
+test('임시 브라우저의 남은 폴더: 서버가 시작할 때 몇 분 넘은 것만 지운다', async () => {
+  const BR = await import('../lib/browser.js')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ab-sweep-'))
+  const old = path.join(dir, 'pgl-fresh-old'), young = path.join(dir, 'pgl-fresh-young'), other = path.join(dir, 'something-else')
+  for (const d of [old, young, other]) fs.mkdirSync(d)
+  const past = new Date(Date.now() - 60 * 60_000)
+  fs.utimesSync(old, past, past)
+  fs.utimesSync(other, past, past)
+  assert.equal(BR.sweepFresh({ dir, olderMs: 10 * 60_000 }), 1)
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['pgl-fresh-young', 'something-else'])
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('사람의 말에 사이트가 없으면: 작업 전체가 임시 브라우저에서 읽기만', { skip: !up }, async () => {
+  const room = await thread(A, 'project', `conv-nosite-${A}`)
+  const t = liveTurn(A, room, `conv-nosite-${A}`, { said: '이거 좀 알아봐 줘' })
+  TP.begin({ turn: t, userId: A, threadId: room, msgId: null, text: t.said, plan: false })
+  const runs = []
+  const run = (args) => { const id = crypto.randomUUID(); runs.push(args); args.onCard(id); return Promise.resolve({ state: 'done', summary: '', notes: [], taskId: id }) }
+  const rec = await AB.startTask({ user: { id: A }, conv: `conv-nosite-${A}`, goal: '알아보기' }, { run, sitesOf: async () => [] })
+  assert.deepEqual({ attended: rec.attended, noSite: rec.noSite }, { attended: false, noSite: true })
+  assert.deepEqual({ unattended: runs[0].unattended, byAgent: runs[0].byAgent, own: runs[0].own }, { unattended: true, byAgent: true, own: undefined })
+  assert.match(runs[0].goal, /\(읽기만 하세요/)
+  await new Promise((ok) => setTimeout(ok, 10))
+  assert.match(AB.resultShape(rec).note, /name no site to work on/)
+  TP.end(t); t.finish()
 })
 
 test('작업 카드가 서는 사이에 멈춘 턴: 그 작업은 바로 멈춘다 · 시작 전에 멈췄으면 시작하지 않는다', { skip: !up }, async () => {

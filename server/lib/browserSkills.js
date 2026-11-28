@@ -30,6 +30,14 @@ export function parseSkill(md = '') {
   return { fields, body: text.slice(end + 4).replace(/^\n+/, '') }
 }
 
+// the sites a skill works on (metadata.hosts: host names, comma or space separated), else its start address's host — a task the agent
+// started may make or change things there when the person's words name that skill (lib/agentBrowser.js namedSites)
+export function hostsOf(list, startUrl = '') {
+  const out = String(list || '').split(/[\s,]+/).map((h) => h.trim().toLowerCase().replace(/^www\./, '').replace(/\.$/, '')).filter(Boolean)
+  if (!out.length && startUrl) { try { out.push(new URL(startUrl).hostname.toLowerCase().replace(/^www\./, '')) } catch { /* no address */ } }
+  return [...new Set(out)]
+}
+
 let cache = null
 // [{ name, description, startUrl, signIn, label, file }] — the skills that run in the browser. signIn: the host the
 // site sends people to for signing in (metadata.sign_in, e.g. a Google site's accounts.google.com) — a login
@@ -47,7 +55,8 @@ export function browserSkills() {
       try { md = fs.readFileSync(file, 'utf8') } catch { continue }
       const { fields } = parseSkill(md)
       if (fields.metadata?.runs_in !== 'browser' || !fields.name || list.some((s) => s.name === fields.name)) continue
-      list.push({ name: fields.name, description: fields.description || '', startUrl: fields.metadata.start_url || '', signIn: fields.metadata.sign_in || '', label: fields.metadata.label || '', file })
+      const startUrl = fields.metadata.start_url || ''
+      list.push({ name: fields.name, description: fields.description || '', startUrl, signIn: fields.metadata.sign_in || '', label: fields.metadata.label || '', file, hosts: hostsOf(fields.metadata.hosts, startUrl) })
     }
   }
   cache = { at: Date.now(), list }

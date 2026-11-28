@@ -5,6 +5,7 @@ metadata:
   runs_in: browser
   label: NotebookLM
   start_url: https://notebook.google.com/
+  hosts: notebooklm.google.com, notebook.google.com
   sign_in: accounts.google.com
 ---
 

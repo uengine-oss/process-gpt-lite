@@ -74,7 +74,7 @@ const llm = http.createServer((req, res) => {
     let message
     if (b.logprobs) message = { content: 'B' }
     // (the sites the person's words name — lib/agentBrowser.js namedSites: the made-up sites run on this machine)
-    else if (sys.includes("Name the website(s) the person's own words ask")) message = { content: JSON.stringify({ sites: ['127.0.0.1'] }) }
+    else if (sys.includes("Name the website(s) the person's own words ask")) message = { content: JSON.stringify({ sites: /아무 데서나/.test(String(b.messages?.at(-1)?.content || '')) ? [] : ['127.0.0.1'], skills: [] }) }
     else if (sys.includes('what you understood and how the work will go')) message = { content: JSON.stringify({ understood: '스튜디오에서 보고서를 만들어 받아 드릴게요.', steps: ['스튜디오에서 보고서 만들기', '파일 받기'], tier: 'standard', certainty: 'sure' }) }
     else if (/Break a web task/.test(sys)) message = { content: JSON.stringify({ title: String(b.messages[1].content).split('\n')[0].slice(0, 30), steps: ['생성', '기다리기', '받기'] }) }
     else if (names.includes('finish')) {
@@ -491,4 +491,72 @@ test('AB-I-09 사람이 없는 에이전트의 작업은 그 사람의 브라우
   // the person's own browser still has it afterwards (the empty one was its own, and is gone)
   const again = await browser.runBrowserTask({ userId: A.id, threadId: mainA, goal: SEE, startUrl: `${f.url}/show-cookie`, own: true })
   assert.match(again.pageText, new RegExp(SECRET))
+})
+
+test('AB-I-10 사람이 말한 사이트 밖: 시작 주소도 주소 열기도 판정과 상관없이 「<호스트> 을(를) 열까요?」 카드 — 「취소」면 열리지 않는다', { skip: !up }, async () => {
+  const f = await fixture()
+  const other = f.url.replace('127.0.0.1', 'localhost') // the same made-up site under another name: not a site the person named
+  const n0 = streams.length
+  const p = runTurn({ user: { id: A.id, email: A_MAIL, name: '시험 에이' }, session: aSession, threadId: mainA, text: '시험 사이트에서 목록을 정리해 줘' })
+  const h = await nth(n0 + 1)
+  if (!h.body.conversation_id) h.meta(CONV)
+  await until(() => turns.agentTurnsOf(A.id).find((t) => t.conv === CONV))
+  const cardFor = (host) => until(async () => (await msgs(mainA)).find((m) => m.kind === 'choice' && m.content.approval && m.content.state === 'pending' && m.content.question.startsWith(`${host} 을(를) 열까요?`)), 30000)
+  // a start address on another host: the card before it is opened
+  const START = '다른 이름의 시작 주소'
+  scripts[START] = (b) => ['finish', { summary: lastPage(b).url === 'about:blank' || !lastPage(b).url ? '열지 않았어요.' : '열었어요.' }]
+  const unsub0 = f.hits.filter((x) => x.startsWith('GET /unsubscribe')).length
+  const call = mcp(aSession.access_token, CONV, 'browser_task', { goal: START, start_url: `${other}/unsubscribe?u=2` })
+  const c1 = await cardFor('localhost')
+  assert.ok(c1, '시작 주소의 카드')
+  await browser.answerCard(A.id, c1.id, '취소')
+  const r1 = await call
+  assert.equal(r1.error, false, r1.text)
+  assert.equal(f.hits.filter((x) => x.startsWith('GET /unsubscribe')).length, unsub0, '그 주소는 열리지 않았다')
+  // going to another host from a named one: the card, even for a page that only shows something
+  const GO = '다른 이름으로 옮겨 가기'
+  const g = toldOf(GO)
+  g.script([() => ['goto', { url: `${other}/look-only` }], (b) => ['finish', { summary: /^not opened/.test(lastTool(b)) ? '옮기지 않았어요.' : '옮겼어요.' }]])
+  const before = effects.length
+  const call2 = mcp(aSession.access_token, CONV, 'browser_task', { goal: GO, start_url: `${f.url}/` })
+  const c2 = await cardFor('localhost')
+  assert.ok(c2, '주소 열기의 카드')
+  await browser.answerCard(A.id, c2.id, '취소')
+  const r2 = await call2
+  assert.match(r2.out.summary, /^옮기지 않았어요/)
+  assert.ok(!f.hits.includes('GET /look-only'), '열리지 않았다')
+  assert.ok(!effects.slice(before).some((e) => e.state.includes('/look-only')), '판정에 묻지 않고 사람에게')
+  answer(h, '정리했어요.')
+  await p
+})
+
+test('AB-I-11 사람의 말에 사이트가 없는 에이전트 작업은 전체가 임시 브라우저에서 읽기만', { skip: !up }, async () => {
+  const f = await fixture()
+  const n0 = streams.length
+  const p = runTurn({ user: { id: A.id, email: A_MAIL, name: '시험 에이' }, session: aSession, threadId: mainA, text: '아무 데서나 공개된 내용을 찾아 읽어 줘' })
+  const h = await nth(n0 + 1)
+  if (!h.body.conversation_id) h.meta(CONV)
+  await until(() => turns.agentTurnsOf(A.id).find((t) => t.conv === CONV))
+  const GOAL = '공개된 쿠키 페이지 읽기'
+  scripts[GOAL] = (b) => (b.messages.some((m) => m.role === 'tool') ? ['finish', { summary: '읽었어요.' }] : ['note', { text: lastPage(b).text || '-' }])
+  const r = await mcp(aSession.access_token, CONV, 'browser_task', { goal: GOAL, start_url: `${f.url}/show-cookie` })
+  assert.equal(r.error, false, r.text)
+  assert.match(r.out.note, /name no site to work on/)
+  assert.doesNotMatch(r.out.page_text, new RegExp(SECRET), '그 사람의 쿠키가 없는 브라우저')
+  const card = (await tasksOf(A.id)).at(-1)
+  assert.deepEqual({ readOnly: card.content.readOnly, why: card.content.where?.why }, { readOnly: true, why: 'fresh' })
+  answer(h, '읽었어요.')
+  await p
+})
+
+test('AB-I-12 에이전트가 시작한 작업은 결제 정보를 넣지 않는다', { skip: !up }, async () => {
+  const f = await fixture()
+  const GOAL = '양식에 카드 번호 넣기'
+  const g = toldOf(GOAL)
+  g.script([(b) => ['fill_secret', { i: el(b, 'x').i, field: 'card_number' }], () => ['finish', { summary: '넣지 않았어요.' }]])
+  const r = await browser.runBrowserTask({ userId: A.id, threadId: mainA, goal: GOAL, startUrl: `${f.url}/form`, own: true, byAgent: true, said: ['시험 사이트에서 양식을 채워 줘'], sites: ['127.0.0.1'] })
+  assert.equal(g.told[0], 'refused: 결제 정보는 에이전트 작업에서 넣지 않아요 — 채팅에서 직접 시켜 주세요 (payment details are never filled in a task the agent started; do not try another way, tell the person)')
+  assert.ok(r.notes.includes('결제 정보는 에이전트 작업에서 넣지 않아요 — 채팅에서 직접 시켜 주세요'))
+  // (no card asking which saved card to use, nor one asking to save a card)
+  assert.equal((await msgs(mainA)).filter((m) => m.kind === 'vault' && m.content.kind === 'card' && m.content.state === 'pending').length, 0)
 })

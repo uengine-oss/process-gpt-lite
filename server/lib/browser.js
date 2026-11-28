@@ -27,7 +27,7 @@ import { nameByContent } from './fileSniff.js'
 import { workspaceHostPath } from './missions.js'
 import { browserSkill, browserSkills, readBrowserSkill, browserSkillCatalog } from './browserSkills.js'
 import { judge } from './judge.js'
-import { STEP, StepError, isStop, bounded, pause, watchdog } from './browserSteps.js'
+import { STEP, StepError, isStop, bounded, pause, watchdog, lockHolder } from './browserSteps.js'
 import { ServerDriver, within, blankOf, lookAt } from './browserServer.js'
 import { RemoteDriver, routeFor, privateAddress, browsesHere } from './browserRemote.js'
 import { maskUrl, withoutMasked } from './urlTokens.js'
@@ -271,6 +271,27 @@ async function releaseFresh(s, own) {
   fs.rmSync(own.dir, { recursive: true, force: true })
 }
 
+// What a browser of its own leaves behind when a server stops in the middle of its task (pgl-fresh-* in the temporary folder): removed when
+// this server starts, once it is older than a few minutes and no running Chromium holds it. → how many were removed
+export function sweepFresh({ dir = os.tmpdir(), olderMs = 10 * 60_000, now = Date.now() } = {}) {
+  let n = 0
+  let names = []
+  try { names = fs.readdirSync(dir) } catch { return 0 }
+  for (const name of names) {
+    if (!name.startsWith('pgl-fresh-')) continue
+    const p = path.join(dir, name)
+    try {
+      const st = fs.statSync(p)
+      if (!st.isDirectory() || now - st.mtimeMs < olderMs || lockHolder(p)?.alive) continue
+      fs.rmSync(p, { recursive: true, force: true })
+      n++
+    } catch { /* gone meanwhile, or not ours to remove */ }
+  }
+  if (n) console.log(`[browser] removed ${n} empty browser folder(s) left from an earlier run`)
+  return n
+}
+if (process.env.PRO_BROWSER_SWEEP !== '0') setTimeout(() => sweepFresh(), 0).unref?.()
+
 // The live view's newest picture (when the page changes, frames come by themselves; this is one now)
 async function pushFrame(userId, s) {
   const data = await s.driver?.frameShot().catch(() => null)
@@ -407,11 +428,14 @@ export function effectDecision(read, { attended, onSite = false }) {
   if (read.pick === 'look') return 'ok'
   return onSite && ['own', 'asked'].includes(read.pick) ? 'ok' : 'approve'
 }
-// Is this host one of the sites the person's words name (lib/agentBrowser.js namedSites — that site or a name under it)?
+// Is this host one of the sites the person's words name (lib/agentBrowser.js namedSites — the exact host names, a picked browser skill's
+// own hosts among them)? A name under one (mail.google.com under google.com) is another site.
+const bareHost = (h) => String(h || '').toLowerCase().replace(/\.$/, '').replace(/^www\./, '')
 export function onNamedSite(host, sites = []) {
-  const h = String(host || '').toLowerCase().replace(/^www\./, '').replace(/\.$/, '')
-  return !!h && (sites || []).some((x) => { const n = String(x || '').toLowerCase().replace(/^www\./, ''); return !!n && (h === n || h.endsWith(`.${n}`)) })
+  const h = bareHost(host)
+  return !!h && (sites || []).some((x) => bareHost(x) === h)
 }
+const hostnameOf = (u) => { try { return new URL(u).hostname } catch { return '' } }
 // What a judgment that let an action go on is kept for, within one task: the same kind of action, on the same page (origin and path), on
 // the same control (its name), with the same text on screen (a dialog that opened changes it) and the same text typed. A control with
 // no name is never kept (two icon buttons are two judgments); an address to open is kept by the whole address. → the key, or null
@@ -582,7 +606,9 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   const guarded = noPrivateFor({ unattended, own, byAgent })
   const ready = idle ? takeBrowser(userId, s, { own, unattended, startUrl, noPrivate: guarded, fresh }).then((w) => { where = w }, (e) => { notTaken = e; console.warn('[browser] take', e.message) }) : null
   // (not this PC's own network for a task nobody watches: the start page waits for the check below)
-  const early = startUrl && idle
+  // (a task the agent started, the person there: a start address on a site they did not name waits for their card — not opened early)
+  const leaving = !!byAgent && !unattended && !!startUrl && !onNamedSite(hostnameOf(startUrl), sites)
+  const early = startUrl && idle && !leaving
     ? (emit(userId, 'status', { threadId, text: L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`) }),
       ready.then(() => { const d = s.driver; if (!where || offLimits(guarded, d, startUrl)) return; earlyTab = d.tab; return d.navigate(startUrl) }).then(() => true, () => true))
     : null
@@ -669,6 +695,8 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   task.drivingSince = Date.now()
   task.where = where
   if (fresh) task.freshOwn = s.fresh
+  // (from here the browser is given back however the task ends — the next task in line, a browser of its own closed: the finally below)
+  try {
   s.task = task
   s.threadId = threadId
   joined()
@@ -681,8 +709,11 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   if (early && !ahead) await early
   if (startUrl && offLimits(guarded, s.driver, startUrl)) task.notes.push(L(`${hostOf(startUrl)}: 사람이 없는 작업이라 PC 의 내부망 주소는 열지 않음`, `${hostOf(startUrl)}: not opened — a task nobody watches does not open addresses on the PC's own network`))
   else if (startUrl && !(early && !ahead && s.driver.tab === earlyTab) && !(earlier && shown(s.driver.url()) === shown(startUrl))) {
-    say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
-    await s.driver.navigate(startUrl, { signal: task.abort.signal }).catch(() => {})
+    const left = leaving ? await leaveGate(s, task, startUrl) : null
+    if (!left) {
+      say(task, L(`${hostOf(startUrl)} 여는 중`, `Opening ${hostOf(startUrl)}`))
+      await s.driver.navigate(startUrl, { signal: task.abort.signal }).catch(() => {})
+    }
   }
   const startedAt = s.driver.url()
   await pushFrame(userId, s)
@@ -721,7 +752,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   }
   // a task that did nothing in the browser is not "done", whatever the model wrote: it is left for
   // the person to check, and what they read is what the action log shows
-  try {
+  {
     result = honest(result, task, { moved: s.driver.url() !== startedAt || !!task.moves })
     // (a task cancelled or failed keeps its words as they are: they fold the same way)
     if (result.brief == null) {
@@ -754,6 +785,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     result.where = task.where
     result.pageText = task.cancelled ? '' : hide(task, await s.driver.text())
     return result
+  }
   } finally {
     if (s.task === task) s.task = null
     task.dog?.stop()
@@ -1846,7 +1878,23 @@ async function point(s, task, i, kind) {
 }
 
 async function act(s, task, name, a) {
-  const out = await doAct(s, task, name, a)
+  let out = await doAct(s, task, name, a)
+  // (a task the agent started, the person there: the site moved the work to another host by itself — a link, a new window — the person is
+  // asked before anything is done there; not approved → back to the last page on the sites they named)
+  if (task.byAgent && !task.unattended && ['click', 'type', 'attach_file', 'goto'].includes(name) && s.driver) {
+    const now = s.driver.url()
+    if (webAddress(now) && now !== 'about:blank') {
+      const host = bareHost(hostnameOf(now))
+      if (onNamedSite(host, task.sites)) task.lastNamed = now
+      else if (host && !task.openOk?.has(host)) {
+        const left = await leaveGate(s, task, now)
+        if (left) {
+          await s.driver.navigate(task.lastNamed || 'about:blank', { signal: task.signal }).catch(() => {})
+          out = `${out}\n(the page went to ${host}, a site the person did not name; they did not approve it, so the browser went back)`
+        }
+      }
+    }
+  }
   logAction(task, name, a, out)
   if (STEP_TOOLS.has(name) && Number(a.done) > 0 && !/^(error|refused|not pressed)/.test(String(out))) await markStep(task, Number(a.done))
   return out
@@ -1891,6 +1939,24 @@ export async function effectGate(s, task, { kind, control, typed = '', host, url
   return /approved: do it now/.test(String(answer)) ? null : `not done: ${answer}`
 }
 
+// Leaving the sites the person's words name, in a task the agent started that the person is there for: opening any other host waits on
+// the person's card first — whatever a judgment would say. An approval is for that host, in this task. → null to go on, or the words for
+// the model. deps (tests): approve — the card
+export async function leaveGate(s, task, url, { approve } = {}) {
+  if (!task.byAgent || task.unattended) return null
+  const host = bareHost(hostnameOf(url))
+  if (!host || onNamedSite(host, task.sites) || task.openOk?.has(host)) return null
+  const named = (task.sites || []).join(' · ') || L('없음', 'none')
+  const summary = L(`${host} 을(를) 열까요? 에이전트가 시작한 작업이라, 사람이 말한 사이트(${named}) 밖의 사이트는 승인한 뒤에만 열어요.`,
+    `Open ${host}? This task was started by the agent, so sites other than the ones you named (${named}) open only after you approve.`)
+  const was = task.approved
+  const answer = approve ? await approve(summary) : await act(s, task, 'approve', { summary })
+  task.approved = was
+  if (/approved: do it now/.test(String(answer))) { (task.openOk ||= new Set()).add(host); return null }
+  task.notes.push(L(`${host}: 사람이 승인하지 않아 열지 않음`, `${host}: not opened — the person did not approve it`))
+  return `not opened: ${host} is not one of the sites the person named, and they did not approve opening it. Stay on the sites they named, or finish with what you have.`
+}
+
 async function doAct(s, task, name, a) {
   const d = s.driver
   const host = (() => { try { return new URL(name === 'goto' ? a.url : d.url()).hostname.replace(/^www\./, '') } catch { return '' } })()
@@ -1909,9 +1975,14 @@ async function doAct(s, task, name, a) {
       if (offLimits(task.guarded, d, a.url)) return 'refused: this task runs with nobody watching on the person\'s PC, which does not open addresses on its own network (localhost, 10.x, 192.168.x …); use a public address'
       // the document, not the page going quiet: a page that keeps loading is read as it is (lib/browserSteps.js navigate)
       // (an address the agent was shown masked opens as it was: realOf)
-      // (a task the agent started: opening an address can act too — it goes through the effect gate)
+      // (a task the agent started: another site than the ones the person named asks the person first; opening an address can act too — on a
+      // named site it goes through the effect gate)
       if (to !== 'about:blank') {
-        const held = await effectGate(s, task, { kind: 'go', control: to, host, url: to })
+        const wasOpen = task.openOk?.has(bareHost(hostnameOf(to)))
+        const left = await leaveGate(s, task, to)
+        if (left) return left
+        const asked = !wasOpen && task.openOk?.has(bareHost(hostnameOf(to)))
+        const held = asked ? null : await effectGate(s, task, { kind: 'go', control: to, host, url: to })
         if (held) return held
       }
       const r = await d.navigate(to, { signal: task.signal })
@@ -1991,6 +2062,11 @@ async function doAct(s, task, name, a) {
     case 'fill_secret': {
       const site = normSite(new URL(d.url()).hostname)
       const kind = String(a.field).startsWith('card') ? 'card' : 'login'
+      // (payment details are never filled in a task the agent started — the person asks for that in the chat themselves)
+      if (kind === 'card' && task.byAgent) {
+        task.notes.push(L('결제 정보는 에이전트 작업에서 넣지 않아요 — 채팅에서 직접 시켜 주세요', 'Payment details are not filled in a task the agent started — ask for it in the chat yourself'))
+        return 'refused: 결제 정보는 에이전트 작업에서 넣지 않아요 — 채팅에서 직접 시켜 주세요 (payment details are never filled in a task the agent started; do not try another way, tell the person)'
+      }
       const item = await pickItem(s, task, kind, site)
       if (!item) return kind === 'card' ? 'no card saved: the user did not add one' : `no credential saved for ${site}`
       const sec = await useItem(task.userId, item.id, { taskId: task.id, field: a.field })
@@ -2386,6 +2462,7 @@ async function pickItem(s, task, kind, site) {
   const key = kind === 'card' ? 'wallet' : site
   if (task.picked[key]) return { id: task.picked[key] }
   if (task.declined.has(key)) return null // the user closed this request once: never ask again in this task
+  if (kind === 'card' && task.byAgent) return null
   if (task.noVault) { task.notes.push(L(`${site}: 사람이 없는 작업이라 저장된 ${kind === 'card' ? '카드' : '로그인'}를 쓰지 않음`, `${site}: a run nobody watches does not use saved ${kind === 'card' ? 'cards' : 'logins'}`)); return null }
   let list = await candidates(task.userId, kind, site)
   if (!list.length) {
