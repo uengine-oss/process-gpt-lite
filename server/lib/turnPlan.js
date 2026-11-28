@@ -175,6 +175,7 @@ const STAGE = {
   writing: () => L('답을 쓰는 중', 'Writing the answer'),
   done: () => L('끝났어요', 'Done'),
   stopped: () => L('멈췄어요', 'Stopped'),
+  asked: () => L('물어볼 게 있어 멈췄어요', 'Stopped to ask you'),
   failed: () => L('처리하지 못했어요', "Couldn't finish"),
 }
 export const nextStepText = () => L('다음 단계를 쓰는 중', 'Writing the next step')
@@ -246,7 +247,7 @@ export function handler(turn, h) {
 
 export function stage(turn, name, { text, detail } = {}) {
   const v = viewOf(turn)
-  if (!v || (v.ended && !['done', 'stopped', 'failed'].includes(name))) return
+  if (!v || (v.ended && !['done', 'stopped', 'asked', 'failed'].includes(name))) return
   const t = text || STAGE[name]?.() || ''
   if (v.stage?.stage === name && v.stage.text === t && (v.stage.detail || null) === (detail || null)) return
   if (v.stage?.stage !== name) v.stages.push({ stage: name, ms: Date.now() - v.startedAt })
@@ -317,19 +318,53 @@ export function end(turn, state = 'done') {
   views.delete(turn.id)
 }
 
+// The steps a saved plan keeps (2026-11-28 녹화 20:49: a step the turn could not do read done — 「계획 4/4」 — because every step of a
+// finished turn was marked done, whatever happened). shown: the steps the person saw (the agent's to-dos, else the plan's).
+//   - outcomes: how each step went (lib/planGuard.js final — done · missed · changed, with why)
+//   - guard: the run stopped to ask (planGuard) — the step it stopped at is missed or changed with what happened; the steps before it
+//     keep the agent's own state (done when it had no to-do list), the ones after it are pending
+//   - checking: the end check is still to come — the agent's own states for now (a step it never marked is not done yet)
+//   - none of these: a finished turn's steps read done, as before (no model to ask)
+export function stepsOf(shown, { state = 'done', todos = false, outcomes = null, guard = null, checking = false } = {}) {
+  const at = guard ? (guard.step ? guard.step - 1 : Math.max(0, shown.findIndex((s) => s.state !== 'done'))) : -1
+  return shown.map((s, i) => {
+    const { why: _w, ...base } = s
+    if (guard) {
+      if (i === at) return { ...base, state: guard.kind === 'changed' ? 'changed' : 'missed', why: String(guard.what || '').slice(0, 200) }
+      if (i < at) return { ...base, state: todos ? (s.state === 'done' ? 'done' : 'pending') : 'done' }
+      return { ...base, state: 'pending' }
+    }
+    const o = outcomes?.[i]
+    if (o) return { ...base, state: o.state, ...(o.why ? { why: o.why } : {}) }
+    if (checking || state === 'asked') return { ...base, state: todos ? s.state : 'pending' }
+    return { ...base, state: state === 'done' ? 'done' : todos ? s.state : 'pending' }
+  })
+}
+
 // what the answer (or the 「멈췄어요」 message) keeps: content.plan and content.notes
 // body: the answer saved with it — a note that is part of it (an agent's question streamed before it asked) is not kept twice
-export function saved(turn, state, body = '') {
+// state: done · stopped · asked (the agent asked the person, or the guard stopped the run to ask); opts: stepsOf's
+export function saved(turn, state, body = '', { outcomes = null, guard = null, checking = false } = {}) {
   const v = viewOf(turn)
   if (!v?.plan) return {}
   const notes = v.notes.map((n) => n.text).filter((t) => !(body && String(body).includes(t)))
-  const steps = v.todos.length ? v.todos.map((t) => ({ ...t, state: state === 'done' ? 'done' : t.state }))
-    : v.plan.steps.map((s) => ({ ...s, state: state === 'done' ? 'done' : 'pending' }))
+  // (a guard's stop is read against the steps as they were when it judged — the agent may rewrite its to-dos before the stop lands:
+  // review #132-8)
+  const todos = guard?.steps?.length ? !!guard.fromTodos : !!v.todos.length
+  const shown = guard?.steps?.length ? guard.steps : todos ? v.todos : v.plan.steps
+  const steps = stepsOf(shown, { state, todos, outcomes, guard, checking })
   return {
     plan: { understood: v.plan.understood, steps, handler: v.handler, tier: v.plan.tier, model: v.plan.model || null, source: v.plan.source,
-      state, ms: Date.now() - v.startedAt, stages: v.stages.slice(0, 20), fromTodos: !!v.todos.length },
+      state, ms: Date.now() - v.startedAt, stages: v.stages.slice(0, 20), fromTodos: todos, ...(checking ? { checking: true } : {}) },
     ...(notes.length ? { notes } : {}),
   }
+}
+// the end check came back (lib/planGuard.js final): the saved plan with each step's outcome — or, with none, done as before
+export function settledPlan(plan, outcomes) {
+  if (!plan || typeof plan !== 'object') return plan
+  const { checking: _c, ...rest } = plan
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+  return { ...rest, steps: stepsOf(steps, { state: plan.state || 'done', todos: !!plan.fromTodos, outcomes: outcomes && outcomes.length === steps.length ? outcomes : null }) }
 }
 
 // §1.4: what the agent is told after the person's message — the plan, recorded with write_todos first, and no more than it.
@@ -435,8 +470,11 @@ export function finalAnswer(done, segs) {
   const d = typeof done === 'string' && !isJson(done) ? done.trim() : ''
   const seg = segs?.answer?.() || ''
   // the last message only (done.content), unless the segment it ends is longer — the text before it was followed by bookkeeping
-  // only (a summary, then write_todos, then a closing line): then the whole segment is the answer
-  if (d && seg.length > d.length && seg.endsWith(d)) return { text: seg }
+  // only (a summary, then write_todos, then a closing line): then the whole segment is the answer — unless what came before is one
+  // short line (「Update README structure section.」 ahead of the whole answer, 2026-11-28 녹화 20:49): that is not part of it
+  // (review #132-11: a 400-character summary before a longer closing is still kept)
+  const before = d && seg.length > d.length && seg.endsWith(d) ? seg.slice(0, seg.length - d.length).trim() : ''
+  if (before && (before.includes('\n') || before.length > PROMOTE_CHARS)) return { text: seg }
   return { text: d || seg }
 }
 

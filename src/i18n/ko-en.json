@@ -3680,9 +3680,41 @@
   "폴더 정리 제안이 있어요": "A folder is suggested for this file",
   "파일 메뉴": "File menu",
   "프로젝트 카드를 준비하고 있어요…": "Preparing the project card…",
+  "물어볼 게 있어요": "Needs your answer",
+  "계획 · 확인하는 중": "Plan · checking",
+  "계획과 다르게 진행했어요": "This went differently from the plan",
+  "물어볼 게 있어 멈췄어요": "Stopped to ask you",
   "프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.": "I couldn't prepare the project card. Please press it again."
  },
  "patterns": [
+  [
+   "{0}단계 · 했음",
+   "Step {0} · done"
+  ],
+  [
+   "{0}단계 · 못 함",
+   "Step {0} · not done"
+  ],
+  [
+   "{0}단계 · 다르게 함",
+   "Step {0} · done another way"
+  ],
+  [
+   "{0}단계 · 하는 중",
+   "Step {0} · in progress"
+  ],
+  [
+   "{0}단계 · 아직",
+   "Step {0} · not yet"
+  ],
+  [
+   "{0}단계 못 함",
+   "Step {0} not done"
+  ],
+  [
+   "{0}단계 바꿈",
+   "Step {0} done another way"
+  ],
   [
    "「{0}」 프로젝트로 옮기기",
    "Move \"{0}\" to a project"

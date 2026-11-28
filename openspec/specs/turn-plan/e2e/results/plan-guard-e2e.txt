@@ -1,0 +1,11 @@
+
+Running 6 tests using 1 worker
+
+  ✓  1 [feature] › tests/feature/plan-guard.spec.js:241:1 › F-PG-01 PC(밝은): 자료를 못 찾고 다른 자료로 가려는 순간 멈추고 묻는다 — 계획은 답 위에 펼쳐져 1단계 ✗ (8.0s)
+  ✓  2 [feature] › tests/feature/plan-guard.spec.js:275:3 › F-PG-02 휴대폰 390(어두운): 에이전트가 멈추기에 답하지 않아도 같은 질문 · 계획 (3.2s)
+  ✓  3 [feature] › tests/feature/plan-guard.spec.js:275:3 › F-PG-02 휴대폰 390(밝은): 에이전트가 멈추기에 답하지 않아도 같은 질문 · 계획 (3.4s)
+  ✓  4 [feature] › tests/feature/plan-guard.spec.js:292:1 › F-PG-03 PC: 끝까지 했지만 계획과 달랐음 — 계획이 펼쳐지고 「계획과 다르게 진행했어요」의 보기를 누르면 보내짐 (4.6s)
+  ✓  5 [feature] › tests/feature/plan-guard.spec.js:320:1 › F-PG-04 PC: 계획대로면 「계획 3/3」 접힌 줄이 답 위에 · 판정 모델이 없으면 예전처럼 (3.6s)
+  ✓  6 [feature] › tests/feature/plan-guard.spec.js:346:1 › F-PG-05 영어 화면: 계획 줄 · 상자 제목이 영어 (4.7s)
+
+  6 passed (29.8s)

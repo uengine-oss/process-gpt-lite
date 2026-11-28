@@ -60,3 +60,34 @@ export function cardView(t, now = Date.now()) {
   const shown = !!t && (off ? late && (steps.length > 0 || !!live.text) : (!reading || late))
   return { shown, off, reading, steps, live }
 }
+
+// ---------- a saved answer's plan (server lib/turnPlan.js saved · settledPlan, lib/planGuard.js) ----------
+// The line it folds to, as parts (each its own text — the screen's translator reads each): 「계획 3/4」 · 「1단계 못 함」 · 「2분 14초」.
+// trouble: a step was missed or done another way, or the turn stopped to ask — the plan opens by itself and says which step
+// (2026-11-28 녹화 20:49: 「계획 4/4」 over a step the turn never did, folded under a long answer — 「계획이 지금 사라져버렸는데」)
+export const STEP_MARK = { done: '✓', missed: '✗', changed: '↷', active: '•' }
+// what a screen reader says for a step's mark (translated on screen in English mode)
+export const STEP_SAYS = { done: '했음', missed: '못 함', changed: '다르게 함', active: '하는 중', pending: '아직' }
+// a saved plan whose end check never came back (a restart in between) reads as the agent left it after this long — review #132-5
+export const CHECK_STALE_MS = 90_000
+// guardAsked: the guard stopped the turn to ask (content.guard.stopped) — only then does a question open the plan by itself (an agent's own
+// question does not: review #132-9); at: when the answer was saved
+export function planParts(plan, notes = [], { guardAsked = false, at = null, now = Date.now() } = {}) {
+  if (!plan || typeof plan !== 'object' || !plan.understood) return null
+  const steps = Array.isArray(plan.steps) ? plan.steps : []
+  if (!steps.length && !notes.length && plan.source !== 'front') return null
+  const missed = steps.findIndex((s) => s.state === 'missed')
+  const changed = steps.findIndex((s) => s.state === 'changed')
+  // (warn: a part that says something did not go as planned)
+  const stale = !!plan.checking && !!at && now - new Date(at).getTime() > CHECK_STALE_MS
+  const checking = !!plan.checking && !stale
+  // (a finished turn whose end check never came back reads as before the guard: its plan's steps done — server settledPlan's fallback)
+  const done = stale && !plan.fromTodos && plan.state === 'done' ? steps.length : doneOf(steps)
+  const parts = [{ text: steps.length ? (checking ? '계획 · 확인하는 중' : `계획 ${done}/${steps.length}`) : '진행 기록' }]
+  if (missed >= 0) parts.push({ text: `${missed + 1}단계 못 함`, warn: true })
+  if (changed >= 0) parts.push({ text: `${changed + 1}단계 바꿈`, warn: true })
+  if (plan.state === 'asked') parts.push({ text: '물어볼 게 있어요', warn: true })
+  if (plan.ms) parts.push({ text: dur(plan.ms) })
+  if (plan.state === 'stopped') parts.push({ text: '멈췄어요' })
+  return { parts, trouble: missed >= 0 || changed >= 0 || (plan.state === 'asked' && guardAsked) }
+}
