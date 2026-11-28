@@ -528,7 +528,10 @@ test('사람이 말한 사이트 밖으로: 사람이 있는 에이전트의 작
   assert.equal(await BR.leaveGate(null, task, 'https://notebooklm.google.com/notebook/1', { approve }), null, '말한 사이트')
   assert.equal(cards.length, 0)
   assert.match(await BR.leaveGate(null, task, 'https://mail.google.com/mail/u/0/', { approve }), /^not opened: mail\.google\.com/)
-  assert.match(cards[0], /^mail\.google\.com 을\(를\) 열까요\?/)
+  assert.match(cards[0], /^mail\.google\.com 을\(를\) 열까요\? \(https:\/\/mail\.google\.com\/mail\/u\/0\/\)/)
+  // the whole address on the card: where it goes, and the start of its query
+  assert.equal(BR.addressLine('https://other.example/account/delete?confirm=1'), 'https://other.example/account/delete?confirm=1')
+  assert.equal(BR.addressLine(`https://other.example/x?${'a'.repeat(100)}`), `https://other.example/x?${'a'.repeat(59)}…`)
   answer = 'the user approved: do it now'
   assert.equal(await BR.leaveGate(null, task, 'https://mail.google.com/mail/u/0/', { approve }), null)
   assert.equal(await BR.leaveGate(null, task, 'https://mail.google.com/other', { approve }), null, '승인한 그 사이트는 다시 묻지 않는다')

@@ -1877,23 +1877,39 @@ async function point(s, task, i, kind) {
   } catch { /* the action itself reports what is wrong */ }
 }
 
+// The actions that act on the page on screen (not opening an address, not the bookkeeping ones)
+const PAGE_ACTS = new Set(['click', 'type', 'fill_secret', 'scroll', 'wait_for_page', 'attach_file', 'save_pdf', 'pick_file', 'need_user', 'need_secret', 'login_failed', 'need_login'])
+// A task the agent started, the person there: is the page on screen on a host they did not name (the site went there by itself — a link,
+// a new window, a page that moves itself)? Then the person is asked before anything is done there; not approved → back to the last page
+// on the sites they named. → null, or what the model is told
+async function offSite(s, task) {
+  if (!task.byAgent || task.unattended || !s.driver) return null
+  const now = s.driver.url()
+  if (!webAddress(now) || now === 'about:blank') return null
+  const host = bareHost(hostnameOf(now))
+  if (onNamedSite(host, task.sites)) { task.lastNamed = now; return null }
+  if (!host || task.openOk?.has(host)) return null
+  const left = await leaveGate(s, task, now)
+  if (!left) return null
+  await s.driver.navigate(task.lastNamed || 'about:blank', { signal: task.signal }).catch(() => {})
+  return `the page had gone to ${host}, a site the person did not name; they did not approve it, so the browser went back`
+}
+
 async function act(s, task, name, a) {
-  let out = await doAct(s, task, name, a)
-  // (a task the agent started, the person there: the site moved the work to another host by itself — a link, a new window — the person is
-  // asked before anything is done there; not approved → back to the last page on the sites they named)
-  if (task.byAgent && !task.unattended && ['click', 'type', 'attach_file', 'goto'].includes(name) && s.driver) {
-    const now = s.driver.url()
-    if (webAddress(now) && now !== 'about:blank') {
-      const host = bareHost(hostnameOf(now))
-      if (onNamedSite(host, task.sites)) task.lastNamed = now
-      else if (host && !task.openOk?.has(host)) {
-        const left = await leaveGate(s, task, now)
-        if (left) {
-          await s.driver.navigate(task.lastNamed || 'about:blank', { signal: task.signal }).catch(() => {})
-          out = `${out}\n(the page went to ${host}, a site the person did not name; they did not approve it, so the browser went back)`
-        }
-      }
+  // (before any action on the page: a page that moved to another host by itself is the person's call first)
+  if (PAGE_ACTS.has(name)) {
+    const moved = await offSite(s, task)
+    if (moved) {
+      const out = `not done: ${moved}, and '${name}' was not done. Look at the page again.`
+      logAction(task, name, a, out)
+      return out
     }
+  }
+  let out = await doAct(s, task, name, a)
+  // (…and after it: the action itself may have taken the page there)
+  if (PAGE_ACTS.has(name) || name === 'goto') {
+    const moved = await offSite(s, task)
+    if (moved) out = `${out}\n(${moved})`
   }
   logAction(task, name, a, out)
   if (STEP_TOOLS.has(name) && Number(a.done) > 0 && !/^(error|refused|not pressed)/.test(String(out))) await markStep(task, Number(a.done))
@@ -1932,11 +1948,22 @@ export async function effectGate(s, task, { kind, control, typed = '', host, url
     : kind === 'submit' ? L(`${host}에서 「${what}」에 입력한 내용을 보낼까요?`, `Submit what was typed into "${what}" on ${host}?`)
       : kind === 'type' ? L(`${host}의 「${what}」에 입력할까요?`, `Type into "${what}" on ${host}?`)
         : L(`${host}에서 「${what}」을(를) 누를까요?`, `Press "${what}" on ${host}?`)) + tail
-  const was = task.approved
+  const was = task.approved, target = task.target
   const answer = approve ? await approve(summary) : await act(s, task, 'approve', { summary })
+  task.target = target
   // (this approval is for this action only — never a purchase approval)
   task.approved = was
   return /approved: do it now/.test(String(answer)) ? null : `not done: ${answer}`
+}
+
+// An address as the host card shows it: where it goes (origin and path) and the start of its query — tokens masked (shown)
+export function addressLine(url) {
+  const t = shown(url)
+  try {
+    const u = new URL(t)
+    const q = u.search.length > 61 ? `${u.search.slice(0, 60)}…` : u.search
+    return `${u.origin}${u.pathname}${q}`
+  } catch { return String(t || '').slice(0, 200) }
 }
 
 // Leaving the sites the person's words name, in a task the agent started that the person is there for: opening any other host waits on
@@ -1947,10 +1974,12 @@ export async function leaveGate(s, task, url, { approve } = {}) {
   const host = bareHost(hostnameOf(url))
   if (!host || onNamedSite(host, task.sites) || task.openOk?.has(host)) return null
   const named = (task.sites || []).join(' · ') || L('없음', 'none')
-  const summary = L(`${host} 을(를) 열까요? 에이전트가 시작한 작업이라, 사람이 말한 사이트(${named}) 밖의 사이트는 승인한 뒤에만 열어요.`,
-    `Open ${host}? This task was started by the agent, so sites other than the ones you named (${named}) open only after you approve.`)
-  const was = task.approved
+  const addr = addressLine(url)
+  const summary = L(`${host} 을(를) 열까요? (${addr}) 에이전트가 시작한 작업이라, 사람이 말한 사이트(${named}) 밖의 사이트는 승인한 뒤에만 열어요. 승인해도 그곳에서 무엇을 하는 동작은 따로 묻어요.`,
+    `Open ${host}? (${addr}) This task was started by the agent, so sites other than the ones you named (${named}) open only after you approve. Actions there are still asked about one by one.`)
+  const was = task.approved, target = task.target
   const answer = approve ? await approve(summary) : await act(s, task, 'approve', { summary })
+  task.target = target
   task.approved = was
   if (/approved: do it now/.test(String(answer))) { (task.openOk ||= new Set()).add(host); return null }
   task.notes.push(L(`${host}: 사람이 승인하지 않아 열지 않음`, `${host}: not opened — the person did not approve it`))
@@ -1977,12 +2006,11 @@ async function doAct(s, task, name, a) {
       // (an address the agent was shown masked opens as it was: realOf)
       // (a task the agent started: another site than the ones the person named asks the person first; opening an address can act too — on a
       // named site it goes through the effect gate)
+      // (the person approving the host lets the page load; what the address does is still judged — an address that acts has its own card)
       if (to !== 'about:blank') {
-        const wasOpen = task.openOk?.has(bareHost(hostnameOf(to)))
         const left = await leaveGate(s, task, to)
         if (left) return left
-        const asked = !wasOpen && task.openOk?.has(bareHost(hostnameOf(to)))
-        const held = asked ? null : await effectGate(s, task, { kind: 'go', control: to, host, url: to })
+        const held = await effectGate(s, task, { kind: 'go', control: to, host, url: to })
         if (held) return held
       }
       const r = await d.navigate(to, { signal: task.signal })
@@ -1998,16 +2026,24 @@ async function doAct(s, task, name, a) {
         if (!again) return 'error: this element is no longer on the page (the page changed since your last look); look at the page again before pressing anything'
         task.target = { i: a.i, ...again }
       }
-      const what = task.target.what || ''
+      // (what is pressed, kept here: a card on the way — an approval — reads the next action's target afresh)
+      const target = task.target
+      const what = target.what || ''
       const gate = purchaseGate(task, what)
       if (gate !== 'ok') {
         if (gate === 'refuse') return `${REFUSED_PURCHASE} '${what}' starts a purchase or order, and the goal does not ask to buy anything. Do not press it; do what the goal asks and finish.`
         if (!task.approved) {
           const ok = await act(s, task, 'approve', { summary: L(`'${what}'을(를) 눌러 결제·주문을 진행할까요?`, `Press '${what}' to go ahead with the payment or order?`) })
+          task.target = target
           if (!/approved: do it now/.test(String(ok))) return `not pressed: ${ok}`
         }
       }
-      const held = await effectGate(s, task, { kind: 'press', control: what || task.target.name || '', host, url: d.url() })
+      // (a link — or a form's address — to a host the person did not name: the host card before the press, so that page does not load first)
+      if (target.to && webAddress(target.to)) {
+        const left = await leaveGate(s, task, target.to)
+        if (left) return left
+      }
+      const held = await effectGate(s, task, { kind: 'press', control: what || target.name || '', host, url: d.url() })
       if (held) return held
       await point(s, task, a.i, 'click')
       await d.click(a.i, { signal: task.signal })

@@ -2367,8 +2367,8 @@ e2e/
 
 ```bash
 cd server && node --test --test-concurrency=1 test/agentBrowser.test.js test/agentTools.test.js          # AB-U · agentTools
-cd server && node --test --test-concurrency=1 test/agentBrowser.integration.test.js                      # AB-I-01~12 (실제 DB · HTTP MCP · Chromium)
-cd e2e && npx playwright test --project=feature tests/feature/agent-browser.spec.js --workers=1   # 공용 녹화 잠금 안에서 실행 실행 · F-AB-01~06
+cd server && node --test --test-concurrency=1 test/agentBrowser.integration.test.js                      # AB-I-01~15 (실제 DB · HTTP MCP · Chromium)
+cd e2e && npx playwright test --project=feature tests/feature/agent-browser.spec.js --workers=1   # 공용 녹화 잠금 안에서 실행 · F-AB-01~06
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2384,6 +2384,7 @@ cd e2e && npx playwright test --project=feature tests/feature/agent-browser.spec
 | 에이전트가 시작한 작업에서 무언가를 만들거나 바꿀 수 있는 곳은 사람의 말이 가리키는 사이트뿐이다. 작업이 시작될 때 모델이 한 번 읽어 정하고 카드에 「이 작업이 할 수 있는 곳: …」을 표시한다. 다른 곳에서는 보기만 허용하고, 나머지 동작은 승인 카드를 거친다. 정한 사이트가 없으면 모든 곳에서 보기만 허용한다. | 재검토 6 | AB-U 「바깥에 영향을 주는 동작 …」 · 「사람의 말이 가리키는 사이트 …」 · AB-I-08 · F-AB-01 | 단위 · DB · feature | ✅ |
 | 사람이 말한 사이트는 정확한 호스트 이름만 인정한다(두 마디 이상이며, `com` · `co.kr` · `github.io` 같은 공용 끝 이름은 제외한다). 그 아래 이름은 다른 사이트로 본다(`google.com` ≠ `mail.google.com`). 선택한 브라우저 스킬의 사이트(NotebookLM → notebooklm.google.com)는 포함한다. 사이트가 없으면 작업 전체가 임시 브라우저에서 읽기만 한다 | 3차 검토 2 · 3 | AB-U 「사람의 말이 가리키는 사이트 …」 · 「사람의 말에 사이트가 없으면 …」 · AB-I-11 | 단위 · DB | ✅ |
 | 사람이 있는 에이전트 작업이 사람이 말한 사이트 밖의 호스트로 가려 하면(주소 열기 · 시작 주소 · 스킬의 시작 주소), 그 사람의 브라우저에 열기 전에 「<호스트> 을(를) 열까요?」 카드를 표시한다. 판정이 「보기」여도 같다. 사이트가 스스로 다른 호스트로 이동하면 그곳에서 무엇을 하기 전에 같은 카드를 표시하고, 승인하지 않으면 이전 페이지로 돌아간다 | 3차 검토 3 | AB-U 「사람이 말한 사이트 밖으로 …」 · AB-I-10 | 단위 · DB | ✅ |
+| 호스트 카드에는 열 주소 전체(출처 · 경로 · 쿼리 앞부분)를 표시한다. 호스트를 승인해도 페이지를 여는 것만 허락한다. 그 주소를 여는 일과 그곳에서 하는 동작은 그대로 판정을 거친다(동작을 수행하는 주소는 별도의 승인 카드 표시). 다른 호스트로 가는 링크나 양식의 단추는 누르기 전에 호스트 카드를 표시한다. 페이지를 다루는 모든 동작의 앞뒤에 화면의 호스트를 확인한다. 페이지가 스스로 이동했으면(기다리는 동안 포함) 다음 동작 전에 카드를 표시한다. 페이지가 자체 스크립트로 이동하는 경우에는 페이지가 열리기 전이 아니라 그곳에서 첫 동작을 하기 전에 확인한다 | 4차 검토 1 · 2 · 3 | AB-U 「사람이 말한 사이트 밖으로 …」 · 「요소 이름 · 비밀 칸 · 자리」 · AB-I-13 · AB-I-14 · AB-I-15 | 단위 · DB | ✅ |
 | 에이전트가 시작한 작업은 결제 카드를 입력하지 않는다 — 「결제 정보는 에이전트 작업에서 넣지 않아요 — 채팅에서 직접 시켜 주세요」 | 3차 검토 1 | AB-I-12 | DB | ✅ |
 | 작업이 어떻게 끝나든 임시 브라우저를 지운다(작업 전체를 try/finally 안에서 실행한다). 서버가 시작할 때 몇 분 넘게 남아 있는 `pgl-fresh-*` 폴더를 지운다 | 3차 검토 4 | AB-U 「임시 브라우저의 남은 폴더 …」 · AB-I-09 · AB-I-11 | 단위 · DB | ✅ |
 | 판정은 글쓰기(Enter를 누르지 않아도)와 파일 칸이 아닌 단추로 파일 고르기 열기에도 적용한다. 그대로 진행해도 된다는 판정은 같은 페이지 · 이름 · 화면의 글 · 입력한 글에서만 다시 쓴다. 이름 없는 단추의 판정과 승인은 기억하지 않는다. 판정에 제공하는 페이지의 글은 짧게 줄이고, 지시가 아니라고 밝힌다. | 재검토 2 · 3 · 6 | AB-U 「판정을 기억하는 범위 …」 · 「판정이 읽는 것 …」 · AB-I-08 | 단위 · DB | ✅ |

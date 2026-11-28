@@ -67,7 +67,7 @@ function studio(summary) {
 const llm = http.createServer((req, res) => {
   let raw = ''
   req.on('data', (c) => { raw += c })
-  req.on('end', () => {
+  req.on('end', async () => {
     const b = JSON.parse(raw || '{}')
     const sys = String(b.messages?.[0]?.content || '')
     const names = (b.tools || []).map((t) => t.function?.name)
@@ -79,7 +79,8 @@ const llm = http.createServer((req, res) => {
     else if (/Break a web task/.test(sys)) message = { content: JSON.stringify({ title: String(b.messages[1].content).split('\n')[0].slice(0, 30), steps: ['생성', '기다리기', '받기'] }) }
     else if (names.includes('finish')) {
       const goal = (/Goal: (.*)/.exec(sys)?.[1] || '').trim()
-      const move = scripts[goal]?.(b) || ['finish', { summary: '끝났어요.' }]
+      // (a move may take a while — what the page does meanwhile is part of the check)
+      const move = (await scripts[goal]?.(b)) || ['finish', { summary: '끝났어요.' }]
       message = { content: null, tool_calls: [{ id: `c_${crypto.randomUUID().slice(0, 8)}`, type: 'function', function: { name: move[0], arguments: JSON.stringify(move[1]) } }] }
     } else if (names.length) message = { content: 'DELEGATE' }
     else if (sys.includes("You watch an assistant's work")) message = { content: JSON.stringify({ off: false, kind: 'none', confidence: 0.1, steps: [{ n: 1, state: 'done' }, { n: 2, state: 'done' }] }) }
@@ -403,6 +404,11 @@ async function fixture() {
     if (req.url.startsWith('/unsubscribe')) return page('<p>구독을 해지했어요</p>')
     if (req.url.startsWith('/set-cookie')) return page('<p>쿠키를 저장했어요</p>', { 'Set-Cookie': `sid=${SECRET}; Path=/; Max-Age=3600` })
     if (req.url.startsWith('/show-cookie')) return page(`<p>cookie: ${String(req.headers.cookie || '(none)').replace(/[<>&]/g, '')}</p>`)
+    const other = `http://localhost:${fx.srv.address().port}`
+    if (req.url.startsWith('/links')) return page(`<h1>링크</h1><a href="${other}/away">다른 곳으로</a>`)
+    if (req.url.startsWith('/redirect-during')) return page(`<p>기다리는 화면</p><script>if(!sessionStorage.getItem('d')){sessionStorage.setItem('d','1');setTimeout(()=>{location.href='${other}/landing'},400)}</script>`)
+    if (req.url.startsWith('/redirect-later')) return page(`<p>대기 화면</p><button onclick="fetch('/pressed')">누르기</button><script>if(!sessionStorage.getItem('l')){sessionStorage.setItem('l','1');setTimeout(()=>{location.href='${other}/landing'},700)}</script>`)
+    if (req.url.startsWith('/landing')) return page('<p>도착</p><button onclick="fetch(\'/pressed\')">누르기</button>')
     if (req.url.startsWith('/share')) return page('<h1>공유</h1><button id="up" onclick="document.getElementById(\'f\').click()">공유하며 올리기</button><input id="f" type="file" hidden>')
     page('<p>시험 사이트</p>')
   })
@@ -559,4 +565,102 @@ test('AB-I-12 에이전트가 시작한 작업은 결제 정보를 넣지 않는
   assert.ok(r.notes.includes('결제 정보는 에이전트 작업에서 넣지 않아요 — 채팅에서 직접 시켜 주세요'))
   // (no card asking which saved card to use, nor one asking to save a card)
   assert.equal((await msgs(mainA)).filter((m) => m.kind === 'vault' && m.content.kind === 'card' && m.content.state === 'pending').length, 0)
+})
+
+// a turn of the person's (sites the words name: 127.0.0.1), for a few browser tasks of the agent's
+async function personTurn(text) {
+  const n0 = streams.length
+  const p = runTurn({ user: { id: A.id, email: A_MAIL, name: '시험 에이' }, session: aSession, threadId: mainA, text })
+  const h = await nth(n0 + 1)
+  if (!h.body.conversation_id) h.meta(CONV)
+  await until(() => turns.agentTurnsOf(A.id).find((t) => t.conv === CONV))
+  return { done: async () => { answer(h, '정리했어요.'); await p } }
+}
+// 「승인」 on the card itself (as /api/choices/:id does — an approval is never given from a notification)
+const approveOnCard = async (card) => {
+  await q(`update pro_messages set content = content || $2::jsonb where id=$1`, [card.id, JSON.stringify({ state: 'answered', value: '승인' })])
+  browser.resume(A.id, 'The user chose: 승인. Continue with that choice.')
+}
+// (the call comes back as soon as the task asks the person; the task goes on after the answer — wait for its end)
+const taskEnded = (goal) => until(async () => { const t = (await tasksOf(A.id)).reverse().find((m) => String(m.content.goal || '').startsWith(goal)); return t && ['done', 'needs_review', 'failed', 'cancelled', 'stopped', 'error'].includes(t.content.state) }, 30000)
+const pendingCard = (test) => until(async () => (await msgs(mainA)).find((m) => m.kind === 'choice' && m.content.approval && m.content.state === 'pending' && test(m.content.question)), 30000)
+
+test('AB-I-13 다른 호스트를 열도록 승인해도 동작의 승인은 아니다 — 카드는 주소 전체를 보여 주고, 무엇을 하는 주소는 따로 승인 카드', { skip: !up }, async () => {
+  const f = await fixture()
+  const other = f.url.replace('127.0.0.1', 'localhost')
+  const turn = await personTurn('시험 사이트에서 목록을 정리해 줘')
+  const GOAL = '다른 이름의 계정 삭제 주소'
+  const g = toldOf(GOAL)
+  g.script([() => ['goto', { url: `${other}/account/delete?confirm=1` }], (b) => ['finish', { summary: /^not done/.test(lastTool(b)) ? '열지 않았어요.' : '열었어요.' }]])
+  const call = mcp(aSession.access_token, CONV, 'browser_task', { goal: GOAL, start_url: `${f.url}/` })
+  const hostCard = await pendingCard((q) => q.startsWith('localhost 을(를) 열까요?'))
+  assert.ok(hostCard.content.question.includes(`(${other}/account/delete?confirm=1)`), hostCard.content.question)
+  await approveOnCard(hostCard)
+  // the host is approved; the address itself still has its card
+  const actCard = await pendingCard((q) => /주소를 열까요\?/.test(q) && q.includes('/account/delete'))
+  assert.ok(actCard, '주소의 승인 카드')
+  await browser.answerCard(A.id, actCard.id, '취소')
+  const r = await call
+  assert.ok(await taskEnded(GOAL), '작업이 끝났다')
+  assert.match(r.out.summary, /^열지 않았어요/)
+  assert.ok(!f.hits.some((x) => x.startsWith('GET /account/delete')), '아무 요청도 가지 않았다')
+  await turn.done()
+})
+
+test('AB-I-14 다른 호스트로 가는 링크는 누르기 전에 호스트 카드 — 「취소」면 그 페이지는 열리지 않는다', { skip: !up }, async () => {
+  const f = await fixture()
+  const turn = await personTurn('시험 사이트에서 링크를 정리해 줘')
+  const GOAL = '다른 곳으로 가는 링크 누르기'
+  const g = toldOf(GOAL)
+  g.script([(b) => ['click', { i: el(b, '다른 곳으로').i }], (b) => ['finish', { summary: /^not opened/.test(lastTool(b)) ? '누르지 않았어요.' : '눌렀어요.' }]])
+  const call = mcp(aSession.access_token, CONV, 'browser_task', { goal: GOAL, start_url: `${f.url}/links` })
+  const card = await pendingCard((q) => q.startsWith('localhost 을(를) 열까요?') && q.includes('/away'))
+  assert.ok(card, '링크의 호스트 카드')
+  await browser.answerCard(A.id, card.id, '취소')
+  const r = await call
+  assert.ok(await taskEnded(GOAL), '작업이 끝났다')
+  assert.match(r.out.summary, /^누르지 않았어요/)
+  assert.ok(!f.hits.includes('GET /away'), '그 페이지는 열리지 않았다')
+  // 「승인」: the link is pressed and that page opens (the press itself still went through the effect gate)
+  const OK = '다른 곳으로 가는 링크 누르기(승인)'
+  const g2 = toldOf(OK)
+  g2.script([(b) => ['click', { i: el(b, '다른 곳으로').i }], (b) => ['finish', { summary: lastTool(b) === 'ok' ? '눌렀어요.' : '누르지 않았어요.' }]])
+  const call2 = mcp(aSession.access_token, CONV, 'browser_task', { goal: OK, start_url: `${f.url}/links` })
+  const card2 = await pendingCard((q) => q.startsWith('localhost 을(를) 열까요?') && q.includes('/away'))
+  await approveOnCard(card2)
+  await call2
+  assert.ok(await taskEnded(OK), '작업이 끝났다')
+  assert.match(g2.told[0], /^ok/, JSON.stringify(g2.told))
+  assert.ok(await until(() => f.hits.includes('GET /away'), 5000), '승인한 뒤에는 열렸다')
+  await turn.done()
+})
+
+test('AB-I-15 페이지가 스스로 다른 호스트로 옮겨 가면(기다리는 동안 · 동작 사이) 다음 동작 전에 호스트 카드 — 「취소」면 돌아오고 그 동작은 하지 않는다', { skip: !up }, async () => {
+  const f = await fixture()
+  const turn = await personTurn('시험 사이트에서 결과를 기다렸다가 정리해 줘')
+  const pressed0 = f.hits.filter((x) => x === 'GET /pressed').length
+  // while waiting: the page moves during wait_for_page
+  const W = '기다리는 동안 옮겨 가는 페이지'
+  const w = toldOf(W)
+  w.script([() => ['wait_for_page', { minutes: 0.2, until_text: '도착' }], (b) => (el(b, '누르기') ? ['click', { i: el(b, '누르기').i }] : ['finish', { summary: '누를 것이 없어요.' }]), () => ['finish', { summary: '끝났어요.' }]])
+  const c1 = mcp(aSession.access_token, CONV, 'browser_task', { goal: W, start_url: `${f.url}/redirect-during` })
+  const card1 = await pendingCard((q) => q.startsWith('localhost 을(를) 열까요?') && q.includes('/landing'))
+  assert.ok(card1, '기다리는 동안 옮겨 간 페이지의 카드')
+  await browser.answerCard(A.id, card1.id, '취소')
+  await c1
+  assert.ok(await taskEnded(W), '작업이 끝났다')
+  assert.match(w.told[0], /the page had gone to localhost/)
+  // between two actions: the page moves after the model looked and before it presses
+  const L2 = '동작 사이에 옮겨 가는 페이지'
+  const l = toldOf(L2)
+  l.script([() => ['note', { text: '대기 화면을 봤어요' }], async (b) => { const i = el(b, '누르기')?.i; await new Promise((ok) => setTimeout(ok, 1500)); return ['click', { i }] }, () => ['finish', { summary: '끝났어요.' }]])
+  const c2 = mcp(aSession.access_token, CONV, 'browser_task', { goal: L2, start_url: `${f.url}/redirect-later` })
+  const card2 = await pendingCard((q) => q.startsWith('localhost 을(를) 열까요?') && q.includes('/landing'))
+  assert.ok(card2, '동작 사이에 옮겨 간 페이지의 카드')
+  await browser.answerCard(A.id, card2.id, '취소')
+  await c2
+  assert.ok(await taskEnded(L2), '작업이 끝났다')
+  assert.match(l.told[1], /^not done: the page had gone to localhost, .* and 'click' was not done/)
+  assert.equal(f.hits.filter((x) => x === 'GET /pressed').length, pressed0, '누르지 않았다')
+  await turn.done()
 })
