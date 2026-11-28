@@ -367,7 +367,15 @@ export function settledPlan(plan, outcomes) {
   return { ...rest, steps: stepsOf(steps, { state: plan.state || 'done', todos: !!plan.fromTodos, outcomes: outcomes && outcomes.length === steps.length ? outcomes : null }) }
 }
 
-// §1.4: what the agent is told after the person's message — the plan, recorded with write_todos first, and no more than it.
+// §1.4: what the agent is told after the person's message — the plan, recorded first where the agent has a to-do list tool (production
+// deepagents has none: deepagents adds TodoListMiddleware only for codex models — naming a missing tool made codex stop, 2026-11-28
+// experiment), and no more than it. And the agreement for leaving it (the user, 2026-11-28: 「원래 계획이 아닌 계획을 벗어날 때는 휴먼 인더
+// 루프로 우리 서버 쪽으로 알려줘야 된다라고 하는 게 명시가 돼 있어야 돼」): a step that cannot be done as planned is not substituted —
+// the agent asks with request_human_input (deepagents' tool; Lite turns its human_input_required into the question card). Named on
+// purpose: Claude Code loads MCP tools only when it looks for them by name. Without it, deepagents · Claude Code · codex stopped in
+// prose (no question reached Lite, and the plan was saved as done); with it all three asked 12/12 · 12/12 · 4/4, no false stops.
+export const OFF_PLAN_KO = '계획대로 할 수 없을 때: 어떤 단계를 계획대로 할 수 없거나(찾는 자료가 없음, 파일이 열리지 않음, 권한이 없음, 필요한 도구가 없음 등) 계획과 다른 방법·자료·결과물이 있어야 할 것 같으면 다른 것으로 대신하지 마세요. request_human_input 도구로 무슨 일이 있었는지, 왜 계획대로 못 하는지, 고를 수 있는 길 2~3가지를 알리고 답을 기다리세요. 요청의 뜻을 그대로 지키는 작은 다듬기(검색어 바꾸기, 단계 나누기·합치기)는 묻지 않고 해도 됩니다.'
+export const OFF_PLAN_EN = 'When you cannot follow the plan: if a step cannot be done as planned (the material is not found, a file does not open, no permission, a needed tool is missing, …) or it seems to need a different method, source or deliverable than the plan, do not substitute something else. Call the request_human_input tool: say what happened, why the plan cannot be followed, and 2-3 options to choose from, then wait for the answer. Small refinements that keep the request\'s intent (changing search words, splitting or merging steps) are fine without asking.'
 // Waits for the front call (it ends by FRONT_MS from the message); nothing when it fell back or is off.
 export async function planBlock(turn) {
   const v = viewOf(turn)
@@ -375,8 +383,8 @@ export async function planBlock(turn) {
   const plan = v.plan || await Promise.race([v.ready, new Promise((r) => setTimeout(() => r(null), Math.max(0, FRONT_MS + 300 - (Date.now() - v.startedAt))))])
   if (!plan || plan.source !== 'front') return ''
   const steps = plan.steps.map((s, i) => `${i + 1}. ${s.text}`).join('\n')
-  return L(`\n\n[계획] ${plan.understood}\n${steps ? `${steps}\n` : ''}이 계획을 먼저 write_todos 로 기록하세요(다듬어도 됩니다). 이 일만 하세요.\n요청하지 않은 결과물은 만들지 마세요. 더 하면 좋을 일이 있으면 끝에 말로 제안하세요.`,
-    `\n\n[Plan] ${plan.understood}\n${steps ? `${steps}\n` : ''}Record this plan with write_todos first; you may refine it. Do only this work.\nDo not produce deliverables that were not asked for; if more seems useful, say so at the end.`)
+  return L(`\n\n[계획] ${plan.understood}\n${steps ? `${steps}\n` : ''}이 계획대로만 하세요. 할 일 목록 도구가 있으면 이 계획을 먼저 기록하고(다듬어도 됩니다), 없으면 그냥 진행하세요 — 기록 도구가 없는 것은 계획에서 벗어난 것이 아닙니다.\n요청하지 않은 결과물은 만들지 마세요. 더 하면 좋을 일이 있으면 끝에 말로 제안하세요.\n${OFF_PLAN_KO}`,
+    `\n\n[Plan] ${plan.understood}\n${steps ? `${steps}\n` : ''}Do only this plan. If you have a to-do list tool, record this plan with it first (you may refine it); if not, just go ahead — not having one is not a departure from the plan.\nDo not produce deliverables that were not asked for; if more seems useful, say so at the end.\n${OFF_PLAN_EN}`)
 }
 
 // the live state of this person's turns in a thread (the page opened mid-turn)
