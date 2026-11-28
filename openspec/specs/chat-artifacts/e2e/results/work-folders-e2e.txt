@@ -1,3 +1,19 @@
+# 2026-11-28 23:33 · cd e2e && reclock.sh run wf-fix -- env RT_WF_API_PORT=9081 RT_WF_WEB_PORT=5481 RT_WF_LLM_PORT=9086 RT_WF_AGENT_PORT=9087 npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1 (fix/work-folder-cards — F-WF-07 · F-WF-08, uncommitted)
+Running 9 tests using 1 worker
+[work-folders] stack on BFF 9081 · web 5481
+  ✓  1 [feature] › tests/feature/work-folders.spec.js:220:1 › F-WF-01 PC 1280(밝은): 21개를 만든 턴은 카드 하나 — 폴더는 접힌 한 줄, 펼치고 접기, 같은 이름엔 폴더, 줄은 카드처럼 열리고 「⋯」은 카드의 메뉴 (9.6s)
+  ✓  2 [feature] › tests/feature/work-folders.spec.js:306:3 › F-WF-02 휴대폰 390(밝은): 카드는 화면 안, 옆으로 밀리지 않음, 줄을 길게 누르면 카드의 메뉴 (5.7s)
+  ✓  3 [feature] › tests/feature/work-folders.spec.js:306:3 › F-WF-02 휴대폰 390(어두운): 카드는 화면 안, 옆으로 밀리지 않음, 줄을 길게 누르면 카드의 메뉴 (5.6s)
+  ✓  4 [feature] › tests/feature/work-folders.spec.js:344:1 › F-WF-03 PC 1440: 산출물 목록은 작업 폴더 · 버전으로 묶이고(새 버전은 펼침 · 옛 버전은 접힘) 같은 이름엔 폴더, 찾기는 폴더도 읽음 (2.0s)
+  ✓  5 [feature] › tests/feature/work-folders.spec.js:379:1 › F-WF-04 휴대폰 390: 산출물 더미의 격자도 작업 폴더 · 버전 이름 아래, 같은 이름엔 폴더 (3.1s)
+  ✓  6 [feature] › tests/feature/work-folders.spec.js:407:1 › F-WF-05 실제 턴: 에이전트는 작업 폴더 · 버전을 듣고, 6개는 카드 하나 — 「처음부터 다시」는 v1 을 두고 v2 (3.8s)
+  ✓  7 [feature] › tests/feature/work-folders.spec.js:450:1 › F-WF-06 실제 턴: 「process improvement plan」은 work-process-improvement-plan/v1 — 파일은 카드로, 스크립트가 하위 폴더 깊이 쓴 파일도 (3.4s)
+  ✓  8 [feature] › tests/feature/work-folders.spec.js:478:1 › F-WF-07 실제 턴: 작은 웹 페이지의 app.js 도 카드 안의 줄 — 누르면 작업실, node_modules · 점 폴더의 스크립트는 줄이 아님 (2.6s)
+  ✓  9 [feature] › tests/feature/work-folders.spec.js:509:1 › F-WF-08 실제 턴: 그 자리에서 고친 파일은 채팅에 카드 둘, 휴대폰 더미와 PC 목록에는 한 번 — 개수도 한 번 (6.4s)
+  9 passed (45.7s)
+
+# server, the same day: fileGroups · workFolder · workFolderDocs 27/27, workFolder.integration 9/9, chatArtifacts · projectTopics · provenance · followups 55/55. agentTurn.integration 10/11 — the one failure (.skill-evals) is the real model's title call answering 401 expired_secret_key, the same on 5b827d5
+
 # 2026-11-28 22:47 · cd e2e && reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1 (after the PR #135 confirmation review, uncommitted)
 Running 7 tests using 1 worker
 [work-folders] stack on BFF 8941 · web 5341

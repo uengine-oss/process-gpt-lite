@@ -13,8 +13,12 @@
 //           (syllabus/notes/…)도 카드 안에 들어옴
 //   F-WF-05 실제 턴(가짜 모델 · 가짜 deepagents): 「만들어 줘」 → 에이전트에게 「작업 폴더: … '…/v1/'」, 파일 6개가 카드 하나로 · 「처음부터
 //           다시」 → 모델이 v1 을 보고 「다시」로 판단, 에이전트에게 새 버전 v2 와 v1 을 그대로 두라는 줄, 두 번째 카드 「… · v2」
-// 자기 스택(lib/localStack.js: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트)과 이 파일이 띄우는 가짜 모델 · 가짜 deepagents
-// (빈 포트)로 돈다. 사람은 지어낸 것이다(정하윤 · 한서윤, 「가나정밀 교육 과정」). 시험이 만든 행 · 파일은 끝나면 지운다.
+//   F-WF-07 (PR #135 데모에서 찾은 결함) 실제 턴: 작은 웹 페이지(index.html · app.js · style.css · README.md)를 만들면 app.js 도 카드 안의 줄 —
+//           누르면 작업실에서 열림. node_modules 안의 파일, 점으로 시작하는 폴더의 도우미 스크립트는 줄이 되지 않음
+//   F-WF-08 (PR #135 데모에서 찾은 결함) 실제 턴: 「2주차 모듈만 고쳐 줘」로 v1 의 module-2.md 를 그 자리에서 고치면 채팅에는 카드가 둘(앞 턴의
+//           묶음 카드는 그대로 5개), 휴대폰 390 의 산출물 더미와 PC 1440 의 목록에는 module-2.md 가 한 번 — 개수도 한 번만 셈
+// 자기 스택(lib/localStack.js: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트 — RT_WF_API_PORT · RT_WF_WEB_PORT 로 바꿈)과 이 파일이
+// 띄우는 가짜 모델 · 가짜 deepagents(빈 포트 — RT_WF_LLM_PORT · RT_WF_AGENT_PORT 로 정함)로 돈다. 사람은 지어낸 것이다(정하윤 · 한서윤, 「가나정밀 교육 과정」). 시험이 만든 행 · 파일은 끝나면 지운다.
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/work-folders.spec.js
 import http from 'node:http'
 import fs from 'node:fs'
@@ -29,6 +33,10 @@ const PC = { viewport: { width: 1280, height: 800 }, locale: 'ko-KR' }
 const WIDE = { viewport: { width: 1440, height: 900 }, locale: 'ko-KR' }
 const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2, locale: 'ko-KR' }
 const STAMP = crypto.randomBytes(3).toString('hex')
+const API_FROM = Number(process.env.RT_WF_API_PORT) || 8941
+const WEB_FROM = Number(process.env.RT_WF_WEB_PORT) || 5341
+const LLM_PORT = Number(process.env.RT_WF_LLM_PORT) || 0
+const AGENT_PORT = Number(process.env.RT_WF_AGENT_PORT) || 0
 test.use({ channel: 'chromium' })
 test.describe.configure({ mode: 'serial' })
 
@@ -47,7 +55,7 @@ const WITH_URL = new Set(['constitution.md', 'adr/ADR-004.md', '커리큘럼/v2/
 
 // ---- the fake model: the front plan, the work-folder question (what the test sets), DELEGATE for the chat's router ----
 let servers = []
-const listen = (srv) => new Promise((ok, no) => srv.once('error', no).listen(0, '127.0.0.1', () => { servers.push(srv); ok(srv.address().port) }))
+const listen = (srv, port = 0) => new Promise((ok, no) => srv.once('error', no).listen(port, '127.0.0.1', () => { servers.push(srv); ok(srv.address().port) }))
 const bodyOf = (req) => new Promise((ok) => { let raw = ''; req.on('data', (c) => { raw += c }); req.on('end', () => { try { ok(JSON.parse(raw)) } catch { ok({}) } }) })
 const llm = { folder: [], answer: null }
 const send = (res, o, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)) }
@@ -128,9 +136,9 @@ async function turn(at, said, answer, room, rels) {
 test.beforeAll(async () => {
   test.setTimeout(240_000)
   fs.mkdirSync(SHOTS, { recursive: true })
-  const llmPort = await listen(llmServer())
-  const agentPort = await listen(agentServer())
-  S = await startStack({ tenant: TENANT, apiFrom: 8941, webFrom: 5341, env: {
+  const llmPort = await listen(llmServer(), LLM_PORT)
+  const agentPort = await listen(agentServer(), AGENT_PORT)
+  S = await startStack({ tenant: TENANT, apiFrom: API_FROM, webFrom: WEB_FROM, env: {
     PRO_LLM_BASE_URL: `http://127.0.0.1:${llmPort}/v1`, PRO_LLM_API_KEY: 'fake', PRO_LLM_KEYS: 'off', PRO_DEEPAGENTS_URL: `http://127.0.0.1:${agentPort}`,
     PRO_CONTEXT_ROUTER_URL: '', PRO_COMPLETION_URL: 'http://127.0.0.1:9', PRO_JUDGE_URL: 'http://127.0.0.1:9/judge', PRO_MCP_HUB_URL: 'http://127.0.0.1:9',
     PRO_MEMENTO_URL: 'http://127.0.0.1:9', PRO_OFFICE_MCP_URL: 'http://127.0.0.1:9', PRO_EMBED_URL: '', PRO_ONTOLOGY_BOLT_URL: '',
@@ -463,4 +471,105 @@ test('F-WF-06 실제 턴: 「process improvement plan」은 work-process-improve
   await shot(p, 'f-wf-06-live-reserved-name')
   expect(p.errors).toEqual([])
   await p.context().close()
+})
+
+// (PR #135 demo: the recorder had to swap starter/app.js for a .md — a script the agent wrote never became a card once the turn left any
+// document; server lib/provenance.js dropScaffolding)
+test('F-WF-07 실제 턴: 작은 웹 페이지의 app.js 도 카드 안의 줄 — 누르면 작업실, node_modules · 점 폴더의 스크립트는 줄이 아님', async ({ browser }) => {
+  const p = await open(browser, SY, PC)
+  await toChat(p)
+  const box = p.locator('.composer textarea').first()
+  await expect(box).toBeVisible({ timeout: 30000 })
+  const groups = p.locator('[data-test="file-group"]')
+  const n = await groups.count()
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: '할 일 웹 페이지', confidence: 0.93 }
+  agent.files.push('index.html', 'app.js', 'style.css', 'README.md', 'node_modules/left-pad/index.js', '.cache/check.py')
+  await box.fill('할 일 목록을 보여 주는 작은 웹 페이지를 만들어 줘. html, css, js 로')
+  await box.press('Enter')
+  await expect(groups).toHaveCount(n + 1, { timeout: 60000 })
+  const g = groups.last()
+  await expect(g.locator('[data-test="file-group-where"]')).toHaveText('할-일-웹-페이지 · v1', { timeout: 20000 })
+  await expect(g.locator('[data-test="file-group-count"]')).toHaveText('파일 4개')
+  await expect(row(g, 'app.js')).toHaveCount(1)
+  await expect(row(g, 'index.js')).toHaveCount(0)
+  await expect(row(g, 'check.py')).toHaveCount(0)
+  const paths = (await S.q(`select content->>'path' as p from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='file' and content->>'path' like '%/할-일-웹-페이지/v1/%'`, [SY.id])).map((r) => r.p.replace(/^.*\/할-일-웹-페이지\/v1\//, ''))
+  expect(paths.sort()).toEqual(['README.md', 'app.js', 'index.html', 'style.css'])
+  await center(g)
+  await shot(p, 'f-wf-07-live-app-js')
+  // the row opens as its card would: a file only in the workroom opens there
+  await row(g, 'app.js').locator('button.file').click()
+  await expect.poll(() => decodeURIComponent(p.url())).toMatch(/\/workroom\/chat\/[^?]+\?open=할-일-웹-페이지\/v1\/app\.js/)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+// (PR #135 demo: after 「2주차 모듈만 고쳐 줘」 the pile's v2 showed module-2.md twice — the edit is a new card for the same path; src/artifactScope.js
+// artifactItems lists a path once, its newest card)
+test('F-WF-08 실제 턴: 그 자리에서 고친 파일은 채팅에 카드 둘, 휴대폰 더미와 PC 목록에는 한 번 — 개수도 한 번', async ({ browser }) => {
+  const p = await open(browser, SY, PC)
+  await toChat(p)
+  const box = p.locator('.composer textarea').first()
+  await expect(box).toBeVisible({ timeout: 30000 })
+  const groups = p.locator('[data-test="file-group"]')
+  const n = await groups.count()
+  // 1) new work: five files in 모듈-과정/v1
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: '모듈 과정', confidence: 0.93 }
+  agent.files.push('README.md', 'modules/module-1.md', 'modules/module-2.md', 'modules/module-3.md', 'labs/lab-1.md')
+  await box.fill('신입 교육을 모듈 세 개와 실습 하나로 만들어 줘')
+  await box.press('Enter')
+  await expect(groups).toHaveCount(n + 1, { timeout: 60000 })
+  const g = groups.last()
+  await expect(g.locator('[data-test="file-group-where"]')).toHaveText('모듈-과정 · v1', { timeout: 20000 })
+  await expect(g.locator('[data-test="file-group-count"]')).toHaveText('파일 5개 · 폴더 2개')
+  // 2) a revision of one file, in place
+  llm.answer = { files: 'one', mode: 'revise', folder: '모듈-과정', name: '모듈 과정', confidence: 0.9 }
+  agent.files.push('modules/module-2.md')
+  await box.fill('2주차 모듈만 실습 위주로 고쳐 줘')
+  await box.press('Enter')
+  const single = p.locator('.row.k-file [data-test="file-card"][data-file="module-2.md"]')
+  await expect(single).toHaveCount(1, { timeout: 60000 })
+  expect(String(agent.bodies.at(-1)?.message || '')).toContain("이번 요청은 산출물 폴더 안의 '모듈-과정/v1/' 의 파일을 고치는 일이에요")
+  // the chat keeps both cards: the first turn's card is still five, the revision a card of its own
+  await expect(g.locator('[data-test="file-group-count"]')).toHaveText('파일 5개 · 폴더 2개')
+  const rows = await S.q(`select content->>'path' as p from pro_messages m join pro_threads t on t.id=m.thread_id where t.user_id=$1 and m.kind='file'`, [SY.id])
+  expect(rows.filter((r) => r.p.endsWith('/모듈-과정/v1/modules/module-2.md'))).toHaveLength(2)
+  const files = new Set(rows.map((r) => r.p)).size
+  expect(rows.length).toBe(files + 1)
+  await center(single)
+  await shot(p, 'f-wf-08-pc-revised-card')
+  await p.context().close()
+  // a phone 390: the pile counts the file once and shows it once (the grid — or the fan, when this runs alone)
+  const ph = await open(browser, SY, PHONE)
+  await toChat(ph, true)
+  const pile = ph.locator('.astack [data-test="pile"]')
+  await expect(ph.locator('.row.k-file [data-test="file-card"][data-file="module-2.md"]')).toHaveCount(1, { timeout: 30000 })
+  await expect(pile).toBeVisible({ timeout: 30000 })
+  await expect(pile.locator('.count')).toHaveText(String(files))
+  await pile.tap({ force: true })
+  await expect(ph.locator('.astack [data-test="pile-item"]')).toHaveCount(files)
+  await expect(ph.locator('.astack [data-test="pile-item"][data-file="module-2.md"]')).toHaveCount(1)
+  const grid = ph.locator('.astack .grid')
+  if (await grid.isVisible()) {
+    await expect(grid.locator('.cap')).toContainText(`채팅의 산출물 ${files}개`)
+    const caps = await grid.locator('[data-test="pile-folder"]').allTextContents()
+    expect(caps[0]).toBe('모듈-과정 · v1')
+    await grid.locator('[data-test="pile-folder"]').first().scrollIntoViewIfNeeded()
+  }
+  await noSideScroll(ph)
+  await shot(ph, 'f-wf-08-phone-pile')
+  expect(ph.errors).toEqual([])
+  await ph.context().close()
+  // PC 1440: the list's 「모듈-과정 v1」 is five, the file once, the count once
+  const w = await open(browser, SY, WIDE)
+  await toChat(w)
+  const list = w.locator('[data-testid="artifact-list"]')
+  await expect(list).toBeVisible({ timeout: 30000 })
+  await expect(list.locator('[data-testid="artifact-count"]')).toHaveText(String(files))
+  const sec = list.locator('[data-testid="artifact-folder"][data-folder="모듈-과정"][data-version="1"]')
+  await expect(sec.locator('.sn')).toHaveText('5')
+  await expect(list.locator('[data-testid="artifact-row"][data-file="module-2.md"]')).toHaveCount(1)
+  await shot(w, 'f-wf-08-list-1440')
+  expect(w.errors).toEqual([])
+  await w.context().close()
 })

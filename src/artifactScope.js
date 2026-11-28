@@ -17,9 +17,13 @@ export function artifactScope({ mode, activeId, mainId, convFilter, topicFilter 
 }
 
 const at = (m) => { const t = new Date(m?.created_at).getTime(); return Number.isFinite(t) ? t : -Infinity }
+// the file a card stands for: its sandbox path (a card with none — a document a tool published — is a file of its own)
+const pathOf = (m) => String(m?.content?.path || '').replace(/\\/g, '/').normalize('NFC')
 // The view's files, newest first: file messages with a name; in the main chat each knows its conversation (convOf: message id →
 // conversation id, titles: conversation id → title); one conversation's view keeps only its own — and so does one sub-topic's view of
-// a project (convOf: message id → sub-topic, convFilter: the sub-topic)
+// a project (convOf: message id → sub-topic, convFilter: the sub-topic). One file is one row: a later turn that changed a file where it is
+// (a revision in place — server lib/workFolder.js) posts a new card for the same path, and only that newest card is listed; the older one
+// stays in the chat where it was (PR #135 demo: module-2.md twice in the pile's 「… · v2」, and the counts with it)
 export function artifactItems({ scope, messages = [], convOf = {}, convFilter = null, titles = {} }) {
   if (!scope) return []
   const files = messages.map((m, i) => [m, i]).filter(([m]) => m?.kind === 'file' && m.content?.name)
@@ -29,7 +33,14 @@ export function artifactItems({ scope, messages = [], convOf = {}, convFilter = 
     if ((scope === 'conv' || scope === 'topic') && conv !== convFilter) continue
     out.push({ msg: m, conv, convTitle: conv ? titles[conv] || '' : '', i })
   }
-  return out.sort((a, b) => at(b.msg) - at(a.msg) || b.i - a.i).map(({ i, ...x }) => x)
+  const seen = new Set()
+  return out.sort((a, b) => at(b.msg) - at(a.msg) || b.i - a.i).filter((x) => {
+    const p = pathOf(x.msg)
+    if (!p) return true
+    if (seen.has(p)) return false
+    seen.add(p)
+    return true
+  }).map(({ i, ...x }) => x)
 }
 
 // the list's search box: the file's name, its folder (커리큘럼/v2 — src/fileGroups.js) and the conversation it came from (plain text, for finding a row)

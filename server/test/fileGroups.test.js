@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { relPath, dirOf, fileRuns, fileTree, folderHints, workFolderOf, artifactSections, shownRows, groupable, GROUP_FROM, TURN_GAP_MS } from '../../src/fileGroups.js'
-import { filterArtifacts } from '../../src/artifactScope.js'
+import { filterArtifacts, artifactItems } from '../../src/artifactScope.js'
 
 const t0 = Date.parse('2026-11-28T11:49:00Z')
 const ROOM = '/workspace/.bpmn/convA'
@@ -155,4 +155,39 @@ test('FG-U-08 the list in sections: one work folder and version together at its 
   // the search box reads the folder too
   assert.deepEqual(filterArtifacts(items, 'v1').map((y) => y.msg.content.path.split('/').slice(-2).join('/')), ['v1/README.md', 'v1/week-1.md'])
   assert.equal(filterArtifacts(items, '커리큘럼 week').length, 2)
+})
+
+// (PR #135 demo) 「2주차 모듈만 고쳐 줘」 edited modules/module-2.md where it was, in v2 — a new card for the same path — and the pile's v2
+// showed module-2.md twice, its count one too many. One file is one row of the list and the pile: its newest card. The older card stays in
+// the chat where it was, and the turn's card that held it keeps its count.
+test('FG-U-09 a file changed in place by a later turn: the list · the pile show it once (its newest card) and count it once; the chat keeps both cards', () => {
+  const R2 = '/workspace/.bpmn/convB'
+  const v2 = ['README.md', '과정-개요.md', 'modules/module-1.md', 'modules/module-2.md', 'modules/module-3.md', 'labs/lab-1.md'].map((r, i) => file(`교육/v2/${r}`, { sec: 100 + i, base: R2 }))
+  const revised = file('교육/v2/modules/module-2.md', { sec: 300, base: R2 })
+  const chat = [text('u1', 'user', 90), text('a1', 'agent', 99), ...v2, text('u2', 'user', 200), text('a2', 'agent', 299), revised]
+  // the list's files: six, not seven — module-2.md is the revised card, at its place (the newest)
+  const items = artifactItems({ scope: 'project', messages: chat })
+  assert.equal(items.length, 6)
+  assert.equal(items[0].msg.id, revised.id)
+  assert.deepEqual(items.filter((x) => x.msg.content.name === 'module-2.md').map((x) => x.msg.id), [revised.id])
+  // the pile's and the list's 「교육 · v2」: six files, module-2.md once, no folder hint (its name is alone in the section now)
+  const secs = artifactSections(items)
+  assert.deepEqual(secs.map((s) => [s.folder, s.version, s.items.length]), [['교육', 2, 6]])
+  assert.deepEqual(secs[0].items.filter((x) => x.msg.content.name === 'module-2.md').map((x) => [x.msg.id, x.hint]), [[revised.id, null]])
+  // (the same path written with a backslash or in another Unicode form is the same file)
+  const nfd = { ...file('교육/v2/과정-개요.md', { sec: 400, base: R2 }) }
+  nfd.content.path = nfd.content.path.normalize('NFD')
+  assert.equal(artifactItems({ scope: 'project', messages: [...chat, nfd] }).length, 6)
+  // a card with no path (a document a tool published) is a file of its own, however many share its name; the same name in another folder too
+  const noPath = (id, sec) => ({ id, role: 'agent', kind: 'file', created_at: new Date(t0 + sec * 1000).toISOString(), content: { name: '보고서.hwpx', url: `https://x/${id}.hwpx` } })
+  assert.equal(artifactItems({ scope: 'project', messages: [noPath('h1', 1), noPath('h2', 2)] }).length, 2)
+  assert.equal(artifactItems({ scope: 'project', messages: [...chat, file('교육/v1/modules/module-2.md', { sec: 50, base: R2 })] }).length, 7)
+  // the chat: the first turn is still one card of six, the revision a card of its own (a run of one)
+  const runs = fileRuns(chat)
+  assert.deepEqual([...runs.lead.values()].map((r) => r.length), [6])
+  assert.ok(!runs.lead.has(revised.id) && !runs.member.has(revised.id))
+  assert.equal(fileTree(runs.lead.get(v2[0].id)).files, 6)
+  // one conversation's view: the same rule
+  const convOf = Object.fromEntries(chat.map((m) => [m.id, 'b']))
+  assert.equal(artifactItems({ scope: 'conv', messages: chat, convOf, convFilter: 'b' }).length, 6)
 })

@@ -36,7 +36,7 @@ import { afterTurn, followsResult, readAnswer, readRule, whenText } from './foll
 import { ranRule, readRoom, roomGoal, ruleAction, ruleOf } from './roomRules.js'
 import { browserSkill, browserSkills } from './browserSkills.js'
 import { judge } from './judge.js'
-import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths, textDoc, workFile, checkoutFile } from './provenance.js'
+import { isOutput, keepToolDoc, roomOf, workspaceHint, workspacePaths, textDoc, workFile, checkoutFile, dropScaffolding } from './provenance.js'
 import { activateCraft } from '../mcp/craft.js'
 import { activateOffice } from '../mcp/office.js'
 import { liveOpen, liveHint, openDocOf } from './craftLive.js'
@@ -2173,9 +2173,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     const why = await privateCandidate(f, handedOver, user.id)
     if (why) { console.log(`[delegate] not attached (${why})`); files.splice(files.indexOf(f), 1) }
   }
-  // the script that built a document is scaffolding; the document is what the user asked for (and
-  // a turn that was stopped leaves no half-run scripts behind as results)
-  if (ended || files.some((f) => editable(f.name))) files.splice(0, files.length, ...files.filter((f) => !/\.(py|js|mjs|ts|sh)$/.test(f.name)))
+  // the script that built a document is scaffolding; the document is what the user asked for — but a script beside files the agent wrote
+  // itself (a web page's app.js) is one of them (lib/provenance.js dropScaffolding); a turn that was stopped leaves no half-run scripts
+  files.splice(0, files.length, ...dropScaffolding(files, { written, ended }))
   const posted = []
   for (const f of files) {
     // a document the agent wrote in its sandbox is published so the editor can load it
