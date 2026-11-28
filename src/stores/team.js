@@ -262,14 +262,14 @@ export const useTeam = defineStore('team', {
     },
     // One read state: the room's (server pro_chat_reads). Opened, the room is read whole; upTo (a message's id — an item of 나에게 온 것
     // seen or opened) reads it up to that message only: the count comes back from the server, later messages stay unread.
-    async markRead(id, { upTo = null } = {}) {
+    async markRead(id, { upTo = null, from = null } = {}) {
       if (!upTo) {
         // its notification on this device goes too (one per room: src/browserNotify.js clearRoom)
         clearRoom(id)
         const n = this.unread.byThread[id] || 0
         if (n) this.unread = { total: Math.max(0, this.unread.total - n), byThread: { ...this.unread.byThread, [id]: 0 } }
       }
-      const r = await api(`/team/threads/${id}/read`, { method: 'POST', ...(upTo ? { body: { upTo } } : {}) }).catch(() => null)
+      const r = await api(`/team/threads/${id}/read`, { method: 'POST', ...(upTo ? { body: { upTo, ...(from ? { from } : {}) } } : {}) }).catch(() => null)
       if (upTo) {
         // (only what the server read: no answer, or nothing read — nothing shown as read)
         if (r?.at) this.readUpTo(id, r.at)

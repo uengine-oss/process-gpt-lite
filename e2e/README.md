@@ -2074,8 +2074,8 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/threa
 사용자 요청(2026-11-28, 홈 › 메시지의 「받은 편지함」 · 「대화」 두 탭 사진)은 「그리고 이 두 대화창이 같은건데... 어떻게 통일할 방법이 없을까? 지금 공유기능 또한 이 두 채널에 따로 구현된 상태임. 방안을 고려해보자」이며, 사용자가 선택한 「편지함 = 대화의 거르개」의 1단계다. 「나에게 온 것」은 방의 메시지를 거른 목록(`GET /api/team/inbox`, 저장 구조 유지)이며, 각 항목은 방과 같은 말풍선 컴포넌트(`src/components/team/RoomMessage.vue`)로 표시한다. 읽음 상태는 방의 읽음(`pro_chat_reads`) 하나로 관리한다. `POST /api/team/threads/:id/read` `{upTo}`와 Home 카드 닫기(`lib/notify.js dismiss`)는 해당 방을 해당 메시지까지 읽음으로 처리한다. 새 SQL은 없다. 시험 파일이 자체 스택(회사 `one-list-ui`, BFF 8993 · Vite 5393 — 다른 프로세스가 해당 포트를 사용 중이면 중단, `RT_OL_API_PORT` · `RT_OL_WEB_PORT`)을 띄우며, 모델 · deepagents는 호출하지 않는다. 받은 편지함 탭 · `inbox-team` · `inbox-mail` · `inbox-mail-card`를 쓰던 시험은 칩(`msg-chip-all` · `msg-chip-forme` · `msg-chip-mail`)과 `msg-mail-card` · `forme-item`을 쓰도록 고쳤다.
 
 ```bash
-cd server && node --test --test-concurrency=1 test/oneReadState.integration.test.js   # OL-I-01~09 · 실제 DB · 실제 채팅 트리거
-cd server && node --test test/shareTarget.test.js test/forMeSeen.test.js                 # U-ST-04 · 열린 곳 = 열린 대화(칩과 무관) · OL-U-01~02 · 「보면 읽음」 규칙
+cd server && node --test --test-concurrency=1 test/oneReadState.integration.test.js   # OL-I-01~16 · 실제 DB · 실제 채팅 트리거
+cd server && node --test test/shareTarget.test.js test/forMeSeen.test.js                 # U-ST-04 · 열린 곳 = 열린 대화(칩과 무관) · OL-U-01~03 · 「보면 읽음」 규칙
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/messages-one-list.spec.js   # F-OL-01~06 (공용 잠금 rec.lock)
 ```
 
@@ -2096,7 +2096,10 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/messa
 | 「메일」 칩 = 내 메일 카드(Home에서 닫은 카드도 「홈에서 닫음」으로 표시), 누르면 해당 메일 시트 표시 | 브리프(메일은 다른 출처) | F-OL-05 · F-HD-01 · F-MC-07 | feature | ✅ |
 | 열린 곳은 열린 대화(칩과 무관) — 다른 앱의 「공유」 · 끌어다 놓기는 해당 대화로 전달, 목록만 보이면 수신하지 않음 | 설계 | U-ST-04 · F-MD-02 | 단위 · feature | ✅ |
 | 휴대폰 390 밝은 · 어두운, 1280 밝은 · 어두운: 칩 · 항목 · 「어느 방」 줄을 화면 안에 표시, 가로 넘침 없음 | 브리프 시험 | F-OL-01 ~ F-OL-06 | feature | ✅ |
-| (PR #127 검토 1) Home 카드 닫기 시 남은(보지 않은) 공유 · 멘션 카드의 메시지 이전까지만 읽음 — 채팅 카드는 해당 메시지까지 읽음(말 · 보낸 사람 · 시각), 이후 채팅 카드 유지, 이미 닫은 이후 카드의 메시지 함께 읽음 | PR #127 검토 | OL-I-04 · OL-I-06 · OL-I-07 | DB(실제 채팅 트리거) | ✅ |
+| (PR #127 재검토 — 규칙 하나) 카드 닫기 시 해당 카드만 id로 확인(재등장 없음 · 같은 방의 다른 채팅 카드 유지 · 나간 방 · 시계가 앞선 사람도 포함) · 앞에 안 읽은 「나에게 온 것」 · 남은 Home 카드(공유 · 멘션 · 채팅)가 없을 때만 해당 메시지까지 읽음 처리, 그 외에는 읽은 위치 유지 | PR #127 재검토 H1 · H2 · L1 | OL-I-04 · OL-I-06 · OL-I-07 · OL-I-10 · OL-I-11 · OL-I-12 · OL-I-16 | DB(실제 채팅 트리거) | ✅ |
+| (재검토 M1 · M2) 카드가 생성된 메시지(같은 내용 · 같은 사람 · 가장 가까운 시각)로만 채팅 카드 확인 · 이미 읽은 메시지에 남은 카드는 읽음 이동을 막지 않고 함께 확인 | PR #127 재검토 | OL-I-13 · OL-I-14 | DB | ✅ |
+| (재검토 M3) 안 읽은 「나에게 온 것」은 50개를 넘어도 최대 200개까지 모두 표시 · 「보면 읽음」은 본 구간의 시작(`from`)보다 앞에 안 읽은 항목이 있으면 읽은 위치 유지 | PR #127 재검토 | OL-I-15 · OL-U-01 | DB · 단위 | ✅ |
+| (재검토 L2 · L3 · L4) 항목마다 높이에 맞춘 임계값 하나 적용(목록 높이의 10~40배인 항목도 포함) · 기본 키로 카드의 메시지 조회 · 남은 수와 목록의 안 읽음 수에 같은 규칙 적용 · 「나에게 온 것」에서 숨은 행 제외 | PR #127 재검토 | OL-U-03 · OL-I-08 | 단위 · DB | ✅ |
 | (검토 2) 「보면 읽음」은 방의 가장 오래된 안 읽은 항목부터 모두 본 구간까지만 적용 — 가장 새 항목만 보이면 읽음 미처리, 방별 일괄 전송 | PR #127 검토 | OL-U-01 · F-OL-02 | 단위 · feature | ✅ |
 | (검토 3) 목록보다 큰 항목은 목록 높이의 60 %를 채우면 본 것으로 처리 | PR #127 검토 | OL-U-02 · F-OL-06 | 단위 · feature | ✅ |
 | (검토 5 · 6 · 7 · 8) 서버가 읽은 것만 읽음 처리 · Process GPT 안 읽음 산정 시 이름 바꾼 줄 · 숨은 줄 제외 · 보내기 · 초대 시 읽은 위치 유지 · 말 · 보낸 사람까지 일치하는 채팅 알림 확인(회사 칸이 빈 트리거 알림 포함) | PR #127 검토 | OL-I-08 · OL-I-09 | DB | ✅ |

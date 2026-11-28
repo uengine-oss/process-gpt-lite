@@ -43,7 +43,7 @@ import RoomSettings from './RoomSettings.vue'
 import ReactionBar from './ReactionBar.vue'
 import { canReact } from '../../roomReactions.js'
 // 나에게 온 것: when an item counts as seen, how far its room is read then (src/forMeSeen.js)
-import { seenEnough, readPoint } from '../../forMeSeen.js'
+import { seenEnough, readRun, thresholdFor } from '../../forMeSeen.js'
 // what another app shared to Process GPT, meant for a room (components/ShareArrival.vue · src/shareInbox.js)
 import { inbox, loadDraft, saveDraft } from '../../shareInbox.js'
 
@@ -214,7 +214,6 @@ const openItem = (m) => team.openThread(m.threadId, m.id)
 // (PR #127 review). Seen items are gathered for a moment: one request per room, for its newest such item.
 const formeEl = ref(null)
 const SEEN_MS = 1200
-let seenObs = null
 const seenTimers = new Map() // message id → timer
 const seenIds = new Set()    // items seen on this screen
 const seenRooms = new Set()  // rooms with a newly seen item, read on the next flush
@@ -224,8 +223,8 @@ function flushSeen() {
   if (!team.open || document.visibilityState !== 'visible') return
   for (const room of [...seenRooms]) {
     seenRooms.delete(room)
-    const p = readPoint(team.forMe, room, seenIds)
-    if (p) team.markRead(room, { upTo: p.id }).catch(() => {})
+    const run = readRun(team.forMe, room, seenIds)
+    if (run) team.markRead(room, { upTo: run.to.id, from: run.from.id }).catch(() => {})
   }
 }
 function seen(id) {
@@ -237,21 +236,28 @@ function seen(id) {
   clearTimeout(flushT)
   flushT = setTimeout(flushSeen, 250)
 }
+// one observer per item, with the one threshold that item needs (its own 60 %, or for a tall item the share that fills 60 % of the list)
+let seenObs = []
 function observeSeen() {
-  seenObs?.disconnect(); seenObs = null
+  for (const o of seenObs) o.disconnect()
+  seenObs = []
   for (const t of seenTimers.values()) clearTimeout(t)
   seenTimers.clear()
   const root = formeEl.value
   if (!root || team.filter !== 'forme' || typeof IntersectionObserver === 'undefined') return
-  seenObs = new IntersectionObserver((entries) => {
+  const R = root.clientHeight
+  const on = (entries) => {
     for (const e of entries) {
       const id = e.target.dataset.forme
       if (seenEnough(e)) { if (!seenTimers.has(id) && !seenIds.has(id)) seenTimers.set(id, setTimeout(() => seen(id), SEEN_MS)) }
       else if (seenTimers.has(id)) { clearTimeout(seenTimers.get(id)); seenTimers.delete(id) }
     }
-  // (every twentieth: a tall item's share of itself grows slowly as it scrolls in)
-  }, { root, threshold: Array.from({ length: 21 }, (_, i) => i / 20) })
-  for (const el of root.querySelectorAll('[data-test="forme-item"][data-unread="true"]')) seenObs.observe(el)
+  }
+  for (const el of root.querySelectorAll('[data-test="forme-item"][data-unread="true"]')) {
+    const o = new IntersectionObserver(on, { root, threshold: [0, thresholdFor(el.getBoundingClientRect().height, R)] })
+    o.observe(el)
+    seenObs.push(o)
+  }
 }
 watch(() => [team.filter, team.open, team.forMe.map((x) => `${x.id}${x.unread ? 1 : 0}`).join()], () => nextTick(observeSeen))
 // (the messenger closed: what was seen on it is forgotten — a new look counts anew)
@@ -540,7 +546,7 @@ const onEsc = (e) => { if (e.key === 'Escape' && !docked.value && !drag.value) t
 onMounted(() => { window.addEventListener('keydown', onEsc); document.addEventListener('visibilitychange', onVisible); team.loadThreads(); team.loadForMe() })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onEsc); document.removeEventListener('visibilitychange', onVisible)
-  seenObs?.disconnect(); for (const t of seenTimers.values()) clearTimeout(t); clearTimeout(flushT)
+  for (const o of seenObs) o.disconnect(); for (const t of seenTimers.values()) clearTimeout(t); clearTimeout(flushT)
 })
 </script>
 

@@ -9,9 +9,17 @@
 //   OL-I-05 방을 열면(그 메시지 없이) 전부 읽음 · 'team' · 'chat' 알림 모두 확인 · Process GPT 의 안 읽음 표시도 지움
 //   (PR #127 검토 — 읽음 규칙이 보지 않은 것까지 읽었다)
 //   OL-I-06 그냥 줄 · 멘션 · 그냥 줄 → 첫 줄의 chat 카드를 닫아도 멘션 카드 · 멘션의 안 읽음 · 뒤 줄의 카드는 그대로
-//   OL-I-07 멘션 카드 둘 → 새 것을 닫아도 옛 것의 카드 · 안 읽음은 그대로(그 앞에서 멈춤), 옛 것도 닫으면 새 것까지 읽음
+//   OL-I-07 멘션 카드 둘 → 새 것을 닫아도 옛 것의 카드 · 안 읽음은 그대로(읽음이 움직이지 않음), 옛 것을 닫으면 옛 것까지만
 //   OL-I-08 Process GPT 의 안 읽음 표시: 뒤에 이름 바꾼 줄 · 숨은 줄만 남으면 지움 · 그 메시지의 chat 알림만 확인(같은 1초 안의 다른 말은 아님)
 //   OL-I-09 보내기 · 초대는 앞서 간 읽음 위치를 되돌리지 않음
+//   (PR #127 재검토 — 규칙을 하나로: 카드 닫기는 그 카드만(id), 읽음은 그 앞에 보지 않은 것이 없을 때만 그 메시지까지, 아니면 그대로)
+//   OL-I-10 (H1) 보지 않은 멘션 뒤의 줄 카드를 닫으면 그 카드는 사라지고(돌아오지 않음), 읽음은 그대로
+//   OL-I-11 (H1) 시계가 3초 앞선 사람의 줄 카드를 닫아도 사라지고, 그 메시지까지 읽음
+//   OL-I-12 (H2) 멘션 · 줄 · 줄 · 멘션 → 새 멘션 카드를 닫아도, 옛 멘션 카드를 닫아도 보지 않은 줄을 지나 읽지 않음 · 그 줄 카드는 그대로
+//   OL-I-13 (M1) 먼저 읽은 「네」와 같은 말 · 같은 사람의 새 「네」 카드는, 멘션까지 읽어도 확인되지 않음
+//   OL-I-14 (M2) 이미 읽은 메시지에 남은 카드는 뒤의 카드 닫기를 막지 않고, 그때 함께 확인됨
+//   OL-I-15 (M3) 안 읽은 「나에게 온 것」이 50개를 넘어도 모두 오고, 화면이 보여 주지 않은 더 오래된 것이 있으면 「보면 읽음」은 움직이지 않음
+//   OL-I-16 (L1) 둘째 줄의 카드를 닫아도 첫 줄의 카드는 그대로(보지 않은 첫 줄 때문에 읽음도 그대로)
 // Run: node --test --test-concurrency=1 test/oneReadState.integration.test.js  (로컬 Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -225,7 +233,7 @@ test('OL-I-06 그냥 줄 · 멘션 · 그냥 줄 — 첫 줄의 chat 카드를 �
   assert.ok(home.some((n) => n.type === 'chat' && n.title === '급하지 않아요'), "the later line's card stays on Home")
 })
 
-test('OL-I-07 멘션 카드 둘 — 새 것을 닫아도 옛 것의 카드와 안 읽음은 그대로(그 앞에서 멈춤)', { skip: !db }, async () => {
+test('OL-I-07 멘션 카드 둘 — 새 것을 닫아도 옛 것의 카드와 안 읽음은 그대로, 옛 것을 닫으면 옛 것까지만', { skip: !db }, async () => {
   await setup()
   const g = await room(A, [B.id, C.id])
   const older = await M.post(me(A), g.id, { kind: 'mention', body: '견적서 확인 부탁해요' })
@@ -237,9 +245,10 @@ test('OL-I-07 멘션 카드 둘 — 새 것을 닫아도 옛 것의 카드와 �
   assert.equal((await teamNotice(B, older.id, g.id)).checked, false)
   assert.equal((await forMe(B, g.id)).find((m) => m.id === older.id).unread, true)
   assert.equal(await unreadOf(B, g.id), 2)
-  // the older one put away too: now the room is read up to the newer one (its card was put away already — read along)
+  // the older one put away: read up to it — the newer one stays unread (its card is gone, the item is still to be seen)
   assert.equal(await N.dismiss(me(B), (await teamNotice(B, older.id, g.id)).id), true)
-  assert.equal(await unreadOf(B, g.id), 0)
+  assert.equal(await unreadOf(B, g.id), 1)
+  assert.equal((await forMe(B, g.id)).find((m) => m.id === newer.id).unread, true)
 })
 
 test('OL-I-08 안 읽음 표시는 뒤에 이름 바꾼 줄 · 숨은 줄만 남으면 지우고, 그 메시지의 chat 알림만 확인한다', { skip: !db || !trigger }, async () => {
@@ -291,4 +300,132 @@ test('OL-I-09 보내기 · 초대는 앞서 간 읽음 위치를 되돌리지 �
   const D = await person(`ol-d-${stamp}`, '최도현')
   await M.invite(me(B), grp.id, [D.id])
   assert.equal(await r2(), b2)
+})
+
+const onHome = async (who, id) => (await N.listFor(me(who))).some((n) => n.id === id)
+
+test('OL-I-10 (H1) 보지 않은 멘션 뒤의 줄 카드를 닫으면 그 카드는 사라지고 돌아오지 않는다 — 읽음은 그대로', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  await M.markRead(me(B), g.id)
+  await M.post(me(A), g.id, { kind: 'mention', body: '견적 다시 봐 주세요' })
+  await pause(1200)
+  await M.post(me(C), g.id, { body: '저도 볼게요' })
+  const card = (await chatCards(B, g.id)).find((c) => c.title === '저도 볼게요')
+  assert.equal(await onHome(B, card.id), true)
+  assert.equal(await N.dismiss(me(B), card.id), true)
+  assert.equal(await onHome(B, card.id), false)
+  assert.equal((await q('select is_checked from notifications where id=$1', [card.id]))[0].is_checked, true)
+  assert.equal(await unreadOf(B, g.id), 2)
+  // (a room the person left: the card goes all the same — its read is not theirs to move)
+  const solo = await room(C, [B.id, A.id])
+  await M.post(me(C), solo.id, { body: '나간 방의 줄' })
+  const left = (await chatCards(B, solo.id)).find((c) => c.title === '나간 방의 줄')
+  await q(`update chat_rooms set participants = (select jsonb_agg(p) from jsonb_array_elements(participants) p where p->>'id' <> $2) where id=$1`, [solo.id, B.id])
+  assert.equal(await N.dismiss(me(B), left.id), true)
+  assert.equal(await onHome(B, left.id), false)
+})
+
+test('OL-I-11 (H1) 시계가 3초 앞선 사람의 줄 카드도 닫으면 사라지고, 그 메시지까지 읽는다', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(C, [B.id])
+  await M.markRead(me(B), g.id)
+  const u = crypto.randomUUID()
+  await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4)',
+    [u, g.id, { uuid: u, role: 'user', content: '앞선 시계의 줄', email: C.email, name: C.name, userName: C.name, userId: C.id, timeStamp: new Date(Date.now() + 3000).toISOString() }, T])
+  const card = (await chatCards(B, g.id)).find((c) => c.title === '앞선 시계의 줄')
+  assert.equal(await unreadOf(B, g.id), 1)
+  assert.equal(await N.dismiss(me(B), card.id), true)
+  assert.equal(await onHome(B, card.id), false)
+  assert.equal(await unreadOf(B, g.id), 0)
+})
+
+test('OL-I-12 (H2) 멘션 · 줄 · 줄 · 멘션 — 어느 멘션 카드를 닫아도 보지 않은 줄을 지나 읽지 않고, 그 줄 카드는 그대로', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  const m1 = await M.post(me(A), g.id, { kind: 'mention', body: '첫 멘션' })
+  await pause(1200)
+  await M.post(me(C), g.id, { body: '그냥 줄 하나' })
+  await pause(1200)
+  await M.post(me(C), g.id, { body: '그냥 줄 둘' })
+  await pause(1200)
+  const m2 = await M.post(me(A), g.id, { kind: 'mention', body: '둘째 멘션' })
+  const lines = async () => (await chatCards(B, g.id)).filter((c) => c.title.startsWith('그냥 줄')).map((c) => c.checked)
+  assert.deepEqual(await lines(), [false, false])
+  assert.equal(await unreadOf(B, g.id), 4)
+  await N.dismiss(me(B), (await teamNotice(B, m2.id, g.id)).id)
+  assert.equal(await unreadOf(B, g.id), 4)
+  await N.dismiss(me(B), (await teamNotice(B, m1.id, g.id)).id)
+  // read up to the first mention only: the two lines (and the second mention) stay unread, the lines' cards stay on Home
+  assert.equal(await unreadOf(B, g.id), 3)
+  assert.deepEqual(await lines(), [false, false])
+  assert.equal((await forMe(B, g.id)).find((m) => m.id === m2.id).unread, true)
+})
+
+test('OL-I-13 (M1) 먼저 읽은 「네」와 같은 사람의 새 「네」 카드는 멘션까지 읽어도 확인되지 않는다', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  await M.post(me(C), g.id, { body: '네' })
+  await pause(30)
+  await M.markRead(me(B), g.id)
+  await pause(1200)
+  const x = await M.post(me(A), g.id, { kind: 'mention', body: '회신 부탁해요' })
+  await pause(300)
+  await M.post(me(C), g.id, { body: '네' })
+  const yes = async () => (await chatCards(B, g.id)).filter((c) => c.title === '네').map((c) => c.checked)
+  assert.deepEqual(await yes(), [true, false])
+  await M.markRead(me(B), g.id, { upTo: x.id })
+  assert.deepEqual(await yes(), [true, false])
+  assert.equal(await unreadOf(B, g.id), 1)
+})
+
+test('OL-I-14 (M2) 이미 읽은 메시지에 남은 카드는 뒤의 카드 닫기를 막지 않고, 그때 함께 확인된다', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  const m = await M.post(me(A), g.id, { kind: 'mention', body: '먼저 읽은 멘션' })
+  await M.markRead(me(B), g.id)
+  // (as if the card came in after the whole read — notifyMembers after the room was opened)
+  await q(`update notifications set is_checked=false where user_id=$1 and type='team' and url=$2`, [B.id, `/pro/team/${g.id}/${m.id}`])
+  await pause(1200)
+  await M.post(me(C), g.id, { body: '나중 줄' })
+  const card = (await chatCards(B, g.id)).find((c) => c.title === '나중 줄')
+  assert.equal(await unreadOf(B, g.id), 1)
+  await N.dismiss(me(B), card.id)
+  assert.equal(await unreadOf(B, g.id), 0)
+  assert.equal((await teamNotice(B, m.id, g.id)).checked, true)
+})
+
+test('OL-I-15 (M3) 안 읽은 「나에게 온 것」이 50개를 넘어도 모두 오고, 보여 주지 않은 더 오래된 것이 있으면 「보면 읽음」은 움직이지 않는다', { skip: !db }, async () => {
+  await setup()
+  // (a room of its own: the 1:1 room of OL-I-09 keeps a read position ten minutes ahead)
+  const g = await room(A, [B.id, C.id])
+  await M.markRead(me(B), g.id)
+  const ms = []
+  for (let i = 0; i < 55; i++) { ms.push(await M.post(me(A), g.id, { kind: 'mention', body: `요청 ${i + 1}` })); await pause(5) }
+  const list = await forMe(B, g.id)
+  assert.equal(list.length, 55)
+  assert.ok(list.every((m) => m.unread))
+  // the screen showed (and saw) the newest ten only: the read does not move
+  assert.deepEqual(await M.markRead(me(B), g.id, { upTo: ms[54].id, from: ms[45].id }), { ok: true, at: null, rest: null })
+  assert.equal(await unreadOf(B, g.id), 55)
+  // without `from` it is the item itself — still not past older unread ones
+  assert.equal((await M.markRead(me(B), g.id, { upTo: ms[54].id })).at, null)
+  // from the oldest unread one: read up to the newest seen
+  assert.ok((await M.markRead(me(B), g.id, { upTo: ms[9].id, from: ms[0].id })).at)
+  assert.equal(await unreadOf(B, g.id), 45)
+})
+
+test('OL-I-16 (L1) 둘째 줄의 카드를 닫아도 첫 줄의 카드는 그대로 — 보지 않은 첫 줄 때문에 읽음도 그대로', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(C, [B.id])
+  await M.markRead(me(B), g.id)
+  await M.post(me(C), g.id, { body: '첫 줄이에요' })
+  await pause(1200)
+  await M.post(me(C), g.id, { body: '둘째 줄이에요' })
+  const cards = await chatCards(B, g.id)
+  const second = cards.find((c) => c.title === '둘째 줄이에요')
+  await N.dismiss(me(B), second.id)
+  assert.deepEqual((await chatCards(B, g.id)).filter((c) => ['첫 줄이에요', '둘째 줄이에요'].includes(c.title)).map((c) => [c.title, c.checked]),
+    [['첫 줄이에요', false], ['둘째 줄이에요', true]])
+  assert.equal(await unreadOf(B, g.id), 2)
 })
