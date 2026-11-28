@@ -73,7 +73,7 @@ onMounted(() => nextTick(() => el.value?.querySelector('.item.on:not(.all)')?.sc
           <span class="row2"><span class="line">{{ threadLine(c) }}</span><span class="meta"><small class="when">{{ whenText(c.updated_at) }}</small><span class="count" :aria-label="`메시지 ${c.count}개`">{{ c.count }}</span></span></span>
         </button>
         <button v-if="movable(c)" class="mv press" data-testid="thread-move" :aria-label="`「${c.title || '제목 없는 대화'}」 프로젝트로 옮기기`" title="프로젝트로 옮기기" @click="moveFrom(c)">
-          <Icon name="folder" :size="16" />
+          <Icon name="folder-move" :size="16" />
         </button>
       </div>
     </div>

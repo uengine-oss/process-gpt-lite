@@ -113,6 +113,8 @@
   "대화": "Conversation",
   "전체 대화": "All conversations",
   "다른 대화 ▾": "Other conversations ▾",
+"다른 대화": "Other conversations",
+"다른 주제": "Other topics",
   "판단 모델이 나눈 대화": "Conversations split by the routing model",
   "전체 대화 보기": "View all conversations",
   "⌘⌥B 로 내보내기": "Export with ⌘⌥B",

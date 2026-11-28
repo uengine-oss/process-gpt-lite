@@ -15,6 +15,9 @@
 //   F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트 목록처럼 읽힘(큰 이름 · 진한 한 줄 · 시각과 수는 배지, 비교용 프로젝트 목록 사진) ·
 //           행을 길게 누르면 「프로젝트로 옮기기」(목록은 그 밑에 남음), 누르면 그 대화
 //   F-TM-09 1280(어두운): 행에 포인터를 올리면 「프로젝트로 옮기기」 단추 · 오른쪽 클릭도 같은 창 · 「전체 대화」에는 없음
+//   F-TM-10 휴대폰 390(밝은 · 어두운) · 1280(어두운): 걸러 본 대화의 막대에 「프로젝트로 옮기기」가 바로 보임(휴대폰은 폴더 단추, 막대는 한 줄) ·
+//           이름을 누르면 막대의 메뉴(첫 줄 「프로젝트로 옮기기」) · 이름을 길게 누르면(오른쪽 클릭) 바로 그 창 · 예약 작업 대화와 프로젝트 안에는 없음
+//           (2026-11-28 18:06 휴대폰 녹화: 「길게 누르기도 해보고 별걸 다 해봐도 어느 UI에서 지금 나오는 건지 … 도대체 어디서 하는 거야?」)
 // 자기 스택(lib/localStack.js: 회사 thread-move-ui 의 BFF + Vite, 8994 · 5394)을 띄우고 지운다. 가짜 모델 · 가짜 deepagents 는 이 파일이 빈 포트에
 // 띄운다 — 실제 모델 · 에이전트 · 판정 서버는 부르지 않는다. 사람 · 회사는 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js
@@ -63,8 +66,10 @@ const listen = (srv) => new Promise((ok, no) => srv.once('error', no).listen(0, 
 const bodyOf = (req) => new Promise((ok) => { let raw = ''; req.on('data', (c) => { raw += c }); req.on('end', () => { try { ok(JSON.parse(raw)) } catch { ok({}) } }) })
 let S, HY, SY, DY, MAIN, P1, P2, P3, P4
 const sfx = crypto.randomBytes(3).toString('hex')
-const CONV = { A: `tm-ui-a-${sfx}`, B: `tm-ui-b-${sfx}`, C: `tm-ui-c-${sfx}`, E: `tm-ui-e-${sfx}`, H: `tm-ui-h-${sfx}`, L: `tm-ui-l-${sfx}` }
-const TITLE = { A: '가나정밀 교육 요청 조사', B: '주간 회의록 정리', C: '견적 비교', E: '거래처 미팅 메모', H: '견적 항목', L: '가나정밀 2차 교육 일정과 강사 섭외' }
+const CONV = { A: `tm-ui-a-${sfx}`, B: `tm-ui-b-${sfx}`, C: `tm-ui-c-${sfx}`, E: `tm-ui-e-${sfx}`, H: `tm-ui-h-${sfx}`, L: `tm-ui-l-${sfx}`, K: `tm-ui-k-${sfx}`, M: `tm-ui-m-${sfx}` }
+const TITLE = { A: '가나정밀 교육 요청 조사', B: '주간 회의록 정리', C: '견적 비교', E: '거래처 미팅 메모', H: '견적 항목', L: '가나정밀 2차 교육 일정과 강사 섭외', K: '교육장 예약 확인', M: '가나정밀 3차 교육 장소와 준비물 확인' }
+// a scheduled task's conversation (F-TM-10): its runs keep arriving in the chat, so it never moves (server lib/conversationMove.js STANDING)
+const SCHED = { id: `tm-ui-s-${sfx}`, title: '매주 월요일 매출 요약' }
 
 const API_PORT = Number(process.env.RT_TM_API_PORT || 8994)
 const WEB_PORT = Number(process.env.RT_TM_WEB_PORT || 5394)
@@ -107,6 +112,11 @@ test.beforeAll(async () => {
   const at = () => new Date(Date.now() - 3600_000 + (s += 5) * 1000).toISOString()
   const ins = (role, kind, content) => S.q(`insert into pro_messages(thread_id,role,kind,content,created_at) values ($1,$2,$3,$4,$5)`, [MAIN.id, role, kind, content, at()])
   const ctx = (k, action = 'continue') => ({ conversationId: CONV[k], action, title: TITLE[k] })
+  // F-TM-10's own conversation, the oldest of all (the list's last — F-TM-08 · F-TM-09 act on the newest, K, and leave their card there)
+  await ins('user', 'text', { text: '3차 교육 장소 후보 알려 줘' })
+  await ins('agent', 'text', { text: '3차 교육 장소 후보는 본사 대회의실과 인근 교육장 두 곳이에요.', context: ctx('M', 'new') })
+  await ins('user', 'text', { text: '준비물도 정리해 줘' })
+  await ins('agent', 'text', { text: '준비물은 노트북, 예시 데이터, 출석부예요.', context: ctx('M') })
   await ins('user', 'text', { text: '받은 메일의 1차 교육 요청을 조사해 줘' })
   await ins('agent', 'doc', { text: '# 데이터 분석 실무 교육안\n\n요청 메일의 1차 교육(3일)을 기준으로 정리했어요.\n\n1. **1일차** — 스프레드시트 기초\n2. **2일차** — 대시보드 만들기 실습\n3. **3일차** — 발표와 피드백', context: ctx('A', 'new') })
   // (a real file in storage, as the agent leaves one — the card checks it can be shared)
@@ -128,10 +138,17 @@ test.beforeAll(async () => {
     await ins('user', 'text', { text: `2차 교육 ${i}일차 일정을 정리해 줘` })
     await ins('agent', 'text', { text: `${i}일차는 오전에 이론, 오후에 실습이에요. 강사는 두 명이 번갈아 맡고, 실습실은 30명이 들어가는 곳으로 잡았어요. 준비물은 노트북과 예시 데이터예요.`, context: ctx('L', i === 1 ? 'new' : 'continue') })
   }
+  // the newest conversation (F-TM-08 · F-TM-09), and a scheduled task's conversation with two runs (F-TM-10)
+  await ins('user', 'text', { text: '교육장 예약 확인해 줘' })
+  await ins('agent', 'text', { text: '교육장은 12월 9일 오전으로 예약돼 있어요.', context: ctx('K', 'new') })
+  for (const n of [1, 2]) await ins('agent', 'text', { text: `${n}주차 매출 요약이에요. 지난주보다 ${n * 3}% 늘었어요.`, context: { conversationId: SCHED.id, action: 'aside', kind: 'schedule', title: SCHED.title } })
+  await S.q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at) values ($1,$2,$3,$4,'','','schedule',2,now())
+    on conflict (tenant_id,user_id,conversation_id) do nothing`, [TENANT, HY.id, SCHED.id, SCHED.title])
   for (const k of Object.keys(CONV)) {
     await S.q(`insert into context_threads(tenant_id,user_id,conversation_id,title,summary,gist,kind,turns,updated_at) values ($1,$2,$3,$4,$5,'','conversation',2,now())
       on conflict (tenant_id,user_id,conversation_id) do nothing`, [TENANT, HY.id, CONV[k], TITLE[k], `최근 요청: ${TITLE[k]}\n최근 답: …`])
   }
+  await S.q(`update context_threads set updated_at = now() - interval '2 days' where tenant_id=$1 and conversation_id=$2`, [TENANT, CONV.M])
   // 정하윤's projects: P1 · P4 (no folder), P2 (works in 「영업 자료」 — 김서연 is in it too), P3 (works in 「규정집」 — 정하윤 only views it)
   const proj = async (title) => (await S.q(`insert into pro_threads(user_id,kind,title,updated_at) values ($1,'project',$2,now()) returning *`, [HY.id, title]))[0]
   P1 = await proj('가나정밀 1차 교육'); P2 = await proj('영업 자료 정리'); P3 = await proj('규정 검토'); P4 = await proj('견적 모음')
@@ -156,6 +173,7 @@ test.afterAll(async () => {
     if (keys.length) await S.q(`delete from storage.objects where bucket_id='files' and name = any($1)`, [keys]).catch(() => {})
   }
   await S.q('delete from context_threads where tenant_id=$1', [TENANT]).catch(() => {})
+  await S.q('delete from pro_context_shares where tenant_id=$1', [TENANT]).catch(() => {})
   await S.q('delete from pro_folder_members where folder_id in (select id from pro_folders where tenant_id=$1)', [TENANT]).catch(() => {})
   await S.q('delete from notifications where tenant_id=$1', [TENANT]).catch(() => {})
   await S.q('delete from pro_team_members where tenant_id=$1', [TENANT]).catch(() => {})
@@ -163,15 +181,15 @@ test.afterAll(async () => {
   await S.stop()
 })
 
-async function open(browser, who, opts, { theme = 'light' } = {}) {
+async function open(browser, who, opts, { theme = 'light', lang = 'ko' } = {}) {
   const ctx = await browser.newContext({ ...opts, baseURL: S.web })
-  await ctx.addInitScript(([s, th]) => {
+  await ctx.addInitScript(([s, th, lg]) => {
     if (window.top !== window) return
     localStorage.setItem('pgpt-pro-session', s)
     localStorage.setItem('pgpt-pro-theme', th)
-    localStorage.setItem('pgl-lang', 'ko')
+    localStorage.setItem('pgl-lang', lg)
     localStorage.setItem('pgl-install', JSON.stringify({ never: true }))
-  }, [JSON.stringify(who.session), theme])
+  }, [JSON.stringify(who.session), theme, lang])
   const p = await ctx.newPage()
   p.errors = []
   p.on('pageerror', (e) => p.errors.push(String(e?.message || e)))
@@ -403,8 +421,9 @@ test('F-TM-05 긴 대화의 맨 아래에서도 대화 막대가 위에 붙어 �
   test.setTimeout(180_000)
   // the newest message of the conversation brought into view (a filtered view opens there — PR #124), the list's own scroll
   const bottom = async (p, last = '12일차는 오전에 이론') => {
-    // (a message's row — the bar's menu rows are .row too, and one fading out after the pick shows the same last request: PR #129 check)
-    const row = p.locator('.row[data-id]').filter({ hasText: last })
+    // (a message's row — the bar's menu rows are .row too, and one fading out after the pick shows the same last request: PR #129 check;
+    // its bubble's own words — the row's time 「오후 5:21」 before 「2일차는 …」 reads 「5:212일차는」, which holds 「12일차는」 too: 11-28 17:21 run)
+    const row = p.locator('.row[data-id]').filter({ has: p.locator('.bubble').filter({ hasText: new RegExp(`^\\s*${last}`) }) })
     await row.scrollIntoViewIfNeeded()
     await p.evaluate(() => { for (const el of document.querySelectorAll('.scroll.msgs')) el.scrollTop = el.scrollHeight })
     await expect(row).toBeInViewport()
@@ -420,6 +439,7 @@ test('F-TM-05 긴 대화의 맨 아래에서도 대화 막대가 위에 붙어 �
     expect(b.y).toBeLessThanOrEqual(90)
     expect(b.height, '한 줄').toBeLessThanOrEqual(48)
     await expect(bar(p).getByTestId('cbar-count')).toHaveText('메시지 24개')
+    await expect(bar(p).getByTestId('cbar-move-btn')).toBeVisible()
     await expect(bar(p).getByTestId('cbar-other')).toBeVisible()
     await inView(bar(p).getByTestId('cbar-other'), p)
     await noSideScroll(p)
@@ -429,6 +449,7 @@ test('F-TM-05 긴 대화의 맨 아래에서도 대화 막대가 위에 붙어 �
     await p.setViewportSize({ width: 390, height: 470 })
     await expect(bar(p).getByTestId('cbar-count')).toBeHidden()
     await expect(bar(p).getByTestId('grade-chip')).toBeHidden()
+    await expect(bar(p).getByTestId('cbar-move-btn')).toBeHidden()
     await expect(cur).toBeInViewport()
     const k = await bar(p).boundingBox()
     expect(k.height).toBeLessThanOrEqual(44)
@@ -562,7 +583,8 @@ test('F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트
   await p.locator('.seg button').filter({ hasText: /^(채팅|Chat)$/ }).click()
   await openThreadList(p)
   await busyBackdrop(p)
-  const row = tlist(p).locator('.rowwrap.movable').first()
+  // (the newest conversation, K — not 「the first row」: F-TM-09 leaves its late card in it, and F-TM-10 has its own)
+  const row = tlist(p).locator('.rowwrap.movable').filter({ has: p.locator(`[data-conv="${CONV.K}"]`) })
   await expect(row).toBeVisible()
   // the project list's size and ink: a big name, the line under it no fainter than the secondary ink, the time and count on a solid badge
   const name = row.locator('.name')
@@ -612,7 +634,8 @@ test('F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트
   await expect.poll(() => new URL(p.url()).pathname).toBe('/chat')
   await openThreadList(p)
   await expect(tlist(p)).toBeVisible()
-  const other = tlist(p).locator('.rowwrap.movable').last()
+  // (K again — the list's last row is F-TM-10's own conversation, M, which is kept clean of cards)
+  const other = tlist(p).locator('.rowwrap.movable').filter({ has: p.locator(`[data-conv="${CONV.K}"]`) })
   const conv = await other.getByTestId('thread-row').getAttribute('data-conv')
   await longPress(p, other.getByTestId('thread-row'))
   await expect(sheet(p).locator('[data-test="move-new"]')).toBeVisible({ timeout: 15000 })
@@ -633,7 +656,8 @@ test('F-TM-09 1280(어두운): 대화 목록의 행에 포인터를 올리면 �
   await p.goto('/chat')
   await openThreadList(p)
   await busyBackdrop(p)
-  const row = tlist(p).locator('.rowwrap.movable').first()
+  // (the newest conversation, K — not 「the first row」: F-TM-09 leaves its late card in it, and F-TM-10 has its own)
+  const row = tlist(p).locator('.rowwrap.movable').filter({ has: p.locator(`[data-conv="${CONV.K}"]`) })
   const mv = row.getByTestId('thread-move')
   await expect(tlist(p).getByTestId('thread-move-hint')).toHaveText('오른쪽 단추로 누르면 프로젝트로 옮길 수 있어요.')
   expect(await alphaOf(row.locator('.line'))).toBeGreaterThanOrEqual(0.5)
@@ -690,4 +714,152 @@ test('F-TM-09 1280(어두운): 대화 목록의 행에 포인터를 올리면 �
   await expect.poll(() => new URL(p.url()).pathname).toMatch(/^\/chat\/c\//)
   expect(p.errors).toEqual([])
   await p.context().close()
+})
+
+// the bar of one conversation: 「프로젝트로 옮기기」 in sight, the name opens the bar's menu, holding the name opens the move straight away
+// the folder reads on the bar (its fill against the bar) and its arrow reads on the folder (WCAG contrast of what is drawn)
+const looks = (btn) => btn.evaluate((el) => {
+  const rgba = (v) => { const m = v.match(/[\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m[3] ?? 1 } }
+  const over = (f, b) => ({ r: f.r * f.a + b.r * (1 - f.a), g: f.g * f.a + b.g * (1 - f.a), b: f.b * f.a + b.b * (1 - f.a), a: 1 })
+  const lum = (c) => { const ch = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b) }
+  const ratio = (x, y) => { const [hi, lo] = [lum(x), lum(y)].sort((p, q) => q - p); return (hi + 0.05) / (lo + 0.05) }
+  const bar = over(rgba(getComputedStyle(el.closest('[data-testid=cbar]')).backgroundColor), rgba(document.documentElement.dataset.theme === 'dark' ? 'rgb(0,0,0)' : 'rgb(255,255,255)'))
+  const fill = over(rgba(getComputedStyle(el).backgroundColor), bar)
+  const ink = over(rgba(getComputedStyle(el.querySelector('svg')).color), fill)
+  return { fill: ratio(fill, bar), ink: ratio(ink, fill) }
+})
+test('F-TM-10 걸러 본 대화의 막대에 「프로젝트로 옮기기」가 바로 보임 — 이름을 누르면 메뉴, 길게 누르면 바로 · 예약 작업 대화와 프로젝트 안에는 없음', async ({ browser }) => {
+  test.setTimeout(300_000)
+  const n = 4
+  const btn = (p) => bar(p).getByTestId('cbar-move-btn')
+  const cur = (p) => bar(p).getByTestId('cbar-current')
+  const other = (p) => bar(p).getByTestId('cbar-other')
+  const panel = (p) => bar(p).getByTestId('cbar-panel')
+  for (const theme of ['light', 'dark']) {
+    const p = await open(browser, HY, PHONE, { theme })
+    await toConversation(p, 'M', { phone: true })
+    // in sight on the bar, which stays one line: ‹ · the name (its count under it) · the grade · the folder · the list icon (「다른 대화」)
+    await expect(btn(p)).toBeVisible()
+    await inView(btn(p), p)
+    await expect(btn(p)).toHaveAttribute('aria-label', `「${TITLE.M}」 프로젝트로 옮기기`)
+    await expect(bar(p).getByTestId('cbar-count')).toHaveText(`메시지 ${n}개`)
+    await expect(other(p)).toHaveAttribute('aria-label', '다른 대화')
+    await inView(other(p), p)
+    expect((await bar(p).boundingBox()).height, '한 줄').toBeLessThanOrEqual(48)
+    // the name keeps its room (not squeezed to a letter or two by the new button), the two round buttons are round
+    expect((await cur(p).locator('b').boundingBox()).width).toBeGreaterThanOrEqual(100)
+    for (const b of [btn(p), other(p)]) { const r = await b.boundingBox(); expect(Math.abs(r.width - r.height)).toBeLessThanOrEqual(0.5) }
+    const look = await looks(btn(p))
+    expect(look.fill, 'the folder button stands out from the bar').toBeGreaterThanOrEqual(1.1)
+    expect(look.ink, 'the folder reads on its button').toBeGreaterThanOrEqual(4.5)
+    await noSideScroll(p)
+    await shot(p, `f-tm-10-bar-${theme}`)
+    // a tap on the folder: the move
+    await btn(p).tap()
+    await expect(sheet(p)).toHaveAttribute('data-step', 'pick', { timeout: 15000 })
+    await expect(sheet(p)).toContainText(TITLE.M)
+    await expect(sheet(p).locator('[data-test="move-project"]').first()).toBeVisible({ timeout: 15000 })
+    await shot(p, `f-tm-10-sheet-${theme}`)
+    await sheet(p).locator('[data-test="move-close"]').click()
+    await expect(sheet(p)).toHaveCount(0)
+    // a tap on the name (where the recording's finger went): the bar's menu, its first row 「프로젝트로 옮기기」 — both openers say it is open
+    await cur(p).tap()
+    await expect(panel(p)).toBeVisible()
+    await expect(cur(p)).toHaveAttribute('aria-expanded', 'true')
+    await expect(other(p)).toHaveAttribute('aria-expanded', 'true')
+    expect(await panel(p).locator('button').first().getAttribute('data-testid')).toBe('cbar-move')
+    await inView(bar(p).getByTestId('cbar-move'), p)
+    await shot(p, `f-tm-10-name-menu-${theme}`)
+    await cur(p).tap()
+    await expect(panel(p)).toHaveCount(0)
+    await expect(other(p)).toHaveAttribute('aria-expanded', 'false')
+    // holding the name (its count too): the move straight away — not the menu
+    // (that a real iPhone shows no selection · callout there is not seen by this browser: a check on the device)
+    await longPress(p, bar(p).getByTestId('cbar-count'))
+    await expect(sheet(p)).toHaveAttribute('data-step', 'pick', { timeout: 15000 })
+    await expect(sheet(p)).toContainText(TITLE.M)
+    await expect(panel(p)).toHaveCount(0)
+    await sheet(p).locator('[data-test="move-close"]').click()
+    await expect(sheet(p)).toHaveCount(0)
+    // typing (the keyboard up): the bar folds to ‹ · the name · the list icon — the folder too
+    await composer(p).focus()
+    await p.setViewportSize({ width: 390, height: 470 })
+    await expect(btn(p)).toBeHidden()
+    await expect(other(p)).toBeVisible()
+    await p.setViewportSize({ width: 390, height: 844 })
+    await p.evaluate(() => document.activeElement?.blur())
+    // a scheduled task's conversation: nothing to move — no folder, no menu row, holding the name opens nothing
+    await cur(p).tap()
+    await bar(p).locator(`[data-testid=cbar-row][data-conv="${SCHED.id}"]`).click()
+    await expect(p).toHaveURL(new RegExp(`/chat/c/${SCHED.id}$`))
+    await expect(cur(p)).toContainText(SCHED.title, { timeout: 30000 })
+    await expect(btn(p)).toHaveCount(0)
+    await cur(p).tap()
+    await expect(panel(p)).toBeVisible()
+    await expect(bar(p).getByTestId('cbar-move')).toHaveCount(0)
+    await cur(p).tap()
+    await longPress(p, cur(p))
+    await p.waitForTimeout(400)
+    await expect(sheet(p)).toHaveCount(0)
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  }
+  // a 360 phone in English, with the longest grade (「요약 공개 · 부서」 and 「민감 제안」): the name still keeps its room — the grade's words
+  // give way first — and nothing goes off the side (PR #130 review: 「Other conversations ▾」 left the name two letters)
+  await S.q(`insert into pro_context_shares (tenant_id, user_id, conversation_id, visibility, reach, sensitive, purpose, updated_at) values ($1,$2,$3,'summary','department','proposed','',now())
+    on conflict (tenant_id, user_id, conversation_id) do update set visibility='summary', reach='department', sensitive='proposed'`, [TENANT, HY.id, CONV.M])
+  await S.api(HY.token, '/me/lang', { method: 'PUT', body: { lang: 'en' } })
+  try {
+    const e = await open(browser, HY, { ...PHONE, viewport: { width: 360, height: 780 }, locale: 'en-US' }, { lang: 'en' })
+    await toConversation(e, 'M', { phone: true })
+    // (the grade with its 「민감 제안」 badge — the widest chip there is)
+    await expect(bar(e).getByTestId('grade-chip').locator('.badge')).toHaveCount(1, { timeout: 15000 })
+    await expect(btn(e)).toHaveAttribute('aria-label', `Move "${TITLE.M}" to a project`)
+    await expect(other(e)).toHaveAttribute('aria-label', 'Other conversations')
+    expect((await cur(e).locator('b').boundingBox()).width).toBeGreaterThanOrEqual(60)
+    expect((await bar(e).boundingBox()).height, 'one line').toBeLessThanOrEqual(48)
+    for (const b of [bar(e).getByTestId('cbar-all'), bar(e).getByTestId('grade-chip'), btn(e), other(e)]) await inView(b, e)
+    await noSideScroll(e)
+    await shot(e, 'f-tm-10-bar-en-360')
+    expect(e.errors).toEqual([])
+    await e.context().close()
+  } finally {
+    await S.api(HY.token, '/me/lang', { method: 'PUT', body: { lang: 'ko' } })
+    await S.q('delete from pro_context_shares where tenant_id=$1 and conversation_id=$2', [TENANT, CONV.M])
+  }
+  // a wide screen: the same folder (the chat column is 512px there too — words beside it squeezed the name), its words in the tooltip;
+  // 「다른 대화 ▾」 keeps its words; the name keeps its room; a right-click on the name is the move too
+  const d = await open(browser, HY, DESK, { theme: 'dark' })
+  await toConversation(d, 'M')
+  await expect(btn(d)).toHaveAttribute('title', '프로젝트로 옮기기')
+  await expect(other(d)).toHaveText('다른 대화 ▾')
+  await inView(btn(d), d)
+  expect((await cur(d).locator('b').boundingBox()).width).toBeGreaterThanOrEqual(150)
+  expect((await bar(d).boundingBox()).height).toBeLessThanOrEqual(64)
+  expect((await looks(btn(d))).ink).toBeGreaterThanOrEqual(4.5)
+  await shot(d, 'f-tm-10-bar-desk-dark')
+  await cur(d).click({ button: 'right' })
+  await expect(sheet(d)).toHaveAttribute('data-step', 'pick', { timeout: 15000 })
+  await expect(sheet(d)).toContainText(TITLE.M)
+  await d.keyboard.press('Escape')
+  await expect(sheet(d)).toHaveCount(0)
+  // the keyboard: the name is not a tab stop of its own (「다른 대화 ▾」 is the same menu); Tab from ‹ reaches the folder; Enter opens; closed,
+  // the focus is back on the folder
+  expect(await cur(d).getAttribute('tabindex')).toBe('-1')
+  await btn(d).focus()
+  await d.keyboard.press('Enter')
+  await expect(sheet(d)).toHaveAttribute('data-step', 'pick', { timeout: 15000 })
+  await d.keyboard.press('Escape')
+  await expect.poll(() => btn(d).evaluate((el) => el === document.activeElement)).toBe(true)
+  // moved into a project, the same bar is the project's sub-topics: nothing to move there
+  const moved = await S.api(HY.token, `/conversations/${CONV.M}/move`, { method: 'POST', body: { project: P4.id } })
+  expect(moved.moved).toBe(n)
+  await d.goto(`/projects/${P4.id}/t/${CONV.M}`)
+  await expect(cur(d)).toContainText(TITLE.M, { timeout: 30000 })
+  await expect(btn(d)).toHaveCount(0)
+  await cur(d).click({ button: 'right' })
+  await d.waitForTimeout(400)
+  await expect(sheet(d)).toHaveCount(0)
+  expect(d.errors).toEqual([])
+  await d.context().close()
 })
