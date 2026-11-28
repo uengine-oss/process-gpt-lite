@@ -20,6 +20,7 @@
 //   OL-I-14 (M2) 이미 읽은 메시지에 남은 카드는 뒤의 카드 닫기를 막지 않고, 그때 함께 확인됨
 //   OL-I-15 (M3) 안 읽은 「나에게 온 것」이 50개를 넘어도 모두 오고, 화면이 보여 주지 않은 더 오래된 것이 있으면 「보면 읽음」은 움직이지 않음
 //   OL-I-16 (L1) 둘째 줄의 카드를 닫아도 첫 줄의 카드는 그대로(보지 않은 첫 줄 때문에 읽음도 그대로)
+//   OL-I-17 (마지막 확인 R8) 회사가 아직 붙지 않은 줄 카드도 막음 — 바로 뒤 멘션 카드를 닫아도 그 줄을 지나 읽지 않음
 // Run: node --test --test-concurrency=1 test/oneReadState.integration.test.js  (로컬 Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -428,4 +429,21 @@ test('OL-I-16 (L1) 둘째 줄의 카드를 닫아도 첫 줄의 카드는 그대
   assert.deepEqual((await chatCards(B, g.id)).filter((c) => ['첫 줄이에요', '둘째 줄이에요'].includes(c.title)).map((c) => [c.title, c.checked]),
     [['첫 줄이에요', false], ['둘째 줄이에요', true]])
   assert.equal(await unreadOf(B, g.id), 2)
+})
+
+test('OL-I-17 (마지막 확인 R8) 아직 회사가 붙지 않은 줄 카드도 막는다 — 바로 뒤 멘션 카드를 닫아도 그 줄을 지나 읽지 않음', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  await M.markRead(me(B), g.id)
+  await M.post(me(C), g.id, { body: '방금 올린 줄이에요' })
+  await pause(1200)
+  const m = await M.post(me(A), g.id, { kind: 'mention', body: '이것 좀 봐 주세요' })
+  // the line's card as the chat trigger wrote it — no company yet (Home's feed stamps it a few seconds later): not stamped here
+  const line = async () => (await q(`select tenant_id, coalesce(is_checked,false) as checked from notifications where user_id=$1 and type='chat' and url=$2 and title=$3`,
+    [B.email, `/chats?id=${g.id}`, '방금 올린 줄이에요']))[0]
+  assert.equal((await line()).tenant_id, null)
+  assert.equal(await unreadOf(B, g.id), 2)
+  await N.dismiss(me(B), (await teamNotice(B, m.id, g.id)).id)
+  assert.equal(await unreadOf(B, g.id), 2)
+  assert.equal((await line()).checked, false)
 })

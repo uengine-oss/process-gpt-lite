@@ -506,7 +506,9 @@ export async function markRead(me, roomId, { upTo = null, from = null, cards = f
                              and ${CHAT_TS} > $5 and ${CHAT_TS} < $6
                            union all
                            select 1 from notifications n, ${cardMessage('$1')}
-                           where n.tenant_id=$2 and n.user_id = any($3) and coalesce(n.is_checked,false)=false and n.type='chat' and n.url=$7
+                           -- (a line's card the chat trigger wrote with no company yet — Home shows it once the feed stamps it, within
+                           -- seconds: it blocks too, or a dismiss right after could read past a card never shown — PR #127 last check R8)
+                           where (n.tenant_id=$2 or n.tenant_id is null) and n.user_id = any($3) and coalesce(n.is_checked,false)=false and n.type='chat' and n.url=$7
                              and m.ts > $5 and m.ts < $6
                            limit 1`, [t.id, T(), who, teamUrl, since, to, chatUrl])
       if (b) ok = false
