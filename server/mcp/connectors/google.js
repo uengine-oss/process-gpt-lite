@@ -61,13 +61,18 @@ export const google = {
     },
     {
       name: 'drive_search',
-      description: 'Full-text search in the user\'s Google Drive.',
+      description: 'Search the user\'s Google Drive — My Drive, files shared with them and the shared drives they belong to — by file name and by contents. '
+        + 'query is a few words (split on spaces): a file matches when every word is in its name or its text; when none does, files with any of the words come back and match says "any_word". '
+        + 'Files with more of the words in the name come first. Each result has id, name, mimeType, modifiedTime, webViewLink, owner or shared drive, and folder. '
+        + 'If nothing is found, search again with fewer or other words before saying the file is not there. Read a result with drive_read.',
       input: { query: z.string(), max: z.number().int().max(30).optional() },
       run: (u, a) => g.driveSearch(u, a),
     },
     {
       name: 'drive_read',
-      description: 'Read a Drive file as text (Docs → text, Sheets → CSV).',
+      description: 'Read the text of a Drive file by id (also in shared drives): Google Docs and Slides as text, Sheets as CSV, '
+        + 'and uploaded PowerPoint, Word, Excel, PDF and Hangul files (.pptx, .docx, .xlsx, .pdf, .hwpx) as their extracted text — a slide deck\'s slides in order. '
+        + 'The result says when a file is too large or has no readable text (too_big, no_text).',
       input: { fileId: z.string() },
       run: (u, a) => g.driveRead(u, a),
     },

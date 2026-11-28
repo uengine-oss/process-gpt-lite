@@ -2185,6 +2185,12 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/top-t
 ```bash
 cd server && node --test test/planGuard.test.js                                                 # PG-U-01~09
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/plan-guard.spec.js   # F-PG-01~05 (공용 잠금 rec.lock)
+### 84. 에이전트의 Google Drive 검색 · 읽기 — 이름과 내용으로 공유 드라이브 · 공유받은 파일까지 검색하고, 찾은 슬라이드 · 문서의 글 읽기 (스펙 `google-connect` 「에이전트는 Google Drive 를 이름과 내용으로, 공유 드라이브까지 찾고, 찾은 슬라이드 · 문서의 글을 읽는다」)
+
+2026-11-28 20:49 휴대폰 녹화: 사용자가 「구글 드라이브를 뒤져 보면 최근에 했던 … 교육이 있어 … 그거를 참고해서」라고 요청했지만, 에이전트는 「구글 드라이브에서 … 자료는 찾지 못해 참고하지 못했어요」라고 답하고 다른 자료를 기준으로 삼았다. 실제로는 내 드라이브에 해당 과정의 제안서 슬라이드(.pptx)가 있었다. 원인은 검색 방식에 있었다. 요청 문장 전체를 `fullText contains '…'` 한 구절로 묶어 내 드라이브에서만 검색했기 때문에, 이름에 낱말 하나가 빠진 파일과 공유 드라이브의 파일은 결과에 나오지 않았다. 찾은 .pptx도 「(binary file)」로만 읽혔다. 이번 수정으로 검색할 때는 낱말마다 `(name contains … or fullText contains …)`로 묶는다. 모든 낱말이 일치하는 파일이 없으면 낱말 하나라도 일치하는 파일로 검색을 넓히고, 결과의 `match`에 어느 방식으로 검색했는지 적는다. 검색 범위는 `corpora=allDrives`와 공유 드라이브 매개변수 셋으로 넓혔다. 읽을 때는 Office · PDF · 한글 파일을 50MB까지 내려받는다. 글은 공유 폴더 색인에 사용하는 추출기로 추출한다. 시험에서는 Google과 DB를 호출하지 않는다. fetch를 가짜로 바꾸고, Google에 보낸 주소와 질의를 확인한다.
+
+```bash
+cd server && node --test test/driveSearch.test.js    # DS-01~08 — 결과 openspec/specs/google-connect/e2e/results/drive-search.txt
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2198,6 +2204,15 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/plan-
 | 영어 화면에는 「Plan 1/3 · Step 1 not done · Step 2 done another way」 · 「This went differently from the plan」을 표시한다 | 영문판 | F-PG-05 | feature | ✅ |
 | 긴 답 앞의 짧고 무관한 줄은 답에 붙이지 않는다(긴 요약 뒤의 맺음말 한 줄은 그대로 둔다) | 녹화 20:49 | PG-U-08 · F-TP-05 | 단위 · feature | ✅ |
 | 실제 모델(운영 Sonnet 5.5)이 녹화 상황에서 확신 0.7을 넘기는지, 계속 찾는 중에는 멈추지 않는지 확인한다 | 운영 확인 | — | 운영 로그 | ◐ |
+| 검색어를 띄어쓰기로 나눈다. 각 낱말은 이름 또는 내용에 있어야 하며, 모든 낱말이 일치해야 한다. 휴지통은 제외하고, `corpora=allDrives` · `includeItemsFromAllDrives` · `supportsAllDrives`로 검색한다. 결과에 소유자를 표시하고, `match: all_words`를 적는다 | 녹화 20:49 | DS-01 | server-unit | ✅ |
+| 모든 낱말이 일치하는 파일이 없으면 낱말 하나라도 일치하는 파일로 검색을 넓힌다(100개를 받아 순서를 다시 정한다). 이름에 검색어의 낱말이 많이 포함된 파일이 먼저 오고, `match: any_word`와 안내를 적는다. 개수 제한(max)을 지킨다 | 녹화 20:49 | DS-02 | server-unit | ✅ |
+| 낱말이 하나면 검색을 넓히지 않는다. 결과가 없으면 `match: none`과 함께 검색한 범위(내 드라이브 · 공유받은 파일 · 공유 드라이브)를 알린다. 빈 질의는 오류다 | — | DS-03 | server-unit | ✅ |
+| 작은따옴표 · 역슬래시는 Drive 질의 안에서 이스케이프되어 질의가 깨지지 않는다 | — | DS-04 | server-unit | ✅ |
+| 공유 드라이브의 파일에는 드라이브 이름을, 그 밖의 파일에는 소유자를 상위 폴더 이름과 함께 표시한다(상위 폴더 이름을 찾지 못하면 제외한다). `incompleteSearch`를 전달한다. max는 30까지다 | 녹화 20:49(회사 공유 드라이브) | DS-05 | server-unit | ✅ |
+| 시험 안에서 jszip으로 만든 .pptx를 내려받아 장 순서대로 글과 장 수를 반환한다. 메타데이터 조회와 내려받기 모두 `supportsAllDrives=true`로 수행하며, 「(binary file)」로 반환하지 않는다 | 녹화 20:49 | DS-06 | server-unit | ✅ |
+| 50MB를 넘는 파일은 내려받지 않고 `too_big`으로 알린다. 크기를 모르는 본문은 받는 도중 한도에 도달하면 멈춘다. 그림만 있는 슬라이드 · 사진은 `no_text`로 알린다 | — | DS-07 | server-unit | ✅ |
+| Google 슬라이드는 text/plain으로 내보낸다. 바로 가기는 원본을 읽는다. 2만 자를 넘는 글은 `truncated`와 전체 글자 수를 함께 반환한다. Drive의 거절 사유(예: 내보내기에 너무 큰 파일)를 그대로 전달한다 | — | DS-08 | server-unit | ✅ |
+| 실제 Google Drive(내 드라이브 · 공유 드라이브)에서 검색하고 읽는다 | 녹화 20:49 | — (시험은 가짜 fetch) | — | ◐ |
 
 ## 남은 공백(다음에 채울 것)
 
