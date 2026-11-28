@@ -1,4 +1,4 @@
-// Keeping a turn to the request and the plan it showed (2026-11-28 녹화 20:49). A project's turn was asked to start from the PMO material in
+// Keeping a turn to the request and the plan it showed (2026-11-28 녹화 20:49). A project's turn was asked to start from training material in
 // the person's Google Drive; it did not find it, said so only in its final answer, went on with another source of its own choosing, and the
 // saved plan read 「계획 4/4」. 사용자: 「구글 드라이브에서 찾지 못했다 … 이게 지금 있거든 이걸 그냥 무시하고 그냥 넘어갖고 멈춰서 나한테
 // 물어보는 게 맞지」 · 「요청의 의도나 수행 방법/플래닝의 의도에 맞지 않게 돌아가는 중요한 경우는 stop 하고 HITL 이 벌어졌어야 한다.」

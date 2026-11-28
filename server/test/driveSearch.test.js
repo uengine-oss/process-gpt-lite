@@ -1,0 +1,289 @@
+// Google Drive 찾기 · 읽기 (2026-11-28 휴대폰 녹화 20:49): 「구글 드라이브에서 … 교육 자료」를 찾지 못해 다른 자료로
+// 바꿔 만든 일. 찾기는 이름과 내용 · 공유받은 파일 · 공유 드라이브까지, 낱말마다 따로(모두 → 없으면 하나라도), 읽기는
+// 슬라이드 · 문서의 글. Google 은 부르지 않는다 — fetch 를 가짜로 바꾸고 보낸 주소를 본다. DB 도 쓰지 않는다(토큰을 직접 준다).
+//   cd server && node --test test/driveSearch.test.js
+import test, { afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+import JSZip from 'jszip'
+import * as G from '../lib/google.js'
+
+const TOKEN = { token: 'test-access-token' }
+const realFetch = globalThis.fetch
+afterEach(() => { globalThis.fetch = realFetch })
+
+// routes: [[test(url) → boolean, (url) → Response], …]; every call is kept
+function stubFetch(routes) {
+  const calls = []
+  globalThis.fetch = async (input, opts = {}) => {
+    const url = new URL(String(input))
+    calls.push({ url, auth: opts.headers?.Authorization })
+    for (const [when, reply] of routes) if (when(url)) return reply(url, opts)
+    return Response.json({ error: { message: `unexpected ${url.pathname}` } }, { status: 404 })
+  }
+  return calls
+}
+const isList = (u) => u.pathname === '/drive/v3/files'
+const qOf = (u) => u.searchParams.get('q')
+const PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+
+test('DS-01 낱말마다 이름 또는 내용 — 모두 있어야 하고, 휴지통은 빼고, 공유 드라이브 · 공유받은 파일까지', async () => {
+  const calls = stubFetch([[isList, () => Response.json({ files: [{ id: 'f1', name: '가나정밀 교육과정 제안서.pptx', mimeType: PPTX, modifiedTime: '2026-11-13T09:00:00Z', webViewLink: 'https://docs.google.com/presentation/d/f1', owners: [{ displayName: '정하윤' }] }] })]])
+  const r = await G.driveSearch('u1', { query: '  가나정밀   교육 자료 ' }, TOKEN)
+  const list = calls.find((c) => isList(c.url)).url
+  assert.equal(qOf(list), "(name contains '가나정밀' or fullText contains '가나정밀') and (name contains '교육' or fullText contains '교육') and (name contains '자료' or fullText contains '자료') and trashed = false")
+  assert.equal(list.searchParams.get('corpora'), 'allDrives')
+  assert.equal(list.searchParams.get('includeItemsFromAllDrives'), 'true')
+  assert.equal(list.searchParams.get('supportsAllDrives'), 'true')
+  assert.match(list.searchParams.get('fields'), /driveId/)
+  assert.ok(calls.every((c) => c.auth === 'Bearer test-access-token'), '사람의 토큰으로')
+  // (the any-word list goes out at the same time — review #133; the same file in both lists comes back once)
+  const lists = calls.filter((c) => isList(c.url))
+  assert.equal(lists.length, 2)
+  assert.match(qOf(lists[1].url), /^\(\(name contains '가나정밀' or fullText contains '가나정밀'\) or /)
+  assert.equal(r.match, 'all_words')
+  assert.deepEqual(r.words, ['가나정밀', '교육', '자료'])
+  assert.equal(r.files.length, 1)
+  assert.equal(r.files[0].name, '가나정밀 교육과정 제안서.pptx')
+  assert.equal(r.files[0].owner, '정하윤')
+  assert.equal(r.files[0].words_in_name, 2)
+  assert.equal(r.files[0].all_words, true)
+  assert.ok(r.note)
+})
+
+test('DS-02 모두 든 파일이 없으면 하나라도 든 파일만 — 결과가 어느 쪽인지 말하고, 이름에 낱말이 많은 파일이 먼저', async () => {
+  const calls = stubFetch([[isList, (u) => (/ or fullText contains '가나정밀'\) and/.test(qOf(u))
+    ? Response.json({ files: [] })
+    : Response.json({ files: [
+      { id: 'a', name: '회의 자료 모음', mimeType: 'application/vnd.google-apps.document' },
+      { id: 'b', name: '가나정밀 교육 일정.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      { id: 'c', name: '가나정밀 안내', mimeType: 'application/pdf' },
+    ] }))]])
+  const r = await G.driveSearch('u1', { query: '가나정밀 교육 자료', max: 2 }, TOKEN)
+  const lists = calls.filter((c) => isList(c.url)).map((c) => c.url)
+  assert.equal(lists.length, 2, '모두 · 하나라도를 함께')
+  assert.equal(qOf(lists[1]), "((name contains '가나정밀' or fullText contains '가나정밀') or (name contains '교육' or fullText contains '교육') or (name contains '자료' or fullText contains '자료')) and trashed = false")
+  assert.equal(lists[1].searchParams.get('corpora'), 'allDrives')
+  assert.equal(lists[1].searchParams.get('pageSize'), String(G.DRIVE_SEARCH.fetch), '넓힐 때는 더 많이 받아 순서를 다시 정한다')
+  assert.equal(r.match, 'any_word')
+  assert.match(r.note, /하나라도|any of them/)
+  assert.deepEqual(r.files.map((f) => f.id), ['b', 'a'], '이름에 낱말 둘 → 하나(앞선 것이 먼저), max 2')
+})
+
+test('DS-03 낱말 하나는 넓히지 않고, 아무것도 없으면 그렇게 말한다', async () => {
+  const calls = stubFetch([[isList, () => Response.json({ files: [] })]])
+  const r = await G.driveSearch('u1', { query: '가나정밀' }, TOKEN)
+  assert.equal(calls.length, 1)
+  assert.equal(r.match, 'none')
+  assert.deepEqual(r.files, [])
+  assert.match(r.note, /공유 드라이브|shared drives/)
+  await assert.rejects(G.driveSearch('u1', { query: '   ' }, TOKEN))
+})
+
+test('DS-04 따옴표 · 역슬래시는 Drive 질의 안에서 이스케이프된다', async () => {
+  assert.equal(G.driveQuoted("O'Neil"), "'O\\'Neil'")
+  assert.equal(G.driveQuoted('a\\b'), "'a\\\\b'")
+  assert.equal(G.driveQuoted("x\\'y"), "'x\\\\\\'y'")
+  const calls = stubFetch([[isList, () => Response.json({ files: [] })]])
+  await G.driveSearch('u1', { query: "O'Neil's 보고서" }, TOKEN)
+  const q = qOf(calls[0].url)
+  assert.ok(q.startsWith("(name contains 'O\\'Neil\\'s' or fullText contains 'O\\'Neil\\'s') and"), q)
+  // the words never close the quote: every quote in q is either escaped or one of ours around a word
+  assert.equal(q.replace(/\\'/g, '').split("'").length - 1, 4 * 2)
+})
+
+test('DS-05 공유 드라이브 이름 · 상위 폴더 이름 · 개수 제한', async () => {
+  const calls = stubFetch([
+    [isList, () => Response.json({ incompleteSearch: true, files: [
+      { id: 's1', name: '교육 과정 설계.pptx', mimeType: PPTX, driveId: 'D1', parents: ['P1'], size: '1234' },
+      { id: 'm1', name: '교육 메모', mimeType: 'application/vnd.google-apps.document', owners: [{ displayName: '정하윤' }], parents: ['P2'] },
+    ] })],
+    [(u) => u.pathname === '/drive/v3/drives/D1', () => Response.json({ name: '가나정밀 공유 드라이브' })],
+    [(u) => u.pathname === '/drive/v3/files/P1', () => Response.json({ name: '2026 교육' })],
+    [(u) => u.pathname === '/drive/v3/files/P2', () => Response.json({ error: { message: 'not found' } }, { status: 404 })],
+  ])
+  const r = await G.driveSearch('u1', { query: '교육', max: 99 }, TOKEN)
+  // (both lists ask for the same page — a file deep in the every-word list keeps all_words: 2nd review #133; at most 30 come back)
+  assert.equal(calls.find((c) => isList(c.url)).url.searchParams.get('pageSize'), String(G.DRIVE_SEARCH.fetch))
+  assert.ok(r.files.length <= G.DRIVE_SEARCH.maxResults, 'max 는 30 까지')
+  assert.equal(calls.find((c) => c.url.pathname === '/drive/v3/files/P1').url.searchParams.get('supportsAllDrives'), 'true')
+  assert.equal(r.incomplete, true)
+  assert.deepEqual(r.files[0], { id: 's1', name: '교육 과정 설계.pptx', mimeType: PPTX, modifiedTime: undefined, webViewLink: undefined, size: 1234, drive: '가나정밀 공유 드라이브', folder: '2026 교육', words_in_name: 1, all_words: true })
+  assert.equal(r.files[1].owner, '정하윤')
+  assert.equal(r.files[1].folder, undefined, '못 찾은 폴더 이름은 빼고 결과는 그대로')
+})
+
+// a small deck made here: two slides, the second one listed first in the package
+async function deck(slides) {
+  const z = new JSZip()
+  z.file('[Content_Types].xml', '<Types/>')
+  slides.forEach((s, i) => z.file(`ppt/slides/slide${slides.length - i}.xml`, `<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>${slides[slides.length - 1 - i]}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`))
+  return z.generateAsync({ type: 'nodebuffer' })
+}
+
+test('DS-06 슬라이드 파일(.pptx)을 내려받아 장 순서대로 글을 돌려준다 (공유 드라이브 파일도)', async () => {
+  const buf = await deck(['가나정밀 교육 과정 — 1일차: 헌법(constitution) 쓰기', '2일차: 스펙 · 계획 · 점검'])
+  const calls = stubFetch([
+    [(u) => u.pathname === '/drive/v3/files/deck1' && !u.searchParams.has('alt'), () => Response.json({ id: 'deck1', name: '가나정밀 교육과정 제안서.pptx', mimeType: PPTX, size: String(buf.length), webViewLink: 'https://docs.google.com/presentation/d/deck1' })],
+    [(u) => u.pathname === '/drive/v3/files/deck1' && u.searchParams.get('alt') === 'media', () => new Response(buf, { headers: { 'content-type': PPTX } })],
+  ])
+  const r = await G.driveRead('u1', { fileId: 'deck1' }, TOKEN)
+  assert.ok(calls.every((c) => c.url.searchParams.get('supportsAllDrives') === 'true'), '메타 · 내려받기 모두 supportsAllDrives')
+  assert.equal(r.name, '가나정밀 교육과정 제안서.pptx')
+  assert.equal(r.pages, 2)
+  assert.match(r.text, /1일차: 헌법\(constitution\) 쓰기/)
+  assert.ok(r.text.indexOf('1일차') < r.text.indexOf('2일차'), '장 순서대로')
+  assert.equal(r.too_big, undefined)
+  assert.notEqual(r.text, '(binary file)')
+})
+
+test('DS-07 너무 큰 파일은 내려받지 않고, 크기를 모를 때는 받다가 멈춘다 · 글이 없으면 그렇게 말한다', async () => {
+  const big = stubFetch([[(u) => !u.searchParams.has('alt'), () => Response.json({ id: 'x', name: '큰 발표.pptx', mimeType: PPTX, size: String(G.DRIVE_READ.maxBytes + 1), webViewLink: 'https://drive.google.com/file/d/x' })]])
+  const r1 = await G.driveRead('u1', { fileId: 'x' }, TOKEN)
+  assert.equal(r1.too_big, true)
+  assert.match(r1.note, /너무 커서|too large/)
+  assert.ok(!big.some((c) => c.url.searchParams.get('alt') === 'media'), '내려받지 않음')
+
+  const cap = G.DRIVE_READ.maxBytes
+  G.DRIVE_READ.maxBytes = 1000
+  try {
+    stubFetch([
+      [(u) => !u.searchParams.has('alt'), () => Response.json({ id: 'y', name: '크기 모름.pdf', mimeType: 'application/pdf' })],
+      [(u) => u.searchParams.get('alt') === 'media', () => new Response(new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(400)) } }))],
+    ])
+    const r2 = await G.driveRead('u1', { fileId: 'y' }, TOKEN)
+    assert.equal(r2.too_big, true, '끝없이 오는 본문도 한도에서 멈춘다')
+  } finally { G.DRIVE_READ.maxBytes = cap }
+
+  const empty = await deck([''])
+  stubFetch([
+    [(u) => !u.searchParams.has('alt'), () => Response.json({ id: 'z', name: '그림만.pptx', mimeType: PPTX, size: String(empty.length) })],
+    [(u) => u.searchParams.get('alt') === 'media', () => new Response(empty)],
+  ])
+  const r3 = await G.driveRead('u1', { fileId: 'z' }, TOKEN)
+  assert.equal(r3.no_text, true)
+  assert.match(r3.note, /글을 찾지 못했어요|No text/)
+
+  stubFetch([[(u) => !u.searchParams.has('alt'), () => Response.json({ id: 'i', name: '사진.png', mimeType: 'image/png', size: '10' })]])
+  const r4 = await G.driveRead('u1', { fileId: 'i' }, TOKEN)
+  assert.equal(r4.no_text, true)
+  assert.match(r4.note, /image\/png/)
+})
+
+test('DS-08 Google 슬라이드는 글로 내보내고, 바로 가기는 원본을 읽고, 긴 글은 잘렸다고 말한다', async () => {
+  const calls = stubFetch([
+    [(u) => u.pathname === '/drive/v3/files/sc', () => Response.json({ id: 'sc', name: '바로 가기', mimeType: 'application/vnd.google-apps.shortcut', shortcutDetails: { targetId: 'gs', targetMimeType: 'application/vnd.google-apps.presentation' } })],
+    [(u) => u.pathname === '/drive/v3/files/gs', () => Response.json({ id: 'gs', name: '가나정밀 교육', mimeType: 'application/vnd.google-apps.presentation' })],
+    [(u) => u.pathname === '/drive/v3/files/gs/export', () => new Response('가'.repeat(G.DRIVE_READ.maxChars + 5), { headers: { 'content-type': 'text/plain' } })],
+  ])
+  const r = await G.driveRead('u1', { fileId: 'sc' }, TOKEN)
+  assert.equal(calls.find((c) => c.url.pathname.endsWith('/export')).url.searchParams.get('mimeType'), 'text/plain')
+  assert.equal(r.id, 'gs')
+  assert.equal(r.text.length, G.DRIVE_READ.maxChars)
+  assert.equal(r.truncated, true)
+  assert.equal(r.chars, G.DRIVE_READ.maxChars + 5)
+  // a refusal from Drive keeps its message
+  stubFetch([
+    [(u) => !u.pathname.endsWith('/export'), () => Response.json({ id: 'gd', name: '큰 문서', mimeType: 'application/vnd.google-apps.document' })],
+    [(u) => u.pathname.endsWith('/export'), () => Response.json({ error: { message: 'This file is too large to be exported.' } }, { status: 403 })],
+  ])
+  await assert.rejects(G.driveRead('u1', { fileId: 'gd' }, TOKEN), /Drive 403: This file is too large to be exported/)
+})
+
+// ---- PR #133 review ----
+
+test('DS-09 (검토 1) 내용에 낱말이 다 든 엉뚱한 문서가, 이름에 넷 중 셋이 든 제안서를 가리지 않는다', async () => {
+  const deckFile = { id: 'deck', name: '가나정밀 협회 교육과정 제안서.pptx', mimeType: PPTX }
+  const memo = { id: 'memo', name: '주간 회의록', mimeType: 'application/vnd.google-apps.document' }
+  const pile = { id: 'pile', name: '자료 모음', mimeType: 'application/vnd.google-apps.folder' }
+  const calls = stubFetch([[isList, (u) => (qOf(u).startsWith('((')
+    ? Response.json({ files: [memo, pile, deckFile] })   // any of the words
+    : Response.json({ files: [memo] }))]])               // every word: only the memo's body holds all four
+  const r = await G.driveSearch('u1', { query: '가나정밀 협회 교육 자료' }, TOKEN)
+  assert.equal(calls.filter((c) => isList(c.url)).length, 2, '모든 낱말 질의가 결과를 내도 하나라도 질의를 함께 한다')
+  assert.deepEqual(r.files.map((f) => [f.id, f.words_in_name, f.all_words]), [['deck', 3, false], ['pile', 1, false], ['memo', 0, true]])
+  assert.equal(r.match, 'mixed')
+  assert.match(r.note, /all_words: true/)
+  assert.equal(new Set(r.files.map((f) => f.id)).size, r.files.length, 'id 로 한 번씩')
+})
+
+test('DS-10 (검토 2) 이름의 낱말 수는 Drive 처럼 센다 — 낱말의 앞에서부터, 조사가 붙은 말은 다른 낱말', () => {
+  assert.equal(G.nameHits('가나정밀 교육과정 제안서.pptx', ['교육']), 1, '「교육」은 「교육과정」의 앞')
+  assert.equal(G.nameHits('가나정밀 교육과정 제안서.pptx', ['과정']), 0, '「과정」은 「교육과정」의 가운데 — Drive 도 못 찾는다')
+  assert.equal(G.nameHits('정리한 자료 목록', ['자료를']), 0, '「자료를」은 「자료」가 아니다')
+  assert.equal(G.nameHits('AI-가나 협회 안내.PPTX', ['가나', 'pptx', '협회', 'ai']), 4, '문장 부호에서 낱말이 나뉘고, 대소문자는 가리지 않는다')
+})
+
+test('DS-11 (검토 3) 폴더 · 드라이브 이름은 id 마다 한 번, 다섯 개씩, 공유 드라이브 맨 위의 파일은 폴더를 묻지 않는다', async () => {
+  let inflight = 0, peak = 0
+  const lookups = []
+  const files = [
+    ...[1, 2, 3, 4, 5, 6].map((k) => ({ id: `m${k}`, name: `교육 ${k}`, mimeType: 'application/pdf', parents: [`P${k}`] })),
+    { id: 'm7', name: '교육 7', mimeType: 'application/pdf', parents: ['P1'] },
+    { id: 's1', name: '교육 공유 맨 위', mimeType: 'application/pdf', driveId: 'D1', parents: ['D1'] },
+    { id: 's2', name: '교육 공유 폴더 안', mimeType: 'application/pdf', driveId: 'D1', parents: ['P7'] },
+  ]
+  stubFetch([
+    [isList, () => Response.json({ files })],
+    [(u) => /^\/drive\/v3\/(drives|files)\/[^/]+$/.test(u.pathname), async (u) => {
+      lookups.push(u.pathname)
+      inflight++; peak = Math.max(peak, inflight)
+      await new Promise((ok) => setTimeout(ok, 15))
+      inflight--
+      return Response.json({ name: `이름 ${u.pathname.split('/').pop()}` })
+    }],
+  ])
+  const r = await G.driveSearch('u1', { query: '교육' }, TOKEN)
+  assert.deepEqual([...lookups].sort(), ['/drive/v3/drives/D1', ...[1, 2, 3, 4, 5, 6, 7].map((k) => `/drive/v3/files/P${k}`)].sort(), '드라이브 1 + 폴더 7, /files/D1 은 없음')
+  assert.ok(peak <= G.DRIVE_NAME_LOOKUPS, `동시에 ${peak}`)
+  assert.equal(r.files.find((f) => f.id === 's1').drive, '이름 D1')
+  assert.equal(r.files.find((f) => f.id === 's1').folder, undefined)
+  assert.equal(r.files.find((f) => f.id === 's2').folder, '이름 P7')
+  assert.equal(r.files.find((f) => f.id === 'm7').folder, '이름 P1')
+})
+
+test('DS-12 (검토 4) 내려받기가 정해진 시간 안에 끝나지 않으면 멈추고 그렇게 말한다', async () => {
+  const keep = G.DRIVE_READ.timeoutMs
+  G.DRIVE_READ.timeoutMs = 60
+  try {
+    stubFetch([
+      [(u) => !u.searchParams.has('alt'), () => Response.json({ id: 'slow', name: '느린 발표.pptx', mimeType: PPTX, webViewLink: 'https://drive.google.com/file/d/slow' })],
+      // like a real fetch: the body errors when the request's signal aborts
+      [(u) => u.searchParams.get('alt') === 'media', (u, opts) => new Response(new ReadableStream({
+        start(c) { c.enqueue(new Uint8Array(10)); opts.signal?.addEventListener('abort', () => c.error(opts.signal.reason)) },
+      }))],
+    ])
+    await assert.rejects(G.driveRead('u1', { fileId: 'slow' }, TOKEN), /초 안에 받지 못했어요|within \d+ seconds/)
+  } finally { G.DRIVE_READ.timeoutMs = keep }
+})
+
+test('DS-13 (검토 5) 큰따옴표는 지우고, 글자나 숫자가 없는 토막은 낱말로 치지 않는다', () => {
+  assert.deepEqual(G.driveWords('"가나정밀 교육"  -  ·  “자료”  2026 ... ※'), ['가나정밀', '교육', '자료', '2026'])
+  assert.deepEqual(G.driveWords('— · ""'), [])
+  assert.equal(G.driveQuery(G.driveWords('"교육"')), "(name contains '교육' or fullText contains '교육') and trashed = false")
+})
+
+test('DS-14 (검토 6) 글이 안 나온 PDF 는 스캔본이거나 PDF 글 꺼내기 도구가 없을 수 있다고 말한다', async () => {
+  stubFetch([
+    [(u) => !u.searchParams.has('alt'), () => Response.json({ id: 'p', name: '가나정밀 안내.pdf', mimeType: 'application/pdf', size: '9' })],
+    [(u) => u.searchParams.get('alt') === 'media', () => new Response('not a pdf')],
+  ])
+  const r = await G.driveRead('u1', { fileId: 'p' }, TOKEN)
+  assert.equal(r.no_text, true)
+  assert.match(r.note, /pdftotext/)
+  assert.match(r.note, /스캔|scanned/)
+})
+
+test('DS-15 (2차 검토 1 · 3) 이름에 흔한 낱말 하나 든 파일이 많아도 모든 낱말이 든 파일은 남고, 하나라도 질의가 실패해도 찾기는 된다', async () => {
+  const memo = { id: 'memo', name: '주간 회의록', mimeType: 'application/vnd.google-apps.document' }
+  const pile = Array.from({ length: 12 }, (_, k) => ({ id: `p${k}`, name: `자료 ${k + 1}`, mimeType: 'application/pdf' }))
+  stubFetch([[isList, (u) => (qOf(u).startsWith('((') ? Response.json({ files: pile }) : Response.json({ files: [memo] }))]])
+  const r = await G.driveSearch('u1', { query: '가나정밀 협회 교육 자료', max: 10 }, TOKEN)
+  assert.equal(r.files.length, 10)
+  assert.ok(r.files.some((f) => f.id === 'memo' && f.all_words), 'the every-word file is kept')
+  assert.equal(r.match, 'mixed', 'not 「no file has every word」')
+  // the any-word list fails: the every-word list still answers
+  stubFetch([[isList, (u) => (qOf(u).startsWith('((') ? new Response('{"error":{"message":"too complex"}}', { status: 400 }) : Response.json({ files: [memo] }))]])
+  const r2 = await G.driveSearch('u1', { query: '가나정밀 협회 교육 자료' }, TOKEN)
+  assert.deepEqual(r2.files.map((f) => f.id), ['memo'])
+  assert.equal(r2.match, 'all_words')
+})
