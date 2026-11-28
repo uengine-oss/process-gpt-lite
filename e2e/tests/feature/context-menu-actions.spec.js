@@ -231,6 +231,8 @@ async function hiddenButReachable(scope, name) {
   await expect(b).toHaveCount(1)
   const box = await b.boundingBox()
   expect(box.width).toBeLessThanOrEqual(1)
+  // (and no touch lands on it — PR #126 last check)
+  expect(await b.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none')
   return b
 }
 // Tab from just before `from` until the focus is on `target` (a few steps at most)
@@ -302,6 +304,20 @@ for (const theme of ['light', 'dark']) {
       await expect(sheet).toHaveAttribute('data-step', 'menu')
       expect(await focused(proj)).toBe(true)
       await p.unroute('**/project-offer')
+      // (PR #126 last check) closed (Esc) before a failure came back: the failure is a notice — not lost with the sheet
+      let release3
+      const gate3 = new Promise((ok) => { release3 = ok })
+      await p.route('**/project-offer', async (r) => { await gate3; await r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '프로젝트 카드를 만들지 못했어요. 잠시 뒤 다시 해 주세요.' }) }) })
+      await proj.click()
+      await expect(proj).toHaveAttribute('aria-busy', 'true')
+      await p.keyboard.press('Escape')
+      await expect(sheet).toHaveCount(0)
+      release3()
+      await expect(p.locator('.team-toast')).toContainText('프로젝트 카드를 만들지 못했어요. 잠시 뒤 다시 해 주세요.', { timeout: 15000 })
+      await p.unroute('**/project-offer')
+      // while it works the item says so; moved on to 「대화방 · 사람에게 보내기」 meanwhile, the sheet stays on that step and says the card is made
+      await center(bubble)
+      await press(p, bubble)
       let release
       const gate = new Promise((ok) => { release = ok })
       await p.route('**/project-offer', async (r) => { await gate; await r.continue() })
@@ -310,10 +326,21 @@ for (const theme of ['light', 'dark']) {
       await expect(proj).toHaveAttribute('aria-busy', 'true')
       await expect(sheet).toHaveAttribute('data-step', 'menu')
       await shot(p, 'share', 'f-cm-01-project-busy-light')
+      await sheet.locator('[data-test="answer-share-room"]').click()
+      await expect(sheet).toHaveAttribute('data-step', 'room')
       release()
-      await expect(sheet).toHaveCount(0, { timeout: 30000 })
+      const note = sheet.locator('[data-test="answer-project-note"]')
+      await expect(note).toHaveText('프로젝트 카드를 채팅에 올렸어요. 이 창을 닫으면 보여요.', { timeout: 30000 })
+      await expect(sheet).toHaveAttribute('data-step', 'room')
+      await shot(p, 'share', 'f-cm-01-project-late-light')
+      await sheet.locator('[data-test="answer-share-close"]').click()
+      await expect(sheet).toHaveCount(0)
       await p.unroute('**/project-offer')
-    } else await proj.click()
+    } else {
+      // (on the menu when it comes back: the sheet closes — the card is under the chat)
+      await proj.click()
+      await expect(sheet).toHaveCount(0, { timeout: 30000 })
+    }
     const offer = p.locator('[data-test="project-offer"]').last()
     await expect(offer).toBeVisible({ timeout: 30000 })
     await expect(offer.locator('[data-test="offer-title"]')).toHaveValue('가나정밀 견적 · 계약 정리')

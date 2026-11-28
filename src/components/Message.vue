@@ -700,6 +700,6 @@ button.uref { text-align: left; }
 .alink { margin-left: 4px; font-size: 12px; font-weight: 600; color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
 .chip.link .cgo { flex: none; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
 /* a phone's long press opens the answer's menu, not the text selection (as the messenger's bubbles — its 「글 선택」 gives the selection back);
-   a file card's opens its menu, never the system's own callout */
-@media (pointer: coarse) { .holdable:not([data-selecting]), .file, .filecol :deep(.mp img), .filecol :deep(.mp video) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
+   a file card's opens its menu, never the system's own callout (an audio · video player keeps its own — PR #126 last check) */
+@media (pointer: coarse) { .holdable:not([data-selecting]), .file, .filecol :deep(.mp img) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
 </style>

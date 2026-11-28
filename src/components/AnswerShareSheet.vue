@@ -122,18 +122,23 @@ function selectText() {
 // a failure stays here, under the items (PR #126 review: it used to close at once, nothing said). (aria-disabled while it works, not
 // disabled: a disabled button loses the focus, and Esc would no longer reach the sheet)
 const projBusy = ref(false)
+// (moved on to another step while it worked: the outcome stays in the sheet, whatever step — a step change clears err, not this; the sheet
+// closed meanwhile: a failure is a notice — PR #126 last check)
+const projNote = ref(null)
 let gone = false
 onBeforeUnmount(() => { gone = true })
 async function toProject() {
   if (projBusy.value) return
-  projBusy.value = true; err.value = ''
+  projBusy.value = true; err.value = ''; projNote.value = null
   try {
     await startProjectFrom(app, msg.value)
-    if (!gone && step.value === 'menu') close()
+    if (gone) return
+    if (step.value === 'menu') close()
+    else projNote.value = { text: '프로젝트 카드를 채팅에 올렸어요. 이 창을 닫으면 보여요.', bad: false }
   } catch (e) {
-    const why = e.message || '프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.'
-    if (!gone) err.value = why
-    else useTeam().say(why)
+    if (gone) team.say(e.message || '프로젝트 카드를 만들지 못했어요. 답의 메뉴에서 「프로젝트로 시작」을 다시 눌러 주세요.')
+    else if (step.value === 'menu') err.value = e.message || '프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.'
+    else projNote.value = { text: e.message || '프로젝트 카드를 만들지 못했어요. 메뉴에서 다시 눌러 주세요.', bad: true }
   } finally { projBusy.value = false }
 }
 
@@ -305,6 +310,7 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
         <p v-else-if="step === 'sent'" class="sent" data-test="answer-sent" :data-room="sent?.id"><Icon name="check" :size="16" /><span>{{ sentLine }}</span></p>
 
         <p v-if="err" class="err" role="alert" data-test="answer-share-error">{{ err }}</p>
+        <p v-if="projNote" :class="projNote.bad ? 'err' : 'pnote'" :role="projNote.bad ? 'alert' : 'status'" data-test="answer-project-note" :data-bad="projNote.bad ? 1 : null">{{ projNote.text }}</p>
         <footer v-if="step === 'send' || step === 'sent'">
           <button v-if="step === 'send'" class="go press" :disabled="busy" data-test="answer-send" @click="send">{{ busy ? '보내는 중…' : '보내기' }}</button>
           <button v-else class="go press" data-test="answer-room-open" @click="openRoom">방 열기</button>
@@ -356,6 +362,7 @@ h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .sent { display: flex; align-items: center; gap: 8px; margin: 6px 2px; font-size: 14.5px; }
 .sent svg { color: var(--color-success); flex: none; }
 .err { margin: 0; color: var(--color-error, #c62828); font-size: 12.5px; overflow-wrap: anywhere; }
+.pnote { margin: 0; color: var(--text-secondary); font-size: 12.5px; overflow-wrap: anywhere; }
 footer { display: flex; justify-content: flex-end; gap: 8px; }
 .go { height: 40px; padding: 0 20px; border-radius: 20px; background: var(--text-primary); color: var(--ink-inverse, #fff); font-size: 14.5px; font-weight: 600; }
 .go:disabled { opacity: .45; }
