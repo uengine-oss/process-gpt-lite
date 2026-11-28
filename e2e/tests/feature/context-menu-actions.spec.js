@@ -11,7 +11,7 @@
 //           점이 사라짐 · 카드를 누르면 그대로 열림
 //   F-CM-03 PC 1280: 마우스를 올리면 「⋯」 · 오른쪽 클릭 · 「⋯」 · 키보드(Tab → Enter → 첫 항목에 초점 → Esc 로 닫히고 「⋯」로 초점이 돌아옴) — 답과
 //           파일 카드 모두, 안내 없음, 카드를 누르면 메뉴가 아니라 문서
-//   F-CM-04 휴대폰 390(PR #126 검토): 「⋯」는 보이지 않아도 접근성 트리에 있고(화면 낭독기 · 스위치 · 태블릿 키보드) Tab 으로 닿으면 보임 → Enter → 메뉴 →
+//   F-CM-04 휴대폰 390(PR #126 검토 · 최종 검토 — 재생기는 제 동작): 「⋯」는 보이지 않아도 접근성 트리에 있고(화면 낭독기 · 스위치 · 태블릿 키보드) Tab 으로 닿으면 보임 → Enter → 메뉴 →
 //           Esc 로 「⋯」에 초점 · 안내는 스치듯 보이거나 입력창 밑에 반쯤 깔린 것으로는 「봤다」고 치지 않고, 온전히 1.5 초 보여야 기억
 // 자기 스택(lib/localStack.js: 회사 ctx-menu-ui 의 BFF + Vite, 8992 · 5392 — RT_CM_API_PORT · RT_CM_WEB_PORT)을 띄우고 지운다. 가짜 모델(폴더 판정의
 // 첫 글자 확률 · 새 폴더 이름 · 프로젝트 카드 초안)은 이 파일이 빈 포트에 띄운다 — 실제 모델 · 에이전트는 부르지 않는다. 사람 · 회사는 지어낸 것이다
@@ -36,6 +36,13 @@ const WEB_PORT = Number(process.env.RT_CM_WEB_PORT || 5392)
 const busy = (port) => { try { execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { stdio: 'ignore' }); return true } catch { return false } }
 
 // a plain picture (one colour), built here — no file on disk
+// a short silent sound (8 kHz, 16-bit mono): a chat audio card — its player keeps its own controls (PR #126 review)
+function wav(ms = 300) {
+  const n = Math.round(8 * ms), b = Buffer.alloc(44 + n * 2)
+  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8); b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20)
+  b.writeUInt16LE(1, 22); b.writeUInt32LE(8000, 24); b.writeUInt32LE(16000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40)
+  return b
+}
 function png(w, h) {
   const chunk = (type, data) => {
     const b = Buffer.concat([Buffer.from(type), data])
@@ -57,6 +64,8 @@ const FILES = {
   order: { name: '발주서_가나정밀.md', body: '# 발주서\n\n가나정밀 교육장 집기 발주 · 합계 4,200,000원\n' },
   // a picture: its preview under the card (MediaPreview) is held for the card's menu too (PR #126 review)
   photo: { name: '현장사진_1128.png', body: png(160, 120), type: 'image/png' },
+  // a sound: held or right-clicked on its player, the player's own (seek · volume · the browser's menu) — not the card's menu
+  voice: { name: '현장녹음_1128.wav', body: wav(), type: 'audio/wav' },
 }
 
 // ---- the fake model: the folder judge's first letter (the option naming 「견적서」 for the quote · the memo · the order, the last option —
@@ -505,6 +514,17 @@ test('F-CM-03 PC 1280: 마우스를 올리면 「⋯」 · 오른쪽 클릭 · �
   await p.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
   expect(await focused(fmore)).toBe(true)
+  // a right-click on a sound's player is the browser's own (its menu — speed · loop · save), not the card's
+  const player = p.locator(`[data-test="media-preview"][data-file="${FILES.voice.name}"] audio`)
+  await center(player)
+  const kept = await player.evaluate((el) => new Promise((ok) => {
+    window.addEventListener('contextmenu', (e) => ok(!e.defaultPrevented), { once: true })
+    const r = el.getBoundingClientRect()
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.x + 20, clientY: r.y + r.height / 2, button: 2 }))
+  }))
+  expect(kept, "the browser's own menu on the player").toBe(true)
+  await p.waitForTimeout(300)
+  await expect(menu).toHaveCount(0)
   // a click on the card still opens the file
   await order.locator('button.file').click()
   await expect(p.locator('[data-test="office-sheet"]')).toBeVisible({ timeout: 15000 })
@@ -590,6 +610,14 @@ test('F-CM-04 휴대폰 390: 「⋯」는 보이지 않아도 화면 낭독기 �
   await expect(menu).toHaveCount(0)
   await thumb.tap()
   await expect(p.locator('[data-test="media-viewer"]')).toBeVisible()
+  // a long press on a sound's player (dragging its seek bar) is the player's — not the card's menu
+  await p.keyboard.press('Escape')
+  await expect(p.locator('[data-test="media-viewer"]')).toHaveCount(0)
+  const player = p.locator(`[data-test="media-preview"][data-file="${FILES.voice.name}"] audio`)
+  await center(player)
+  await press(p, player)
+  await p.waitForTimeout(400)
+  await expect(menu).toHaveCount(0)
   expect(p.errors).toEqual([])
   await p.context().close()
 })

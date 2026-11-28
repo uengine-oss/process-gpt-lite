@@ -688,7 +688,7 @@ button.uref { text-align: left; }
    with the keyboard's focus it shows over the answer's · card's corner */
 @media (hover: none) {
   .hbox, .filerow { position: relative; }
-  .mbtn:not(:focus-visible) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .mbtn:not(:focus-visible) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; pointer-events: none; }
   .mbtn:focus-visible { position: absolute; top: 6px; right: 6px; z-index: 2; width: 36px; height: 36px; border-radius: 18px; box-shadow: var(--shadow-card); }
   /* (a card's: in its row after 👥 — over the card's corner it would cover 👥) */
   .filerow .mbtn:focus-visible { position: static; }

@@ -7,7 +7,8 @@ const SLOP = 10
 const TOUCH_MEMORY_MS = 1000
 // a link or a button in the bubble keeps its own behaviour — but one marked data-hold-tap keeps only its tap: held or right-clicked, it
 // opens the menu (a chat file card is a button that opens the file — its long press · right-click is the card's menu, Message.vue)
-const ownBehaviour = (t) => { const o = t.closest?.('a, button, input, textarea, summary'); return !!o && !o.hasAttribute('data-hold-tap') }
+// (an audio or video player too — its seek bar, volume and the browser's own video menu — PR #126 review)
+const ownBehaviour = (t) => { if (t.closest?.('audio, video')) return true; const o = t.closest?.('a, button, input, textarea, summary'); return !!o && !o.hasAttribute('data-hold-tap') }
 // words already selected in this bubble: the browser's own menu (copy, search…) stays
 const selectedIn = (el) => { const s = window.getSelection(); return !!s && !s.isCollapsed && !!s.toString().trim() && el.contains(s.anchorNode) }
 

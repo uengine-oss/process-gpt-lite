@@ -129,9 +129,11 @@ async function toProject() {
   projBusy.value = true; err.value = ''
   try {
     await startProjectFrom(app, msg.value)
-    if (!gone) close()
+    if (!gone && step.value === 'menu') close()
   } catch (e) {
-    if (!gone) err.value = e.message || '프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.'
+    const why = e.message || '프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.'
+    if (!gone) err.value = why
+    else useTeam().say(why)
   } finally { projBusy.value = false }
 }
 
