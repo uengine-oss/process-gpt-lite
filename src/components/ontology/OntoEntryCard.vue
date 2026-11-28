@@ -5,10 +5,14 @@
 // ask + suggest — 아직 「제안」 단계인 프로세스(자동으로 승격 전): 이 메일 · 채팅 요청으로 그 프로세스를 진행할지 묻는다(design-v0.3 §12)
 // choices — 한 사건이 여러 프로세스의 일일 때(server events.js: 프로세스마다 따로 읽음): 프로세스마다 시작할 일을 보이고 하나씩 진행한다
 // source file — 채팅에 올린 파일이 사건일 때: 파일 이름과 함께 묻기만 한다(사람이 올렸으므로 저절로 시작하지 않는다)
-// 서버는 이 카드 내용을 바꾸지 않으므로, 고른 결과 · 옮긴 결과는 이 기기에 남겨 다시 열어도 그대로 보인다.
-import { ref, computed } from 'vue'
+// 고른 결과 · 옮긴 결과는 서버가 카드 메시지에도 남기고(routes/ontology.js keepOnCard), 이 기기에도 남겨 다시 열어도 그대로 보인다.
+// declined — 「아니요, 이번엔 그냥 할게요」: 서버가 카드에 남긴다(server declines.js, 다른 기기에서도 같은 카드). 채팅 요청 카드는 이어서 한 줄로
+//   왜 아닌지 묻는다(「이 일과 관계없어요」 · 「맞지만 이번엔 그냥」 · 직접 적기 · 넘어가기) — 「관계없어요」는 다음 채팅 요청을 그
+//   프로세스에 견줄 때 반례가 되고, 여러 번이면 그 프로세스는 한동안 채팅 요청에 권하지 않는다(2026-11-28 녹화).
+import { ref, computed, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../../api.js'
+import { useApp } from '../../stores/app.js'
 import { pct } from './fmt.js'
 import OntoSheet from './OntoSheet.vue'
 import OntoCasePanel from './OntoCasePanel.vue'
@@ -17,8 +21,19 @@ import OntoSnapshotPanel from './OntoSnapshotPanel.vue'
 import { local, RO, EUN, entryManyText } from './ontoText.js'
 
 const props = defineProps({ msg: Object })
+const app = useApp()
 const saved = ref(local.get(`entry:${props.msg.id}`))
-const v = computed(() => ({ ...(props.msg.content || {}), ...(saved.value || {}) }))
+// the card as the server has it now, when it refused this screen (409 — another screen started or declined it and this one missed the
+// change) and the card is not in the chat's list to replace there; a newer copy of the message replaces it
+const current = ref(null)
+watch(() => props.msg.content, () => { current.value = null })
+// the decline as the server answered this screen (until the card's message comes back with it) — the latest of that, the card's own and
+// this device's copy (kept only when the server could not be reached) is shown
+const fresh = ref(null)
+const stamp = (d) => String(d?.reasonAt || d?.at || '')
+const declinedOf = computed(() => [props.msg.content?.declined, fresh.value, saved.value?.declined].filter((d) => d && typeof d === 'object')
+  .sort((a, b) => (stamp(b) > stamp(a) ? 1 : stamp(b) < stamp(a) ? -1 : 0))[0] || null)
+const v = computed(() => ({ ...(current.value || props.msg.content || {}), ...(saved.value || {}), ...(declinedOf.value ? { declined: declinedOf.value } : {}) }))
 const choice = computed(() => v.value.choice || {})
 const task = computed(() => choice.value.task || v.value.nodes?.[0] || '')
 const chat = computed(() => v.value.source === 'chat')
@@ -47,19 +62,42 @@ const router = useRouter()
 const openInst = (id) => router.push(`/routines/${encodeURIComponent(id)}`)
 // ask → 고르면 건을 시작한다(ch: 여러 프로세스 중 고른 프로세스의 choice — 하나뿐이면 그 choice)
 const kindOf = () => (chat.value ? 'chat' : timer.value ? 'timer' : fileEv.value ? 'file' : 'mail')
+// POST to the card's routes → its answer; a refusal throws with its status and, for a 409, the card as the server has it now (no answer
+// at all throws as api() does — no status)
+async function cardPost(path, body) {
+  const r = await api(path, { method: 'POST', body, raw: true })
+  const j = await r.json().catch(() => null)
+  if (r.ok) return j
+  throw Object.assign(new Error(String(j?.error || `${r.status}`)), { status: r.status, card: j?.card || null })
+}
+// the server's card replaces this screen's copy and this device's state (started elsewhere: its case shows, not 「진행」 again)
+function adopt(card) {
+  saved.value = null; local.set(`entry:${props.msg.id}`, null); fresh.value = null
+  if (!card?.content) return
+  if ((app.messages?.[card.thread_id] || []).some((x) => x.id === card.id)) app.onEvent('message', card)
+  else current.value = card.content
+}
+const refusal = (e) => {
+  const c = e.card?.content
+  if (e.status === 409) return c?.state === 'declined' ? '다른 기기에서 이미 프로세스 없이 하기로 했어요.' : (c?.state || 'ask') === 'ask' && c?.starting ? '다른 기기에서 시작하는 중이에요.' : '다른 기기에서 이미 시작했어요.'
+  return e.status === 404 ? '이 카드를 찾지 못했어요.' : '서버가 받지 못했어요. 잠시 후 다시 눌러 주세요.'
+}
 async function start(o, ch = choice.value) {
   busy.value = `${ch.proc}:${o.task}`; err.value = ''
   const m = v.value.mail || {}
   try {
-    const r = await api('/ontology/cases', { method: 'POST', body: {
+    const r = await cardPost('/ontology/cases', {
       proc: ch.proc, entry: o.task, subject: m.subject || '', body: m.text || '', from: m.from || '', customer: v.value.customer || '',
       odds: { ...ch, task: o.task, p: o.p, picked: true }, kind: kindOf(), ...(v.value.file ? { file: v.value.file } : {}), messageId: props.msg.id,
       picks: picks.value[ch.proc] || [],
-    } })
+    })
     if (many.value) { persist({ starts: { ...(v.value.starts || {}), [ch.proc]: { caseId: r.caseId, instId: r.instId || null, task: o.task, engine: r.engine || 'bpm' } } }); return }
     persist({ state: 'started', picked: !ch.suggest || o.task !== ch.task, choice: { ...ch, task: o.task, p: o.p }, caseId: r.caseId, instId: r.instId,
       skipped: r.snapshot?.skipped || [], nodes: r.snapshot?.nodes || [o.task], procDefId: r.snapshot?.procDefId, bindings: r.bindings || null })
-  } catch (e) { err.value = e.message } finally { busy.value = '' }
+  } catch (e) {
+    // already started (or declined) on another screen: that card shows here; nothing new starts
+    if (e.status === 409 || e.status === 404) { if (e.card) adopt(e.card); err.value = refusal(e) } else err.value = e.message
+  } finally { busy.value = '' }
 }
 // 맡는 사람(OntoBindings · server bindings.js): 진행하기 전에 역할마다 누가 맡는지 보고 바꾼다 — 여러 명이거나 아무도 없는 역할은 골라야 진행
 const picks = ref({}) // proc → [{role, userId}]
@@ -97,7 +135,59 @@ async function move() {
   } catch (e) { err.value = e.message } finally { busy.value = '' }
 }
 const sheet = ref(false)
-const decline = () => persist({ state: 'declined' })
+// 「아니요」: declined on the card at once (this device first, then the server); a chat card then asks why in one line. A reason waits for the
+// first POST. The server refusing (any status — 409: another screen already started it) drops this device's state and says why; only no
+// answer at all (offline) keeps the device's copy, and a reason kept only here never says it shapes the next suggestions.
+const whyBusy = ref('')
+const typing = ref(false)
+const note = ref('')
+const declining = ref(null)
+const noteInput = ref(null)
+const savedLine = ref(null)
+const declinedLine = ref(null)
+const forget = (...keys) => { const s = { ...(saved.value || {}) }; for (const k of keys) delete s[k]; saved.value = s; local.set(`entry:${props.msg.id}`, s) }
+// → 'ok' · 'refused' (the server said no: this device's decline is dropped — the server's card shown when it sent one — and why is said) ·
+// 'offline' (no answer: this device keeps it)
+async function post(body = {}) {
+  try {
+    const r = await cardPost('/ontology/entry/decline', { messageId: props.msg.id, ...body })
+    fresh.value = r?.declined || null
+    return 'ok'
+  } catch (e) {
+    if (!e?.status) return 'offline'
+    if (e.card) adopt(e.card)
+    else { forget('state', 'declined'); fresh.value = null }
+    err.value = refusal(e)
+    return 'refused'
+  }
+}
+function decline() {
+  err.value = ''
+  persist({ state: 'declined' })
+  declining.value = post()
+}
+async function why(reason, words = '') {
+  whyBusy.value = reason || (words ? 'note' : 'skip'); err.value = ''
+  const body = reason ? { reason } : words ? { note: words } : { skip: true }
+  try {
+    if ((await declining.value) === 'refused') return
+    const r = await post(body)
+    if (r === 'refused') return
+    if (r === 'offline') persist({ declined: { ...(declinedOf.value || {}), ...(reason ? { reason } : {}), ...(words ? { note: words, reason: 'other' } : {}), ...(body.skip ? { skipped: true } : {}), reasonAt: new Date().toISOString(), local: true } })
+  } finally {
+    whyBusy.value = ''; typing.value = false; note.value = ''
+    // the row that was pressed is gone: focus goes to what stands in its place (the saved line, else the declined line)
+    await nextTick()
+    ;(savedLine.value || declinedLine.value)?.focus?.()
+  }
+}
+async function typeOwn() {
+  typing.value = !typing.value
+  if (typing.value) { await nextTick(); noteInput.value?.focus() }
+}
+const asking = computed(() => chat.value && v.value.state === 'declined' && !v.value.declined?.reason && !v.value.declined?.skipped)
+const declinedNames = computed(() => (v.value.declined?.procs?.length ? v.value.declined.procs.map((p) => p.name).filter(Boolean)
+  : (v.value.choices?.length ? v.value.choices : [choice.value]).map((c) => c?.procName).filter(Boolean)))
 const top = computed(() => options.value[0] || { task: choice.value.task, p: choice.value.p })
 </script>
 
@@ -156,7 +246,29 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
       <small class="why">이 프로세스는 아직 「제안」 단계라 물어봐요 — 시작한 뒤에도 단계마다 사람이 정해요. 관리자가 「자동으로 승격」하면 같은 요청이 오면 바로 시작해요.</small>
     </template>
     <template v-else-if="v.state === 'declined'">
-      <p class="q" data-testid="onto-entry-declined">이번 요청은 프로세스 없이 진행해요.</p>
+      <p ref="declinedLine" class="q" tabindex="-1" data-testid="onto-entry-declined">이번 요청은 프로세스 없이 진행해요.</p>
+      <!-- 왜 아닌지 한 줄로(채팅 요청 카드): 고르거나 적거나 넘어가기 — 서버가 카드에 남기고, 「관계없어요」는 이 사람의 다음 제안이 읽는다 -->
+      <div v-if="asking" class="whyask" data-testid="onto-entry-why">
+        <div class="wh"><span class="wl">왜 아닌가요? 알려 주시면 다음 제안에 반영해요.</span>
+          <button class="link sub press" :disabled="!!whyBusy" data-testid="onto-entry-why-skip" @click="why(null)">넘어가기</button></div>
+        <div class="chips">
+          <button class="chip press" :disabled="!!whyBusy" data-testid="onto-entry-why-unrelated" @click="why('unrelated')">이 일과 관계없어요</button>
+          <button class="chip press" :disabled="!!whyBusy" data-testid="onto-entry-why-notnow" @click="why('not-now')">맞지만 이번엔 그냥</button>
+          <button class="chip press" :class="{ on: typing }" :disabled="!!whyBusy" :aria-expanded="typing" data-testid="onto-entry-why-text" @click="typeOwn">직접 적기</button>
+        </div>
+      </div>
+      <form v-if="asking && typing" class="whytext" @submit.prevent="note.trim() && why(null, note.trim())">
+        <input ref="noteInput" v-model="note" class="in" maxlength="200" aria-label="아닌 까닭" placeholder="아닌 까닭을 적어 주세요" data-testid="onto-entry-why-input" />
+        <button class="go press" type="submit" :disabled="!!whyBusy || !note.trim()" data-testid="onto-entry-why-send">{{ whyBusy === 'note' ? '보내는 중…' : '보내기' }}</button>
+      </form>
+      <small v-else-if="chat && v.declined?.reason" ref="savedLine" class="whysaved" tabindex="-1" role="status" data-testid="onto-entry-why-saved" :data-reason="v.declined.reason" :data-local="v.declined.local ? '1' : '0'">
+        <template v-if="v.declined.local">이 기기에만 남겼어요 — 서버에 닿지 못해 다음 제안에는 쓰이지 않아요.</template>
+        <template v-else-if="v.declined.reason === 'unrelated'">이런 요청과 관계없는 업무로 알아 둘게요. 다음 제안에 반영해요.</template>
+        <template v-else-if="v.declined.reason === 'not-now'">알겠어요. 맞는 요청이면 다음에도 권할게요.</template>
+        <template v-else>알려 주셔서 고마워요.</template>
+        <span v-if="v.declined.reason === 'unrelated' && !v.declined.local && declinedNames.length" class="wn" data-no-i18n data-testid="onto-entry-why-procs">{{ declinedNames.map((n) => `「${n}」`).join(' · ') }}</span>
+        <span v-if="v.declined.note" class="wn" data-no-i18n data-testid="onto-entry-why-note">「{{ v.declined.note }}」</span>
+      </small>
     </template>
     <!-- 확실하지 않을 때: 사람이 고른다 -->
     <template v-else-if="v.state === 'ask'">
@@ -210,7 +322,7 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
         </div>
       </div>
     </template>
-    <small v-if="err" class="err">{{ err }}</small>
+    <small v-if="err" class="err" role="alert" data-testid="onto-entry-error">{{ err }}</small>
 
     <OntoSheet v-if="flow" :title="`「${flow.name}」 흐름`" @close="flow = null">
       <OntoSnapshotPanel :proc="flow" />
@@ -280,4 +392,19 @@ const top = computed(() => options.value[0] || { task: choice.value.task, p: cho
 .go { height: 34px; max-width: 100%; padding: 0 16px; border-radius: 9999px; font-size: 13.5px; font-weight: 600; background: var(--ink); color: var(--ink-inverse); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .go:disabled, .ghost:disabled { opacity: .5; }
 .err { font-size: 12.5px; color: var(--color-error); }
+.whyask { display: flex; flex-direction: column; gap: 6px; }
+.wh { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.wh .wl { min-width: 0; font-size: 12.5px; color: var(--text-secondary); }
+.wh .link { flex: none; font-size: 12.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { min-height: 32px; padding: 0 10px; border-radius: 9999px; background: var(--field-bg); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.chip.on { box-shadow: inset 0 0 0 1.5px var(--text-secondary); }
+.chip:disabled { opacity: .55; }
+.whytext { display: flex; gap: 6px; align-items: center; }
+.whytext .in { flex: 1; font-size: 16px; }
+.chip:focus-visible, .whyask .link:focus-visible, .whytext .in:focus-visible, .whytext .go:focus-visible, .oe [data-testid="onto-entry-decline"]:focus-visible { outline: 2px solid var(--color-info); outline-offset: 2px; }
+.whysaved:focus-visible, .q:focus-visible { outline: 2px solid var(--color-info); outline-offset: 3px; border-radius: 6px; }
+.whysaved:focus:not(:focus-visible), .q:focus:not(:focus-visible) { outline: none; }
+.whysaved { font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.whysaved .wn { display: block; margin-top: 2px; color: var(--text-tertiary); overflow-wrap: anywhere; }
 </style>
