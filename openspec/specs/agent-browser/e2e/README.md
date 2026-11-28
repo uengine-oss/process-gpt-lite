@@ -21,7 +21,7 @@ cd server && node --test --test-concurrency=1 test/agentBrowser.test.js test/age
 | (도구 설명에 이 서버의 브라우저 스킬을 데이터로 제공한다) | 「도구 설명: …」 · 「시작 주소: …」 |
 | (기본 도구 목록에 포함하고 허브에는 한 번만 묶는다) | `agentTools.test.js` 「내장 브라우저(pgpt-browser): …」 · 「이름은 한 목록 …」 · 「shape: …」 |
 
-2026-11-29(보안 검토 반영): agentBrowser 14개 · agentTools 18개가 통과했다.
+2026-11-29(보안 검토 반영): agentBrowser 14개 · agentTools 18개가 통과했다. 2026-11-29(재검토 반영 — 웹 주소로만 이동 · 작업할 수 있는 곳 · 판정을 기억하는 범위 · 멈춘 턴): agentBrowser 18개가 통과했다.
 
 ## 통합 (실제 DB · 실제 로그인 토큰 · 실제 HTTP MCP · 실제 Chromium, 가짜 모델 · 가짜 deepagents 스트림)
 
@@ -37,8 +37,11 @@ cd server && node --test --test-concurrency=1 test/agentBrowser.integration.test
 | AB-I-04 | `PRO_BROWSER_TOOL_MS=1500`에서 `running` + `task_id`를 반환한다. `browser_task_say`를 호출하면 카드에 `steered.by = agent`가 기록된다. 턴이 먼저 끝나면 같은 대화에서 한 번 이어서 진행한다. 메시지에는 작업 id와 상태만 있고 사이트의 글은 없으며, 결과(요약 · 받은 파일)는 `browser_task_wait`로 읽는다. 사람 메시지에 `handback` · `composed`를 표시한다 |
 | AB-I-05 | 사람이 말하지 않은 「delete 삭제」는 해당 단추와 사이트를 적은 승인 카드에서 멈춘다(`need: approve`). 판정에서는 사람의 말을 읽고 에이전트가 쓴 목표는 읽지 않는다. 「취소」를 누르면 해당 단추를 누르지 않고 목록을 그대로 유지한다. 자기 작업 공간의 「생성」은 카드 없이 진행한다 |
 | AB-I-06 | 멈추기를 누르면 해당 턴에서 에이전트가 시작한 작업 카드가 「에이전트의 답을 멈춰서 이 작업도 멈췄어요.」로 끝나며, 이어서 진행하지 않는다 |
+| AB-I-07 | 사람이 채팅에서 시킨 작업과 에이전트가 시작한 작업 모두 웹 주소가 아닌 곳으로는 이동하지 않는다(「웹 주소만」). |
+| AB-I-08 | 에이전트가 시작한 작업이 구독 해지 주소를 열려 하면 「「<주소>」 주소를 열까요?」 승인 카드가 표시된다. 「취소」를 누르면 그 주소는 열리지 않는다. 작업 카드에는 작업할 수 있는 곳(`sites`)이 기록된다. 파일 칸이 아닌 「공유하며 올리기」 단추로 파일을 올릴 때도 승인 카드가 표시된다. |
+| AB-I-09 | 그 사람의 브라우저에 저장된 쿠키는 채팅 작업에서는 보이지만, 사람이 없는 에이전트의 작업(임시 브라우저)에서는 보이지 않는다(`cookie: (none)`). 카드에는 `readOnly` · `where.why = fresh`가 표시된다. 작업이 끝난 뒤에도 그 사람의 브라우저에는 쿠키가 그대로 남는다. |
 
-2026-11-29(보안 검토 반영): 6개가 통과했다.
+2026-11-29(보안 검토 반영): 6개가 통과했다. 2026-11-29(재검토 반영): 9개가 통과했다.
 
 ## 화면 (Playwright, `e2e/tests/feature/agent-browser.spec.js`)
 
@@ -57,7 +60,7 @@ cd e2e && npx playwright test --project=feature tests/feature/agent-browser.spec
 | F-AB-05 | 휴대폰(390, 밝은 화면 · 어두운 화면) | `results/f-ab-05-phone-working-{light,dark}.png` · `results/f-ab-05-phone-answered-{light,dark}.png` |
 | F-AB-06 | 사람이 말하지 않은 지우기(PC · 휴대폰 390) | `results/f-ab-06-pc-approval.png` · `results/f-ab-06-phone-approval.png` |
 
-2026-11-28: 6개가 통과했다(1.1분). 같은 잠금 안에서 plan-guard(F-PG 6) · work-folders(F-WF 7)도 함께 실행해 19개가 통과했다. 2026-11-29(보안 검토 반영): F-AB 8개가 통과했다(1.1분).
+2026-11-28: 6개가 통과했다(1.1분). 같은 잠금 안에서 plan-guard(F-PG 6) · work-folders(F-WF 7)도 함께 실행해 19개가 통과했다. 2026-11-29(보안 검토 반영): F-AB 8개가 통과했다(1.1분). 2026-11-29(재검토 반영): F-AB 8개가 통과했다(1.2분). 작업 카드의 「이 작업이 할 수 있는 곳」도 확인한다.
 
 ## 실제 deepagents로 확인 (2026-11-28, 사람이 직접 한 번 확인)
 

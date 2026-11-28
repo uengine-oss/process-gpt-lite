@@ -122,15 +122,17 @@ export class ServerDriver {
     this.paused = 0 // requests the guard looked at (tests: what an ordinary page's loads cost)
   }
 
-  static async open(userId, on) {
+  // dir: a profile folder of its own (a browser with nothing stored — lib/browser.js takeBrowser fresh), else the person's
+  static async open(userId, on, { dir = null } = {}) {
     const d = new ServerDriver(userId, on)
+    if (dir) d.ownDir = dir
     await d.launch()
     return d
   }
 
   get closed() { return !this.ctx || !!this.ctx._closed }
   get tab() { return this.page } // changes when the work moves to another tab
-  get dir() { return path.join(PROFILES, this.userId) }
+  get dir() { return this.ownDir || path.join(PROFILES, this.userId) }
   url() { return this.page?.url() || '' }
   viewport() { return this.page?.viewportSize() || VIEW }
   async title() { return this.page.title().catch(() => '') }

@@ -87,6 +87,8 @@ function answerLlm(b) {
   const sys = String(b.messages?.[0]?.content || '')
   const names = (b.tools || []).map((t) => t.function?.name)
   if (b.logprobs) return { content: 'B' }
+  // (the sites the person's words name — server lib/agentBrowser.js namedSites: the made-up sites run on this machine)
+  if (sys.includes("Name the website(s) the person's own words ask")) return { content: JSON.stringify({ sites: ['127.0.0.1'] }) }
   if (sys.includes('what you understood and how the work will go')) return { delay: 150, content: JSON.stringify({ understood: '스튜디오에서 만들어 받아 드릴게요.', steps: STEPS, tier: 'standard', certainty: 'sure' }) }
   if (/Break a web task/.test(sys)) return { content: JSON.stringify({ title: String(b.messages[1].content).split('\n')[0].slice(0, 30), steps: ['스튜디오 열기', '만들기', '받기'] }) }
   if (names.includes('finish')) {
@@ -103,7 +105,7 @@ function answerLlm(b) {
   return { content: b.response_format ? '{}' : 'OK' }
 }
 // (the effect gate — server lib/browser.js EFFECT_OPTIONS: removing reaches outside the person's workspace, generating stays in it)
-const effectOf = (state) => { const c = /Control: "([^"]*)"/.exec(state)?.[1] || ''; return /삭제|delete/i.test(c) ? { outside: 0.92 } : /생성/.test(c) ? { own: 0.9 } : { look: 0.9 } }
+const effectOf = (state) => { const c = /Control: "([^"]*)"/.exec(state)?.[1] || /Web address: "([^"]*)"/.exec(state)?.[1] || ''; return /삭제|delete/i.test(c) ? { outside: 0.92 } : /생성/.test(c) ? { own: 0.9 } : { look: 0.9 } }
 const judgeOf = (keys, state = '') => (keys.includes('outside') ? effectOf(state) : keys.includes('login_needed') ? { ok: 1 } : keys.includes('idle') ? { busy: 1 } : keys.includes('none') ? { none: 1 } : keys.includes('new') ? { new: 1 } : { other: 1 })
 
 // ---- the fake deepagents: to-dos, then Lite's /mcp/browser in the middle of its stream, then the answer from the result ----
@@ -287,6 +289,9 @@ test('F-AB-01 PC(밝은): 에이전트 턴 도중의 작업 카드 · 계획 카
   // the agent's turn is still working: no answer of it yet, and the task card is under the person's message
   await expect(answers(p)).toHaveCount(0)
   await expect(row.locator('[data-testid="task-pill"]')).toBeVisible()
+  // where the task may make or change things: the site the person's words name
+  await expect(row.getByTestId('task-sites').locator('b')).toHaveText('이 작업이 할 수 있는 곳')
+  await expect(row.getByTestId('task-sites').locator('span')).toHaveText('127.0.0.1')
   await row.scrollIntoViewIfNeeded()
   await shot(p, 'f-ab-01-pc-working')
   const ans = answers(p).last()

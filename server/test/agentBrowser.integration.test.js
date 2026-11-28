@@ -34,9 +34,9 @@ const judgeServer = await new Promise((r) => {
       const keys = (b.options || []).map((o) => o.key)
       effects.push({ state: String(b.state || '') })
       // the effect gate (lib/browser.js EFFECT_OPTIONS): removing is outside the person's workspace, generating is in it, the rest only looks
-      const control = /Control: "([^"]*)"/.exec(String(b.state || ''))?.[1] || ''
+      const control = /Control: "([^"]*)"/.exec(String(b.state || ''))?.[1] || /Web address: "([^"]*)"/.exec(String(b.state || ''))?.[1] || ''
       if (keys.includes('outside')) {
-        const p = /삭제|delete/i.test(control) ? { outside: 0.92 } : /생성/.test(control) ? { own: 0.9 } : { look: 0.9 }
+        const p = /삭제|delete|unsubscribe|공유/i.test(control) ? { outside: 0.92 } : /생성/.test(control) ? { own: 0.9 } : { look: 0.9 }
         return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ probabilities: p, model: 'scripted' }))
       }
       const p = keys.includes('login_needed') ? { ok: 1 } : keys.includes('idle') ? { busy: 1 } : keys.includes('none') ? { none: 1 } : keys.includes('new') ? { new: 1 } : { other: 1 }
@@ -73,6 +73,8 @@ const llm = http.createServer((req, res) => {
     const names = (b.tools || []).map((t) => t.function?.name)
     let message
     if (b.logprobs) message = { content: 'B' }
+    // (the sites the person's words name — lib/agentBrowser.js namedSites: the made-up sites run on this machine)
+    else if (sys.includes("Name the website(s) the person's own words ask")) message = { content: JSON.stringify({ sites: ['127.0.0.1'] }) }
     else if (sys.includes('what you understood and how the work will go')) message = { content: JSON.stringify({ understood: '스튜디오에서 보고서를 만들어 받아 드릴게요.', steps: ['스튜디오에서 보고서 만들기', '파일 받기'], tier: 'standard', certainty: 'sure' }) }
     else if (/Break a web task/.test(sys)) message = { content: JSON.stringify({ title: String(b.messages[1].content).split('\n')[0].slice(0, 30), steps: ['생성', '기다리기', '받기'] }) }
     else if (names.includes('finish')) {
@@ -186,6 +188,7 @@ after(async () => {
     }
   }
   await site?.close()
+  fx.srv?.close()
   server?.close()
   llm.close()
   judgeServer.close()
@@ -385,4 +388,107 @@ test('AB-I-06 멈추기: 그 턴에서 에이전트가 시작한 작업도 멈�
   await new Promise((ok) => setTimeout(ok, 2000))
   assert.equal(streams.length, n0 + 1, '이어 하기 없음')
   delete process.env.PRO_BROWSER_TOOL_MS
+})
+
+// ---- a made-up site for the navigation, upload and cookie checks ----
+const fx = { hits: [], srv: null, url: '' }
+const SECRET = `person-secret-${crypto.randomBytes(3).toString('hex')}`
+async function fixture() {
+  if (fx.srv) return fx
+  fx.srv = http.createServer((req, res) => {
+    fx.hits.push(`${req.method} ${req.url.split('?')[0]}`)
+    const page = (body, head = {}) => { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...head }); res.end(`<!doctype html><html lang="ko"><meta charset="utf-8"><title>시험 사이트</title><body>${body}</body></html>`) }
+    if (req.url.startsWith('/form')) return page('<h1>양식</h1><form method="post" action="/submit"><input name="x" value="1" aria-label="값"><button>보내기</button></form>')
+    if (req.url.startsWith('/submit')) return page('<p>보냈어요</p>')
+    if (req.url.startsWith('/unsubscribe')) return page('<p>구독을 해지했어요</p>')
+    if (req.url.startsWith('/set-cookie')) return page('<p>쿠키를 저장했어요</p>', { 'Set-Cookie': `sid=${SECRET}; Path=/; Max-Age=3600` })
+    if (req.url.startsWith('/show-cookie')) return page(`<p>cookie: ${String(req.headers.cookie || '(none)').replace(/[<>&]/g, '')}</p>`)
+    if (req.url.startsWith('/share')) return page('<h1>공유</h1><button id="up" onclick="document.getElementById(\'f\').click()">공유하며 올리기</button><input id="f" type="file" hidden>')
+    page('<p>시험 사이트</p>')
+  })
+  await new Promise((r) => fx.srv.listen(0, '127.0.0.1', r))
+  fx.url = `http://127.0.0.1:${fx.srv.address().port}`
+  return fx
+}
+const toldOf = (goal) => { const told = []; return { told, script: (moves) => { scripts[goal] = (b) => { const k = b.messages.filter((m) => m.role === 'tool').length; if (k) told.push(lastTool(b)); return moves[Math.min(k, moves.length - 1)](b) } } } }
+
+test('AB-I-07 브라우저의 이동은 웹 주소(http · https)만 — 사람이 채팅에서 시킨 작업에서도, 에이전트가 시작한 작업에서도', { skip: !up }, async () => {
+  const f = await fixture()
+  const n0 = f.hits.filter((h) => h.startsWith('POST')).length
+  // a task the person started in the chat
+  const CHAT = '양식 페이지에서 이동해 본다(채팅)'
+  const c = toldOf(CHAT)
+  c.script([() => ['goto', { url: 'javascript:document.forms[0].submit()' }], () => ['note', { text: '이동하지 않음' }], () => ['finish', { summary: '이동하지 않았어요.' }]])
+  const r1 = await browser.runBrowserTask({ userId: A.id, threadId: mainA, goal: CHAT, startUrl: `${f.url}/form`, own: true })
+  assert.match(c.told[0], /^refused: the browser only opens web addresses \(http or https\)/)
+  assert.equal(r1.state, 'done')
+  // a task the agent started (nobody watching here)
+  const AGENT = '양식 페이지에서 이동해 본다(에이전트)'
+  const a = toldOf(AGENT)
+  a.script([() => ['goto', { url: 'javascript:document.forms[0].submit()' }], () => ['goto', { url: 'data:text/html,<p>x</p>' }], () => ['note', { text: '이동하지 않음' }], () => ['finish', { summary: '이동하지 않았어요.' }]])
+  const r2 = await mcp(aSession.access_token, null, 'browser_task', { goal: AGENT, start_url: `${f.url}/form` })
+  assert.equal(r2.error, false, r2.text)
+  assert.match(a.told[0], /^refused: the browser only opens web addresses/)
+  assert.match(a.told[1], /^refused: the browser only opens web addresses/)
+  // no form request went out
+  assert.equal(f.hits.filter((h) => h.startsWith('POST')).length, n0)
+  assert.ok(!f.hits.includes('POST /submit'))
+})
+
+test('AB-I-08 에이전트가 시작한 작업: 무엇을 하는 주소(구독 해지)를 여는 것은 승인 카드 · 파일 칸이 아닌 단추로 올리기도 승인 카드', { skip: !up }, async () => {
+  const f = await fixture()
+  const n0 = streams.length
+  const p = runTurn({ user: { id: A.id, email: A_MAIL, name: '시험 에이' }, session: aSession, threadId: mainA, text: '시험 사이트에서 목록을 보기 좋게 정리해 줘' })
+  const h = await nth(n0 + 1)
+  if (!h.body.conversation_id) h.meta(CONV)
+  await until(() => turns.agentTurnsOf(A.id).find((t) => t.conv === CONV))
+  const GOAL = '시험 사이트의 구독 정리'
+  const g = toldOf(GOAL)
+  g.script([() => ['goto', { url: `${f.url}/unsubscribe?u=1` }], (b) => ['finish', { summary: /^not done/.test(lastTool(b)) ? '열지 않았어요.' : '열었어요.' }]])
+  const call = mcp(aSession.access_token, CONV, 'browser_task', { goal: GOAL, start_url: `${f.url}/` })
+  const card = await until(async () => (await msgs(mainA)).find((m) => m.kind === 'choice' && m.content.approval && m.content.state === 'pending' && /unsubscribe/.test(m.content.question)), 30000)
+  assert.ok(card, '승인 카드')
+  assert.match(card.content.question, /주소를 열까요\? 에이전트가 시작한 작업이라/)
+  // the task's card says where it may work (the sites the person's words name)
+  const task = (await tasksOf(A.id)).at(-1)
+  assert.deepEqual(task.content.sites, ['127.0.0.1'])
+  await browser.answerCard(A.id, card.id, '취소')
+  const r = await call
+  assert.match(r.out.summary, /^열지 않았어요/)
+  assert.ok(!f.hits.some((x) => x.startsWith('GET /unsubscribe')), '그 주소는 열리지 않았다')
+  assert.ok(f.hits.includes('GET /'), '시작 페이지는 열렸다')
+  answer(h, '정리했어요.')
+  await p
+  // a control that is not a file field, pressed to open the picker: the card too (a task the agent started, with a file of its own)
+  const UP = '시험 사이트에 파일 올리기'
+  const u = toldOf(UP)
+  u.script([(b) => { const e = el(b, '공유하며 올리기'); return e ? ['attach_file', { i: e.i, name: 'a.pdf' }] : ['finish', { summary: '단추가 없어요.' }] }, (b) => ['finish', { summary: /^not done/.test(lastTool(b)) ? '올리지 않았어요.' : '올렸어요.' }]])
+  const run = browser.runBrowserTask({ userId: A.id, threadId: mainA, goal: UP, startUrl: `${f.url}/share`, own: true, byAgent: true, said: ['시험 사이트에서 파일 정리해 줘'], sites: ['127.0.0.1'],
+    files: [{ name: 'a.pdf', url: 'https://files.example/a.pdf' }] })
+  const card2 = await until(async () => (await msgs(mainA)).find((m) => m.kind === 'choice' && m.content.approval && m.content.state === 'pending' && /공유하며 올리기/.test(m.content.question)), 30000)
+  assert.ok(card2, '올리기 단추의 승인 카드')
+  await browser.answerCard(A.id, card2.id, '취소')
+  const r2 = await run
+  assert.match(r2.summary, /^올리지 않았어요/)
+  assert.match(u.told[0], /^not done: the user declined/)
+})
+
+test('AB-I-09 사람이 없는 에이전트의 작업은 그 사람의 브라우저에 저장된 쿠키 · 로그인을 보지 못한다(따로 연 빈 브라우저)', { skip: !up }, async () => {
+  const f = await fixture()
+  const SET = '쿠키를 저장해 본다', SEE = '쿠키를 본다(채팅)', AGENT = '쿠키를 본다(에이전트)'
+  for (const g of [SET, SEE, AGENT]) scripts[g] = (b) => (b.messages.some((m) => m.role === 'tool') ? ['finish', { summary: '봤어요.' }] : ['note', { text: lastPage(b).text || '-' }])
+  await browser.runBrowserTask({ userId: A.id, threadId: mainA, goal: SET, startUrl: `${f.url}/set-cookie`, own: true })
+  const seen = await browser.runBrowserTask({ userId: A.id, threadId: mainA, goal: SEE, startUrl: `${f.url}/show-cookie`, own: true })
+  assert.match(seen.pageText, new RegExp(SECRET), '그 사람의 브라우저에는 쿠키가 있다')
+  const r = await mcp(aSession.access_token, null, 'browser_task', { goal: AGENT, start_url: `${f.url}/show-cookie` })
+  assert.equal(r.error, false, r.text)
+  assert.doesNotMatch(r.out.page_text, new RegExp(SECRET))
+  assert.match(r.out.page_text, /cookie: \(none\)/)
+  assert.match(r.out.note, /only reads public pages/)
+  const card = (await tasksOf(A.id)).at(-1)
+  assert.equal(card.content.readOnly, true)
+  assert.equal(card.content.where?.why, 'fresh')
+  // the person's own browser still has it afterwards (the empty one was its own, and is gone)
+  const again = await browser.runBrowserTask({ userId: A.id, threadId: mainA, goal: SEE, startUrl: `${f.url}/show-cookie`, own: true })
+  assert.match(again.pageText, new RegExp(SECRET))
 })

@@ -3705,7 +3705,10 @@
   "물어볼 게 있어 멈췄어요": "Stopped to ask you",
   "프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.": "I couldn't prepare the project card. Please press it again.",
   "에이전트가 전한 말": "Passed on by the agent",
-  "Lite 가 보냄 · 브라우저 작업이 끝나 에이전트가 이어서 해요": "Sent by Lite · the browser task is over, so the agent goes on"
+  "Lite 가 보냄 · 브라우저 작업이 끝나 에이전트가 이어서 해요": "Sent by Lite · the browser task is over, so the agent goes on",
+  "이 작업이 할 수 있는 곳": "Where this task may work",
+  "이 작업은 보기만 해요": "This task only looks",
+  "이 작업은 공개 페이지를 읽기만 해요": "This task only reads public pages"
  },
  "patterns": [
   [

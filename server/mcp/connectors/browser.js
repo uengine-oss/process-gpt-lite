@@ -30,8 +30,8 @@ export const TASK_DESCRIPTION = () => [
   'Use it when the work has to happen on a site that has no API tool here (NotebookLM, for instance), or when the person named the site to do it on: create, upload, generate and download there instead of rebuilding the result yourself.',
   'The task shows up in the person\'s chat at once as a task card with its live screen and steps; when the site needs them (a choice, a sign-in, an approval for a payment, a sending or a deletion) the card asks them.',
   'Give the goal in plain words with everything the site work needs (links, names, what to make and what to download). Returns within about 4 minutes: the result, or how it stands (state running · waiting_for_person · queued, with task_id and its last steps) — then call browser_task_wait with the task_id.',
-  'Anything with an effect outside the person\'s own workspace on the site (sending, posting, sharing, deleting, changing settings) waits for the person\'s approval on the card unless their own words asked for it.',
-  'In a run nobody watches (a schedule, a routine) it only reads public pages: it does not sign in with saved logins, and it creates, sends or changes nothing.',
+  'It makes or changes things only on the site(s) the person\'s own words name; elsewhere it only looks. Anything with an effect outside the person\'s own workspace (sending, posting, sharing, deleting, changing settings) waits for the person\'s approval on the card unless their own words asked for it there. It opens web addresses (http, https) only.',
+  'In a run nobody watches (a schedule, a routine) it only reads public pages, in a browser of its own with no sign-ins or cookies of the person\'s, and it creates, sends or changes nothing.',
   ...(skillLines().length ? ['Browser skills (pass the name as skill when one is for the site):', ...skillLines()] : []),
 ].join('\n')
 export const WAIT_DESCRIPTION = () => [
