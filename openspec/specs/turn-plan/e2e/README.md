@@ -79,6 +79,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/turn-
 | 에이전트가 멈추기 요청에 응답하지 않는다 | F-PG-02(휴대폰 390 어두운 · 밝은, `/chat/stop` 이 stopped:false → 연결을 끊고 같은 질문 · 계획, 옆으로 밀리지 않음) |
 | 턴이 끝난 뒤에 요청이나 계획에서 벗어난 사실이 확인된다 | F-PG-03(답은 그대로, 「계획과 다르게 진행했어요」 상자 · 상황 · 질문 · 단추, 누르면 보내지고 「보냈어요」) · PG-U-06 |
 | 영어 화면(계획에서 벗어남) | F-PG-05(「Plan 1/3 · Step 1 not done · Step 2 done another way」, 「This went differently from the plan」, 계획 줄에 한글 없음) |
+| 에이전트가 약속대로 스스로 묻는다 · 계획과 약속이 함께 간다 | F-PG-06(에이전트의 질문 · 보기 단추, 지킴이 판정 0번 · 멈추기 0번, 에이전트가 받은 메시지에 「계획대로 할 수 없을 때:」) · TP-U-04 · TP-U-11 · F-TP-12 |
 | 검토 #132 반영 | PG-U-10(스트림이 끝난 뒤 온 판정은 멈추지 않고 끝 판정에) · PG-U-11(6번 · 15초) · PG-U-12(나란히 부른 도구의 결과, 같은 보기 하나로, 기록은 지시가 아님) · PG-U-13(멈춘 단계는 판정 때의 목록) · PG-U-08(400자 요약 + 긴 맺음은 그대로) |
 | 긴 답 앞에 짧은 별도 문장을 쓴다 | PG-U-08(「Update README structure section.」 뒤 긴 답 → 긴 답만, 긴 요약 뒤 맺음 한 줄 → 둘 다) |
 

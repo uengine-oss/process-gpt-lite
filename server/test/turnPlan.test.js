@@ -203,6 +203,21 @@ test('TP-U-04 언어: 앞단 호출은 사람의 언어를(말이 없으면 화�
   TP.end(t2, 'done'); t2.finish()
 })
 
+test('TP-U-11 약속: 혼자 도는 습관 실행(ask:false)에는 계획만 · 묻는 도구는 이름으로 알아본다(검토 #136-1 · 2)', async () => {
+  const userId = `u-pb2-${Date.now()}`
+  const turn = T.enqueue({ userId, threadId: '00000000-0000-0000-0000-000000000002' })
+  const v = TP.begin({ turn, userId, threadId: turn.threadId, msgId: 'm4', text: 'https://medium.com/@a/b' })
+  await v.ready
+  const plain = await TP.planBlock(turn, { ask: false })
+  assert.match(plain, /^\n\n\[계획\] /)
+  assert.ok(!plain.includes('계획대로 할 수 없을 때'), 'nobody there to answer: no agreement to ask')
+  assert.ok(plain.endsWith('더 하면 좋을 일이 있으면 끝에 말로 제안하세요.'))
+  assert.ok((await TP.planBlock(turn)).endsWith(`\n${TP.OFF_PLAN_KO}`), 'the default carries it')
+  TP.end(turn, 'done'); turn.finish()
+  for (const t of ['request_human_input', 'REQUEST_HUMAN_INPUT', ' request_human_input ']) assert.equal(TP.asksPerson(t), true, t)
+  for (const t of ['request_human', 'drive_search', '', null, undefined]) assert.equal(TP.asksPerson(t), false, String(t))
+})
+
 const user = { id: '00000000-0000-0000-0000-0000000000aa', name: '시험' }
 const session = { access_token: 'test' }
 const hist = [{ role: 'user', content: 'https://example.com/a' }]

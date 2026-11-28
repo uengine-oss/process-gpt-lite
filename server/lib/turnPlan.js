@@ -373,18 +373,19 @@ export function settledPlan(plan, outcomes) {
 // 루프로 우리 서버 쪽으로 알려줘야 된다라고 하는 게 명시가 돼 있어야 돼」): a step that cannot be done as planned is not substituted —
 // the agent asks with request_human_input (deepagents' tool; Lite turns its human_input_required into the question card). Named on
 // purpose: Claude Code loads MCP tools only when it looks for them by name. Without it, deepagents · Claude Code · codex stopped in
-// prose (no question reached Lite, and the plan was saved as done); with it all three asked 12/12 · 12/12 · 4/4, no false stops.
+// prose (no question reached Lite, and the plan was saved as done); with it all three asked 18/18 · 18/18 · 8/8, no false stops with this
+// text (0/6). A turn nobody is there to answer (a routine run unattended — store.auto, lib/followups.js) gets the plan without it (ask:false).
 export const OFF_PLAN_KO = '계획대로 할 수 없을 때: 어떤 단계를 계획대로 할 수 없거나(찾는 자료가 없음, 파일이 열리지 않음, 권한이 없음, 필요한 도구가 없음 등) 계획과 다른 방법·자료·결과물이 있어야 할 것 같으면 다른 것으로 대신하지 마세요. request_human_input 도구로 무슨 일이 있었는지, 왜 계획대로 못 하는지, 고를 수 있는 길 2~3가지를 알리고 답을 기다리세요. 요청의 뜻을 그대로 지키는 작은 다듬기(검색어 바꾸기, 단계 나누기·합치기)는 묻지 않고 해도 됩니다.'
 export const OFF_PLAN_EN = 'When you cannot follow the plan: if a step cannot be done as planned (the material is not found, a file does not open, no permission, a needed tool is missing, …) or it seems to need a different method, source or deliverable than the plan, do not substitute something else. Call the request_human_input tool: say what happened, why the plan cannot be followed, and 2-3 options to choose from, then wait for the answer. Small refinements that keep the request\'s intent (changing search words, splitting or merging steps) are fine without asking.'
 // Waits for the front call (it ends by FRONT_MS from the message); nothing when it fell back or is off.
-export async function planBlock(turn) {
+export async function planBlock(turn, { ask = true } = {}) {
   const v = viewOf(turn)
   if (!v?.ready) return ''
   const plan = v.plan || await Promise.race([v.ready, new Promise((r) => setTimeout(() => r(null), Math.max(0, FRONT_MS + 300 - (Date.now() - v.startedAt))))])
   if (!plan || plan.source !== 'front') return ''
   const steps = plan.steps.map((s, i) => `${i + 1}. ${s.text}`).join('\n')
-  return L(`\n\n[계획] ${plan.understood}\n${steps ? `${steps}\n` : ''}이 계획대로만 하세요. 할 일 목록 도구가 있으면 이 계획을 먼저 기록하고(다듬어도 됩니다), 없으면 그냥 진행하세요 — 기록 도구가 없는 것은 계획에서 벗어난 것이 아닙니다.\n요청하지 않은 결과물은 만들지 마세요. 더 하면 좋을 일이 있으면 끝에 말로 제안하세요.\n${OFF_PLAN_KO}`,
-    `\n\n[Plan] ${plan.understood}\n${steps ? `${steps}\n` : ''}Do only this plan. If you have a to-do list tool, record this plan with it first (you may refine it); if not, just go ahead — not having one is not a departure from the plan.\nDo not produce deliverables that were not asked for; if more seems useful, say so at the end.\n${OFF_PLAN_EN}`)
+  return L(`\n\n[계획] ${plan.understood}\n${steps ? `${steps}\n` : ''}이 계획대로만 하세요. 할 일 목록 도구가 있으면 이 계획을 먼저 기록하고(다듬어도 됩니다), 없으면 그냥 진행하세요 — 기록 도구가 없는 것은 계획에서 벗어난 것이 아닙니다.\n요청하지 않은 결과물은 만들지 마세요. 더 하면 좋을 일이 있으면 끝에 말로 제안하세요.${ask ? `\n${OFF_PLAN_KO}` : ''}`,
+    `\n\n[Plan] ${plan.understood}\n${steps ? `${steps}\n` : ''}Do only this plan. If you have a to-do list tool, record this plan with it first (you may refine it); if not, just go ahead — not having one is not a departure from the plan.\nDo not produce deliverables that were not asked for; if more seems useful, say so at the end.${ask ? `\n${OFF_PLAN_EN}` : ''}`)
 }
 
 // the live state of this person's turns in a thread (the page opened mid-turn)
@@ -411,6 +412,8 @@ export function turnRoutes(auth, { thread = getThread } = {}) {
 // Bookkeeping calls (the to-do list, a think step — the ones the work trail leaves out too, lib/workTrail.js) are not work: text
 // before them is not "interim". A 1,500-character summary, then write_todos, then 「모든 단계를 마쳤어요.」 is one answer
 // (review 11-25 #2: only the last line was saved).
+// the agent stops to ask the person itself (deepagents' HITL tool — the agreement above): a tool name, not a reading of meaning
+export const asksPerson = (tool) => String(tool || '').trim().toLowerCase() === 'request_human_input'
 export const bookkeeping = (tool) => /^(write_todos|think|todo)/i.test(String(tool || ''))
 // Tokens are collected per segment; a segment ends at a tool event (tool_start, plan_tools) or the end of the stream. Under
 // PROMOTE_CHARS it shows only on the card's live line (onOpen); past it, with no tool event, it becomes the draft answer (onDelta,

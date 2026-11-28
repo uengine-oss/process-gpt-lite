@@ -1855,7 +1855,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // agent's own model calls go out with this person's key
   const llmAuth = await llmKeys.admit()
   // the plan the person was shown (lib/turnPlan.js §1.4): the agent does only that work, and asks (request_human_input) when it cannot
-  const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
+  const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn, { ask: !store?.auto }) : ''
   // (작업 폴더 · 버전 — the note when it is ready by a moment after the plan block, else none; lib/workFolder.js startNote)
   const folderNote = folderRead ? await folderRead.take() : ''
   // 프로젝트 계획(lib/projectNote.js): every turn of a project, in whichever sub-topic — a sub-topic has its own history, and the plan changes
@@ -1971,9 +1971,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (j.type === 'token' && j.content) { all += j.content; segs.token(j.content); partial = segs.answer() }
       // a tool is being called: the text before it was on the way, not the answer — unless the call is bookkeeping (the to-do
       // list, a think step): then the text goes on (review 11-25 #2)
-      if (j.type === 'tool_start') { if (TP.bookkeeping(j.tool || j.tool_name || j.name)) segs.mark(); else segs.cut() }
+      // the agent stops to ask the person itself (the plan's agreement, lib/turnPlan.js OFF_PLAN): the guard is done — no check on the note
+      // before the question, and a reading already on its way lands as late, never a second stop over the agent's own question (review #136-1)
+      if (j.type === 'tool_start') { const t = j.tool || j.tool_name || j.name; if (TP.asksPerson(t)) guard?.close(); if (TP.bookkeeping(t)) segs.mark(); else segs.cut() }
       if (j.type === 'plan_tools') {
         const called = (Array.isArray(j.tools) ? j.tools : []).map((t) => t?.tool || t?.name || '')
+        if (called.some(TP.asksPerson)) guard?.close()
         if (called.length && called.every(TP.bookkeeping)) segs.mark(); else segs.cut()
       }
       if (j.type === 'plan_todos') { TP.todos(turn, j.todos); guard?.todos(TP.todosOf(j.todos)) }
