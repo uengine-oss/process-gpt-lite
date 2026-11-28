@@ -178,8 +178,9 @@ const queueActs = computed(() => {
 })
 // repetitive work that keeps changing the page (deleting one item after another): how many rounds so far, not a stop
 const progressN = computed(() => (running.value || needs.value ? c.value.progress?.count || 0 : 0))
-// what the person said to it in the chat — an answer to its question, or how to go on — shown as received
-const heard = computed(() => (running.value || needs.value ? (c.value.steered?.text ? { kind: '받은 지시', text: c.value.steered.text } : c.value.answered?.text ? { kind: '채팅으로 답함', text: c.value.answered.text } : null) : null))
+// what the person said to it in the chat — an answer to its question, or how to go on — shown as received (by: 'agent' — words the agent
+// that asked for this task passed on, server lib/browser.js relay: never the person's answer)
+const heard = computed(() => (running.value || needs.value ? (c.value.steered?.text ? { kind: c.value.steered.by === 'agent' ? '에이전트가 전한 말' : '받은 지시', text: c.value.steered.text } : c.value.answered?.text ? { kind: '채팅으로 답함', text: c.value.answered.text } : null) : null))
 
 // Nothing has moved for a while (server lib/browser.js guard → content.stall { what, since, after }): instead of a screen
 // that looks frozen, what it is waiting on, for how long, and 다시 시도 (that step again) · 그만두기 (stop the task).
@@ -318,6 +319,8 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
       <p v-if="qErr" class="aerr" data-testid="task-queue-error">{{ qErr }}</p>
     </div>
     <!-- what the person said to it in the chat, as received -->
+    <!-- a task the agent started (server lib/agentBrowser.js): where it may make or change things — the sites the person's words name -->
+    <p v-if="c.byAgent && !full" class="heard sites" data-testid="task-sites"><b>{{ c.readOnly ? '이 작업은 공개 페이지를 읽기만 해요' : c.sites?.length ? '이 작업이 할 수 있는 곳' : '이 작업은 보기만 해요' }}</b><span v-if="!c.readOnly && c.sites?.length" data-no-i18n>{{ c.sites.join(' · ') }}</span></p>
     <p v-if="heard && !full" class="heard" data-testid="task-heard"><b>{{ heard.kind }}</b><span data-no-i18n>{{ heard.text }}</span></p>
     <!-- signing in with the vault's login: which way it is going in (also in the full view) -->
     <div v-if="vaultIn && !stall" class="ask vaultin" :class="{ inFull: full }" data-testid="task-vault-signin" role="status">
@@ -403,6 +406,7 @@ watch(() => app.clicks[props.msg.id]?.n, () => {
 .prog { position: absolute; right: 12px; top: 12px; height: 28px; padding: 0 12px; border-radius: 9999px; display: inline-flex; align-items: center; background: rgba(15 157 88 / .92); color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 2px 10px rgba(0 0 0 / .12); pointer-events: none; }
 .heard { margin: 8px 4px 0; display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; line-height: 1.45; color: var(--text-secondary); overflow-wrap: anywhere; }
 .heard b { flex: none; font-weight: 600; color: #0F9D58; }
+.heard.sites b { color: var(--text-secondary); font-weight: 500; }
 .ask.vaultin { box-shadow: inset 0 0 0 1.5px rgba(15 157 88 / .45), var(--shadow-card); }
 .ask.vaultin.inFull { width: min(92vw, 1024px, 112vh); margin: 12px auto 0; }
 .ask.vaultin .why { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-bottom: 4px; }

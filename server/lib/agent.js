@@ -6,6 +6,7 @@ import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
 import { runBrowserTask, runningIn, waitingIn, activeIn, answerWaiting, steer as steerBrowser } from './browser.js'
 import * as BQ from './browserQueue.js'
+import * as AB from './agentBrowser.js'
 import { createSchedule, nextRun, cronAfter, dueAt, listSchedules } from './scheduler.js'
 import { createMission, createProcessSchedule, listSkills, workspaceHostPath, runMission } from './missions.js'
 import { wantsRunNow, telegramIntent, pickSchedule, recentScheduleIds, channelsOf } from './scheduleIntent.js'
@@ -279,13 +280,16 @@ const turnCtx = new AsyncLocalStorage()
 // onRetract: the POST stream's `retract` — the draft answer turned out to be an interim text (lib/turnPlan.js createSegments)
 // From the message to the handler the turn is in its front stage (turn.front): 멈추기 reaches it there (lib/turns.js running), and no
 // handler starts once it is stopped (checkpoint) — the chat says 「멈췄어요」 instead (design turnplan §1.3).
+// handback: {taskId, conv, title} — a turn Lite starts once a browser task the agent asked for ended after the agent's turn did
+// (lib/agentBrowser.js): composed, straight to the agent's conversation, never handed back again
 export function runTurn(args) {
   // the person wrote in this thread again: a question the agent asked in it is past (its notice and Home card go — lib/askPerson.js)
-  if (!args.auto) ASK.settle(args.user.id, { via: 'chat', threadId: args.threadId }).catch(() => {})
+  // (a handback is not the person writing)
+  if (!args.auto && !args.handback) ASK.settle(args.user.id, { via: 'chat', threadId: args.threadId }).catch(() => {})
   const turn = turns.enqueue({ userId: args.user.id, threadId: args.threadId })
   turn.front = true
   // source: what the turn was started from (a mail's Home card — {actionId}): a teammate's answer asked for in it fills that card's reply too
-  return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto, onRetract: args.onRetract || null, source: args.source || null }, async () => {
+  return turnCtx.run({ turn, userMsgId: null, adopted: false, auto: !!args.auto, onRetract: args.onRetract || null, source: args.source || null, handback: args.handback || null }, async () => {
     // (the view ends however the turn does — a failure to write the 「멈췄어요」 message must not leave a card running for good)
     let state = 'failed'
     try {
@@ -544,12 +548,15 @@ const sameHost = (a, b) => !!hostOf(a) && hostOf(a) === hostOf(b)
 // composed: words the server put together for this turn, not typed by the person in this room (a teammate's message picked up with
 // 「이어서 작업」, a Home card's action, an answer chosen on a card) — the room's judge does not read them as the person's rule or plan
 // (review PR #105 #8: a teammate's text pinned into the plan as the person's)
-async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false, composed = false, clientId = null }) {
+// handback: a browser task the agent asked for ended after the agent's turn (lib/agentBrowser.js) — composed, its conversation is the one
+// that agent turn was in (known here, not from the page)
+async function handleTurn({ user, session, threadId, text, context, onDelta, files, conversation, noFolder, fresh, habitId, openDoc, refs, again = false, composed = false, clientId = null, handback = null }) {
   const userId = user.id
   // (only a conversation of this person's — an id from the page is never taken on its word: review 11-25 #1)
   const mine = conversation?.id ? await ownsConversation(userId, conversation.id).catch(() => null) : null
   if (conversation?.id && !mine) console.warn(`[turn] conversation from the page is not this person's — not taken user=${userId.slice(0, 8)}`)
   if (mine) pinned.set(threadId, { conversationId: String(conversation.id), title: String(conversation.title || ''), ...(mine.kind ? { kind: mine.kind } : {}) })
+  else if (handback?.conv) pinned.set(threadId, { conversationId: String(handback.conv), title: String(handback.title || '') })
   // a key or a workspace path is only ever this person's own upload (lib/attachments.js); the page could send any other
   // (and the address itself: what the page sends is cut to the person's own uploads at the route — lib/attachments.js pageFiles —
   // before it gets here; the server's own callers — a teammate's shared copies — pass their files as they made them)
@@ -569,6 +576,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   }
   // what the person typed, before an empty message with files gets its words — a bare link or file hands over work (review PR #105 #9)
   const bare = wordless(text)
+  // (their own words, as typed: a message of files or references only has none — lib/agentBrowser.js reads these, never words put in for them)
+  const typed = String(text || '').trim()
   // (only a mail pointed at — lib/mailMention.js: the words say so)
   const onlyMail = !files.length && pointed?.shown?.length && pointed.shown.every((x) => x.as === 'mail' || x.error)
   if (!text?.trim() && (files.length || pointed?.shown?.some((x) => !x.error))) text = onlyMail ? L('이 메일을 확인해 줘', 'Please look at this mail') : L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
@@ -586,9 +595,11 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // (the page's id for it — lib/sendOnce.js: the same message sent again is taken once)
       ...(clientId ? { clientId: String(clientId) } : {}),
       // (words the server composed, not typed by the person — the plan's updates read them as context only: lib/projectNote.js)
-      ...(composed ? { composed: true } : {}) })
+      ...(composed ? { composed: true } : {}),
+      // (the screen says Lite sent it, not the person — components/Message.vue)
+      ...(handback?.taskId ? { handback: { taskId: String(handback.taskId), title: String(handback.title || '').slice(0, 120) } } : {}) })
   const store = turnCtx.getStore()
-  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project; store.composed = !!composed }
+  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.typed = again ? String(text || '').trim() : typed; store.habitId = habitId || null; store.project = project; store.composed = !!composed }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
   TP.begin({ turn: store?.turn, userId, threadId, msgId: said.id, text, files: [...files, ...(pointed?.shown || [])] })
   // 작업 폴더 · 버전(lib/workFolder.js): read from here, beside the plan, the router and the turn's preparation — delegate tells it where the
@@ -598,6 +609,13 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   // as the open document even when the live link (lib/craftLive.js) is down
   const doc = openDocOf(openDoc)
   if (store && doc) store.openDoc = doc
+  // a handback goes to the agent's own conversation and nowhere else: no habit, room judge, browser task or router reads it (it is not the
+  // person's words, and a router that picked a browser task for it could hand back again)
+  // (nor the same-request check: two handbacks of tasks with the same name are not one request asked twice)
+  if (handback) {
+    if (store) store.fresh = true
+    return delegate({ user, session, threadId, text: context ? `${text}\n\n${context}` : text, onDelta })
+  }
   // 「앞으로 …」 told outright: a habit (lib/followups.js). In a project room the room's judge reads it first — it may be the project's plan
   // or its rule (2026-11-27 녹화: 「내가 입력한 url 의 내용은 항상 …」 restated the project's purpose and became a habit) — so there it is
   // asked only once the judge has said it is none of the room's (below)
@@ -1455,7 +1473,7 @@ const PHASES = [
   [/^office_live_(read|documents)|^office_guide/, '문서 읽는 중'], [/^office_live_/, '문서 고치는 중'],
   [/hwpx|docx|pptx|xlsx|office|document|render_hwp/i, '문서 만드는 중'], [/panel/i, '패널 만드는 중'],
   [/^send_mail_as_me$/, '보낼 메일 준비하는 중'], [/gmail|mail/i, '메일 확인하는 중'], [/calendar/i, '일정 확인하는 중'], [/youtube/i, '영상 정보 찾는 중'],
-  [/slack|notion|github|drive/i, '연결된 서비스 확인하는 중'], [/search|web|fetch|browse|tavily/i, '찾아보는 중'],
+  [/slack|notion|github|drive/i, '연결된 서비스 확인하는 중'], [/^browser_task/, '브라우저에서 하는 중'], [/search|web|fetch|browse|tavily/i, '찾아보는 중'],
   [/^(ls|glob|grep|read_file|read)$/i, '파일 살펴보는 중'], [/^(write_file|edit_file|write|edit)$/i, '파일 쓰는 중'],
   [/execute|shell|bash|python|run_code/i, '실행하는 중'], [/^task$|subagent/i, '나눠서 일하는 중'], [/todo/i, '할 일 정리하는 중'],
   [/process|bpmn|instance|workitem/i, '프로세스 확인하는 중'], [/skill/i, '스킬 쓰는 중'],
@@ -1463,7 +1481,7 @@ const PHASES = [
 // the same phases in English, in PHASES order
 const PHASES_EN = ['Drawing the plan', 'Making the picture', 'Editing the image', 'Making the sound', 'Editing the video', 'Looking through the folder',
   'Reading the document', 'Editing the document', 'Making the document', 'Making the panel', 'Preparing the mail to send', 'Checking mail', 'Checking the calendar', 'Looking up the video',
-  'Checking connected services', 'Looking it up', 'Looking through files', 'Writing files', 'Running it', 'Splitting up the work', 'Organizing to-dos',
+  'Checking connected services', 'Working in the browser', 'Looking it up', 'Looking through files', 'Writing files', 'Running it', 'Splitting up the work', 'Organizing to-dos',
   'Checking the process', 'Using a skill']
 export const toolPhase = (tool) => {
   const i = PHASES.findIndex(([re]) => re.test(String(tool || '')))
@@ -1554,6 +1572,8 @@ async function askStop(session, conv) {
 async function stopTurn(t, session, why) {
   t.stopped = true
   if (why) t.reason = why
+  // the browser tasks the agent started in this turn stop with it, and none is handed back (lib/agentBrowser.js)
+  AB.stopTasksOf(t)
   // the stream ends with "turn cancelled" once deepagents stops it; if it does not, stop waiting
   const ok = t.started ? await askStop(session, t.conv) : false
   if (!ok) t.abort.abort()
@@ -1669,6 +1689,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // person's message in this thread, never a schedule, a mission or a team run delegated here
   turn.agent = true
   turn.fromUser = !!adopted
+  // whose words this turn answers (lib/agentBrowser.js: a browser task the agent asks for runs as the person's own only on a turn that
+  // answers their own message — not a routine's, not one the server composed — with their words, never the agent's goal, as its basis)
+  // (said: the person's typed words — none for a message of files only; msgId: their message — what they write after it is newer)
+  if (adopted) Object.assign(turn, { said: typeof store.typed === 'string' ? store.typed : asked, msgId: store.userMsgId || null, auto: !!store.auto, composed: !!store.composed, handback: store.handback || null })
   turn.title = String(text || '').trim().split('\n')[0].slice(0, 60)
   // a shared folder's run room (folderTurn) is never offered to the router as a conversation in progress
   turn.folder = !!pin?.folder

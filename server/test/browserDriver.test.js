@@ -299,7 +299,10 @@ for (const kind of ['server', 'local']) {
 
   test(`${kind}: 요소 이름 · 비밀 칸 · 자리`, { skip }, async () => {
     const snap = await d().look()
-    assert.deepEqual(await d().describe(el(snap, '검색')), { name: '검색', field: false, secret: '', what: '검색' })
+    // (a submit control says where its form goes: to)
+    const { to, ...search } = await d().describe(el(snap, '검색'))
+    assert.deepEqual(search, { name: '검색', field: false, secret: '', what: '검색' })
+    assert.match(to, /^http:\/\/127\.0\.0\.1:\d+\/shop/)
     const pw = snap.els.find((x) => x.type === 'password').i
     assert.equal((await d().describe(pw)).secret, 'password')
     assert.equal(await d().isSecret(pw), true)

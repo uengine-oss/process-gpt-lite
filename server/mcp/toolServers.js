@@ -19,6 +19,9 @@ export const LITE_TOOL_SERVERS = [
   { key: 'office', paths: [OFFICE_SERVER_PATH, 'office'] },
   // 「내 계정으로 보내기」 (mcp/mail.js): a mail the agent writes goes out only from the person's own mailbox, after they press 보내기
   { key: 'mail', paths: ['mail'] },
+  // the built-in browser (mcp/connectors/browser.js · lib/agentBrowser.js): work inside a website in the person's account, its task card
+  // in their chat — answered by the connectors' route (/mcp/:connector), which is also where an mcp-hub finds it
+  { key: 'browser', paths: ['browser'] },
 ].map((s) => ({ ...s, server: `pgpt-${s.paths[0]}` }))
 
 export const LITE_TOOL_SERVER_NAMES = LITE_TOOL_SERVERS.map((s) => s.server)

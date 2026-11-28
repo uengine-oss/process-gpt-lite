@@ -115,7 +115,7 @@ cd server && node --test --test-concurrency=1 test/workFolder.integration.test.j
 화면(자체 스택: 회사 work-folders-ui의 BFF + Vite는 8941 · 5341부터 빈 포트를 사용하고, 가짜 모델 · 가짜 deepagents도 빈 포트를 사용한다. `RT_WF_API_PORT` · `RT_WF_WEB_PORT` · `RT_WF_LLM_PORT` · `RT_WF_AGENT_PORT`로 지정할 수 있다):
 
 ```bash
-cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1
+cd e2e && npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1
 ```
 
 시험 사용자는 정하윤 · 한서윤(지어낸 이름)이다. 정하윤의 채팅에 해당하는 네 턴을 데이터베이스에 직접 넣는다. 첫 턴에는 녹화와 같은 구성의 21개 파일(맨 위 5개 + adr/ · curriculum/ · starter/ · starter/css/ · syllabus/, README.md 4개, curriculum.md 2개)이 있다. 이어서 커리큘럼/v1의 5개, 커리큘럼/v2의 6개, 회의메모 3개가 있다. constitution.md · adr/ADR-004.md · 커리큘럼/v2/README.md는 올려 둔 사본의 주소가 있어 이음오피스에서 열린다. 나머지는 작업실에서 열린다. 첫 턴의 spec.md는 검수에서 문제가 발견된 편집본이다. 한서윤은 실제 턴(F-WF-05 ~ F-WF-08)을 보낸다. F-WF-06에서 가짜 deepagents는 파일 하나를 이벤트 없이(스크립트가 쓴 것처럼) 깊은 하위 폴더에 쓴다. 시험이 끝나면 행 · 올린 파일 · deepagents 작업 공간의 해당 회사 폴더를 지운다.

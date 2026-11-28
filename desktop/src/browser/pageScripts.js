@@ -25,7 +25,11 @@ const DESCRIBE_JS = (e) => {
   const button = tag === 'input' && /^(submit|button|reset)$/.test(e.type) ? e.value : ''
   const name = (field && !button ? label || e.name || '' : e.innerText || label || button || e.getAttribute('alt') || '').replace(/\s+/g, ' ').trim()
   const what = field && !button ? '' : [e.innerText, e.value, e.getAttribute('aria-label'), e.getAttribute('title')].filter(Boolean).join(' ').trim().slice(0, 80)
-  return { name: name.length > 30 ? `${name.slice(0, 29)}…` : name, field: !!field && !button, secret, what }
+  // where a press goes: a link's address, or the address of the form a submit control sends
+  const link = e.closest && e.closest('a[href]')
+  const submits = (tag === 'button' && (e.type || 'submit') === 'submit') || (tag === 'input' && /^(submit|image)$/.test(e.type))
+  const to = link ? link.href : submits && e.form ? e.form.action : ''
+  return { name: name.length > 30 ? `${name.slice(0, 29)}…` : name, field: !!field && !button, secret, what, ...(to ? { to: String(to).slice(0, 2000) } : {}) }
 }
 const PAGE_WORDS_JS = () => {
   const b = document.body

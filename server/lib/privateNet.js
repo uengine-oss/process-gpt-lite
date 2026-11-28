@@ -50,6 +50,14 @@ export function allowedPrivate(raw = process.env.PRO_BROWSER_PRIVATE_ALLOW ?? co
 const isAllowed = (u, allow) => allow.some((a) => (a.origin && a.origin === `${u.protocol}//${hostOf(u)}:${portOf(u)}`) || (a.host && a.host === hostOf(u)) ||
   (a.suffix && hostOf(u).endsWith(a.suffix)))
 
+// an address on this network that PRO_BROWSER_PRIVATE_ALLOW lets a task open (never a mailbox) — the agent's browser_task may start
+// there too (mcp/connectors/browser.js)
+export function allowedHere(url, allow = allowedPrivate()) {
+  let u
+  try { u = new URL(String(url)) } catch { return false }
+  return /^https?:$/.test(u.protocol) && !isMailbox(url) && isAllowed(u, allow)
+}
+
 // a mailbox, by its name or its port on a private address — never opened
 export function isMailbox(url) {
   let u

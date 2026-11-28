@@ -245,6 +245,17 @@ export function handler(turn, h) {
   if (v.plan) { sendPlan(v); logReadings(v) }
 }
 
+// Part of the agent's work done by another handler it called (the built-in browser — lib/agentBrowser.js): the handler line says so —
+// 「에이전트 · 브라우저 · NotebookLM」 — on the card while it runs and in the plan the answer keeps
+export function alongside(turn, label) {
+  const v = viewOf(turn)
+  if (!v || v.ended || !v.handler || !label) return
+  const base = v.handler.base || v.handler.label
+  if (v.handler.label === `${base} · ${label}`) return
+  v.handler = { ...v.handler, base, label: `${base} · ${label}` }
+  sendPlan(v)
+}
+
 export function stage(turn, name, { text, detail } = {}) {
   const v = viewOf(turn)
   if (!v || (v.ended && !['done', 'stopped', 'asked', 'failed'].includes(name))) return

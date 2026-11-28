@@ -10,6 +10,7 @@ import { youtube } from './connectors/youtube.js'
 import { slackConnector, githubConnector, notionConnector } from './connectors/saas.js'
 import { browserConnector } from './connectors/browser.js'
 import { LITE_TOOL_SERVER_NAMES } from './toolServers.js'
+import { conversationOf } from './mail.js'
 
 export const CONNECTORS = [google, youtube, slackConnector, githubConnector, notionConnector, browserConnector]
 
@@ -27,18 +28,19 @@ export async function ensureHubBinding(userId, tenantId) {
     const servers = await (await fetch(`${HUB}/servers`, { headers: h })).json()
     const byName = new Map((Array.isArray(servers) ? servers : servers.servers || servers.items || []).map((x) => [x.name, x]))
     const ours = new Set([...CONNECTORS.map((c) => byName.get(hubServerName(c.name))?.id), ...ALWAYS.map((n) => byName.get(n)?.id)].filter(Boolean))
-    const want = ALWAYS.map((n) => byName.get(n)?.id).filter(Boolean)
+    // (a server that is both a connector and a built-in one — pgpt-browser — is bound once)
+    const want = new Set(ALWAYS.map((n) => byName.get(n)?.id).filter(Boolean))
     for (const c of CONNECTORS) {
       const srv = byName.get(hubServerName(c.name))
-      if (srv && await c.connected(userId).catch(() => false)) want.push(srv.id)
+      if (srv && !want.has(srv.id) && await c.connected(userId).catch(() => false)) want.add(srv.id)
     }
     const cur = await (await fetch(`${HUB}/agents/${userId}/bindings`, { headers: h })).json()
     const keep = (Array.isArray(cur) ? cur : cur.bindings || [])
       .filter((b) => !ours.has(b.server_id))
       .map((b) => ({ server_id: b.server_id, allowed_tools: b.allowed_tools ?? null, enabled: b.enabled !== false }))
-    const next = [...keep, ...want.map((id) => ({ server_id: id, allowed_tools: null, enabled: true }))]
+    const next = [...keep, ...[...want].map((id) => ({ server_id: id, allowed_tools: null, enabled: true }))]
     const r = await fetch(`${HUB}/agents/${userId}/bindings`, { method: 'PUT', headers: h, body: JSON.stringify(next) })
-    return { bound: want.length, ok: r.ok }
+    return { bound: want.size, ok: r.ok }
   } catch (e) {
     return { bound: 0, ok: false, reason: e.message }
   }
@@ -51,7 +53,11 @@ export async function connectorStatus(userId) {
 
 // user = null: anonymous catalog (mcp-hub validation, health checks, tool cache). Every tool is
 // listed so the hub can govern them, but calling any of them requires the user's JWT.
-async function buildServer(user, only) {
+// ctx: the call's conversation (X-Conversation-Id, filled by deepagents — mcp/mail.js conversationOf) and token, given to a tool's run
+// as its third argument with the user (the built-in browser puts its task in that conversation's chat — mcp/connectors/browser.js).
+// A tool's description and input may be functions (read when the list is built: the browser skills this server has).
+const now = (v) => (typeof v === 'function' ? v() : v)
+async function buildServer(user, only, ctx = {}) {
   const server = new McpServer({ name: only ? `pgpt-${only}` : 'pgpt-connectors', version: '1.0.0' })
   for (const c of CONNECTORS.filter((x) => !only || x.name === only)) {
     // A per-connector endpoint always lists its tools (an MCP server with none fails the client's
@@ -60,12 +66,12 @@ async function buildServer(user, only) {
     if (user && !connected && !only) continue
     for (const t of c.tools) {
       if (user && connected && c.allowed && !(await c.allowed(user.id, t.name))) continue
-      server.registerTool(t.name, { description: t.description, inputSchema: t.input }, async (args) => {
+      server.registerTool(t.name, { description: now(t.description), inputSchema: now(t.input) }, async (args) => {
         if (!user) return { isError: true, content: [{ type: 'text', text: 'unauthorized: call with the user JWT (Authorization: Bearer {{user_jwt}})' }] }
         console.log(`[mcp] ${t.name} user=${user.id.slice(0, 8)}`)
         if (!connected) return { isError: true, content: [{ type: 'text', text: `${c.title} 이(가) 연결되지 않았어요. 설정 → 계정 → 연결에서 연결한 뒤 다시 시도하세요.` }] }
         try {
-          const out = await t.run(user.id, args || {})
+          const out = await t.run(user.id, args || {}, { ...ctx, user })
           return { content: [{ type: 'text', text: JSON.stringify(out, null, 1) }] }
         } catch (e) {
           // (a tool that cannot work without a setup step says which one, as data: mcp/connectors/youtube.js)
@@ -89,9 +95,11 @@ export function mountConnectors(app) {
     const user = jwt ? await userFromJwt(jwt) : null
     // a token that is present but invalid is an error; no token at all gets the anonymous catalog
     if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
-    const server = await buildServer(user, only)
+    // (signal: the caller went away — a tool that waits, the browser's, stops waiting)
+    const gone = new AbortController()
+    const server = await buildServer(user, only, { conv: conversationOf(req.headers['x-conversation-id']), jwt: user ? jwt : '', signal: gone.signal })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
-    res.on('close', () => { transport.close(); server.close() })
+    res.on('close', () => { gone.abort(); transport.close(); server.close() })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
   })
