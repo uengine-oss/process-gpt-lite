@@ -11,6 +11,11 @@
 //   WF-I-07 (PR #135 confirmation review) the usual timing: the plan takes ~1.5 s, the model ~1 s (and 2.5 s) — the note reaches the agent
 //   WF-I-06 (PR #135 review) the model names the work 「process improvement plan」: placed as work-process-improvement-plan/v1, and its files
 //           come back as cards (a process-* folder would be read as a process generation and show none)
+//   WF-I-08 (PR #135 demo) a small web page: its app.js is a card beside index.html · style.css · README.md (every script used to be
+//           dropped once the turn left any document); node_modules · .cache's helper are not — nor a script beside a document a
+//           program built (a workbook deepagents stored); a requested script the agent test-ran (python3 clean.py) stays — PR #137 review
+//   WF-I-09 (PR #135 demo) a revision in place posts a second card for the same path; the chat keeps both, the list and the pile
+//           (src/artifactScope.js artifactItems) read the thread's messages as one row per file — its newest card
 //   cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -43,7 +48,7 @@ async function fakeLlm(body) {
   return reply(body.response_format ? '{}' : 'OK')
 }
 // ---- the fake deepagents: the message kept, the files the test gives written as file_artifact events in the conversation's folder ----
-const agent = { bodies: [], files: [] }
+const agent = { bodies: [], files: [], run: [] }
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url)
   if (u.startsWith(config.llm.baseUrl)) return fakeLlm(opts.body ? JSON.parse(opts.body) : {})
@@ -55,11 +60,18 @@ globalThis.fetch = async (url, opts = {}) => {
     agent.at = Date.now()
     const conv = body.conversation_id || `wfi-${crypto.randomBytes(4).toString('hex')}`
     const files = agent.files.splice(0)
+    const run = agent.run.splice(0)
     const rs = new ReadableStream({ start(c) {
       const push = (data, event = 'message') => c.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       push({ conversation_id: conv }, 'metadata')
       push({ type: 'token', content: '만들었어요.' })
-      for (const rel of files) push({ type: 'file_artifact', name: rel.split('/').pop(), path: `/workspace/.bpmn/${conv}/${rel}`, ext: rel.split('.').pop() })
+      // (shell commands the agent ran: deepagents' execute tool)
+      for (const command of run) { push({ type: 'tool_start', tool: 'execute', input: { command } }); push({ type: 'tool_end', tool: 'execute', output: 'ok' }) }
+      // (a file given as {rel, url}: a document a program built, stored by deepagents — a file_artifact with its url, no write of the agent's)
+      for (const f of files) {
+        const rel = typeof f === 'string' ? f : f.rel
+        push({ type: 'file_artifact', name: rel.split('/').pop(), path: `/workspace/.bpmn/${conv}/${rel}`, ext: rel.split('.').pop(), ...(f.url ? { url: f.url } : {}) })
+      }
       push({ type: 'done', content: '만들었어요.' })
       c.close()
     } })
@@ -70,6 +82,7 @@ globalThis.fetch = async (url, opts = {}) => {
 }
 
 const { runTurn } = await import('../lib/agent.js')
+const { artifactItems, artifactSections } = await Promise.all([import('../../src/artifactScope.js'), import('../../src/fileGroups.js')]).then(([a, g]) => ({ ...a, ...g }))
 const user = { id: crypto.randomUUID(), email: `pro-fix-wfi-${crypto.randomBytes(3).toString('hex')}@uengine.org`, name: '시험' }
 const session = { access_token: 'test-token' }
 let tid = null
@@ -179,4 +192,51 @@ test('WF-I-07 the usual timing: a plan that takes ~1.5 s and a model that takes 
       assert.ok(agent.at - t0 < plan + 1500 + 1000, `asked ${agent.at - t0} ms after the message`)
     }
   } finally { llm.planDelay = 0; llm.delay = 0 }
+})
+test('WF-I-08 a small web page: app.js is a card with the page\'s other files; node_modules · a dot folder\'s helper are not; a script beside a built document is not', { skip: !up }, async () => {
+  llm.tier = 'standard'
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: '작은 웹 페이지', confidence: 0.93 }
+  const page = ['index.html', 'app.js', 'style.css', 'README.md'].map((f) => `작은-웹-페이지/v1/${f}`)
+  agent.files.push(...page, '작은-웹-페이지/v1/node_modules/left-pad/index.js', '.cache/check.py')
+  const before = (await cards()).length
+  await runTurn({ user, session, threadId: tid, text: '할 일 목록 작은 웹 페이지 만들어 줘. html, css, js 로' })
+  assert.match(lastMessage(), /산출물 폴더 안의 '작은-웹-페이지\/v1\/'/)
+  const cs = (await cards()).slice(before)
+  assert.deepEqual(cs.map((c) => c.path.replace(/^\/workspace\/\.bpmn\/[^/]+\//, '')).sort(), [...page].sort(), JSON.stringify(cs.map((c) => c.path)))
+  // a script that built a workbook (stored by deepagents: a url, no write of the agent's): the workbook is the card, the script is not
+  llm.answer = { files: 'one', mode: 'new', folder: '', name: '정산표', confidence: 0.9 }
+  agent.files.push('make_sheet.py', { rel: '정산표.xlsx', url: 'http://127.0.0.1:9/정산표.xlsx' })
+  const mid = (await cards()).length
+  await runTurn({ user, session, threadId: tid, text: '정산표를 엑셀로 만들어 줘' })
+  assert.deepEqual((await cards()).slice(mid).map((c) => c.name), ['정산표.xlsx'])
+  // (PR #137 review, decided) a requested script the agent test-ran (python3 clean.py) stays a card beside its report
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: '엑셀 정리', confidence: 0.9 }
+  agent.files.push('엑셀-정리/v1/clean.py', '엑셀-정리/v1/report.md')
+  agent.run.push('cd /workspace && python3 엑셀-정리/v1/clean.py')
+  const end = (await cards()).length
+  await runTurn({ user, session, threadId: tid, text: '엑셀 정리하는 파이썬 스크립트 만들어 줘' })
+  assert.deepEqual((await cards()).slice(end).map((c) => c.name).sort(), ['clean.py', 'report.md'])
+})
+
+test('WF-I-09 a revision in place: a second card for the same path stays in the chat; the list and the pile count the file once', { skip: !up }, async () => {
+  llm.tier = 'standard'
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: '신입 과정', confidence: 0.93 }
+  const v1 = ['README.md', 'modules/module-1.md', 'modules/module-2.md', 'modules/module-3.md', 'labs/lab-1.md'].map((f) => `신입-과정/v1/${f}`)
+  agent.files.push(...v1)
+  await runTurn({ user, session, threadId: tid, text: '신입 과정 모듈과 실습 자료 여러 개 만들어 줘' })
+  llm.answer = { files: 'one', mode: 'revise', folder: '신입-과정', name: '신입 과정', confidence: 0.9 }
+  agent.files.push('신입-과정/v1/modules/module-2.md')
+  await runTurn({ user, session, threadId: tid, text: '2주차 모듈만 실습 위주로 고쳐 줘' })
+  assert.match(lastMessage(), /'신입-과정\/v1\/' 의 파일을 고치는 일이에요/)
+  const rows = await q(`select id, role, kind, content, created_at from pro_messages where thread_id=$1 order by created_at, id`, [tid])
+  const same = rows.filter((m) => m.kind === 'file' && m.content.path?.endsWith('/신입-과정/v1/modules/module-2.md'))
+  assert.equal(same.length, 2, 'the chat keeps the first card and the revision\'s')
+  const items = artifactItems({ scope: 'project', messages: rows })
+  const ours = items.filter((x) => x.msg.content.path?.includes('/신입-과정/v1/'))
+  assert.equal(ours.length, 5)
+  assert.deepEqual(ours.filter((x) => x.msg.content.name === 'module-2.md').map((x) => x.msg.id), [same[1].id])
+  const sec = artifactSections(items).find((s) => s.folder === '신입-과정' && s.version === 1)
+  assert.equal(sec.items.length, 5)
+  // every file of the thread once
+  assert.equal(items.length, new Set(rows.filter((m) => m.kind === 'file').map((m) => m.content.path)).size)
 })

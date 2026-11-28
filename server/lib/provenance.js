@@ -65,6 +65,42 @@ export const textDoc = (p) => /\.(md|markdown|txt|html?|csv)$/i.test(String(p ||
 export const workFile = (p) => /\/\.bpmn\/[^/]+\/(?:process-[^/]+|skills?)\//.test(String(p || '')) || /(^|\/)SKILL\.md$/i.test(String(p || ''))
 export const checkoutFile = (p) => /\/\.bpmn\/[^/]+\/folders\//.test(String(p || ''))
 
+// Scripts the agent wrote (.py · .js · .mjs · .cjs · .ts · .sh): files the person asked for, or what built a document? (PR #135 demo: a
+// course's starter/app.js never became a card — every script was dropped as soon as the turn left any document, its Markdown included.)
+// A file of the turn that the agent did not write itself means a program built it — found in the folder (office.js documentsOfRun), stored
+// by deepagents (a file_artifact with a url), made by a tool (office-mcp): the scripts are what built it, and the document is the result.
+// When every file is the agent's own writing (a web page's index.html · app.js · style.css, a course's starter code beside its Markdown),
+// the scripts are part of the work and stay cards — run or not: a script the person asked for is usually test-run by the agent, and an
+// extra helper row (analyze.py that printed the numbers for report.md) is better than a requested file lost (PR #137 review, decided).
+// Never a card either way: a script of a stopped turn (half-run), one that is not this turn's own writing, one inside what an install or
+// a run leaves (node_modules, __pycache__, .venv · venv, .cache, .git, .pytest_cache, .next, and a scratch folder .tmp · .scratch — at any depth)
+// or a build's output (dist/ · build/ right under the work folder's version, or the conversation folder's top — tools/build/release.sh and
+// .github/scripts/deploy.sh stay). Only paths and names are read.
+// files: the turn's cards ({name, path, url, open …}); written: the paths the agent wrote this turn (file_artifact without a url)
+export const SCRIPT = /\.(?:py|js|mjs|cjs|ts|sh)$/i
+const LEFT_BEHIND = new Set(['node_modules', '__pycache__', '.venv', 'venv', '.cache', '.git', '.pytest_cache', '.next', '.tmp', '.scratch'])
+const BUILD_OUT = new Set(['dist', 'build'])
+const VERSION = /^v\d{1,4}$/i
+// a path's folders inside its conversation's folder (or a project's working copy there, or the workspace): '.bpmn/<room>/' is where it is,
+// not a dot folder it is in
+const innerDirs = (p) => String(p || '').replace(/\\/g, '/').replace(/^\/workspace\/(?:\.bpmn\/[^/]+\/(?:folders\/[^/]+\/)?)?/, '').split('/').filter((s) => s && s !== '.').slice(0, -1)
+export function leftBehind(p) {
+  const dirs = innerDirs(p)
+  if (dirs.some((d) => LEFT_BEHIND.has(d.toLowerCase()))) return true
+  // the work folder's root: its version folder (<folder>/v1/), else the conversation folder's top
+  const v = dirs.findIndex((d, i) => i > 0 && VERSION.test(d))
+  const root = v > 0 ? v + 1 : 0
+  return root < dirs.length && BUILD_OUT.has(dirs[root].toLowerCase())
+}
+export function dropScaffolding(files, { written = new Set(), ended = false } = {}) {
+  const list = files || []
+  const script = (f) => SCRIPT.test(String(f?.name || ''))
+  const own = (f) => !!f?.path && written.has(f.path)
+  // (a shared folder's file the person asked to see — folder_open — is not something this turn built)
+  const built = list.some((f) => !script(f) && !own(f) && !f?.open)
+  return list.filter((f) => !script(f) || (!ended && !built && own(f) && !leftBehind(f.path)))
+}
+
 // A document a tool result carried (storage URL): the turn's output, or a file it only opened?
 // tool '' = deepagents' own end-of-turn republish of a hwpx path; input = that tool call's arguments.
 export async function keepToolDoc({ name, tool, input }, paths, ctx) {
