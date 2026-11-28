@@ -16,7 +16,7 @@ process.env.PRO_SUPABASE_URL ||= 'https://supa.example.test'
 process.env.SERVICE_ROLE_KEY ||= 'test-service-key'
 process.env.ANON_KEY ||= 'test-anon-key'
 const { documentsOfRun, RUN_DEPTH } = await import('../lib/office.js')
-const { dropScaffolding, SCRIPT } = await import('../lib/provenance.js')
+const { dropScaffolding, SCRIPT, leftBehind } = await import('../lib/provenance.js')
 after(() => fs.rm(tmp, { recursive: true, force: true }))
 
 const ROOM = 'c0ffee11c0ffee11c0ffee11c0ffee11'
@@ -53,8 +53,8 @@ test('WD-U-01 a work folder\'s subfolders are walked (four folders down); proces
 
 // (PR #135 demo) a course's starter/app.js never became a card: every script was dropped as soon as the turn left any document — its
 // Markdown included. A script is scaffolding only beside a file the agent did not write itself (a program built it); beside the agent's own
-// writing it is one of the files asked for. Stopped turns, node_modules, dot folders and build output stay out.
-test('WD-U-02 scripts: beside the agent\'s own files they are cards (a web page\'s app.js); beside a built document, a stopped turn, node_modules · dot folders · dist/ · build/ they are not', () => {
+// writing it is one of the files asked for. Stopped turns, what an install or a run leaves and a build's output stay out.
+test('WD-U-02 scripts: beside the agent\'s own files they are cards (a web page\'s app.js); beside a built document, in a stopped turn, in what an install or a run leaves (node_modules · __pycache__ · .venv …) or a build output at the top of the work (dist/ · build/) they are not — .github/scripts · tools/build stay', () => {
   const R = '/workspace/.bpmn/c0ffee'
   const f = (rel, extra = {}) => ({ name: rel.split('/').pop(), path: `${R}/${rel}`, ...extra })
   const names = (list) => list.map((x) => x.path.slice(R.length + 1))
@@ -76,13 +76,33 @@ test('WD-U-02 scripts: beside the agent\'s own files they are cards (a web page\
   // a stopped turn: no half-run script
   assert.deepEqual(names(dropScaffolding(page, { written, ended: true })), ['작은-웹-페이지/v1/index.html', '작은-웹-페이지/v1/style.css', '작은-웹-페이지/v1/README.md'])
   // what an install or a build left, a dot folder's helper: never cards (the conversation's own .bpmn/<room>/ is not such a folder)
-  const left = ['site/v1/node_modules/left-pad/index.js', 'site/v1/dist/bundle.js', 'site/v1/build/out.js', '.cache/check.py', 'site/v1/.tmp/run.sh'].map((r) => f(r))
+  const left = ['site/v1/node_modules/left-pad/index.js', 'site/v1/dist/bundle.js', 'site/v1/build/out.js', '.cache/check.py', 'site/v1/lib/__pycache__/m.py',
+    'site/v1/.venv/bin/activate.sh', 'venv/lib/x.py', '.git/hooks/pre-commit.sh', 'site/v1/.pytest_cache/v.py', 'site/v1/.next/server/page.js', 'dist/app.js',
+    'folders/edu/site/v2/build/out.js'].map((r) => f(r))
   const all = [...page, ...left]
   assert.deepEqual(names(dropScaffolding(all, { written: new Set(all.map((x) => x.path)) })), names(page))
+  // (review of PR #137) scripts asked for in folders that only look like it: a dot folder of the project's own (.github · .husky), a build
+  // folder deeper in the work (tools/build/), dist/ · build/ below the version's top — they stay
+  const kept = ['site/v1/.github/scripts/deploy.sh', 'site/v1/.husky/pre-commit.sh', 'site/v1/tools/build/release.sh', 'site/v1/src/dist/util.js', 'tools/build/release.sh'].map((r) => f(r))
+  assert.deepEqual(names(dropScaffolding(kept, { written: new Set(kept.map((x) => x.path)) })), names(kept))
+  for (const r of ['site/v1/.github/scripts/deploy.sh', 'site/v1/tools/build/release.sh']) assert.equal(leftBehind(`${R}/${r}`), false, r)
+  for (const r of ['site/v1/dist/bundle.js', 'dist/app.js', 'a/b/node_modules/x/i.js']) assert.equal(leftBehind(`${R}/${r}`), true, r)
   // a script the agent did not write this turn (deepagents collected a path the answer named): not a card
   assert.deepEqual(names(dropScaffolding([f('README.md'), f('helper.py', { src: 'https://x/h.py' })], { written: new Set([`${R}/README.md`]) })), ['README.md'])
   // the kinds read as scripts; a page's other files are not
   for (const n of ['a.py', 'a.js', 'a.mjs', 'a.cjs', 'a.ts', 'a.sh', 'A.JS']) assert.ok(SCRIPT.test(n), n)
   for (const n of ['a.json', 'a.css', 'a.html', 'a.md', 'a.tsx.md']) assert.ok(!SCRIPT.test(n), n)
   assert.deepEqual(dropScaffolding(null), [])
+})
+
+// (PR #137 review, decided) a script the agent test-ran is still a card: 「엑셀 정리하는 파이썬 스크립트 만들어 줘」 — the agent writes clean.py
+// and usually runs it once; losing the requested file is worse than an extra helper row (analyze.py beside report.md was considered and
+// accepted for this reason). Whether a script ran is not read at all.
+test('WD-U-03 a requested script the agent ran stays a card beside the agent\'s own report', () => {
+  const R = '/workspace/.bpmn/c0ffee'
+  const f = (rel) => ({ name: rel.split('/').pop(), path: `${R}/${rel}` })
+  // (the turn ran `python3 clean.py` — nothing about it reaches the rule)
+  const turn = [f('clean.py'), f('report.md')]
+  assert.deepEqual(dropScaffolding(turn, { written: new Set(turn.map((x) => x.path)) }).map((x) => x.name), ['clean.py', 'report.md'])
+  assert.deepEqual(dropScaffolding([f('clean.py')], { written: new Set([`${R}/clean.py`]) }).map((x) => x.name), ['clean.py'])
 })

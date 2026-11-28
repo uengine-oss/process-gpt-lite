@@ -14,7 +14,7 @@
 //   F-WF-05 실제 턴(가짜 모델 · 가짜 deepagents): 「만들어 줘」 → 에이전트에게 「작업 폴더: … '…/v1/'」, 파일 6개가 카드 하나로 · 「처음부터
 //           다시」 → 모델이 v1 을 보고 「다시」로 판단, 에이전트에게 새 버전 v2 와 v1 을 그대로 두라는 줄, 두 번째 카드 「… · v2」
 //   F-WF-07 (PR #135 데모에서 찾은 결함) 실제 턴: 작은 웹 페이지(index.html · app.js · style.css · README.md)를 만들면 app.js 도 카드 안의 줄 —
-//           누르면 작업실에서 열림. node_modules 안의 파일, 점으로 시작하는 폴더의 도우미 스크립트는 줄이 되지 않음
+//           누르면 작업실에서 열림. node_modules 안의 파일, .cache 폴더의 도우미 스크립트는 줄이 되지 않음
 //   F-WF-08 (PR #135 데모에서 찾은 결함) 실제 턴: 「2주차 모듈만 고쳐 줘」로 v1 의 module-2.md 를 그 자리에서 고치면 채팅에는 카드가 둘(앞 턴의
 //           묶음 카드는 그대로 5개), 휴대폰 390 의 산출물 더미와 PC 1440 의 목록에는 module-2.md 가 한 번 — 개수도 한 번만 셈
 // 자기 스택(lib/localStack.js: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트 — RT_WF_API_PORT · RT_WF_WEB_PORT 로 바꿈)과 이 파일이
@@ -475,7 +475,7 @@ test('F-WF-06 실제 턴: 「process improvement plan」은 work-process-improve
 
 // (PR #135 demo: the recorder had to swap starter/app.js for a .md — a script the agent wrote never became a card once the turn left any
 // document; server lib/provenance.js dropScaffolding)
-test('F-WF-07 실제 턴: 작은 웹 페이지의 app.js 도 카드 안의 줄 — 누르면 작업실, node_modules · 점 폴더의 스크립트는 줄이 아님', async ({ browser }) => {
+test('F-WF-07 실제 턴: 작은 웹 페이지의 app.js 도 카드 안의 줄 — 누르면 작업실, node_modules · .cache의 스크립트는 줄이 아님', async ({ browser }) => {
   const p = await open(browser, SY, PC)
   await toChat(p)
   const box = p.locator('.composer textarea').first()

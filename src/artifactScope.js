@@ -17,11 +17,21 @@ export function artifactScope({ mode, activeId, mainId, convFilter, topicFilter 
 }
 
 const at = (m) => { const t = new Date(m?.created_at).getTime(); return Number.isFinite(t) ? t : -Infinity }
-// the file a card stands for: its sandbox path (a card with none — a document a tool published — is a file of its own)
-const pathOf = (m) => String(m?.content?.path || '').replace(/\\/g, '/').normalize('NFC')
+// the file a card stands for: its sandbox path, written one way (\ as /, no // or /./, one Unicode form) — a card with none (a document a
+// tool published) is a file of its own
+export function pathOf(m) {
+  const p = String(m?.content?.path || '').replace(/\\/g, '/').normalize('NFC')
+  if (!p) return ''
+  const rest = p.split('/').filter((s) => s && s !== '.').join('/')
+  return rest ? `${p.startsWith('/') ? '/' : ''}${rest}` : ''
+}
+// One file of one conversation: the same top-level path (/workspace/평면도.dxf — lib/floorPlan.js saves there, agents do too) in two
+// conversations of the chat is two files, each its conversation's card. The conversation: the one the list gave it (convOf), else the one
+// its card carries, within its thread
+const fileKey = (x) => { const p = pathOf(x.msg); return p ? `${x.msg?.thread_id || ''}\u0000${x.conv || x.msg?.content?.conv || ''}\u0000${p}` : '' }
 // The view's files, newest first: file messages with a name; in the main chat each knows its conversation (convOf: message id →
 // conversation id, titles: conversation id → title); one conversation's view keeps only its own — and so does one sub-topic's view of
-// a project (convOf: message id → sub-topic, convFilter: the sub-topic). One file is one row: a later turn that changed a file where it is
+// a project (convOf: message id → sub-topic, convFilter: the sub-topic). One file of one conversation is one row: a later turn that changed a file where it is
 // (a revision in place — server lib/workFolder.js) posts a new card for the same path, and only that newest card is listed; the older one
 // stays in the chat where it was (PR #135 demo: module-2.md twice in the pile's 「… · v2」, and the counts with it)
 export function artifactItems({ scope, messages = [], convOf = {}, convFilter = null, titles = {} }) {
@@ -35,10 +45,10 @@ export function artifactItems({ scope, messages = [], convOf = {}, convFilter = 
   }
   const seen = new Set()
   return out.sort((a, b) => at(b.msg) - at(a.msg) || b.i - a.i).filter((x) => {
-    const p = pathOf(x.msg)
-    if (!p) return true
-    if (seen.has(p)) return false
-    seen.add(p)
+    const k = fileKey(x)
+    if (!k) return true
+    if (seen.has(k)) return false
+    seen.add(k)
     return true
   }).map(({ i, ...x }) => x)
 }

@@ -5,7 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { relPath, dirOf, fileRuns, fileTree, folderHints, workFolderOf, artifactSections, shownRows, groupable, GROUP_FROM, TURN_GAP_MS } from '../../src/fileGroups.js'
-import { filterArtifacts, artifactItems } from '../../src/artifactScope.js'
+import { filterArtifacts, artifactItems, pathOf } from '../../src/artifactScope.js'
 
 const t0 = Date.parse('2026-11-28T11:49:00Z')
 const ROOM = '/workspace/.bpmn/convA'
@@ -174,10 +174,30 @@ test('FG-U-09 a file changed in place by a later turn: the list · the pile show
   const secs = artifactSections(items)
   assert.deepEqual(secs.map((s) => [s.folder, s.version, s.items.length]), [['교육', 2, 6]])
   assert.deepEqual(secs[0].items.filter((x) => x.msg.content.name === 'module-2.md').map((x) => [x.msg.id, x.hint]), [[revised.id, null]])
-  // (the same path written with a backslash or in another Unicode form is the same file)
+  // (the same path in another Unicode form, or written with backslashes, is the same file)
   const nfd = { ...file('교육/v2/과정-개요.md', { sec: 400, base: R2 }) }
   nfd.content.path = nfd.content.path.normalize('NFD')
   assert.equal(artifactItems({ scope: 'project', messages: [...chat, nfd] }).length, 6)
+  const back = file('교육/v2/README.md', { sec: 401, base: R2 })
+  back.content.path = back.content.path.replaceAll('/', '\\')
+  assert.equal(artifactItems({ scope: 'project', messages: [...chat, back] }).length, 6)
+  // (review of PR #137) doubled slashes and ./ in a path are the same file too
+  const odd = file('교육/v2/labs/lab-1.md', { sec: 402, base: R2 })
+  odd.content.path = odd.content.path.replace('/교육/v2/', '/교육//./v2/./')
+  assert.equal(artifactItems({ scope: 'project', messages: [...chat, odd] }).length, 6)
+  assert.equal(pathOf({ content: { path: '\\workspace\\.bpmn\\c\\a//./b/./x.md' } }), '/workspace/.bpmn/c/a/b/x.md')
+  assert.equal(pathOf({ content: { name: 'x.hwpx' } }), '')
+  // (review of PR #137) the same top-level path in two conversations of the chat (/workspace/평면도.dxf — lib/floorPlan.js saves there): two
+  // files, each its conversation's — one conversation's two cards of it: one
+  const top = (id, sec, conv) => ({ id, role: 'agent', kind: 'file', created_at: new Date(t0 + sec * 1000).toISOString(), content: { name: '평면도.dxf', path: '/workspace/평면도.dxf', conv } })
+  const plans = [top('p1', 1, 'A'), top('p2', 2, 'B'), top('p3', 3, 'B')]
+  const of = { p1: 'A', p2: 'B', p3: 'B' }
+  assert.deepEqual(artifactItems({ scope: 'chat', messages: plans, convOf: of }).map((x) => x.msg.id), ['p3', 'p1'])
+  // (a project's room has no conversation from the list: the one its card carries)
+  assert.deepEqual(artifactItems({ scope: 'project', messages: plans }).map((x) => x.msg.id), ['p3', 'p1'])
+  // (two threads, no conversation at all: two files)
+  const t1 = { ...top('q1', 1), thread_id: 't1' }, t2 = { ...top('q2', 2), thread_id: 't2' }
+  assert.equal(artifactItems({ scope: 'project', messages: [t1, t2] }).length, 2)
   // a card with no path (a document a tool published) is a file of its own, however many share its name; the same name in another folder too
   const noPath = (id, sec) => ({ id, role: 'agent', kind: 'file', created_at: new Date(t0 + sec * 1000).toISOString(), content: { name: '보고서.hwpx', url: `https://x/${id}.hwpx` } })
   assert.equal(artifactItems({ scope: 'project', messages: [noPath('h1', 1), noPath('h2', 2)] }).length, 2)

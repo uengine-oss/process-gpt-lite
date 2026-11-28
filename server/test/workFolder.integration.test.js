@@ -12,8 +12,8 @@
 //   WF-I-06 (PR #135 review) the model names the work 「process improvement plan」: placed as work-process-improvement-plan/v1, and its files
 //           come back as cards (a process-* folder would be read as a process generation and show none)
 //   WF-I-08 (PR #135 demo) a small web page: its app.js is a card beside index.html · style.css · README.md (every script used to be
-//           dropped once the turn left any document); node_modules · a dot folder's helper are not — nor a script beside a document a
-//           program built (a workbook deepagents stored)
+//           dropped once the turn left any document); node_modules · .cache's helper are not — nor a script beside a document a
+//           program built (a workbook deepagents stored); a requested script the agent test-ran (python3 clean.py) stays — PR #137 review
 //   WF-I-09 (PR #135 demo) a revision in place posts a second card for the same path; the chat keeps both, the list and the pile
 //           (src/artifactScope.js artifactItems) read the thread's messages as one row per file — its newest card
 //   cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js
@@ -48,7 +48,7 @@ async function fakeLlm(body) {
   return reply(body.response_format ? '{}' : 'OK')
 }
 // ---- the fake deepagents: the message kept, the files the test gives written as file_artifact events in the conversation's folder ----
-const agent = { bodies: [], files: [] }
+const agent = { bodies: [], files: [], run: [] }
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url)
   if (u.startsWith(config.llm.baseUrl)) return fakeLlm(opts.body ? JSON.parse(opts.body) : {})
@@ -60,10 +60,13 @@ globalThis.fetch = async (url, opts = {}) => {
     agent.at = Date.now()
     const conv = body.conversation_id || `wfi-${crypto.randomBytes(4).toString('hex')}`
     const files = agent.files.splice(0)
+    const run = agent.run.splice(0)
     const rs = new ReadableStream({ start(c) {
       const push = (data, event = 'message') => c.enqueue(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       push({ conversation_id: conv }, 'metadata')
       push({ type: 'token', content: '만들었어요.' })
+      // (shell commands the agent ran: deepagents' execute tool)
+      for (const command of run) { push({ type: 'tool_start', tool: 'execute', input: { command } }); push({ type: 'tool_end', tool: 'execute', output: 'ok' }) }
       // (a file given as {rel, url}: a document a program built, stored by deepagents — a file_artifact with its url, no write of the agent's)
       for (const f of files) {
         const rel = typeof f === 'string' ? f : f.rel
@@ -206,6 +209,13 @@ test('WF-I-08 a small web page: app.js is a card with the page\'s other files; n
   const mid = (await cards()).length
   await runTurn({ user, session, threadId: tid, text: '정산표를 엑셀로 만들어 줘' })
   assert.deepEqual((await cards()).slice(mid).map((c) => c.name), ['정산표.xlsx'])
+  // (PR #137 review, decided) a requested script the agent test-ran (python3 clean.py) stays a card beside its report
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: '엑셀 정리', confidence: 0.9 }
+  agent.files.push('엑셀-정리/v1/clean.py', '엑셀-정리/v1/report.md')
+  agent.run.push('cd /workspace && python3 엑셀-정리/v1/clean.py')
+  const end = (await cards()).length
+  await runTurn({ user, session, threadId: tid, text: '엑셀 정리하는 파이썬 스크립트 만들어 줘' })
+  assert.deepEqual((await cards()).slice(end).map((c) => c.name).sort(), ['clean.py', 'report.md'])
 })
 
 test('WF-I-09 a revision in place: a second card for the same path stays in the chat; the list and the pile count the file once', { skip: !up }, async () => {

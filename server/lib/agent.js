@@ -2174,7 +2174,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
     if (why) { console.log(`[delegate] not attached (${why})`); files.splice(files.indexOf(f), 1) }
   }
   // the script that built a document is scaffolding; the document is what the user asked for — but a script beside files the agent wrote
-  // itself (a web page's app.js) is one of them (lib/provenance.js dropScaffolding); a turn that was stopped leaves no half-run scripts
+  // itself (a web page's app.js) is one of them, run or not (lib/provenance.js dropScaffolding); a turn that was stopped leaves no half-run
+  // scripts
   files.splice(0, files.length, ...dropScaffolding(files, { written, ended }))
   const posted = []
   for (const f of files) {

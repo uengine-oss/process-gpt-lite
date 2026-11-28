@@ -2272,7 +2272,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-
 사용자(2026-11-28 20:49 휴대폰 녹화 두 편 — 한 턴에서 파일 21개가 만들어져 채팅에 큰 카드 21개가 표시되고, 「이 프로젝트의 산출물 21개」에 README.md가 여러 번 나타난다): 「클로드 코드의 에이전트를 쓰면 이런 것 다 폴더로 관리해서 버전 1, 버전 2 뭐 이렇게 하든지 어떤 특정 폴더 안에다가 이렇게 담아 가지고 작업의 내용을 이렇게 관리」 · 「파일을 그냥 추가적으로 이렇게 계속 만들고 있기도 하고 기존에 걸 수정하던지」. 서버에서는 `server/lib/workFolder.js`가 작은 모델을 한 번 호출해 `{files, mode: new|redo|revise, folder, name, confidence}`를 받고, 버전은 코드가 계산한다. `server/lib/agent.js`는 그 한 줄을 계획 블록 뒤에 넣는다. 화면 관련 파일은 `src/fileGroups.js` · `FileGroupCard.vue` · `FileGroupRow.vue` · `ChatColumn.vue` · `ArtifactList.vue` · `ArtifactStack.vue`다. SQL은 없다.
 
 ```bash
-cd server && node --test --test-concurrency=1 test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js   # FG-U-01~09 · WF-U-01~16 · WD-U-01~02
+cd server && node --test --test-concurrency=1 test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js   # FG-U-01~09 · WF-U-01~16 · WD-U-01~03
 cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js         # WF-I-01~09 (실제 DB, 가짜 모델 · deepagents)
 cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1   # F-WF-01~08
 ```
@@ -2300,8 +2300,8 @@ cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright tes
 | 줄에 카드의 검수 표시(「검수 확인 필요」 · 요약) · 컴퓨터에서 포인터를 올리면 공유 단추 · 휴대폰은 메뉴의 공유(줄마다 단추 없음) · 「길게 누르면 …」 안내는 가장 새 카드가 묶은 카드이면 그 아래 | PR #135 검토 7 | F-WF-01 · F-WF-02 | feature | ✅ |
 | 옛 버전은 같은 대화 · 같은 자리의 새 버전 옆에서만 접힘(대화 B 의 v3 이 대화 A 의 v1 을 접지 않음) | PR #135 검토 8 | FG-U-08 | 단위 | ✅ |
 | 폴더 이름은 글자 단위로 40자에서 자른 뒤 다듬음(끝 . · - 없음, 이모지를 반으로 자르지 않음), 따옴표 지움, 모델에게는 이미 있는 이름을 JSON 문자열로, 따옴표가 든 이름은 보이지 않음 | PR #135 검토 9 | WF-U-07 · WF-U-08 · WF-U-13 | 단위 | ✅ |
-| 에이전트가 직접 쓴 스크립트(.js · .py · .mjs · .cjs · .ts · .sh)도 카드로 표시된다(작은 웹 페이지의 app.js를 누르면 작업실에서 열린다). 그 턴에 에이전트가 직접 쓰지 않은 파일(스크립트로 만든 문서 · deepagents가 저장한 문서 · 도구가 만든 문서)이 있으면 스크립트는 제외한다. 멈춘 턴의 스크립트, 이번 턴에 쓰지 않은 스크립트, node_modules · 점으로 시작하는 폴더 · dist/ · build/ 안의 스크립트도 제외한다 | PR #135 시연(첫 녹화에서 starter/app.js가 빠져 19개가 18개로 표시됨) | WD-U-02 · WF-I-08 · F-WF-07 | 단위 · DB · feature | ✅ |
-| 그 자리에서 고친 파일(같은 경로의 새 카드)은 산출물 목록 · 더미에 가장 최근 카드로 한 번만 표시하고 개수도 한 번만 센다. 채팅에는 두 카드가 제자리에 남고, 이전 턴의 묶음 카드에 표시되는 개수도 그대로다. 경로가 없는 카드는 각각 한 줄로 표시한다 | PR #135 시연(더미의 v2에 module-2.md가 두 번 표시됨) | FG-U-09 · WF-I-09 · F-WF-08 | 단위 · DB · feature | ✅ |
+| 에이전트가 직접 쓴 스크립트(.js · .py · .mjs · .cjs · .ts · .sh)도 카드로 표시된다(작은 웹 페이지의 app.js를 누르면 작업실에서 열린다). 그 턴에 에이전트가 직접 쓰지 않은 파일(스크립트로 만든 문서 · deepagents가 저장한 문서 · 도구가 만든 문서)이 있으면 스크립트는 제외한다. 멈춘 턴의 스크립트, 이번 턴에 쓰지 않은 스크립트, node_modules · __pycache__ · .venv · venv · .cache · .git · .pytest_cache · .next 안의 스크립트도 제외한다. 버전 바로 아래(또는 대화 폴더 맨 위)의 dist/ · build/ 안의 스크립트도 제외한다. .github/scripts · tools/build 안의 스크립트와 에이전트가 실행해 본 스크립트(clean.py)는 남는다. 요청한 파일을 잃는 것보다 도우미 한 줄(analyze.py)이 더 보이는 편을 택했다. | PR #135 시연 · PR #137 검토(첫 녹화에서 starter/app.js가 빠져 19개가 18개로 표시되었다) | WD-U-02 · WD-U-03 · WF-I-08 · F-WF-07 | 단위 · DB · feature | ✅ |
+| 그 자리에서 고친 파일(같은 대화 · 같은 경로의 새 카드)은 산출물 목록과 더미에 가장 최근 카드로 한 번만 표시하고 개수도 한 번만 센다. 다른 대화의 같은 경로는 따로 표시하고, 경로의 \ · // · /./ 는 같은 것으로 본다. 채팅에는 두 카드가 제자리에 남고, 이전 턴의 묶음 카드에 표시되는 개수도 그대로다. 경로가 없는 카드는 각각 한 줄로 표시한다. | PR #135 시연(더미의 v2에 module-2.md가 두 번 표시되었다) · PR #137 검토 | FG-U-09 · WF-I-09 · F-WF-08 | 단위 · DB · feature | ✅ |
 
 ---
 
