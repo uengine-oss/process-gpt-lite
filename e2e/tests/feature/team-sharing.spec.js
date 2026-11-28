@@ -1,4 +1,4 @@
-// 팀 공유·받은 편지함·@팀원 제안·메신저 — 산출물은 팀원에게만, 받는 사람마다 따로 허가(pro_shares),
+// 팀 공유·대화 › 나에게 온 것·@팀원 제안·메신저 — 산출물은 팀원에게만, 받는 사람마다 따로 허가(pro_shares),
 // 원본 저장 주소는 내려가지 않고, 받는 사람은 열 때 자기 사본 카드를 받는다. 메신저는 1:1·그룹, 안 읽은 수.
 // (server/lib/team/*, routes/team.js · 설계 process-gpt/openspec/changes/pgpt-pro-team-sharing · 영상 팀 공유·메신저)
 import { test, expect, api, uniq } from '../../lib/fixtures.js'
@@ -19,7 +19,7 @@ async function fileCard(db, u, name = '공유 견적.xlsx') {
 }
 
 test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
-  test('F-TS-01 산출물 공유 → 받은 편지함·알림, 받는 사람은 자기 작업 대화의 브랜치 카드로 열고, 원본 주소는 내려가지 않는다', async ({ as, db, cleanup }) => {
+  test('F-TS-01 산출물 공유 → 대화 › 나에게 온 것·알림, 받는 사람은 자기 작업 대화의 브랜치 카드로 열고, 원본 주소는 내려가지 않는다', async ({ as, db, cleanup }) => {
     const a = await member(await as('ts-sender')), b = await member(await as('ts-mate'))
     const card = await fileCard(db, a)
     const note = uniq('검토 부탁')
@@ -27,7 +27,7 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     expect(r.status, r.text).toBe(200)
     expect(r.body.sent[0].to.id).toBe(b.id)
     cleanup(() => db.q('delete from chat_rooms where id=$1', [r.body.sent[0].threadId]))
-    // the recipient's inbox: the share, unread, with their own share id — never the storage key
+    // the recipient's 나에게 온 것 (GET /team/inbox): the share, unread, with their own share id — never the storage key
     let item
     await expect.poll(async () => { item = (await b.get('/team/inbox')).body.find((m) => m.body === note); return !!item }).toBe(true)
     expect(item).toMatchObject({ kind: 'share', unread: true, mine: false, sender: { id: a.id } })
@@ -110,7 +110,7 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     expect((await a.post(`/team/threads/${g.body.id}/messages`, { text: '공지' })).status).toBe(403)
   })
 
-  test('F-TS-05 채팅에서 @팀원에게 요청: 받는 사람 받은 편지함에 대화 발췌와 함께, 내 대화엔 "보냈어요" 칩', async ({ as, db, cleanup }) => {
+  test('F-TS-05 채팅에서 @팀원에게 요청: 받는 사람의 나에게 온 것에 대화 발췌와 함께, 내 대화엔 "보냈어요" 칩', async ({ as, db, cleanup }) => {
     const a = await member(await as('ts-sender')), b = await member(await as('ts-mate'))
     const th = await db.clearMain(a.id)
     await db.addMessages(th, [{ role: 'user', kind: 'text', content: { text: '카페 인테리어 견적을 만들어 줘' } }])
@@ -153,14 +153,15 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
   // A share that arrived while the messenger was closed was missing from the inbox on its first open:
   // the inbox was asked for on opening (twice) and by the arriving share, and an answer asked before the
   // share came back last and put the old list back. Here the server's answers come back out of order on
-  // purpose: an inbox without the share takes 6 s, one with it 4 s (stores/team.js latest, onEvent).
-  test('F-TS-07 메신저를 닫은 채 받은 공유: 처음 열 때 받은 편지함에 바로 있고, 늦게 온 옛 응답이 지우지 않는다', async ({ as, pageAs, db, cleanup }) => {
+  // purpose: a list without the share takes 6 s, one with it 4 s (stores/team.js latest, onEvent). Since 2026-11-28 the list is
+  // 대화 › 나에게 온 것 (the chip asks for it once more — that answer is older than the share's too).
+  test('F-TS-07 메신저를 닫은 채 받은 공유: 처음 열 때 대화 › 나에게 온 것에 바로 있고, 늦게 온 옛 응답이 지우지 않는다', async ({ as, pageAs, db, cleanup }) => {
     const a = await member(await as('fix-inbox-sender'))
     const page = await pageAs('fix-inbox-mate')
     const b = await member(page.user)
     const card = await fileCard(db, a, 'fix-inbox.xlsx')
     // (a note in the reader's own language: not machine-translated on screen, so the row keeps its text)
-    const note = uniq('받은 편지함 경합')
+    const note = uniq('나에게 온 것 경합')
     await page.route('**/api/team/inbox', async (route) => {
       const res = await route.fetch()
       const body = await res.text()
@@ -173,10 +174,11 @@ test.describe('팀 공유 (spec pgpt-pro-team-sharing)', () => {
     // opening asks for the inbox (no share in it yet), and the share arrives meanwhile
     await page.locator('button.msg-btn').click()
     await page.locator('.ms').waitFor()
+    await page.locator('[data-test="msg-chip-forme"]').click()
     const r = await a.post('/team/share', { to: [{ type: 'user', id: b.id }], messageIds: [card.id], note })
     expect(r.status, r.text).toBe(200)
     cleanup(() => db.q('delete from chat_rooms where id=$1', [r.body.sent[0].threadId]))
-    const item = page.locator('.ms article.mail', { hasText: note })
+    const item = page.locator('.ms [data-test="forme-item"]', { hasText: note })
     // from the arriving message itself, before any inbox answer
     await expect(item).toBeVisible({ timeout: 3000 })
     // the answers asked before the share come back now: the share stays

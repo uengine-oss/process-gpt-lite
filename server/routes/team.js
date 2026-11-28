@@ -297,8 +297,12 @@ export function teamRoutes(auth) {
     return member ? M.message(req.user, updated.uuid) : { id: updated.uuid, refs: [], left: true }
   }))
   assistRoutes(r, auth, h)
-  r.post('/team/threads/:id/read', auth, h((req) => M.markRead(req.user, req.params.id)))
+  // read the room whole, or up to one of its messages ({upTo, from} — 대화 › 나에게 온 것: the items from `from` to `upTo` were seen; it
+  // does not move past an unread item before `from` — lib/team/messenger.js markRead)
+  r.post('/team/threads/:id/read', auth, h((req) => M.markRead(req.user, req.params.id, {
+    upTo: req.body?.upTo ? String(req.body.upTo) : null, from: req.body?.from ? String(req.body.from) : null })))
   r.get('/team/unread', auth, h((req) => M.unread(req.user)))
+  // 대화 › 나에게 온 것: the rooms' messages for me (lib/team/messenger.js inbox — the path keeps its old name)
   r.get('/team/inbox', auth, h(async (req) => RT.attachCached(req.user, await M.inbox(req.user))))
 
   // "이어서 작업": my agent picks up what a teammate sent — in that share's own work conversation, on

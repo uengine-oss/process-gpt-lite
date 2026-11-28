@@ -71,7 +71,7 @@ test.describe('대화방 원격 회의 여정 (spec pgpt-pro-meetings)', () => {
       cleanup(() => browser.close())
       await page.goto('/chat')
       await page.locator('button.msg-btn').click()
-      await page.locator('.tabs button', { hasText: '대화' }).click()
+      await page.locator('[data-test="msg-chip-all"]').click()
       await page.locator('button.th', { hasText: other }).first().click()
       return page
     }

@@ -84,7 +84,7 @@ async function openThread(page, title, { phone = false } = {}) {
     await page.locator('button.msgs').click()
   } else await page.locator('button.msg-btn').click()
   await page.locator('.ms').waitFor()
-  await page.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await page.locator('[data-test="msg-chip-all"]').click()
   await page.locator('.ms .th').filter({ hasText: title }).first().click()
   await page.locator('.ms .cmp textarea').waitFor()
 }
@@ -142,7 +142,7 @@ test.describe('메신저에서 컴퓨터의 파일 보내기 · 들어온 문서
     await page.locator('.composer textarea').first().waitFor()
     await page.locator('button.msg-btn').click()
     await page.locator('.ms').waitFor()
-    // inbox: no conversation to send to — nothing is taken, the chat's zone does not show either
+    // the list alone (no conversation open — any chip): nothing to send to — nothing is taken, the chat's zone does not show either
     const name = `메모-${uniq('m')}.md`
     const drag = await dragFiles(page, page.locator('.ms .side'), [{ name, buf: Buffer.from('메모') }])
     await expect(page.locator('.dropzone')).toHaveCount(0)

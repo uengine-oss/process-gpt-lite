@@ -64,7 +64,7 @@ async function openRoom(p, title, { phone = false } = {}) {
     await p.locator('button.msgs').click()
   } else await p.locator('button.msg-btn').click()
   await p.locator('.ms').waitFor()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: new RegExp(`^${title}$`) }) }).click()
   await p.locator('.ms .cmp textarea').waitFor()
 }
@@ -201,7 +201,7 @@ test('F-MS-06 같은 이름의 두 사람은 주소로 갈린다 — 대화 목�
   const p = await page(browser, HY, DESK)
   await p.goto('/chat')
   await p.locator('button.msg-btn').click()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   const titles = p.locator('.ms .th .nm b')
   // the 1:1 rows: one name, two people — told apart by their addresses' domains; a name alone stays as it is
   await expect(titles.filter({ hasText: /^윤가람 · uengine\.org$/ })).toHaveCount(1)

@@ -97,7 +97,7 @@ async function openMessenger(page, { phone = false } = {}) {
 }
 async function openThread(page, title, opts) {
   if (!(await page.locator('.ms').count())) await openMessenger(page, opts)
-  await page.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await page.locator('[data-test="msg-chip-all"]').click()
   await page.locator('.ms .th').filter({ hasText: title }).first().click()
   await page.locator('.ms .cmp textarea').waitFor()
 }
@@ -138,7 +138,7 @@ const pageBox = (page) => box(page.locator('.stage > .page'))
 const fresh = (page) => page.evaluate(() => { try { localStorage.removeItem('pgl-messenger-dock') } catch { /* none */ } })
 
 test.describe('메신저의 문서 열기 · 메신저 붙이기 (spec messenger-dock)', () => {
-  test('F-MO-01 지도 · 폴더 화면에서도 PDF · 워드 칩을 누르면 문서 패널에 열린다 — 보낸 사람(원본) · 받은 사람(사본) · 받은 편지함의 「편집기에서 열기」', async ({ pageAs, as, db, cleanup }) => {
+  test('F-MO-01 지도 · 폴더 화면에서도 PDF · 워드 칩을 누르면 문서 패널에 열린다 — 보낸 사람(원본) · 받은 사람(사본) · 대화 › 나에게 온 것의 같은 칩', async ({ pageAs, as, db, cleanup }) => {
     const pa = await pageAs('mo-sender', { viewport: WIDE })
     const a = await member(pa.user)
     const b = await member(await as('mo-mate'))
@@ -175,11 +175,11 @@ test.describe('메신저의 문서 열기 · 메신저 붙이기 (spec messenger
     await openThread(pb, '회귀-mo-sender')
     await fileChip(pb, DOCX).click()
     await expectDoc(pb, DOCX, 'docs')
-    // 받은 편지함: the chip and 「편집기에서 열기」 open the same way
+    // 대화 › 나에게 온 것: the item is the room's own bubble — its chip opens the same way (2026-11-28: no 「편집기에서 열기」 of its own)
     await openMessenger(pb)
-    await pb.locator('.ms .tabs button').filter({ hasText: '받은 편지함' }).click()
-    const item = pb.locator('.ms article.mail').filter({ hasText: '참고하세요' }).first()
-    await item.locator('.acts .b').filter({ hasText: '편집기에서 열기' }).click()
+    await pb.locator('[data-test="msg-chip-forme"]').click()
+    const item = pb.locator('.ms [data-test="forme-item"]').filter({ hasText: '참고하세요' }).first()
+    await item.locator(`[data-test="msg-file"][data-file="${PDF.name}"]`).click()
     await expectDoc(pb, PDF, 'pdf')
     await expect(pb.locator('.ms')).toHaveCount(0)
     expect(pa.errors).toEqual([])

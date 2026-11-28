@@ -61,14 +61,15 @@ async function page(browser, who, opts, { theme = 'light', lang = 'ko' } = {}) {
 }
 const shot = async (p, dir, name) => { await p.waitForTimeout(450); await p.screenshot({ path: path.join(dir, `${name}.png`) }) }
 const noOverflow = (p) => p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
-async function openRoom(p, title, { phone = false, tab = '대화' } = {}) {
+async function openRoom(p, title, { phone = false } = {}) {
   await p.goto('/chat')
   if (phone) {
     await p.locator('.seg button').filter({ hasText: /^(홈|Home)$/ }).click()
     await p.locator('button.msgs').click()
   } else await p.locator('button.msg-btn').click()
   await p.locator('.ms').waitFor()
-  await p.locator('.ms .tabs button').filter({ hasText: tab }).click()
+  // (the list of conversations: the 전체 chip — the same in an English screen)
+  await p.locator('[data-test="msg-chip-all"]').click()
   // (the newest first: a room with the same people and no name of its own — F-RX-01's after 「기본 이름으로」 — is further down)
   await p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: new RegExp(`^${title}$`) }) }).first().click()
   await p.locator('.ms .cmp textarea').waitFor()
@@ -302,7 +303,7 @@ test('F-RX-06 영어 화면 — 설정 · 막대 · 칩 · 누가 했는지 · �
   const theirs = await say(SY, id, 'Draft quote is up.')
   await S.api(DY.token, `/team/messages/${theirs.id}/reactions`, { method: 'POST', body: { key: 'thanks' } })
   const p = await page(browser, HY, DESK, { lang: 'en' })
-  await openRoom(p, 'English check', { tab: 'Conversations' })
+  await openRoom(p, 'English check')
   await p.locator('[data-test="room-settings-open"]').click()
   const sheet = p.locator('[data-test="room-settings-sheet"]')
   await expect(sheet).toContainText('Conversation settings')

@@ -36,7 +36,7 @@ const due = computed(() => {
 // a card made from a mail opens that mail and its reply (MailReplySheet): nothing runs, nothing is sent
 // until 보내기 — the agent once sent a card's reply the moment the card was tapped (2026-11-23)
 // Home is notifications: the card is put away with its ✕ or a sideways swipe; a mail's card stays in
-// 팀 메시지 › 받은 편지함 (2026-11-23)
+// 팀 메시지 › 대화 › 메일 (2026-11-23; a chip of the one list since 2026-11-28)
 const sw = useSwipeAway(() => app.dismissAction(props.action))
 const card = sw.el
 const { down, move, up } = sw

@@ -252,7 +252,7 @@ test('F-PH-04 앞에 열어 둔 방은 알리지 않고, 멘션은 언제나', a
   const sw = await worker(p)
   await clearShown(sw)
   await p.locator('button.msg-btn').click()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ hasText: '김서연' }).first().click()
   await p.locator('.ms .cmp textarea').waitFor()
   await p.bringToFront()

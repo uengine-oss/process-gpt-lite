@@ -193,7 +193,7 @@ test('멘션 보내기 → 받는 사람마다 자기 상태: 열림 · 권한 �
   assert.equal(mc.refs[0].state.card, 'noaccess')
   assert.equal(mc.refs[0].state.changed, undefined, '권한 없는 사람에게는 바뀜 여부도 알리지 않는다')
   assert.equal((await call(c, 'POST', '/team/refs/open', { messageId: mc.id, index: 0 })).status, 403)
-  // and it is in their inbox like a share
+  // and it is in their 대화 › 나에게 온 것 (GET /team/inbox) like a share
   assert.ok((await call(b, 'GET', '/team/inbox')).body.some((m) => m.id === sent.body.id && m.kind === 'fileref'))
   const opened = await call(b, 'POST', '/team/refs/open', { messageId: mb.id, index: 0 })
   assert.equal(opened.status, 200, opened.text)

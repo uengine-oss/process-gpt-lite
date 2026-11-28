@@ -74,7 +74,7 @@ test.describe('다국어 회의 여정 (spec pgpt-pro-meeting-interpretation)', 
       }
       await page.goto('/chat')
       await page.locator('button.msg-btn').click()
-      await page.locator('.tabs button', { hasText: /Conversation|대화/ }).click()
+      await page.locator('[data-test="msg-chip-all"]').click()
       await page.locator('button.th', { hasText: 'Global Moonlight team' }).first().click()
       return page
     }

@@ -38,7 +38,7 @@ async function openThread(page, title) {
   await page.goto('/chat')
   await page.locator('button.msg-btn').click()
   await page.locator('.ms').waitFor()
-  await page.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await page.locator('[data-test="msg-chip-all"]').click()
   await page.locator('.ms .th').filter({ hasText: title }).first().click()
   await page.locator('.ms .cmp textarea').waitFor()
 }

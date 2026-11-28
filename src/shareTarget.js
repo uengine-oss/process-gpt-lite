@@ -111,13 +111,14 @@ export function askTitle({ files = 0, text = false } = {}, label = '', kind = ''
 
 /**
  * The open place, read from the screen: the team messenger's conversation while it is open over the page, else the page's own place.
- * route: { path, mode, settings, public, noTeam, params }; messenger: { open, tab, active }.
+ * route: { path, mode, settings, public, noTeam, params }; messenger: { open, active } — a conversation is open in it whatever its list's
+ * chip (대화 › 전체 · 나에게 온 것 · 안 읽음 · 메일, 2026-11-28); the list alone (no conversation picked) is no place.
  * Returns {kind, id} — or undefined where the page says nothing (settings over the page, sign-in, onboarding, the workroom: the
  * place before still counts) and null on a page with no place to put a file (the process map, the strategy page …).
  */
 export function placeOf(route = {}, messenger = {}) {
   if (route.public || route.noTeam || route.settings) return undefined
-  if (messenger.open && messenger.tab === 'threads' && messenger.active) return { kind: 'room', id: String(messenger.active) }
+  if (messenger.open && messenger.active) return { kind: 'room', id: String(messenger.active) }
   const p = route.params || {}
   if (route.mode === 'chat' && /^\/chat(\/|$)/.test(route.path || '')) return { kind: 'chat', id: p.cid ? String(p.cid) : '' }
   if (route.mode === 'project' && p.id) return { kind: 'project', id: String(p.id) }

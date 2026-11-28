@@ -3,7 +3,7 @@
 // changes nothing but Home:
 //   - a work item (todolist) stays the person's to do — 루틴 lists it under 「내 입력이 필요해요」. Home
 //     remembers it was put away as a dismissed Home card (pro_actions, source.todo_id), on every device.
-//   - a mail's card stays in 팀 메시지 › 받은 편지함 (mailCards), where it opens the same mail sheet.
+//   - a mail's card stays in 팀 메시지 › 대화 › 메일 (the 메일 chip — mailCards), where it opens the same mail sheet.
 import { q } from './supa.js'
 
 // the work items put away from Home, by todo id

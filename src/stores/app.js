@@ -82,7 +82,7 @@ export const useApp = defineStore('app', {
     planTick: {},              // threadId -> bumps when the project's plan changed (server event projectNote)
     actions: [],
     mailCard: null,            // a mail's Home card, opened: the mail as it arrived and the reply (MailReplySheet)
-    mailCardFrom: null,        // where that sheet was opened: home | chat | instance | inbox (the sheet's 「Home 카드로」 is for the others)
+    mailCardFrom: null,        // where that sheet was opened: home | chat | instance | inbox (the messenger's 메일 chip) — the sheet's 「Home 카드로」 is for the others
     // the newest row of every mail card this page heard of ('action' events) — a card no longer on Home (done) still updates its sheet
     // (a follow-up action that finished: lib/mailFollow.js)
     cardRows: {},
@@ -862,7 +862,7 @@ export const useApp = defineStore('app', {
       this.todos = this.todos.map((x) => (x.id === t.id ? { ...x, home_hidden: true } : x))
       return api(`/todos/${t.id}/dismiss`, { method: 'POST' })
     },
-    // 팀 메시지 › 받은 편지함: the cards made from mail, a card put away from Home among them
+    // 팀 메시지 › 대화 › 메일: the cards made from mail, a card put away from Home among them
     mailCardList() { return api('/mail/cards') },
     async createPanel(description) {
       this.panelMode = false

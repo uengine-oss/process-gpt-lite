@@ -65,7 +65,7 @@ const later = () => { newVersion.value = false }
       @click="runner.status.running[0]?.instId && $router.push(`/routines/${encodeURIComponent(runner.status.running[0].instId)}`)">
       <span class="dot" />로컬 에이전트 실행 중 · {{ [...new Set(runner.status.running.map((r) => r.label))].join(' · ') }}<template v-if="runner.status.running.length > 1"> ({{ runner.status.running.length }})</template>
     </button>
-    <!-- a mail's card, from Home or 팀 메시지 › 받은 편지함: the mail and its reply -->
+    <!-- a mail's card, from Home or 팀 메시지 › 대화 › 메일: the mail and its reply -->
     <MailReplySheet v-if="app.mailCard" :key="app.mailCard.id" :action="app.mailCard" @close="app.mailCard = null" />
     <Teleport to="body"><Transition name="fade"><Messenger v-if="team.open && teamHere" /></Transition></Teleport>
     <MediaViewer v-if="app.media" />

@@ -223,7 +223,7 @@ async function openRoom(p, title) {
   await p.goto('/chat')
   await p.locator('button.msg-btn').click()
   await p.locator('.ms').waitFor()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: new RegExp(`^${title}$`) }) }).first().click()
   await p.locator('.ms .cmp textarea').waitFor()
 }

@@ -72,10 +72,10 @@ test('U-ST-04 열려 있는 곳 — 메신저의 대화가 페이지보다 먼�
   const chat = { path: '/chat', mode: 'chat', params: {} }
   assert.deepEqual(placeOf(chat, {}), { kind: 'chat', id: '' })
   assert.deepEqual(placeOf({ path: '/chat/c/abc', mode: 'chat', params: { cid: 'abc' } }), { kind: 'chat', id: 'abc' })
-  assert.deepEqual(placeOf(chat, { open: true, tab: 'threads', active: 'room-1' }), { kind: 'room', id: 'room-1' })
-  // the inbox tab, or the messenger closed: the page's own place
-  assert.deepEqual(placeOf(chat, { open: true, tab: 'inbox', active: 'room-1' }), { kind: 'chat', id: '' })
-  assert.deepEqual(placeOf(chat, { open: false, tab: 'threads', active: 'room-1' }), { kind: 'chat', id: '' })
+  assert.deepEqual(placeOf(chat, { open: true, active: 'room-1' }), { kind: 'room', id: 'room-1' })
+  // the list alone (no conversation picked — any chip: 전체 · 나에게 온 것 · 안 읽음 · 메일), or the messenger closed: the page's own place
+  assert.deepEqual(placeOf(chat, { open: true, active: null }), { kind: 'chat', id: '' })
+  assert.deepEqual(placeOf(chat, { open: false, active: 'room-1' }), { kind: 'chat', id: '' })
   assert.deepEqual(placeOf({ path: '/projects/p1', mode: 'project', params: { id: 'p1' } }), { kind: 'project', id: 'p1' })
   assert.deepEqual(placeOf({ path: '/projects/p1/t/t2', mode: 'project', params: { id: 'p1', tid: 't2' } }), { kind: 'project', id: 'p1' })
   assert.equal(placeOf({ path: '/projects', mode: 'project', params: {} }), null)
@@ -84,7 +84,7 @@ test('U-ST-04 열려 있는 곳 — 메신저의 대화가 페이지보다 먼�
   // a folder's variation, the folder list, the process map: no place a file goes into by itself
   assert.equal(placeOf({ path: '/folders/sales/v/9', params: { slug: 'sales', variation: '9' } }), null)
   assert.equal(placeOf({ path: '/process-map', params: {} }), null)
-  for (const r of [{ settings: true, mode: 'chat', path: '/settings' }, { public: true, path: '/login' }, { noTeam: true, path: '/welcome/age' }]) assert.equal(placeOf(r, { open: true, tab: 'threads', active: 'x' }), undefined)
+  for (const r of [{ settings: true, mode: 'chat', path: '/settings' }, { public: true, path: '/login' }, { noTeam: true, path: '/welcome/age' }]) assert.equal(placeOf(r, { open: true, active: 'x' }), undefined)
 })
 
 test('U-ST-05 이 기기에 남기는 것은 종류 · id · 누구의 것 · 언제 — 다른 사람 · 다른 주소의 것은 없는 것, 로그아웃하면 잊는다', () => {

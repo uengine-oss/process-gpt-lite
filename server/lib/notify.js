@@ -132,9 +132,12 @@ async function own(me, id) {
   return n || null
 }
 
-// The process-gpt bell groups by url, so every unchecked row for the same thing is cleared.
+// The process-gpt bell groups by url, so every unchecked row for the same thing is cleared — but a room's 'chat' card is one line of the
+// room: only that card, by its id (PR #127 review 2 — the room's other lines are other messages; its read, lib/team/messenger.js markRead,
+// checks the cards of the messages it reads)
 async function check(n) {
-  await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and user_id=$3', [T(), n.url, n.user_id])
+  if (n.type === 'chat') await q('update notifications set is_checked=true where id=$1', [n.id])
+  else await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and user_id=$3', [T(), n.url, n.user_id])
 }
 
 // A button on the card: submit the step with that choice, or open it (no choice) on its instance page,
@@ -178,6 +181,21 @@ export async function dismiss(me, id) {
   // (the work item itself stays mine; 루틴 lists it)
   const todo = n && /^\/todolist\/([\w-]+)$/.exec(String(n.url || ''))?.[1]
   if (todo) await hideTodo(me.id, todo, n.title).catch((e) => console.warn('[notify] hide todo', e.message))
+  // A teammate's message put away from Home: its room is read up to that message — only when nothing before it is unseen (an unread item
+  // of 대화 › 나에게 온 것, a Home card still there); otherwise the read does not move (lib/team/messenger.js markRead cards). The card itself
+  // is put away above in any case. A share · mention card names its message ('/pro/team/<room>/<message>'); a room's 'chat' card
+  // (process-gpt's chat trigger) only the room — its message is the one it was written for (lib/team/messenger.js chatCardMessage).
+  const readTo = async (room, upTo) => {
+    try { await (await import('./team/messenger.js')).markRead(me, room, { upTo, cards: true }) } catch (e) { if (e.status !== 404) console.warn('[notify] read up to', e.message) }
+  }
+  if (n && n.type === 'team') {
+    const at = /^\/pro\/team\/([\w.:-]+)\/([0-9a-f-]{36})$/.exec(String(n.url || ''))
+    if (at) await readTo(at[1], at[2])
+  } else if (n && n.type === 'chat') {
+    const room = /^\/chats\?id=([\w.:-]+)$/.exec(String(n.url || ''))?.[1]
+    const msg = room ? await (await import('./team/messenger.js')).chatCardMessage(room, n.id) : null
+    if (msg) await readTo(room, msg)
+  }
   return !!n
 }
 
