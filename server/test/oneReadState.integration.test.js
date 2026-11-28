@@ -5,8 +5,13 @@
 //   OL-I-02 그 메시지까지 읽기: 항목 읽음 · 뒤의 메시지는 그대로 안 읽음(방의 수 · 합계) · 그 메시지의 'team' 알림만 확인 · Process GPT 의
 //           안 읽음 표시는 남김 — 더 앞의 메시지까지 읽기는 되돌리지 않음 · 다른 방의 메시지 id 는 아무 일 없음
 //   OL-I-03 홈 카드(team 알림)를 닫으면 그 방을 그 메시지까지 읽음 · 'read' 알림(그 시각)
-//   OL-I-04 방의 'chat' 알림(Process GPT 의 채팅 알림)을 닫으면 그 알림 때까지 읽음
+//   OL-I-04 방의 'chat' 알림(Process GPT 의 채팅 트리거가 쓴 것)을 닫으면 그 알림의 메시지까지 읽음 — 뒤의 줄 카드는 남음
 //   OL-I-05 방을 열면(그 메시지 없이) 전부 읽음 · 'team' · 'chat' 알림 모두 확인 · Process GPT 의 안 읽음 표시도 지움
+//   (PR #127 검토 — 읽음 규칙이 보지 않은 것까지 읽었다)
+//   OL-I-06 그냥 줄 · 멘션 · 그냥 줄 → 첫 줄의 chat 카드를 닫아도 멘션 카드 · 멘션의 안 읽음 · 뒤 줄의 카드는 그대로
+//   OL-I-07 멘션 카드 둘 → 새 것을 닫아도 옛 것의 카드 · 안 읽음은 그대로(그 앞에서 멈춤), 옛 것도 닫으면 새 것까지 읽음
+//   OL-I-08 Process GPT 의 안 읽음 표시: 뒤에 이름 바꾼 줄 · 숨은 줄만 남으면 지움 · 그 메시지의 chat 알림만 확인(같은 1초 안의 다른 말은 아님)
+//   OL-I-09 보내기 · 초대는 앞서 간 읽음 위치를 되돌리지 않음
 // Run: node --test --test-concurrency=1 test/oneReadState.integration.test.js  (로컬 Supabase)
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -135,7 +140,7 @@ test('OL-I-02 그 메시지까지 읽기 — 그 항목과 그 알림만, 뒤의
   // a message of another room (or no message): nothing read here
   const other = await room(A, [B.id])
   const elsewhere = await M.post(me(A), other.id, { kind: 'mention', body: '다른 방의 멘션' })
-  assert.deepEqual(await M.markRead(me(B), g.id, { upTo: elsewhere.id }), { ok: true, at: null })
+  assert.deepEqual(await M.markRead(me(B), g.id, { upTo: elsewhere.id }), { ok: true, at: null, rest: null })
   assert.equal(await unreadOf(B, other.id), 1)
   assert.equal(await unreadOf(B, g.id), 1)
   // someone not in the room: 404, as for every room route
@@ -159,20 +164,27 @@ test('OL-I-03 홈 카드(team 알림)를 닫으면 그 방을 그 메시지까�
   assert.ok((await readEvents(B.id, from)).some((e) => e.data.threadId === g.id && e.data.at))
 })
 
-test('OL-I-04 방의 chat 알림을 닫으면 그 알림 때까지 읽는다', { skip: !db }, async () => {
+// the chat trigger's notices of a room for a person (user_id = their address, no company), as Process GPT's own screen gets them
+// (with the company — the ones Lite's Home lists, as in the review's repro)
+async function chatCards(who, roomId) {
+  await q(`update notifications set tenant_id=$1 where user_id=$2 and type='chat' and url=$3 and tenant_id is null`, [T, who.email, `/chats?id=${roomId}`])
+  return q(`select id, title, coalesce(is_checked,false) as checked from notifications where user_id=$1 and type='chat' and url=$2 order by time_stamp`, [who.email, `/chats?id=${roomId}`])
+}
+const trigger = await q(`select 1 from pg_trigger where tgname='chat_insert_trigger'`).then((r) => r.length > 0).catch(() => false)
+
+test('OL-I-04 방의 chat 알림(채팅 트리거)을 닫으면 그 알림의 메시지까지 읽고, 뒤 줄의 카드는 남는다', { skip: !db || !trigger }, async () => {
   await setup()
   const g = await room(C, [B.id])
-  const line = await M.post(me(C), g.id, { body: '내일 10시에 봬요' })
-  const [{ ts }] = await q('select public.pro_chat_ts(messages) as ts from chats where uuid=$1', [line.id])
-  // (Process GPT's chat trigger writes one as the message goes in — here by hand, at the message's time)
-  const [chat] = await q(`insert into notifications(id,user_id,title,type,description,url,tenant_id,time_stamp) values (gen_random_uuid(),$1,$2,'chat','',$3,$4,$5) returning id`,
-    [B.id, '내일 10시에 봬요', `/chats?id=${g.id}`, T, ts])
-  // a later message, after the notice: still unread once the notice is put away
-  await pause(1500)
+  await M.markRead(me(B), g.id)
+  await M.post(me(C), g.id, { body: '내일 10시에 봬요' })
+  await pause(1200)
   await M.post(me(C), g.id, { body: '자료는 나중에 보낼게요' })
+  const cards = await chatCards(B, g.id)
+  assert.deepEqual(cards.map((c) => c.title), ['내일 10시에 봬요', '자료는 나중에 보낼게요'])
   assert.equal(await unreadOf(B, g.id), 2)
-  assert.equal(await N.dismiss(me(B), chat.id), true)
+  assert.equal(await N.dismiss(me(B), cards[0].id), true)
   assert.equal(await unreadOf(B, g.id), 1)
+  assert.deepEqual((await chatCards(B, g.id)).map((c) => c.checked), [true, false])
 })
 
 test('OL-I-05 방을 열면(메시지 지정 없이) 전부 읽음 — 알림 모두 확인, Process GPT 의 안 읽음 표시도 지움', { skip: !db }, async () => {
@@ -188,4 +200,95 @@ test('OL-I-05 방을 열면(메시지 지정 없이) 전부 읽음 — 알림 �
   assert.equal((await teamNotice(B, m1.id, g.id)).checked, true)
   assert.equal((await teamNotice(B, m2.id, g.id)).checked, true)
   assert.equal(await flag(B, g.id), undefined)
+})
+
+test('OL-I-06 그냥 줄 · 멘션 · 그냥 줄 — 첫 줄의 chat 카드를 닫아도 멘션 카드 · 멘션의 안 읽음 · 뒤 줄의 카드는 그대로', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  await M.post(me(C), g.id, { body: '안녕하세요' })
+  await pause(1200)
+  const ask = await M.post(me(C), g.id, { kind: 'mention', body: '계약서 검토 부탁해요' })
+  await pause(1200)
+  await M.post(me(C), g.id, { body: '급하지 않아요' })
+  const cards = (await chatCards(B, g.id)).filter((c) => !c.checked)
+  // (the mention's own chat card is replaced by its team card — notifyMembers, the trigger's one with no company too)
+  assert.deepEqual(cards.map((c) => c.title), ['안녕하세요', '급하지 않아요'])
+  assert.equal(await unreadOf(B, g.id), 3)
+  assert.equal(await N.dismiss(me(B), cards[0].id), true)
+  // read up to the first line only: the mention and the line after it are unread, their cards still on Home
+  assert.equal(await unreadOf(B, g.id), 2)
+  assert.equal((await teamNotice(B, ask.id, g.id)).checked, false)
+  assert.equal((await forMe(B, g.id)).find((m) => m.id === ask.id).unread, true)
+  assert.deepEqual((await chatCards(B, g.id)).filter((c) => c.title !== '계약서 검토 부탁해요').map((c) => c.checked), [true, false])
+  const home = (await N.listFor(me(B))).filter((n) => String(n.url || '').includes(g.id) || String(n.title || '').includes('급하지 않아요') || n.type === 'team')
+  assert.ok(home.some((n) => n.type === 'team'), 'the mention card stays on Home')
+  assert.ok(home.some((n) => n.type === 'chat' && n.title === '급하지 않아요'), "the later line's card stays on Home")
+})
+
+test('OL-I-07 멘션 카드 둘 — 새 것을 닫아도 옛 것의 카드와 안 읽음은 그대로(그 앞에서 멈춤)', { skip: !db }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  const older = await M.post(me(A), g.id, { kind: 'mention', body: '견적서 확인 부탁해요' })
+  await pause()
+  const newer = await M.post(me(C), g.id, { kind: 'mention', body: '일정도 봐 주세요' })
+  assert.equal(await unreadOf(B, g.id), 2)
+  assert.equal(await N.dismiss(me(B), (await teamNotice(B, newer.id, g.id)).id), true)
+  assert.equal((await teamNotice(B, newer.id, g.id)).checked, true)
+  assert.equal((await teamNotice(B, older.id, g.id)).checked, false)
+  assert.equal((await forMe(B, g.id)).find((m) => m.id === older.id).unread, true)
+  assert.equal(await unreadOf(B, g.id), 2)
+  // the older one put away too: now the room is read up to the newer one (its card was put away already — read along)
+  assert.equal(await N.dismiss(me(B), (await teamNotice(B, older.id, g.id)).id), true)
+  assert.equal(await unreadOf(B, g.id), 0)
+})
+
+test('OL-I-08 안 읽음 표시는 뒤에 이름 바꾼 줄 · 숨은 줄만 남으면 지우고, 그 메시지의 chat 알림만 확인한다', { skip: !db || !trigger }, async () => {
+  await setup()
+  const g = await room(A, [B.id, C.id])
+  const ask = await M.post(me(A), g.id, { kind: 'mention', body: '회의록 정리 부탁해요' })
+  // (another line in the same second: its chat card is not the mention's)
+  await M.post(me(C), g.id, { body: '저는 오후에 볼게요' })
+  await q(`update chats set messages = messages || jsonb_build_object('timeStamp', $2::text) where uuid=(select uuid from chats where id=$1 and messages->>'content'='저는 오후에 볼게요')`,
+    [g.id, new Date(new Date((await q('select public.pro_chat_ts(messages) as ts from chats where uuid=$1', [ask.id]))[0].ts).getTime() + 300).toISOString()])
+  const cards = await chatCards(B, g.id)
+  assert.ok(cards.some((c) => c.title === '저는 오후에 볼게요'))
+  await q(`update chat_rooms set participants = (select jsonb_agg(case when p->>'id'=$2 then p || '{"isExistUnReadMessage": true}' else p end) from jsonb_array_elements(participants) p) where id=$1`, [g.id, B.id])
+  await M.markRead(me(B), g.id, { upTo: ask.id })
+  assert.equal((await chatCards(B, g.id)).find((c) => c.title === '저는 오후에 볼게요').checked, false)
+  assert.equal(await flag(B, g.id), true)
+  // read up to that line; after it only a rename line and a hidden row: nothing left to read — the flag goes
+  const line = (await q(`select uuid from chats where id=$1 and messages->>'content'='저는 오후에 볼게요'`, [g.id]))[0].uuid
+  await pause()
+  await M.rename(me(C), g.id, '회의록 방')
+  const hidden = crypto.randomUUID()
+  await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4)', [hidden, g.id, { uuid: hidden, role: 'user', content: '숨은 줄', email: C.email, userId: C.id, timeStamp: new Date(Date.now() + 1000).toISOString(), __hidden: true }, T])
+  await q(`update chat_rooms set participants = (select jsonb_agg(case when p->>'id'=$2 then p || '{"isExistUnReadMessage": true}' else p end) from jsonb_array_elements(participants) p) where id=$1`, [g.id, B.id])
+  const r = await M.markRead(me(B), g.id, { upTo: line })
+  assert.equal(r.rest, 0)
+  assert.equal(await flag(B, g.id), undefined)
+  assert.equal((await chatCards(B, g.id)).find((c) => c.title === '저는 오후에 볼게요').checked, true)
+  assert.equal(await unreadOf(B, g.id), 0)
+})
+
+test('OL-I-09 보내기 · 초대는 앞서 간 읽음 위치를 되돌리지 않는다', { skip: !db }, async () => {
+  await setup()
+  const g = await room(A, [B.id])
+  // a message whose writer's clock runs ten minutes ahead, read whole by B
+  const ahead = crypto.randomUUID(), later = new Date(Date.now() + 10 * 60_000)
+  await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4)', [ahead, g.id, { uuid: ahead, role: 'user', content: '앞선 시계', email: A.email, userId: A.id, timeStamp: later.toISOString() }, T])
+  await M.markRead(me(B), g.id)
+  const read = async () => new Date((await q('select last_read_at from pro_chat_reads where room_id=$1 and user_id=$2', [g.id, B.id]))[0].last_read_at).getTime()
+  const before = await read()
+  assert.ok(before >= later.getTime())
+  await M.post(me(B), g.id, { body: '네, 봤어요' })
+  assert.equal(await read(), before)
+  const grp = await room(B, [A.id, C.id])
+  const ahead2 = crypto.randomUUID()
+  await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4)', [ahead2, grp.id, { uuid: ahead2, role: 'user', content: '앞선 시계', email: A.email, userId: A.id, timeStamp: later.toISOString() }, T])
+  await M.markRead(me(B), grp.id)
+  const r2 = async () => new Date((await q('select last_read_at from pro_chat_reads where room_id=$1 and user_id=$2', [grp.id, B.id]))[0].last_read_at).getTime()
+  const b2 = await r2()
+  const D = await person(`ol-d-${stamp}`, '최도현')
+  await M.invite(me(B), grp.id, [D.id])
+  assert.equal(await r2(), b2)
 })

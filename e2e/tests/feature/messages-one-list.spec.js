@@ -5,12 +5,14 @@
 //   F-OL-01 휴대폰 390 밝음: 탭 대신 칩 넷(전체 · 나에게 온 것 · 안 읽음 · 메일), 「받은 편지함」은 없음, 수는 「안 읽음」에 한 번. 나에게 온 것의 항목은
 //           방 말풍선과 같은 것(파일 칩 · 「이어서 작업」 · AI 답 카드 · 질문 양식 · 반응) + 「어느 방 · 누가」, 「답장」 · 「편집기에서 열기」 없음,
 //           「이어서 작업」은 받은 공유 · 멘션에만. 「어느 방」을 누르면 그 방의 그 메시지(같은 글)
-//   F-OL-02 휴대폰 390 어둠: 읽음이 한 번에 — 항목이 보이면 그 방을 그 메시지까지 읽음(뒤의 메시지는 안 읽음 그대로), 배지 · 방의 수 · 홈 카드가 함께,
+//   F-OL-02 휴대폰 390 어둠: 읽음이 한 번에 — 그 방의 가장 오래된 안 읽은 항목부터 모두 보이면 그 메시지까지 읽음(뒤의 메시지는 안 읽음 그대로), 배지 · 방의 수 · 홈 카드가 함께,
 //           항목을 열면 그 방은 전부 읽음, 홈에서 그 공유 카드가 사라짐
 //   F-OL-03 휴대폰 390 밝음: 홈 카드(team 알림)를 닫으면 그 방을 그 메시지까지 읽음 — 나에게 온 것의 그 항목도 읽음, 뒤의 메시지는 안 읽음
 //   F-OL-04 1280 밝음: 나에게 온 것은 왼쪽 목록, 새 메시지는 바로 끼워짐(공유 · 멘션이 아닌 「AI 답 공유」도), 항목에서 단 반응이 방 말풍선에도,
 //           「어느 방」을 누르면 오른쪽에 그 방의 그 메시지
 //   F-OL-05 1280 어둠: 메일 칩 — 내 메일 카드(Home 에서 닫은 것도) · 누르면 그 메일 시트
+//   F-OL-06 390 밝음: 목록보다 큰 항목도 목록 높이의 대부분이 보이면 본 것 (PR #127 검토)
+//   (PR #127 검토) F-OL-02 는 가장 새 항목만 보여서는 그 방을 읽지 않음 — 아래의 더 오래된 항목까지 보아야
 // 자기 스택(lib/localStack.js — 회사 one-list-ui, BFF 8993 · Vite 5393, `RT_OL_API_PORT` · `RT_OL_WEB_PORT`; 다른 것이 듣고 있으면 멈춤)을
 // 띄우고 지운다. 모델 · deepagents 는 부르지 않는다.
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/messages-one-list.spec.js
@@ -171,6 +173,9 @@ test('F-OL-01 휴대폰 390 밝음 — 칩 넷 · 수는 한 번, 나에게 온 
   await expect(share.locator(`[data-test="msg-file"][data-file="${FILE}"]`)).toBeVisible()
   await expect(share.locator('[data-test="msg-continue"]')).toHaveText('이어서 작업')
   await expect(share.getByRole('button', { name: /^(답장|편집기에서 열기|열어 보기)$/ })).toHaveCount(0)
+  // 폴더에 정리 waits to be pressed here: scrolling past a file asks no model (PR #127 review)
+  await expect(share.locator('[data-test="folder-suggest"]')).toHaveCount(0)
+  await expect(share.locator('[data-test="forme-filing"]')).toBeVisible()
   const ans = item(p, id.answer)
   await expect(ans.locator('[data-test="msg-answer"]')).toContainText('가나정밀 납기 정리')
   await expect(ans.locator('[data-test="rx-chip"][data-key="like"]')).toHaveAttribute('data-count', '1')
@@ -200,11 +205,14 @@ test('F-OL-01 휴대폰 390 밝음 — 칩 넷 · 수는 한 번, 나에게 온 
   // back: still 나에게 온 것
   await p.locator('.ms .thd .back').click()
   await expect(chip(p, 'forme')).toHaveAttribute('aria-selected', 'true')
+  // pressed: the same 폴더에 정리 as in the room
+  await item(p, id.share).locator('[data-test="forme-filing"]').click()
+  await expect(item(p, id.share).locator('[data-test="folder-suggest"]')).toBeVisible()
   expect(p.errors).toEqual([])
   await p.context().close()
 })
 
-test('F-OL-02 휴대폰 390 어둠 — 읽음이 한 번에: 보이면 그 메시지까지(뒤는 그대로), 배지 · 방 · 홈 카드가 함께, 열면 그 방 전부', async ({ browser }) => {
+test('F-OL-02 휴대폰 390 어둠 — 읽음이 한 번에: 그 방의 가장 오래된 안 읽은 항목부터 모두 보아야 그 메시지까지(아래의 안 본 것 · 뒤는 그대로), 배지 · 방 · 홈 카드가 함께, 열면 그 방 전부', async ({ browser }) => {
   await unreadAll(A)
   const p = await page(browser, A, { theme: 'dark' })
   await home(p)
@@ -217,8 +225,20 @@ test('F-OL-02 휴대폰 390 어둠 — 읽음이 한 번에: 보이면 그 메�
   await chip(p, 'forme').click()
   await expect(item(p, id.share)).toHaveAttribute('data-unread', 'true')
   await shot(p, 'f-ol-02a-forme-unread-dark')
-  // seen a moment: read up to it — the line after it stays unread
-  await expect(item(p, id.share)).toHaveAttribute('data-unread', 'false', { timeout: 8000 })
+  // the newest of 「가나정밀 견적」 is on screen, its older answer (below the tall question) is not: nothing of that room is read yet
+  // (PR #127 review — the older item and its Home card were cleared unseen)
+  await expect(item(p, id.answer)).not.toBeInViewport()
+  await p.waitForTimeout(2600)
+  await expect(item(p, id.share)).toHaveAttribute('data-unread', 'true')
+  await expect(item(p, id.answer)).toHaveAttribute('data-unread', 'true')
+  expect((await unread(A)).byThread[GROUP]).toBe(3)
+  expect((await noticeOf(A, id.share, GROUP))?.checked).toBe(false)
+  await expect(card).toHaveCount(1)
+  // the answer scrolled into view a moment: now every unread item of the room up to the share has been seen — read up to it, the line
+  // after it stays unread
+  await item(p, id.answer).scrollIntoViewIfNeeded()
+  await expect(item(p, id.answer)).toHaveAttribute('data-unread', 'false', { timeout: 8000 })
+  await expect(item(p, id.share)).toHaveAttribute('data-unread', 'false')
   await expect.poll(async () => (await unread(A)).byThread[GROUP] || 0, { timeout: 8000 }).toBe(1)
   await expect.poll(async () => (await noticeOf(A, id.share, GROUP))?.checked, { timeout: 8000 }).toBe(true)
   // the badge says the rooms' own count
@@ -227,6 +247,7 @@ test('F-OL-02 휴대폰 390 어둠 — 읽음이 한 번에: 보이면 그 메�
   await expect(p.locator('[data-test="msg-unread-count"]')).toHaveText(String(now))
   expect(await noOverflow(p)).toBe(true)
   await shot(p, 'f-ol-02b-forme-read-dark')
+  await p.locator('[data-test="forme-list"]').evaluate((el) => { el.scrollTop = 0 })
   // opened: the room at that message — read whole
   await item(p, id.share).locator('[data-test="forme-open"]').click()
   await expect(p.locator(`.ms .pane [data-id="${id.share}"]`)).toBeVisible()
@@ -321,6 +342,26 @@ test('F-OL-05 1280 어둠 — 메일 칩: 내 메일 카드(Home 에서 닫은 �
   await expect(p.locator('[data-test="mail-sheet"]')).toBeVisible()
   await expect(p.locator('[data-test="mail-text"]')).toContainText('브래킷 1,200개')
   await shot(p, 'f-ol-05b-mail-sheet-dark')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-OL-06 휴대폰 390 밝음 — 목록보다 큰 항목도 목록의 대부분을 채우면 본 것(그 방은 그 메시지까지)', async ({ browser }) => {
+  // 박도윤 asks from his chat with a long excerpt of lines (a mention taller than the phone's list)
+  const long = Array.from({ length: 70 }, (_, i) => `${i + 1}. 납품 일정 확인 항목 — 가나정밀 ${i + 1}차`).join('\n')
+  await S.api(C.token, '/team/mention', { method: 'POST', body: { to: [{ type: 'user', id: A.id }], text: long, conversation: { title: '납품 일정' } } })
+  const [m] = (await S.api(A.token, '/team/inbox')).filter((x) => x.body === long)
+  id.tall = m.id
+  const p = await page(browser, A)
+  await openMessenger(p)
+  await chip(p, 'forme').click()
+  const tall = item(p, id.tall)
+  await expect(tall).toHaveAttribute('data-unread', 'true')
+  const [ih, lh] = await Promise.all([tall.evaluate((el) => el.getBoundingClientRect().height), p.locator('[data-test="forme-list"]').evaluate((el) => el.clientHeight)])
+  expect(ih, 'the item is taller than ~1.7 lists').toBeGreaterThan(1.7 * lh)
+  await expect(tall).toHaveAttribute('data-unread', 'false', { timeout: 8000 })
+  await expect.poll(async () => (await unread(A)).byThread[m.threadId] || 0, { timeout: 8000 }).toBe(0)
+  await shot(p, 'f-ol-06-tall-item-light')
   expect(p.errors).toEqual([])
   await p.context().close()
 })

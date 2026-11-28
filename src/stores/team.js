@@ -61,6 +61,9 @@ export const useTeam = defineStore('team', {
     replyAt: 0,               // when 「답장」 on a phone notification opened a room (Messenger.vue focuses the composer)
     // this database has no reactions yet (sql/062 — the room's messages say so): none are offered, so none are put on and taken back off
     rxOff: false,
+    // whether that is known yet: a room's messages say it (thread.reactions), 나에게 온 것 says it on its items — until then no reaction is
+    // offered there (a database without them would put one on and take it back off)
+    rxKnown: false,
   }),
   getters: {
     // the dock in effect on this window: float · right · left · panel
@@ -93,7 +96,15 @@ export const useTeam = defineStore('team', {
       return r && this._want[key] === n ? r : null
     },
     async loadThreads() { const r = await this.latest('threads', '/team/threads'); if (r) this.threads = r },
-    async loadForMe() { const r = await this.latest('forme', '/team/inbox'); if (r) { this.forMe = r; this.takeTr(this.forMe) } },
+    async loadForMe() {
+      const r = await this.latest('forme', '/team/inbox')
+      if (!r) return
+      this.forMe = r
+      this.takeTr(this.forMe)
+      if (r.length) { this.rxOff = r.some((x) => x.rxOff); this.rxKnown = true }
+    },
+    // the counts once more, soon: one read can be told twice (its answer and its live 'read') — asked once
+    refreshUnread() { clearTimeout(this._unreadT); this._unreadT = setTimeout(() => this.loadUnread(), 200) },
 
     // ---- auto-translation: messages in another language than my main one ----
     myLang() { return useApp().me?.mainLang || 'ko' },
@@ -179,7 +190,9 @@ export const useTeam = defineStore('team', {
       } else if (data.type === 'read') {
         // the room read here or on another device, whole or up to a message: its items of 나에게 온 것 up to then, and the counts
         this.readUpTo(data.threadId, data.at)
-        this.loadUnread()
+        // (nothing newer is left: this device's notification of the room goes too)
+        if (data.rest === 0) clearRoom(data.threadId)
+        this.refreshUnread()
       }
       else if (data.type === 'assist') {
         const list = (this.suggestions[data.threadId] ||= [])
@@ -229,6 +242,7 @@ export const useTeam = defineStore('team', {
       } finally { if (this._live[id] === live) delete this._live[id] }
       this.msgs[id] = merged(r.messages, [...live.values()])
       this.rxOff = r.thread?.reactions === false
+      if (typeof r.thread?.reactions === 'boolean') this.rxKnown = true
       this.takeTr(r.messages)
       if (a) { this.suggestions[id] = a.suggestions; this.assistOn[id] = a.assist && a.enabled; this.sugTr(a.suggestions) }
       this.markRead(id)
@@ -257,9 +271,10 @@ export const useTeam = defineStore('team', {
       }
       const r = await api(`/team/threads/${id}/read`, { method: 'POST', ...(upTo ? { body: { upTo } } : {}) }).catch(() => null)
       if (upTo) {
-        const m = this.forMe.find((x) => x.id === upTo)
-        this.readUpTo(id, r?.at || m?.at || null)
-        await this.loadUnread()
+        // (only what the server read: no answer, or nothing read — nothing shown as read)
+        if (r?.at) this.readUpTo(id, r.at)
+        if (r?.rest === 0) clearRoom(id)
+        this.refreshUnread()
         return r
       }
       this.readUpTo(id, null)

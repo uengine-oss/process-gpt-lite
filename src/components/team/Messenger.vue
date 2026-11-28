@@ -42,6 +42,8 @@ import { caretXY } from './useTeammateMention.js'
 import RoomSettings from './RoomSettings.vue'
 import ReactionBar from './ReactionBar.vue'
 import { canReact } from '../../roomReactions.js'
+// 나에게 온 것: when an item counts as seen, how far its room is read then (src/forMeSeen.js)
+import { seenEnough, readPoint } from '../../forMeSeen.js'
 // what another app shared to Process GPT, meant for a room (components/ShareArrival.vue · src/shareInbox.js)
 import { inbox, loadDraft, saveDraft } from '../../shareInbox.js'
 
@@ -206,18 +208,34 @@ const whereOf = (m) => { const t = roomOf(m); return t ? titleOf(t) : '대화' }
 const whoOf = (m) => (m.sender?.name && m.sender.name !== whereOf(m) ? m.sender.name : '')
 // pressed: its room opens at it (it was 「답장」) — the room open on the screen is read, as any room opened
 const openItem = (m) => team.openThread(m.threadId, m.id)
-// Seen: an unread item that stays in view a moment reads its room up to it (one read state — server lib/team/messenger.js markRead upTo):
-// the room's count, the badge, the item and its Home card agree at once. A room's newest seen item is the one sent.
+// Seen: an unread item that stays in view a moment (1.2 s — most of it, or most of the list for an item taller than the list) counts as
+// seen. A room is read only up to its newest item of the run of unread items that have all been seen, counted from its oldest unread one
+// (server lib/team/messenger.js markRead upTo) — an older item below the fold that was never on screen keeps its unread and its Home card
+// (PR #127 review). Seen items are gathered for a moment: one request per room, for its newest such item.
 const formeEl = ref(null)
 const SEEN_MS = 1200
 let seenObs = null
 const seenTimers = new Map() // message id → timer
+const seenIds = new Set()    // items seen on this screen
+const seenRooms = new Set()  // rooms with a newly seen item, read on the next flush
+let flushT = null
+function flushSeen() {
+  flushT = null
+  if (!team.open || document.visibilityState !== 'visible') return
+  for (const room of [...seenRooms]) {
+    seenRooms.delete(room)
+    const p = readPoint(team.forMe, room, seenIds)
+    if (p) team.markRead(room, { upTo: p.id }).catch(() => {})
+  }
+}
 function seen(id) {
   seenTimers.delete(id)
   const m = team.forMe.find((x) => x.id === id)
   if (!m?.unread || !team.open || document.visibilityState !== 'visible') return
-  // (several of a room seen at once: each reads up to itself — the server keeps the furthest, so the newest wins in any order)
-  team.markRead(m.threadId, { upTo: m.id }).catch(() => {})
+  seenIds.add(id)
+  seenRooms.add(m.threadId)
+  clearTimeout(flushT)
+  flushT = setTimeout(flushSeen, 250)
 }
 function observeSeen() {
   seenObs?.disconnect(); seenObs = null
@@ -228,13 +246,16 @@ function observeSeen() {
   seenObs = new IntersectionObserver((entries) => {
     for (const e of entries) {
       const id = e.target.dataset.forme
-      if (e.isIntersecting && !seenTimers.has(id)) seenTimers.set(id, setTimeout(() => seen(id), SEEN_MS))
-      else if (!e.isIntersecting && seenTimers.has(id)) { clearTimeout(seenTimers.get(id)); seenTimers.delete(id) }
+      if (seenEnough(e)) { if (!seenTimers.has(id) && !seenIds.has(id)) seenTimers.set(id, setTimeout(() => seen(id), SEEN_MS)) }
+      else if (seenTimers.has(id)) { clearTimeout(seenTimers.get(id)); seenTimers.delete(id) }
     }
-  }, { root, threshold: 0.6 })
+  // (every twentieth: a tall item's share of itself grows slowly as it scrolls in)
+  }, { root, threshold: Array.from({ length: 21 }, (_, i) => i / 20) })
   for (const el of root.querySelectorAll('[data-test="forme-item"][data-unread="true"]')) seenObs.observe(el)
 }
 watch(() => [team.filter, team.open, team.forMe.map((x) => `${x.id}${x.unread ? 1 : 0}`).join()], () => nextTick(observeSeen))
+// (the messenger closed: what was seen on it is forgotten — a new look counts anew)
+watch(() => team.open, (o) => { if (!o) { seenIds.clear(); seenRooms.clear() } })
 const onVisible = () => { if (document.visibilityState === 'visible') nextTick(observeSeen) }
 async function send() {
   // (the room this is sent to, kept: the person may move to another room while it goes)
@@ -480,7 +501,7 @@ const rx = ref(null)           // {m, anchor: {top, bottom, left}, x, top, left,
 const rxOf = (m) => (list.value.find((x) => x.id === m.id) || team.forMe.find((x) => x.id === m.id) || m).reactions || []
 async function openRx(m, el, at = {}) {
   // (no reactions in this database yet — sql/062: the long press still offers 「복사」, a message with no words has nothing then)
-  if (!canReact(m) || !el || !sheet.value || (team.rxOff && !m.body && !m.answer?.text)) return
+  if (!canReact(m) || !el || !sheet.value || ((team.rxOff || !team.rxKnown) && !m.body && !m.answer?.text)) return
   const b = el.getBoundingClientRect()
   rx.value = { m, anchor: { top: b.top, bottom: b.bottom, left: b.left }, x: Number.isFinite(at.x) ? at.x : null, top: 0, left: 0, ready: false }
   await nextTick()
@@ -519,7 +540,7 @@ const onEsc = (e) => { if (e.key === 'Escape' && !docked.value && !drag.value) t
 onMounted(() => { window.addEventListener('keydown', onEsc); document.addEventListener('visibilitychange', onVisible); team.loadThreads(); team.loadForMe() })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onEsc); document.removeEventListener('visibilitychange', onVisible)
-  seenObs?.disconnect(); for (const t of seenTimers.values()) clearTimeout(t)
+  seenObs?.disconnect(); for (const t of seenTimers.values()) clearTimeout(t); clearTimeout(flushT)
 })
 </script>
 
@@ -567,7 +588,7 @@ onBeforeUnmount(() => {
             <button class="where press" data-test="forme-open" title="이 대화에서 보기" @click="openItem(m)">
               <Icon name="chat" :size="13" /><span class="wn"><b>{{ whereOf(m) }}</b><template v-if="whoOf(m)"> · {{ whoOf(m) }}</template></span><i v-if="m.unread" class="ndot" /><span class="go" aria-hidden="true">›</span>
             </button>
-            <RoomMessage :m="m" :room="roomOf(m)" />
+            <RoomMessage :m="m" :room="roomOf(m)" forme />
           </div>
           <p v-if="!team.forMe.length" class="empty">아직 나에게 온 공유나 멘션이 없어요.</p>
         </div>
@@ -688,7 +709,7 @@ onBeforeUnmount(() => {
         </div>
       </main>
       <!-- the reactions bar over the bubble it was opened on — the open conversation's or 나에게 온 것's (its place measured once it is drawn) -->
-      <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="[rx.m.body, rx.m.answer?.text].filter(Boolean).join('\n\n')" :data-for="rx.m.id"
+      <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff || !team.rxKnown" :text="[rx.m.body, rx.m.answer?.text].filter(Boolean).join('\n\n')" :data-for="rx.m.id"
         :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
       <!-- (in the section, not the conversation pane: seen over the lists and on a phone too) -->
       <p v-if="err" class="err" role="alert">{{ err }}</p>

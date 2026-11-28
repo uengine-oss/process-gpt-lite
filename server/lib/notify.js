@@ -132,9 +132,11 @@ async function own(me, id) {
   return n || null
 }
 
-// The process-gpt bell groups by url, so every unchecked row for the same thing is cleared.
+// The process-gpt bell groups by url, so every unchecked row for the same thing is cleared — a room's 'chat' cards only up to this one:
+// a newer line's card is another message, not seen yet (it stays, as that message stays unread — PR #127 review)
 async function check(n) {
-  await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and user_id=$3', [T(), n.url, n.user_id])
+  if (n.type === 'chat') await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and user_id=$3 and type=$4 and time_stamp <= $5', [T(), n.url, n.user_id, 'chat', n.time_stamp || new Date()])
+  else await q('update notifications set is_checked=true where tenant_id=$1 and url=$2 and user_id=$3', [T(), n.url, n.user_id])
 }
 
 // A button on the card: submit the step with that choice, or open it (no choice) on its instance page,
@@ -178,19 +180,25 @@ export async function dismiss(me, id) {
   // (the work item itself stays mine; 루틴 lists it)
   const todo = n && /^\/todolist\/([\w-]+)$/.exec(String(n.url || ''))?.[1]
   if (todo) await hideTodo(me.id, todo, n.title).catch((e) => console.warn('[notify] hide todo', e.message))
-  // a teammate's message put away from Home is read in its room up to that message (one read state — lib/team/messenger.js markRead):
-  // a share · mention notice names the message ('/pro/team/<room>/<message>'); a room's 'chat' notice only the room — up to its time
-  // (check() above put away all of a room's 'chat' notices — they share its url: read up to the newest of them)
-  const readTo = async (room, upTo) => {
-    try { await (await import('./team/messenger.js')).markRead(me, room, upTo) } catch (e) { if (e.status !== 404) console.warn('[notify] read up to', e.message) }
+  // A teammate's message put away from Home is read in its room up to that message (one read state — lib/team/messenger.js markRead),
+  // never past another message whose own Home card is still there unseen (holdUnseen — PR #127 review). A share · mention notice names
+  // its message ('/pro/team/<room>/<message>'); a room's 'chat' notice (process-gpt's chat trigger) names only the room: its message is
+  // the one with its words and writer at its time (the notice's own).
+  const readTo = async (room, to) => {
+    try { await (await import('./team/messenger.js')).markRead(me, room, { ...to, holdUnseen: true }) } catch (e) { if (e.status !== 404) console.warn('[notify] read up to', e.message) }
   }
   if (n && n.type === 'team') {
     const at = /^\/pro\/team\/([\w.:-]+)\/([0-9a-f-]{36})$/.exec(String(n.url || ''))
     if (at) await readTo(at[1], { upTo: at[2] })
   } else if (n && n.type === 'chat') {
     const room = /^\/chats\?id=([\w.:-]+)$/.exec(String(n.url || ''))?.[1]
-    const [last] = room ? await q('select max(time_stamp) as at from notifications where tenant_id=$1 and url=$2 and user_id=$3', [T(), n.url, n.user_id]) : []
-    if (room) await readTo(room, { upToAt: last?.at || n.time_stamp || new Date() })
+    if (room) {
+      const when = n.time_stamp || new Date()
+      const [m] = await q(`select uuid::text as uuid from chats where id=$1 and messages->>'content' = $2 and coalesce(messages->>'name','') = coalesce($3,'')
+                           and public.pro_chat_ts(messages) <= $4::timestamptz + interval '1 second' order by public.pro_chat_ts(messages) desc limit 1`,
+      [room, String(n.title || ''), n.from_user_id || null, when]).catch(() => [])
+      await readTo(room, m ? { upTo: m.uuid } : { upToAt: when })
+    }
   }
   return !!n
 }

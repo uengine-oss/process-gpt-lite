@@ -3,7 +3,7 @@
 // in the open conversation and in 대화 › 나에게 온 것 alike, with its files, pictures, mentions, the shared AI answer, the AI's question form,
 // 폴더에 정리, my share's people, 「이어서 작업」, its reactions and link cards. What it does — open a file, continue, react — is the
 // messenger's (Messenger.vue provides it as 'roomMessage'): the same in both places.
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import Icon from '../Icon.vue'
 import { useTeam } from '../../stores/team.js'
 import { kindLabel, cardKind } from '../../artifacts.js'
@@ -29,7 +29,9 @@ import { hold } from '../holdMenu.js'
 import { canReact } from '../../roomReactions.js'
 
 // m: the message · room: its room ({kind, title, members}, null when not listed) · suggestions: the room's AI 제안 under it (the open room)
-const props = defineProps({ m: { type: Object, required: true }, room: { type: Object, default: null }, suggestions: { type: Array, default: () => [] } })
+// forme: drawn in 대화 › 나에게 온 것 (not the open conversation): its pictures do not move the open room, and 폴더에 정리 asks the
+// judge only when pressed (scrolling the list past a file is no reason to ask a model — PR #127 review)
+const props = defineProps({ m: { type: Object, required: true }, room: { type: Object, default: null }, suggestions: { type: Array, default: () => [] }, forme: Boolean })
 const team = useTeam()
 const x = inject('roomMessage')
 const vRxHold = hold
@@ -53,6 +55,10 @@ const changedFiles = (b) => (b ? [...b.modified, ...b.added] : [])
 // 「이어서 작업」, one rule wherever the message shows: a share · mention sent to me, and my own share once someone's copy changed
 const continues = computed(() => (!props.m.mine && (props.m.kind === 'share' || props.m.kind === 'mention')) || (props.m.mine && sentTo.value.some((r) => r.branch?.at)))
 const sys = computed(() => ['invite', 'rename'].includes(props.m.kind) || String(props.m.kind).startsWith('meeting'))
+// reactions are offered once this database is known to keep them (stores/team.js rxKnown · rxOff)
+const rxOn = computed(() => team.rxKnown && !team.rxOff)
+const filing = ref(false)
+const grownHere = () => { if (!props.forme) x.grown() }
 </script>
 
 <template>
@@ -81,7 +87,7 @@ const sys = computed(() => ['invite', 'rename'].includes(props.m.kind) || String
       <!-- a picture to look at, a sound or a video that plays right here -->
       <div v-if="m.artifacts?.some((a) => x.mediaOf(a))" class="media">
         <MediaPreview v-for="a in m.artifacts.filter((y) => x.mediaOf(y))" :key="'mp' + a.name + a.shareId" :kind="x.mediaOf(a)" :src="x.shareSrc(a)" :name="a.name" compact
-          @open="x.viewShare(a)" @failed="x.relink(a)" @loaded="x.grown" @play="x.played(a)" />
+          @open="x.viewShare(a)" @failed="x.relink(a)" @loaded="grownHere" @play="x.played(a)" />
       </div>
       <template v-for="a in m.artifacts || []" :key="'n' + a.name + a.shareId">
         <p v-if="x.noteOf(a)" class="onote" :class="{ calm: x.noteOf(a).calm }" role="status" data-test="open-note" :data-file="a.name">
@@ -99,7 +105,10 @@ const sys = computed(() => ['invite', 'rename'].includes(props.m.kind) || String
       <!-- a request the AI sent for someone (server lib/askTeammate.js): the form for the one asked, the answer for both -->
       <AskTeamForm v-if="m.kind === 'askteam' && m.ask" :m="m" />
       <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
-      <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((y) => y.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
+      <template v-if="!m.mine && m.kind === 'share' && m.artifacts.some((y) => y.shareId)">
+        <button v-if="forme && !filing" class="fsgo press" data-test="forme-filing" @click="filing = true"><Icon name="folder" :size="13" />폴더에 정리</button>
+        <template v-else><FolderSuggest v-for="a in m.artifacts.filter((y) => y.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
+      </template>
       <!-- my share: each person it went to — 「안 열어 봄」 · 「열어 봄 · 언제」 · what their copy changed (only I see this) -->
       <div v-if="sentTo.length" class="brs" data-test="share-receipts">
         <div v-for="r in sentTo" :key="r.id" class="br" :data-room="r.branch?.room || null" data-test="share-receipt" :data-person="r.id" :data-state="receipt(r).state">
@@ -119,10 +128,10 @@ const sys = computed(() => ['invite', 'rename'].includes(props.m.kind) || String
       <small class="t">{{ when(m.at) }}</small>
     </div>
     <!-- a desktop's way in: the button by a teammate's bubble while the pointer is over it (or it has the focus) -->
-    <button v-if="canReact(m) && !team.rxOff" class="rxbtn press" data-test="rx-open" title="반응 남기기" aria-label="반응 남기기" @click="x.rxButton(m, $event)"><Icon name="smile" :size="16" /></button>
+    <button v-if="canReact(m) && rxOn" class="rxbtn press" data-test="rx-open" title="반응 남기기" aria-label="반응 남기기" @click="x.rxButton(m, $event)"><Icon name="smile" :size="16" /></button>
   </div>
   <!-- the reactions under it: emoji · count, mine marked; who reacted on a long press · the pointer resting on one -->
-  <ReactionChips v-if="m.reactions?.length && !sys" :chips="m.reactions" :can="canReact(m) && !team.rxOff" :mine="m.mine" :data-for="m.id" @toggle="(k) => x.react(m, k)" />
+  <ReactionChips v-if="m.reactions?.length && !sys" :chips="m.reactions" :can="canReact(m) && rxOn" :mine="m.mine" :data-for="m.id" @toggle="(k) => x.react(m, k)" />
   <LinkPreviews v-if="m.body && !sys" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
   <AssistSuggestion v-for="sg in suggestions" :key="sg.id" :s="sg" />
 </template>
@@ -184,6 +193,9 @@ const sys = computed(() => ['invite', 'rename'].includes(props.m.kind) || String
 .msg.rxopen .bub { box-shadow: 0 0 0 2px rgba(42, 120, 214, .45); }
 /* a phone's long press opens the bar, not the text selection (「복사」 is in the bar) */
 @media (pointer: coarse) { .msg.rxable .bub { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
+/* 나에게 온 것: 폴더에 정리 waits to be pressed (then the judge is asked, as in the room) */
+.fsgo { display: flex; width: fit-content; align-items: center; gap: 5px; height: 26px; margin-top: 6px; padding: 0 10px; border-radius: 13px; font-size: 12.5px;
+  color: var(--text-secondary); background: rgba(127, 127, 127, .1); }
 /* a line of the room's own: who invited whom */
 .sysline { align-self: center; max-width: 90%; margin: 2px 0; padding: 4px 12px; border-radius: 12px; font-size: 12.5px; color: var(--text-secondary);
   background: rgba(127, 127, 127, .1); text-align: center; overflow-wrap: anywhere; }

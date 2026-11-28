@@ -27,10 +27,11 @@ async function submit({ values: v, a2ui }) {
   err.value = ''; busy.value = true
   try {
     const m = await api(`/team/asks/${props.m.id}/answer`, { method: 'POST', body: { values: v, a2ui } })
-    // (the room's copy comes live too — server lib/team/messenger.js deliver; this one is mine at once)
-    const list = team.msgs[props.m.threadId]
-    const k = m?.id && list ? list.findIndex((y) => y.id === m.id) : -1
-    if (k >= 0) list[k] = { ...list[k], ...m, reactions: list[k].reactions }
+    // (the room's copy comes live too — server lib/team/messenger.js deliver; this one is mine at once, in the room and in 대화 › 나에게 온 것)
+    for (const list of [team.msgs[props.m.threadId], team.forMe]) {
+      const k = m?.id && list ? list.findIndex((y) => y.id === m.id) : -1
+      if (k >= 0) list[k] = { ...list[k], ...m, reactions: list[k].reactions, ...('unread' in list[k] ? { unread: list[k].unread } : {}) }
+    }
   } catch (e) { err.value = e.message } finally { busy.value = false }
 }
 </script>

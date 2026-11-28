@@ -2074,9 +2074,9 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/threa
 사용자 요청(2026-11-28, 홈 › 메시지의 「받은 편지함」 · 「대화」 두 탭 사진)은 「그리고 이 두 대화창이 같은건데... 어떻게 통일할 방법이 없을까? 지금 공유기능 또한 이 두 채널에 따로 구현된 상태임. 방안을 고려해보자」이며, 사용자가 선택한 「편지함 = 대화의 거르개」의 1단계다. 「나에게 온 것」은 방의 메시지를 거른 목록(`GET /api/team/inbox`, 저장 구조 유지)이며, 각 항목은 방과 같은 말풍선 컴포넌트(`src/components/team/RoomMessage.vue`)로 표시한다. 읽음 상태는 방의 읽음(`pro_chat_reads`) 하나로 관리한다. `POST /api/team/threads/:id/read` `{upTo}`와 Home 카드 닫기(`lib/notify.js dismiss`)는 해당 방을 해당 메시지까지 읽음으로 처리한다. 새 SQL은 없다. 시험 파일이 자체 스택(회사 `one-list-ui`, BFF 8993 · Vite 5393 — 다른 프로세스가 해당 포트를 사용 중이면 중단, `RT_OL_API_PORT` · `RT_OL_WEB_PORT`)을 띄우며, 모델 · deepagents는 호출하지 않는다. 받은 편지함 탭 · `inbox-team` · `inbox-mail` · `inbox-mail-card`를 쓰던 시험은 칩(`msg-chip-all` · `msg-chip-forme` · `msg-chip-mail`)과 `msg-mail-card` · `forme-item`을 쓰도록 고쳤다.
 
 ```bash
-cd server && node --test --test-concurrency=1 test/oneReadState.integration.test.js   # OL-I-01~05 · 실제 DB
-cd server && node --test test/shareTarget.test.js                                        # U-ST-04 · 열린 곳 = 열린 대화(칩과 무관)
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/messages-one-list.spec.js   # F-OL-01~05 (공용 잠금 rec.lock)
+cd server && node --test --test-concurrency=1 test/oneReadState.integration.test.js   # OL-I-01~09 · 실제 DB · 실제 채팅 트리거
+cd server && node --test test/shareTarget.test.js test/forMeSeen.test.js                 # U-ST-04 · 열린 곳 = 열린 대화(칩과 무관) · OL-U-01~02 · 「보면 읽음」 규칙
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/messages-one-list.spec.js   # F-OL-01~06 (공용 잠금 rec.lock)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2087,7 +2087,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/messa
 | 항목은 방 말풍선과 같은 컴포넌트(파일 칩 · 「이어서 작업」 · AI 답 카드 · 질문 양식 · 반응) + 「어느 방 · 누가」(1:1은 한 번), 「답장」 · 「편집기에서 열기」 · 「열어 보기」 없음 | 브리프(말풍선 하나) | F-OL-01 | feature | ✅ |
 | 「어느 방」을 누르면 해당 방의 해당 메시지로 이동(머리 줄 · 글 · 파일 · 단추가 항목과 동일), ‹ 로 돌아오면 「나에게 온 것」 유지 | 브리프 | F-OL-01 · F-OL-02 | feature | ✅ |
 | 「이어서 작업」은 받은 공유 · 멘션과 사본이 바뀐 내 공유에만 표시 — 질문 · AI 답에는 없음 | 브리프(규칙 하나) | F-OL-01 | feature | ✅ |
-| 항목이 1.2초 동안 보이면 해당 방을 해당 메시지까지 읽음 처리 — 이후 메시지는 안 읽음 유지, 해당 메시지의 Home 카드 확인, 배지는 방별 수의 합과 일치 | 브리프(읽음 하나) | F-OL-02 · OL-I-02 | feature · DB | ✅ |
+| 항목이 1.2초 동안 보이면 본 것 — 방은 가장 오래된 안 읽은 항목부터 모두 본 데까지(그 메시지까지) 읽음 처리, 이후 메시지는 안 읽음 유지, 해당 메시지의 Home 카드 확인, 배지는 방별 수의 합과 일치 | 브리프(읽음 하나) | F-OL-02 · OL-I-02 | feature · DB | ✅ |
 | 항목을 열면 해당 방 전체 읽음 처리, Home의 공유 카드도 사라짐 | 브리프 | F-OL-02 · OL-I-05 | feature · DB | ✅ |
 | Home의 공유 · 멘션 카드를 닫으면 해당 방을 해당 메시지까지, 채팅 알림 카드는 해당 알림 시점까지 읽음 처리 | 브리프 | F-OL-03 · OL-I-03 · OL-I-04 | feature · DB | ✅ |
 | 읽음 위치의 후퇴 없음 · 다른 방의 메시지 id는 영향 없음 · 방 밖은 404 · Process GPT의 안 읽음 표시는 모두 읽었을 때만 제거 | 설계 | OL-I-02 · OL-I-05 | DB | ✅ |
@@ -2095,7 +2095,12 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/messa
 | 항목에 단 반응을 방의 같은 말풍선에도 표시(바와 칩은 항목 위에 배치, 1280에서 목록과 방을 나란히 표시) | 브리프(반응) | F-OL-04 | feature | ✅ |
 | 「메일」 칩 = 내 메일 카드(Home에서 닫은 카드도 「홈에서 닫음」으로 표시), 누르면 해당 메일 시트 표시 | 브리프(메일은 다른 출처) | F-OL-05 · F-HD-01 · F-MC-07 | feature | ✅ |
 | 열린 곳은 열린 대화(칩과 무관) — 다른 앱의 「공유」 · 끌어다 놓기는 해당 대화로 전달, 목록만 보이면 수신하지 않음 | 설계 | U-ST-04 · F-MD-02 | 단위 · feature | ✅ |
-| 휴대폰 390 밝은 · 어두운, 1280 밝은 · 어두운: 칩 · 항목 · 「어느 방」 줄을 화면 안에 표시, 가로 넘침 없음 | 브리프 시험 | F-OL-01 ~ F-OL-05 | feature | ✅ |
+| 휴대폰 390 밝은 · 어두운, 1280 밝은 · 어두운: 칩 · 항목 · 「어느 방」 줄을 화면 안에 표시, 가로 넘침 없음 | 브리프 시험 | F-OL-01 ~ F-OL-06 | feature | ✅ |
+| (PR #127 검토 1) Home 카드 닫기 시 남은(보지 않은) 공유 · 멘션 카드의 메시지 이전까지만 읽음 — 채팅 카드는 해당 메시지까지 읽음(말 · 보낸 사람 · 시각), 이후 채팅 카드 유지, 이미 닫은 이후 카드의 메시지 함께 읽음 | PR #127 검토 | OL-I-04 · OL-I-06 · OL-I-07 | DB(실제 채팅 트리거) | ✅ |
+| (검토 2) 「보면 읽음」은 방의 가장 오래된 안 읽은 항목부터 모두 본 구간까지만 적용 — 가장 새 항목만 보이면 읽음 미처리, 방별 일괄 전송 | PR #127 검토 | OL-U-01 · F-OL-02 | 단위 · feature | ✅ |
+| (검토 3) 목록보다 큰 항목은 목록 높이의 60 %를 채우면 본 것으로 처리 | PR #127 검토 | OL-U-02 · F-OL-06 | 단위 · feature | ✅ |
+| (검토 5 · 6 · 7 · 8) 서버가 읽은 것만 읽음 처리 · Process GPT 안 읽음 산정 시 이름 바꾼 줄 · 숨은 줄 제외 · 보내기 · 초대 시 읽은 위치 유지 · 말 · 보낸 사람까지 일치하는 채팅 알림 확인(회사 칸이 빈 트리거 알림 포함) | PR #127 검토 | OL-I-08 · OL-I-09 | DB | ✅ |
+| (검토 9) 「나에게 온 것」의 폴더에 정리 클릭 시 모델 질의 · 질문 양식 답의 두 목록 표시 · 데이터베이스 수신 여부 확인 후에만 반응 · 그림으로 인한 열린 방 이동 없음 | PR #127 검토 | F-OL-01 · F-OL-04 | feature | ✅ |
 | 보내기 시트 하나 · 그룹 방 · 방 안 @멘션 알림 | 사용자 선택(2단계) | — | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)

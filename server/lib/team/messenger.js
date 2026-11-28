@@ -135,7 +135,7 @@ export async function invite(me, roomId, userIds) {
     pgpt: { kind: 'invite', by: me.id, byName: me.name, invited } }
   const [row] = await q('insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages', [uuid, t.id, msg, T()])
   await q('update chat_rooms set message=$2 where id=$1', [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
-  await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
+  await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=greatest(pro_chat_reads.last_read_at, excluded.last_read_at)`, [t.id, me.id, msg.timeStamp])
   await pushRow(row, members)
   // (the member list made once — not once per member: a room has no size limit)
   const list = members.map(({ id, name, email }) => ({ id, name, email }))
@@ -151,7 +151,8 @@ async function notifyInvited(me, t, row, invited) {
   for (const r of invited) {
     const en = (await langOf(r.id)) === 'en'
     const title = en ? `${me.name} invited you to a conversation${room ? ` · ${room}` : ''}` : `${me.name}님이 대화방에 초대했어요${room ? ` · ${room}` : ''}`
-    await q(`update notifications set is_checked=true where tenant_id=$1 and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
+    // (the trigger writes no company: one without is this room's too — its address is the room's own)
+    await q(`update notifications set is_checked=true where (tenant_id=$1 or tenant_id is null) and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
       [T(), `/chats?id=${t.id}`, [r.email, r.id].filter(Boolean), row.messages.content]).catch(() => {})
     await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id) values (gen_random_uuid(),$1,$2,'team',$3,$4,$5,$6)`,
       [r.id, title.slice(0, 200), row.messages.content, `/pro/team/${t.id}/${row.uuid}`, me.email, T()])
@@ -315,9 +316,8 @@ export async function listThreads(me) {
   for (const r0 of rows) {
     const r = roomRow(r0)
     const [last] = await q(`select uuid, messages from chats where id=$1 order by ${ORDER} desc limit 1`, [r.id])
-    // (a rename's line is not news: it does not count — rename above)
-    const [{ n }] = await q(`select count(*)::int n from chats where id=$1 and ${ORDER} > $2 and coalesce(messages->>'email','') <> $3
-                             and coalesce(messages->'pgpt'->>'kind','') <> 'rename'`, [r.id, r0.last_read_at, me.email])
+    // (a rename's line is not news: it does not count — rename above; nor a hidden row, which the room does not show — markRead's UNREAD)
+    const [{ n }] = await q(`select count(*)::int n from chats where id=$1 and ${ORDER} > $2 and ${UNREAD}`, [r.id, r0.last_read_at, me.email])
     const { humans } = split(r.participants)
     const others = humans.filter((p) => p.id !== me.id)
     const lm = last?.messages
@@ -387,7 +387,7 @@ export async function post(me, roomId, { kind = 'text', body = '', context = nul
   const [row] = await q(`insert into chats(uuid, id, messages, tenant_id) values ($1,$2,$3,$4) returning uuid, id, messages`, [uuid, t.id, msg, T()])
   // the room list preview, the way process-gpt writes it
   await q(`update chat_rooms set message=$2 where id=$1`, [t.id, { msg: content.slice(0, 50), type: 'text', createdAt: msg.timeStamp }])
-  await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id, msg.timeStamp])
+  await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,greatest(now(), $3::timestamptz)) on conflict (room_id,user_id) do update set last_read_at=greatest(pro_chat_reads.last_read_at, excluded.last_read_at)`, [t.id, me.id, msg.timeStamp])
   const by = Object.fromEntries(members.map((m) => [m.email, m]))
   // (the message is in the room from here on: delivering it and telling the members may fail — say so in the log — but the send stands,
   // so a caller does not take it back or send it twice — lib/mailRooms.js, PR #100 review)
@@ -434,7 +434,8 @@ async function notifyMembers(me, t, row, kind, files, context, recipients, { att
   for (const r of recipients) {
     const { title, text } = words((await langOf(r.id)) === 'en')
     // process-gpt's chat trigger already made a plain 'chat' notice for this row: the 'team' one replaces it
-    await q(`update notifications set is_checked=true where tenant_id=$1 and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
+    // (the trigger writes no company: one without is this room's too — its address is the room's own)
+    await q(`update notifications set is_checked=true where (tenant_id=$1 or tenant_id is null) and type='chat' and url=$2 and user_id = any($3) and title=$4 and coalesce(is_checked,false)=false`,
       [T(), `/chats?id=${t.id}`, [r.email, r.id], row.messages.content])
     await q(`insert into notifications(id,user_id,title,type,description,url,from_user_id,tenant_id)
              values (gen_random_uuid(),$1,$2,'team',$3,$4,$5,$6)`, [r.id, title.slice(0, 200), text, `/pro/team/${t.id}/${row.uuid}`, me.email, T()])
@@ -443,12 +444,18 @@ async function notifyMembers(me, t, row, kind, files, context, recipients, { att
 }
 
 // One read state for a room (2026-11-28 「받은 편지함 = 대화의 거르개」): pro_chat_reads is the only one. The room opened reads it whole;
-// a message seen or opened in 대화 › 나에게 온 것, or its Home card put away (lib/notify.js dismiss), reads it up to that message —
-// upTo: a message of this room (its uuid) · upToAt: a time (a 'chat' notice names no message: the newest message by then). Reading up to
-// a point never takes the room back (an older point than the one read changes nothing). The room's 'team' notices for the messages
-// read and its 'chat' notices up to then are checked with it (Home · the bell · the phone), as opening the room always did.
+// an item of 대화 › 나에게 온 것 seen (with all the unread ones before it — the screen decides), or a Home card put away
+// (lib/notify.js dismiss), reads it up to one message — upTo: a message of this room (its uuid) · upToAt: a time (the newest message by
+// then). Reading up to a point never takes the room back. holdUnseen (a Home card put away): never past a message whose own Home card
+// (a 'team' notice — a share, a mention …) is still there unseen — the read stops just before the earliest of them (PR #127 review: a
+// plain line's card put away took a later mention's card with it); a later message whose card was already put away is read along. The room's 'team' notices of the messages read, and its 'chat'
+// notices of the messages read (matched by the words and the writer the chat trigger copies, within a second of the read point), are
+// checked with it (Home · the bell · the phone), as opening the room always did — 'chat' notices with no company too (the chat trigger
+// writes none; the room's own address is theirs alone).
 const CHAT_NOTICE_SLACK_MS = 1000 // a 'chat' notice is written as its message goes in: within a second of the message's own time
-export async function markRead(me, roomId, { upTo = null, upToAt = null } = {}) {
+// what counts as unread in a room — listThreads' rule: another's message, not a rename line, not hidden
+const UNREAD = `coalesce(messages->>'email','') <> $3 and coalesce(messages->'pgpt'->>'kind','') <> 'rename' and coalesce(messages->>'__hidden','false') <> 'true'`
+export async function markRead(me, roomId, { upTo = null, upToAt = null, holdUnseen = false } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
   const part = !!(upTo || upToAt)
@@ -457,30 +464,44 @@ export async function markRead(me, roomId, { upTo = null, upToAt = null } = {}) 
     // read up to the newest message (its timeStamp comes from whoever wrote it, whose clock may run ahead of the DB's)
     ;[{ at }] = await q(`insert into pro_chat_reads(room_id,user_id,last_read_at)
              values ($1,$2,greatest(now(), (select max(public.pro_chat_ts(messages)) from chats where id=$1)))
-             on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at returning last_read_at as at`, [t.id, me.id])
+             on conflict (room_id,user_id) do update set last_read_at=greatest(pro_chat_reads.last_read_at, excluded.last_read_at) returning last_read_at as at`, [t.id, me.id])
   } else {
-    const [p] = upTo
+    let [p] = upTo
       ? (ROOM.test(String(upTo)) ? await q(`select public.pro_chat_ts(messages) as ts from chats where id=$1 and uuid::text=$2`, [t.id, String(upTo)]) : [])
       : await q(`select max(public.pro_chat_ts(messages)) as ts from chats where id=$1 and public.pro_chat_ts(messages) <= $2::timestamptz + make_interval(secs => $3)`,
         [t.id, iso(upToAt), CHAT_NOTICE_SLACK_MS / 1000])
-    if (!p?.ts) return { ok: true, at: null }
+    if (p?.ts && holdUnseen) {
+      // the room's messages with a Home card: the newest one already put away (seen) carries the read along — the earliest one still
+      // there (unseen) stops it, just before itself
+      const [h] = await q(`select max(public.pro_chat_ts(c.messages)) filter (where coalesce(n.is_checked,false)) as seen,
+                                  min(public.pro_chat_ts(c.messages)) filter (where not coalesce(n.is_checked,false)) as unseen
+                           from notifications n join chats c on c.id=$1 and n.url = $2 || c.uuid::text
+                           where n.tenant_id=$3 and n.user_id = any($4) and n.type='team' and n.url like $5`,
+      [t.id, `/pro/team/${t.id}/`, T(), [me.id, me.email], `/pro/team/${t.id}/%`])
+      if (h?.seen && new Date(h.seen) > new Date(p.ts)) p = { ts: h.seen }
+      if (h?.unseen && new Date(h.unseen) <= new Date(p.ts)) [p] = await q(`select max(public.pro_chat_ts(messages)) as ts from chats where id=$1 and public.pro_chat_ts(messages) < $2`, [t.id, h.unseen])
+    }
+    if (!p?.ts) return { ok: true, at: null, rest: null }
     ;[{ at }] = await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,$3)
              on conflict (room_id,user_id) do update set last_read_at=greatest(pro_chat_reads.last_read_at, excluded.last_read_at) returning last_read_at as at`, [t.id, me.id, p.ts])
   }
   // process-gpt's own unread flag on my participant entry — once nothing newer is left unread
-  const [{ rest }] = part ? await q(`select count(*)::int as rest from chats where id=$1 and public.pro_chat_ts(messages) > $2 and coalesce(messages->>'email','') <> $3`, [t.id, at, me.email]) : [{ rest: 0 }]
+  const [{ rest }] = await q(`select count(*)::int as rest from chats where id=$1 and public.pro_chat_ts(messages) > $2 and ${UNREAD}`, [t.id, at, me.email])
   if (!rest) await q(`update chat_rooms set participants = (select jsonb_agg(case when p->>'id'=$2 then p - 'isExistUnReadMessage' else p end) from jsonb_array_elements(participants) p) where id=$1`, [t.id, me.id])
   // the bell/Home notices for this room: all of them, or those of the messages read
   const n = !part
-    ? await q(`update notifications set is_checked=true where tenant_id=$1 and user_id = any($2) and coalesce(is_checked,false)=false
-               and ((type='team' and url like $3) or (type='chat' and url=$4)) returning id`, [T(), [me.id, me.email], `/pro/team/${t.id}/%`, `/chats?id=${t.id}`])
-    : await q(`update notifications n set is_checked=true where n.tenant_id=$1 and n.user_id = any($2) and coalesce(n.is_checked,false)=false
-               and ((n.type='team' and n.url like $3 and exists (select 1 from chats c where c.id=$5 and n.url = $6 || c.uuid::text and public.pro_chat_ts(c.messages) <= $7))
-                 or (n.type='chat' and n.url=$4 and n.time_stamp <= $7::timestamptz + make_interval(secs => $8))) returning n.id`,
+    ? await q(`update notifications set is_checked=true where user_id = any($2) and coalesce(is_checked,false)=false
+               and ((tenant_id=$1 and type='team' and url like $3) or ((tenant_id=$1 or tenant_id is null) and type='chat' and url=$4)) returning id`,
+      [T(), [me.id, me.email], `/pro/team/${t.id}/%`, `/chats?id=${t.id}`])
+    : await q(`update notifications n set is_checked=true where n.user_id = any($2) and coalesce(n.is_checked,false)=false
+               and ((n.tenant_id=$1 and n.type='team' and n.url like $3 and exists (select 1 from chats c where c.id=$5 and n.url = $6 || c.uuid::text and public.pro_chat_ts(c.messages) <= $7))
+                 or ((n.tenant_id=$1 or n.tenant_id is null) and n.type='chat' and n.url=$4 and n.time_stamp <= $7::timestamptz + make_interval(secs => $8)
+                     and exists (select 1 from chats c where c.id=$5 and public.pro_chat_ts(c.messages) <= $7 and c.messages->>'content' = n.title
+                                 and coalesce(c.messages->>'name','') = coalesce(n.from_user_id,'')))) returning n.id`,
       [T(), [me.id, me.email], `/pro/team/${t.id}/%`, `/chats?id=${t.id}`, t.id, `/pro/team/${t.id}/`, at, CHAT_NOTICE_SLACK_MS / 1000])
-  emit(me.id, 'team', { type: 'read', threadId: t.id, at: at ? iso(at) : null })
+  emit(me.id, 'team', { type: 'read', threadId: t.id, at: at ? iso(at) : null, rest })
   if (n.length) emit(me.id, 'notifications', {})
-  return { ok: true, at: at ? iso(at) : null }
+  return { ok: true, at: at ? iso(at) : null, rest }
 }
 
 export async function unread(me) {
@@ -502,10 +523,12 @@ export async function inbox(me) {
   const senders = await people([...new Set(rows.map((r) => r.messages.userId).filter(Boolean))])
   const by = Object.fromEntries(senders.map((p) => [p.email, p]))
   const list = await Promise.all(rows.map(async (r) => { const v = await viewFor(me, r, by); return { ...v, unread: new Date(v.at) > new Date(r.last_read_at) } }))
-  // (each room's reactions in one query — the same chips the room shows)
+  // (each room's reactions in one query — the same chips the room shows; a database without reactions yet — sql/062 — says so on each
+  // item, as a room's messages say it on their thread: the screen offers none)
   const rooms = [...new Set(list.map((m) => m.threadId))]
   const rx = new Map((await Promise.all(rooms.map(async (id) => [...(await RX.forMessages(me.id, id, list.filter((m) => m.threadId === id).map((m) => m.id)))]))).flat())
-  for (const m of list) m.reactions = rx.get(m.id) || []
+  const rxOn = list.length ? await RX.available().catch(() => false) : true
+  for (const m of list) { m.reactions = rx.get(m.id) || []; if (!rxOn) m.rxOff = true }
   return list
 }
 
