@@ -2184,20 +2184,23 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/top-t
 
 ```bash
 cd server && node --test test/planGuard.test.js                                                 # PG-U-01~09
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/plan-guard.spec.js   # F-PG-01~05 (공용 잠금 rec.lock)
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/plan-guard.spec.js   # F-PG-01~06 (공용 잠금 rec.lock)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
 | 사람이 지정한 자료를 찾지 못한 채 다른 자료를 사용하려 하면 에이전트 실행을 멈추고(deepagents의 중지 기능), 어떤 일이 있었는지 · 질문 · 선택할 답(빠른 답변 버튼)을 답변에 표시하며, 홈 카드 · 휴대폰 알림으로도 묻는다 | 녹화 20:49 · 사용자 지시 | F-PG-01 · PG-U-03 · PG-U-04 · PG-U-09 | 단위 · feature | ✅ |
 | 에이전트가 중지 요청에 응답하지 않아도 연결을 끊고 같은 질문 · 계획을 표시한다(휴대폰 390, 어두운 · 밝은 테마) | 견고성 | F-PG-02 | feature | ✅ |
-| 모델이 할 일이 바뀔 때 · 첫 파일을 쓸 때 · 도구를 4번 호출할 때마다 · 메모를 쓸 때마다 판정한다. 확신이 0.7 이상일 때만 개입하고, 모델 오류가 나면 그대로 이어 간다. 계획이 없거나 예약 · 백그라운드 · 스킬 턴이면 묻지 않는다. `PRO_PLAN_GUARD=off`로 끌 수 있다 | 정규식 금지 규칙 | PG-U-01 · PG-U-03 · PG-U-04 · PG-U-05 | 단위 | ✅ |
+| 모델이 할 일이 바뀔 때 · 첫 파일을 쓸 때 · 도구를 4번 호출할 때마다 · 메모를 쓸 때마다 판정한다. 확신이 0.8 이상일 때만 개입하고, 판정은 끝 판정과 따로 한 턴에 3번까지 한다. 모델 오류가 나면 작업을 그대로 이어 간다. 계획이 없거나 예약 · 백그라운드 · 스킬 턴이면 묻지 않는다. `PRO_PLAN_GUARD=off`로 끌 수 있다 | 정규식 금지 규칙 | PG-U-01 · PG-U-03 · PG-U-04 · PG-U-05 · PG-U-11 | 단위 | ✅ |
 | 끝까지 진행한 뒤 계획에서 벗어난 사실이 확인되면 답은 그대로 두고, 계획을 펼치며 「계획과 다르게 진행했어요」 상자에 답변 버튼을 표시한다 | 녹화 20:49 | F-PG-03 · PG-U-06 | 단위 · feature | ✅ |
 | 저장된 계획에는 단계마다 ✓ · ✗ · ↷와 이유를 표시한다. 판단 전에는 「계획 · 확인하는 중」을 표시하고, 모델이 없으면 예전처럼 모든 단계를 완료한 것으로 표시한다 | 녹화 20:49(「계획 4/4」) | F-PG-03 · F-PG-04 · PG-U-02 · PG-U-07 | 단위 · feature | ✅ |
 | 계획 줄은 답 위(실행 중 카드가 있던 자리)에 표시한다. 스펙은 처음부터 「답 위」였으나 화면에서는 아래에 있었다 | 녹화 20:49 · 스펙 | F-PG-01 · F-PG-04 · F-TP-11 | feature | ✅ |
 | 영어 화면에는 「Plan 1/3 · Step 1 not done · Step 2 done another way」 · 「This went differently from the plan」을 표시한다 | 영문판 | F-PG-05 | feature | ✅ |
 | 긴 답 앞의 짧고 무관한 줄은 답에 붙이지 않는다(긴 요약 뒤의 맺음말 한 줄은 그대로 둔다) | 녹화 20:49 | PG-U-08 · F-TP-05 | 단위 · feature | ✅ |
-| 실제 모델(운영 Sonnet 5.5)이 녹화 상황에서 확신 0.7을 넘기는지, 계속 찾는 중에는 멈추지 않는지 확인한다 | 운영 확인 | — | 운영 로그 | ◐ |
+| 계획을 넘길 때 「계획대로 할 수 없을 때:」 약속(다른 것으로 대신하지 말고 `request_human_input` 도구로 물음)을 함께 보낸다. 에이전트에게 없을 수 있는 할 일 목록 도구는 이름을 지정해 사용하도록 지시하지 않는다. 같은 상황을 deepagents · Claude Code · codex에서 실행한 실험에서, 약속이 없으면 대부분 글로만 설명하고 멈췄고 약속이 있으면 모든 실행에서 도구로 물었다(deepagents 18/18 · Claude Code 18/18 · codex 8/8, 정상적인 작업에서 불필요하게 멈춘 경우 0/6) | 사용자 지시 11-28 · 비교 실험 | TP-U-04 · TP-U-11 · F-TP-12 | 단위 · feature · 실험 | ✅ |
+| 에이전트가 약속대로 스스로 물으면(`request_human_input`) 지킴이는 그 턴을 더 판정하지 않고 멈추기도 보내지 않는다. 답은 에이전트의 질문과 보기다. 사람 없이 혼자 도는 습관 실행에는 약속을 붙이지 않는다 | 독립 검토 #136 | F-PG-06 · TP-U-11 | 단위 · feature | ✅ |
+| 지킴이의 비용과 정확도를 측정한다. 사례 24건 × 2회에서 멈춰야 할 턴은 모두 멈췄고(재현율 1.0), 맞는 멈춤의 확신은 모두 0.85 이상이었다. 경계 사례의 불필요한 멈춤은 6번이었다(정밀도 0.75). 이에 따라 멈추는 기준을 0.8로, 한 턴의 판정 횟수를 3번으로 정했다. 0.8에서 확신 0.70 · 0.72의 두 번은 사라지지만, 단계 순서를 바꾼 경우(0.92 두 번)와 이름이 비슷한 다른 파일로 진행한 경우(0.82 · 0.85) 네 번은 남는다(뒤의 것은 계획을 넘길 때의 약속에서도 묻는 경우다). 비용은 턴의 1~3%다 | 사용자 지시(비용 · 정확도) | PG-U-01 · PG-U-11 · `server/eval/planGuard` | 단위 · 실측 | ✅ |
+| 실제 모델(운영 Sonnet 5.5)이 녹화 상황에서 확신 0.8을 넘기는지, 계속 찾는 중에는 멈추지 않는지 확인한다 | 운영 확인 | — | 운영 로그 | ◐ |
 
 ### 84. 에이전트의 Google Drive 검색 · 읽기 — 이름과 내용으로 공유 드라이브 · 공유받은 파일까지 검색하고, 찾은 슬라이드 · 문서의 글 읽기 (스펙 `google-connect` 「에이전트는 Google Drive 를 이름과 내용으로, 공유 드라이브까지 찾고, 찾은 슬라이드 · 문서의 글을 읽는다」)
 
@@ -2272,9 +2275,9 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-
 사용자(2026-11-28 20:49 휴대폰 녹화 두 편 — 한 턴에서 파일 21개가 만들어져 채팅에 큰 카드 21개가 표시되고, 「이 프로젝트의 산출물 21개」에 README.md가 여러 번 나타난다): 「클로드 코드의 에이전트를 쓰면 이런 것 다 폴더로 관리해서 버전 1, 버전 2 뭐 이렇게 하든지 어떤 특정 폴더 안에다가 이렇게 담아 가지고 작업의 내용을 이렇게 관리」 · 「파일을 그냥 추가적으로 이렇게 계속 만들고 있기도 하고 기존에 걸 수정하던지」. 서버에서는 `server/lib/workFolder.js`가 작은 모델을 한 번 호출해 `{files, mode: new|redo|revise, folder, name, confidence}`를 받고, 버전은 코드가 계산한다. `server/lib/agent.js`는 그 한 줄을 계획 블록 뒤에 넣는다. 화면 관련 파일은 `src/fileGroups.js` · `FileGroupCard.vue` · `FileGroupRow.vue` · `ChatColumn.vue` · `ArtifactList.vue` · `ArtifactStack.vue`다. SQL은 없다.
 
 ```bash
-cd server && node --test test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js   # FG-U-01~08 · WF-U-01~16 · WD-U-01
-cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js         # WF-I-01~07 (실제 DB, 가짜 모델 · deepagents)
-cd e2e && npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1   # 공용 녹화 잠금 안에서 실행 · F-WF-01~06
+cd server && node --test --test-concurrency=1 test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js   # FG-U-01~09 · WF-U-01~16 · WD-U-01~03
+cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js         # WF-I-01~09 (실제 DB, 가짜 모델 · deepagents)
+cd e2e && npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1   # 공용 녹화 잠금 안에서 실행 · F-WF-01~08
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2300,6 +2303,8 @@ cd e2e && npx playwright test --project=feature tests/feature/work-folders.spec.
 | 줄에 카드의 검수 표시(「검수 확인 필요」 · 요약) · 컴퓨터에서 포인터를 올리면 공유 단추 · 휴대폰은 메뉴의 공유(줄마다 단추 없음) · 「길게 누르면 …」 안내는 가장 새 카드가 묶은 카드이면 그 아래 | PR #135 검토 7 | F-WF-01 · F-WF-02 | feature | ✅ |
 | 옛 버전은 같은 대화 · 같은 자리의 새 버전 옆에서만 접힘(대화 B 의 v3 이 대화 A 의 v1 을 접지 않음) | PR #135 검토 8 | FG-U-08 | 단위 | ✅ |
 | 폴더 이름은 글자 단위로 40자에서 자른 뒤 다듬음(끝 . · - 없음, 이모지를 반으로 자르지 않음), 따옴표 지움, 모델에게는 이미 있는 이름을 JSON 문자열로, 따옴표가 든 이름은 보이지 않음 | PR #135 검토 9 | WF-U-07 · WF-U-08 · WF-U-13 | 단위 | ✅ |
+| 에이전트가 직접 쓴 스크립트(.js · .py · .mjs · .cjs · .ts · .sh)도 카드로 표시된다(작은 웹 페이지의 app.js를 누르면 작업실에서 열린다). 그 턴에 에이전트가 직접 쓰지 않은 파일(스크립트로 만든 문서 · deepagents가 저장한 문서 · 도구가 만든 문서)이 있으면 스크립트는 제외한다. 멈춘 턴의 스크립트, 이번 턴에 쓰지 않은 스크립트, node_modules · __pycache__ · .venv · venv · .cache · .git · .pytest_cache · .next · .tmp · .scratch 안의 스크립트도 제외한다. 버전 바로 아래(또는 대화 폴더 맨 위)의 dist/ · build/ 안의 스크립트도 제외한다. .github/scripts · tools/build 안의 스크립트와 에이전트가 실행해 본 스크립트(clean.py)는 남는다. 요청한 파일을 잃는 것보다 도우미 한 줄(analyze.py)이 더 보이는 편을 택했다. | PR #135 시연 · PR #137 검토(첫 녹화에서 starter/app.js가 빠져 19개가 18개로 표시되었다) | WD-U-02 · WD-U-03 · WF-I-08 · F-WF-07 | 단위 · DB · feature | ✅ |
+| 그 자리에서 고친 파일(같은 대화 · 같은 경로의 새 카드)은 산출물 목록과 더미에 가장 최근 카드로 한 번만 표시하고 개수도 한 번만 센다. 다른 대화의 같은 경로는 따로 표시하고, 경로의 \ · // · /./ 는 같은 것으로 본다. 채팅에는 두 카드가 제자리에 남고, 이전 턴의 묶음 카드에 표시되는 개수도 그대로다. 경로가 없는 카드는 각각 한 줄로 표시한다. | PR #135 시연(더미의 v2에 module-2.md가 두 번 표시되었다) · PR #137 검토 | FG-U-09 · WF-I-09 · F-WF-08 | 단위 · DB · feature | ✅ |
 
 ---
 

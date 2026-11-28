@@ -10,6 +10,8 @@
 //            상자의 보기를 누르면 보내짐
 //   F-PG-04 PC: 계획대로 — 「계획 3/3」 접힌 줄이 답 위에, 상자 없음 · 판정 모델이 없으면(500) 예전처럼 「계획 3/3」
 //   F-PG-05 영어 화면: 계획 줄 · 상자 제목이 영어
+//   F-PG-06 에이전트가 계획의 약속대로 스스로 묻는다(request_human_input) — 지킴이는 더 판정하지 않고(그 모델이 「벗어났다」고 답할 상황에서도),
+//            멈추기도 보내지 않으며, 답은 에이전트의 질문 · 보기다(검토 #136-1). 에이전트가 받은 메시지에는 약속이 있다
 // 자기 스택(lib/localStack.js: 회사 planguard-ui 의 BFF + Vite, 8961 · 5361 부터 빈 포트)을 띄우고 지운다. 가짜 모델(8966)과 가짜 deepagents(8967)는
 // 이 파일이 띄운다 — 실제 모델 · 에이전트 · 드라이브는 부르지 않는다. 사람 · 회사는 지어낸 것(윤가람 · 가나정밀).
 //   cd e2e && npx playwright test --project=feature tests/feature/plan-guard.spec.js
@@ -32,14 +34,16 @@ const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms))
 // what the person asks — the word in it picks the case (the fake model and the fake agent read it):
 //   커리큘럼 → stops on the way (the agent ends its stream on /chat/stop) · 교안 → stops, the agent does not answer /chat/stop
 //   계획서 → runs to its end, the end check says it went off · 요약 → as planned · 일정표 → as planned, the guard's model fails
+//   보고서 → the agent asks the person itself (request_human_input) after the same note; the guard's model would say off if it were asked
 const ASK = {
   stop: '드라이브에서 「가나정밀 교육」 자료를 찾아서 그걸 바탕으로 커리큘럼을 만들어 줘',
   cut: '드라이브에서 「가나정밀 교육」 자료를 찾아서 그걸 바탕으로 교안을 만들어 줘',
   after: '드라이브에서 「가나정밀 교육」 자료를 찾아서 그걸 바탕으로 교육 계획서를 만들어 줘',
   ok: '드라이브에서 「가나정밀 교육」 자료를 찾아서 요약해 줘',
   down: '드라이브에서 「가나정밀 교육」 자료를 찾아서 일정표를 만들어 줘',
+  asks: '드라이브에서 「가나정밀 교육」 자료를 찾아서 보고서를 만들어 줘',
 }
-const caseOf = (t) => (/커리큘럼/.test(t) ? 'stop' : /교안/.test(t) ? 'cut' : /계획서/.test(t) ? 'after' : /요약/.test(t) ? 'ok' : /일정표/.test(t) ? 'down' : 'plain')
+const caseOf = (t) => (/커리큘럼/.test(t) ? 'stop' : /교안/.test(t) ? 'cut' : /계획서/.test(t) ? 'after' : /요약/.test(t) ? 'ok' : /일정표/.test(t) ? 'down' : /보고서/.test(t) ? 'asks' : 'plain')
 const STEPS_KO = ['드라이브에서 가나정밀 교육 자료 찾기', '자료를 바탕으로 만들기', '정리해서 전달']
 const STEPS_EN = ['Find the Ganaprecision training files in Drive', 'Make it from the files', 'Tidy up and send']
 const OFF_KO = { off: true, step: 1, kind: 'missing', what: '드라이브에서 「가나정밀 교육」 자료를 찾지 못했는데, 공개 자료로 대신 만들려고 해요.', question: '어떻게 할까요?', options: ['자료 위치를 알려 줄게요', '공개 자료로 계속해 줘', '여기서 멈춰'], confidence: 0.92 }
@@ -68,7 +72,8 @@ function answerLlm(b) {
     if (!final) {
       // (on the way: the work goes off once the agent wrote that it will use other material instead — only in the stopping cases)
       const wentOn = /What the assistant wrote between steps/.test(user) && /공개 자료|public material/.test(user)
-      return { content: JSON.stringify(wentOn && (c === 'stop' || c === 'cut') ? OFF : { off: false, kind: 'none', confidence: 0.2 }) }
+      // (보고서: off whenever it is asked at all — the agent's own question must keep the guard from asking)
+      return { content: JSON.stringify((wentOn && (c === 'stop' || c === 'cut')) || c === 'asks' ? OFF : { off: false, kind: 'none', confidence: 0.2 }) }
     }
     if (c === 'after') return { content: JSON.stringify({ ...OFF, steps: [{ n: 1, state: 'missed', why: en ? 'Not found in Drive' : '드라이브에서 찾지 못함' }, { n: 2, state: 'changed', why: en ? 'Made from public material' : '공개 자료로 만듦' }, { n: 3, state: 'done' }] }) }
     return { content: JSON.stringify({ off: false, kind: 'none', confidence: 0.1, steps: [1, 2, 3].map((n) => ({ n, state: 'done' })) }) }
@@ -78,7 +83,11 @@ function answerLlm(b) {
 }
 
 // ---- the fake deepagents: to-dos, a Drive search that finds nothing, a note, a fetch, a pause, the answer ----
-const agent = { stops: [], streams: new Map() }
+const agent = { stops: [], streams: new Map(), asked: [] }
+const ASKS_NOTE = '드라이브에서 「가나정밀 교육」 자료를 찾지 못했어요. 여쭤볼게요.'
+const ASKS_CTX = '드라이브에서 「가나정밀 교육」 자료를 찾지 못해 계획 1단계를 할 수 없어요.'
+const ASKS_Q = '어떤 자료로 보고서를 만들까요?'
+const ASKS_OPTIONS = ['자료 위치를 알려 줄게요', '공개 자료로 만들어 줘', '여기서 멈춰']
 const ANSWER_KO = '교육 자료를 정리했어요.\n\n공개 자료의 흐름을 기준으로 3일 과정을 잡았어요. 첫날은 기본 개념, 둘째 날은 실습, 셋째 날은 발표예요.'
 const ANSWER_EN = 'I put the training material together.\n\nThe three-day course follows the public material: concepts on day one, practice on day two, presentations on day three.'
 async function runAgent(body, res) {
@@ -98,6 +107,17 @@ async function runAgent(body, res) {
   await sleep(200)
   say({ type: 'tool_end', tool: 'drive_search', output: '[]' })
   await sleep(200)
+  if (c === 'asks') {
+    // the plan's agreement kept: a short note, then the agent stops to ask the person itself (deepagents' HITL: the question as done.content)
+    agent.asked.push(msg)
+    say({ type: 'token', content: ASKS_NOTE })
+    await sleep(150)
+    say({ type: 'tool_start', tool: 'request_human_input', input: { question: ASKS_Q } })
+    await sleep(2500)
+    if (res.writableEnded) return
+    say({ type: 'done', content: JSON.stringify({ type: 'human_input_required', question: ASKS_Q, context: ASKS_CTX, options: ASKS_OPTIONS }) })
+    return res.end()
+  }
   if (c !== 'plain') {
     say({ type: 'token', content: en ? "I couldn't find it in Drive. I'll use public material." : NOTE_KO })
     await sleep(150)
@@ -356,6 +376,32 @@ test('F-PG-05 영어 화면: 계획 줄 · 상자 제목이 영어', async ({ br
   await expect(off).toContainText(OFF_EN.what)
   expect(await row.locator('[data-test="plan-fold"]').innerText()).not.toMatch(/[가-힣]/)
   await shot(p, 'f-pg-05-pc-english')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-PG-06 에이전트가 약속대로 스스로 묻는다 — 지킴이는 판정하지 않고 멈추기도 보내지 않으며, 답은 에이전트의 질문(검토 #136-1)', async ({ browser }) => {
+  test.setTimeout(120_000)
+  await clearMain(KO)
+  const guardBefore = llm.guard.filter((x) => x.c === 'asks').length
+  const stopsBefore = agent.stops.length
+  const p = await open(browser, KO, DESK)
+  await send(p, ASK.asks)
+  const row = answers(p).last()
+  await expect(row.locator('.bubble')).toContainText(ASKS_Q, { timeout: 40_000 })
+  await expect(row.locator('.bubble')).toContainText(ASKS_CTX)
+  // (the agent's own options are the quick replies — not the guard's)
+  for (const o of ASKS_OPTIONS) await expect(p.getByRole('button', { name: o })).toBeVisible()
+  await expect(p.getByRole('button', { name: '공개 자료로 계속해 줘' })).toHaveCount(0)
+  // the agent got the plan with the agreement for leaving it
+  expect(agent.asked.at(-1)).toContain('계획대로 할 수 없을 때:')
+  expect(agent.asked.at(-1)).toContain('request_human_input 도구로')
+  // the guard never read this turn (its model would have said off), and no stop went to the agent
+  await sleep(1500)
+  expect(llm.guard.filter((x) => x.c === 'asks').length).toBe(guardBefore)
+  expect(llm.final.filter((x) => x.c === 'asks').length).toBe(0)
+  expect(agent.stops.length).toBe(stopsBefore)
+  await expect(row.locator('[data-testid="plan-off"]')).toHaveCount(0)
   expect(p.errors).toEqual([])
   await p.context().close()
 })

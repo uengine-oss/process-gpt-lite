@@ -101,24 +101,24 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 순수 규칙과 판단(데이터베이스 · 브라우저 없이, 모델은 가짜):
 
 ```bash
-cd server && node --test test/fileGroups.test.js     # FG-U-01~08 — src/fileGroups.js
+cd server && node --test test/fileGroups.test.js     # FG-U-01~09 — src/fileGroups.js · src/artifactScope.js(같은 경로는 한 줄로 표시)
 cd server && node --test test/workFolder.test.js     # WF-U-01~16 — server/lib/workFolder.js
-cd server && node --test test/workFolderDocs.test.js # WD-U-01 — lib/office.js documentsOfRun 의 깊이(시험 폴더의 deepagents 작업 공간)
+cd server && node --test test/workFolderDocs.test.js # WD-U-01~03 — lib/office.js documentsOfRun의 탐색 깊이를 확인한다(시험 폴더의 deepagents 작업 공간). lib/provenance.js dropScaffolding에서 스크립트와 실행해 본 스크립트도 남는지 확인한다.
 ```
 
 실제 턴(실제 데이터베이스, 가짜 모델 · 가짜 deepagents — fetch 를 바꿔 끼움, 데이터베이스가 없으면 건너뜀):
 
 ```bash
-cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js   # WF-I-01~07
+cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js   # WF-I-01~09
 ```
 
-화면(자기 스택: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트, 가짜 모델 · 가짜 deepagents 는 빈 포트):
+화면(자체 스택: 회사 work-folders-ui의 BFF + Vite는 8941 · 5341부터 빈 포트를 사용하고, 가짜 모델 · 가짜 deepagents도 빈 포트를 사용한다. `RT_WF_API_PORT` · `RT_WF_WEB_PORT` · `RT_WF_LLM_PORT` · `RT_WF_AGENT_PORT`로 지정할 수 있다):
 
 ```bash
-cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1
+cd e2e && npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1
 ```
 
-시험 사람은 정하윤 · 한서윤(지어낸 이름)이다. 정하윤의 채팅에 네 턴을 데이터베이스에 바로 넣는다. 첫 턴은 녹화와 같은 모양의 21개 파일(맨 위 5개 + adr/ · curriculum/ · starter/ · starter/css/ · syllabus/, README.md 4개, curriculum.md 2개)이다. 이어서 커리큘럼/v1 의 5개, 커리큘럼/v2 의 6개, 회의메모 3개가 있다. constitution.md · adr/ADR-004.md · 커리큘럼/v2/README.md 는 올려 둔 사본의 주소가 있어 이음오피스로 열린다. 나머지는 작업실로 열린다. 첫 턴의 spec.md 는 검수에서 걸린 편집본이다. 한서윤은 실제 턴(F-WF-05 · F-WF-06)을 보낸다. F-WF-06 에서 가짜 deepagents 는 파일 하나를 이벤트 없이(스크립트가 쓴 것처럼) 하위 폴더 깊이 쓴다. 시험이 끝나면 행 · 올린 파일 · deepagents 작업 공간의 그 회사 폴더를 지운다.
+시험 사용자는 정하윤 · 한서윤(지어낸 이름)이다. 정하윤의 채팅에 해당하는 네 턴을 데이터베이스에 직접 넣는다. 첫 턴에는 녹화와 같은 구성의 21개 파일(맨 위 5개 + adr/ · curriculum/ · starter/ · starter/css/ · syllabus/, README.md 4개, curriculum.md 2개)이 있다. 이어서 커리큘럼/v1의 5개, 커리큘럼/v2의 6개, 회의메모 3개가 있다. constitution.md · adr/ADR-004.md · 커리큘럼/v2/README.md는 올려 둔 사본의 주소가 있어 이음오피스에서 열린다. 나머지는 작업실에서 열린다. 첫 턴의 spec.md는 검수에서 문제가 발견된 편집본이다. 한서윤은 실제 턴(F-WF-05 ~ F-WF-08)을 보낸다. F-WF-06에서 가짜 deepagents는 파일 하나를 이벤트 없이(스크립트가 쓴 것처럼) 깊은 하위 폴더에 쓴다. 시험이 끝나면 행 · 올린 파일 · deepagents 작업 공간의 해당 회사 폴더를 지운다.
 
 | 스펙 시나리오 | 시험 |
 |---|---|
@@ -135,6 +135,12 @@ cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright tes
 | 휴대폰 390(밝은 · 어두운) | F-WF-02 |
 | PC 1440 의 목록 · 옛 버전은 같은 대화 · 같은 자리의 새 버전 옆에서만 접힘(검토 8) | F-WF-03 · FG-U-08 |
 | 휴대폰의 더미 격자(메시지가 바뀌어도 열린 채) | F-WF-04 |
+| 작은 웹 페이지의 app.js는 표시한다(PR #135 시연에서 발견한 결함으로, 이전에는 문서가 하나라도 있으면 스크립트를 모두 제외했다). 스크립트로 만든 문서와 함께 있는 스크립트, 멈춘 턴의 스크립트, node_modules · __pycache__ · .venv · venv · .cache · .git · .pytest_cache · .next · .tmp · .scratch 안의 스크립트는 제외한다. 버전 바로 아래의 dist/ · build/ 안의 스크립트도 제외한다(.github/scripts · tools/build 안의 스크립트와 에이전트가 실행해 본 스크립트는 남는다 — PR #137 검토). | F-WF-07 · WF-I-08 · WD-U-02 · WD-U-03 |
+| 그 자리에서 고친 파일은 한 번만 표시한다(PR #135 시연에서 발견한 결함으로, 더미의 v2에 module-2.md가 두 번 표시되었다). 채팅에는 카드 둘이 남고 이전 턴의 묶음 카드는 그대로 유지된다. 더미와 목록에는 한 번만 표시하고 개수도 한 번만 센다. 같은 대화에서 경로가 같은 카드만 한 파일로 본다(다른 대화의 /workspace/평면도.dxf는 따로 표시하고, \ · // · /./ 는 같은 경로로 본다 — PR #137 검토). | F-WF-08 · WF-I-09 · FG-U-09 |
+
+F-WF-07 · F-WF-08은 PR #135 시연 녹화(`pgpt-pro/demo/product/work-folders-demo-ko`)에서 발견한 결함이다. 녹화 중 starter/app.js가 카드로 표시되지 않아 .md로 바꿨고, 3턴에서 고친 module-2.md가 더미의 v2에 두 번 보였다. 수정 전 코드로 실행하면 WF-I-08(app.js 없음) · WF-I-09(6 ≠ 5) · FG-U-09(7 ≠ 6)가 실패한다. 화면: `results/f-wf-07-live-app-js.png`(PC 1280, 「파일 4개 · 할-일-웹-페이지 · v1」 카드 안의 app.js), `f-wf-08-pc-revised-card.png`(이전 턴의 파일 5개 카드와 고친 module-2.md 카드), `f-wf-08-phone-pile.png`(휴대폰 390, 「채팅의 산출물 25개」 격자의 「모듈-과정 · v1」 파일 5개), `f-wf-08-list-1440.png`(PC 1440 목록의 「모듈-과정 v1」 파일 수 5). 결과 기록은 `results/work-folders-unit.txt` · `results/work-folders-e2e.txt`에 있다.
+
+결정(F-WF-07): 스크립트 제외 여부는 확장자 목록이 아니라 「그 턴에 에이전트가 직접 쓰지 않은 파일이 있는가」를 기준으로 정한다. 그런 파일은 프로그램이 만든 것(폴더에서 찾은 문서, deepagents가 저장한 문서, 도구가 만든 문서)이며, 그 턴의 스크립트는 해당 파일을 만든 도구로 본다. 에이전트가 직접 쓴 파일(Markdown · HTML · CSS · 스크립트)만 있으면 스크립트도 결과물로 본다. 따라서 에이전트가 Markdown을 쓰면서 확인용 스크립트도 함께 쓴 턴에서는 그 스크립트도 카드 안에 한 줄로 표시된다. 파일을 빠뜨리는 것보다 줄 하나를 더 표시하는 쪽을 택했다. PR #137 검토에서 「report.md 옆에서 실행한 analyze.py 는 빼자」(셸 명령에 이름이 나온 스크립트를 빼는 안)를 검토했지만 받아들이지 않았다. 「엑셀 정리하는 파이썬 스크립트 만들어 줘」처럼 사람이 요청한 스크립트도 에이전트가 대개 한 번 돌려 본다. 따라서 그 안을 따르면 요청한 파일이 사라진다. 스크립트를 실행했는지는 보지 않는다.
 
 F-WF-04 의 마지막 확인은 고치기 전의 더미로 돌리면 실패한다. 카드의 폴더 정리 제안이 저장되면 서버가 그 메시지를 다시 보내는데, 예전 더미는 그때마다 격자를 접었다.
 

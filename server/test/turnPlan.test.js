@@ -186,14 +186,36 @@ test('TP-U-04 언어: 앞단 호출은 사람의 언어를(말이 없으면 화�
   await v.ready
   const block = await TP.planBlock(turn)
   assert.match(block, /^\n\n\[계획\] 링크의 글을 읽고 요약해 드릴게요\.\n1\. 글 열기\n2\. 핵심 정리\n3\. 요약 전달\n/)
-  assert.match(block, /write_todos/)
+  // (no tool named that the agent may not have — production deepagents has no write_todos; the rule for leaving the plan names its tool)
+  assert.doesNotMatch(block, /write_todos/)
+  assert.match(block, /할 일 목록 도구가 있으면 이 계획을 먼저 기록하고\(다듬어도 됩니다\), 없으면 그냥 진행하세요 — 기록 도구가 없는 것은 계획에서 벗어난 것이 아닙니다\./)
+  assert.ok(block.endsWith(`\n${TP.OFF_PLAN_KO}`), 'the agreement for leaving the plan comes last, on its own line')
+  assert.match(TP.OFF_PLAN_KO, /다른 것으로 대신하지 마세요\. request_human_input 도구로 무슨 일이 있었는지, 왜 계획대로 못 하는지, 고를 수 있는 길 2~3가지를 알리고 답을 기다리세요\./)
   assert.match(block, /요청하지 않은 결과물은 만들지 마세요/)
   TP.end(turn, 'done'); turn.finish()
   const t2 = T.enqueue({ userId, threadId: '00000000-0000-0000-0000-000000000002' })
   const en = await lang.withLang('en', async () => { const v2 = TP.begin({ turn: t2, userId, threadId: t2.threadId, msgId: 'm3', text: 'x' }); await v2.ready; return TP.planBlock(t2) })
   assert.match(en, /^\n\n\[Plan\] .*\n1\. /)
-  assert.match(en, /Record this plan with write_todos first; you may refine it\. Do only this work\.\nDo not produce deliverables that were not asked for/)
+  assert.match(en, /Do only this plan\. If you have a to-do list tool, record this plan with it first \(you may refine it\); if not, just go ahead — not having one is not a departure from the plan\.\nDo not produce deliverables that were not asked for/)
+  assert.doesNotMatch(en, /write_todos/)
+  assert.ok(en.endsWith(`\n${TP.OFF_PLAN_EN}`))
+  assert.match(TP.OFF_PLAN_EN, /do not substitute something else\. Call the request_human_input tool: say what happened, why the plan cannot be followed, and 2-3 options/)
   TP.end(t2, 'done'); t2.finish()
+})
+
+test('TP-U-11 약속: 혼자 도는 습관 실행(ask:false)에는 계획만 · 묻는 도구는 이름으로 알아본다(검토 #136-1 · 2)', async () => {
+  const userId = `u-pb2-${Date.now()}`
+  const turn = T.enqueue({ userId, threadId: '00000000-0000-0000-0000-000000000002' })
+  const v = TP.begin({ turn, userId, threadId: turn.threadId, msgId: 'm4', text: 'https://medium.com/@a/b' })
+  await v.ready
+  const plain = await TP.planBlock(turn, { ask: false })
+  assert.match(plain, /^\n\n\[계획\] /)
+  assert.ok(!plain.includes('계획대로 할 수 없을 때'), 'nobody there to answer: no agreement to ask')
+  assert.ok(plain.endsWith('더 하면 좋을 일이 있으면 끝에 말로 제안하세요.'))
+  assert.ok((await TP.planBlock(turn)).endsWith(`\n${TP.OFF_PLAN_KO}`), 'the default carries it')
+  TP.end(turn, 'done'); turn.finish()
+  for (const t of ['request_human_input', 'REQUEST_HUMAN_INPUT', ' request_human_input ']) assert.equal(TP.asksPerson(t), true, t)
+  for (const t of ['request_human', 'drive_search', '', null, undefined]) assert.equal(TP.asksPerson(t), false, String(t))
 })
 
 const user = { id: '00000000-0000-0000-0000-0000000000aa', name: '시험' }

@@ -13,14 +13,21 @@ import { config } from '../config.js'
 import { chatJson } from './llm.js'
 import { isEn } from './lang.js'
 
-export const GUARD_BAR = 0.7
+// The guard is the second line: the agent itself is asked to stop and ask when it cannot follow the plan (lib/turnPlan.js OFF_PLAN —
+// the user, 2026-11-28: 「1차적으로 딥에이전트한테 넘어갈 때 걸러지는 게 제일 좋아 … 지킴이를 통해서 계획대로 갔는지를 평가하는 것은
+// 2차적인 부차적인 거고 지킴이가 비용이 많이 들 수가 있어」). Measured on 24 labelled turns × 2 (server/eval/planGuard/cases.json ·
+// measure.mjs): every right stop read ≥ 0.85 — so 0.8, not the usual 0.7. Of the 6 false stops on reasonable borderline runs it removes
+// the two at 0.70 · 0.72; four stay (steps done in another order at 0.92 twice, a similar-named other file at 0.82 · 0.85 — the agreement
+// itself asks about that one).
+export const GUARD_BAR = 0.8
 export const guardOn = () => !/^(off|0|false|no)$/i.test(String(process.env.PRO_PLAN_GUARD ?? 'on').trim())
 // a check after this many tools with no other reason to look (a long run of searches, then writing)
 export const EVERY_TOOLS = Number(process.env.PRO_PLAN_GUARD_EVERY) || 4
 const CHECK_MS = Number(process.env.PRO_PLAN_GUARD_MS) || 15000
 // at most this many checks on the way, this far apart (a turn that narrates before every tool would otherwise ask after each one —
-// review #132-3); the end check is one more
-export const MAX_CHECKS = Number(process.env.PRO_PLAN_GUARD_MAX) || 6
+// review #132-3); the end check is one more. 3 (was 6): the same stops on the measured set at about half the calls of a document turn
+// (7 → 4 with the end check; the guard was 1-3% of such a turn's cost) — it is the second line now (GUARD_BAR)
+export const MAX_CHECKS = Number(process.env.PRO_PLAN_GUARD_MAX) || 3
 export const GAP_MS = Number(process.env.PRO_PLAN_GUARD_GAP_MS ?? 15000)
 const FINAL_MS = Number(process.env.PRO_PLAN_GUARD_FINAL_MS) || 12000
 const OUT_CHARS = 280
