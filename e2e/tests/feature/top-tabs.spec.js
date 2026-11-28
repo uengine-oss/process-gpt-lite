@@ -5,7 +5,7 @@
 //            진행 중인 일 목록(/routines)에서도 「프로세스」가 켜짐
 //   F-NAV-02 휴대폰 390(어두운): 홈 · 채팅 · 프로젝트 · 팀 · 폴더 · 프로세스 — 넘치면 옆으로 밀리는 알약, 「프로세스」를 누르면 그 탭이 알약 안으로
 //            들어오고 켜짐
-//   F-NAV-03 영어 화면: 마지막 탭은 「Process」
+//   F-NAV-03 영어 화면: Chat · Projects · Team · Folders · Processes(「팀」도 영어로)
 // 자기 스택(lib/localStack.js: 회사 top-tabs-ui 의 BFF + Vite, 8861 · 5261 부터 빈 포트)을 띄우고 지운다. 모델 · 지도 저장소는 부르지 않는다
 // (PRO_ONTOLOGY_BOLT_URL= — 지도 없는 회사: 「프로세스」는 목록으로). 사람은 지어낸 것이다(정하윤).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/top-tabs.spec.js
@@ -81,8 +81,8 @@ test('F-NAV-01 PC 1280(밝은): 채팅 · 프로젝트 · 팀 · 폴더 · 프�
   await expect(nav(p).getByText('루틴', { exact: true })).toHaveCount(0)
   await shot(p, 'f-nav-01-pc-chat')
   await proc(p).click()
-  // (a company without the map store — this stack — gets the list of its process instances; one with it, the map)
-  await expect.poll(() => new URL(p.url()).pathname, { timeout: 15000 }).toMatch(/^\/(process-map|routines)$/)
+  // (a company without the map store — this stack — gets the routine list; one with it, the map: process-ontology.spec.js F-PO-22)
+  await expect.poll(() => new URL(p.url()).pathname, { timeout: 15000 }).toBe('/routines')
   await expect(proc(p)).toHaveClass(/\bon\b/)
   await shot(p, 'f-nav-01-pc-process')
   // the other tabs still go where they went, in their new places
@@ -92,6 +92,9 @@ test('F-NAV-01 PC 1280(밝은): 채팅 · 프로젝트 · 팀 · 폴더 · 프�
   await expect.poll(() => new URL(p.url()).pathname).toBe('/folders')
   // a process instance's list, reached any way, lights 「프로세스」
   await p.goto('/routines')
+  await expect(proc(p)).toHaveClass(/\bon\b/, { timeout: 15000 })
+  // and 개선 분석 (the classic one, in a company without the map)
+  await p.goto('/improve')
   await expect(proc(p)).toHaveClass(/\bon\b/, { timeout: 15000 })
   expect(p.errors).toEqual([])
   await p.context().close()
@@ -103,30 +106,34 @@ test('F-NAV-02 휴대폰 390(어두운): 홈 · 채팅 · 프로젝트 · 팀 ·
   await expect(nav(p)).toBeVisible({ timeout: 30000 })
   await expect.poll(() => labels(p)).toEqual(['홈', '채팅', '프로젝트', '팀', '폴더', '프로세스'])
   expect(await p.evaluate(() => document.documentElement.dataset.theme)).toBe('dark')
+  // six tabs do not fit 390: the pill slides (2026-11-18 rule) rather than squeezing the labels
+  expect(await nav(p).evaluate((el) => el.scrollWidth > el.clientWidth + 8)).toBe(true)
   await shot(p, 'f-nav-02-phone-chat')
   // a full pill scrolls sideways (2026-11-18 design rule) — the last tab is reached by scrolling, not squeezed
   await proc(p).scrollIntoViewIfNeeded()
   await proc(p).tap()
   await expect.poll(() => new URL(p.url()).pathname, { timeout: 15000 }).toMatch(/^\/(process-map|routines)$/)
   await expect(proc(p)).toHaveClass(/\bon\b/)
-  // the chosen tab is inside the pill (brought to view), not cut off at its edge
+  await shot(p, 'f-nav-02-phone-process')
+  // opened straight on its page (a link, a reload — no finger on the pill): the pill brings the lit tab into view by itself
+  await p.goto('/routines')
+  await expect(proc(p)).toHaveClass(/\bon\b/, { timeout: 15000 })
   await expect.poll(async () => {
     const n = await nav(p).boundingBox(), b = await proc(p).boundingBox()
     return !!n && !!b && b.x >= n.x - 1 && b.x + b.width <= n.x + n.width + 1
   }, { timeout: 5000 }).toBe(true)
-  await shot(p, 'f-nav-02-phone-process')
+  expect(await nav(p).evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
   expect(p.errors).toEqual([])
   await p.context().close()
 })
 
-test('F-NAV-03 영어 화면: 마지막 탭은 「Process」', async ({ browser }) => {
+test('F-NAV-03 영어 화면: Chat · Projects · Team · Folders · Processes(「팀」도 영어로)', async ({ browser }) => {
   await S.api(HY.token, '/me/lang', { method: 'PUT', body: { lang: 'en' } })
   try {
     const p = await open(browser, PC, { lang: 'en' })
     await p.goto('/chat')
     await expect(nav(p)).toBeVisible({ timeout: 30000 })
-    await expect.poll(async () => (await labels(p)).at(-1), { timeout: 15000 }).toBe('Process')
-    expect((await labels(p)).slice(0, 2)).toEqual(['Chat', 'Projects'])
+    await expect.poll(() => labels(p), { timeout: 15000 }).toEqual(['Chat', 'Projects', 'Team', 'Folders', 'Processes'])
     expect(await ids(p)).toEqual(['chat', 'project', 'team', 'folders', 'routine'])
     await shot(p, 'f-nav-03-pc-english')
     expect(p.errors).toEqual([])

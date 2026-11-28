@@ -448,7 +448,7 @@ app.get('/api/me', auth, async (req, res) => {
   // admin: the team and tenant-wide role controls are editable (TeamRoles); otherwise read-only
   // lang: the saved language (null = never chosen); reqLang: the one this request ran in
   // mainLang: the language I speak and read in (meetings, messages); mainLangSet: whether I chose it
-  // ontology: the company's process map is there (Ontological DB connected) — the 루틴 tab opens it, otherwise the routine list
+  // ontology: the company's process map is there (Ontological DB connected) — the 「프로세스」 tab opens it, otherwise the routine list
   const { ontologyEnabled } = await import('./lib/ontology/store.js')
   // features: what this server turns on that the screens follow — the demo scenarios' settings tabs (PRO_SCENARIOS) and
   // 사용량·요금제 (usage limits on — PRO_LLM_KEYS — or PRO_PLAN_SCREEN=1); linkPreview: the company shows link cards (sql/051)
