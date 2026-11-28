@@ -5,7 +5,9 @@ import { L } from './lang.js'
 
 // token: an access token the caller already has (Drive resolves it once per call; the unit tests give one) instead of
 // the person's from the vault on every request
-async function gapi(userId, url, { method = 'GET', body, raw, token, signal } = {}) {
+// (every Drive · Calendar · Gmail call ends within GAPI_MS unless the caller gives its own signal — 2nd review #133)
+const GAPI_MS = Number(process.env.PRO_GOOGLE_API_MS) || 30000
+async function gapi(userId, url, { method = 'GET', body, raw, token, signal = AbortSignal.timeout(GAPI_MS) } = {}) {
   const at = token || await googleAccessToken(userId)
   const res = await fetch(url, {
     method,
@@ -164,18 +166,32 @@ export async function driveSearch(userId, { query, max = 10 } = {}, { token } = 
   if (!words.length) throw new Error(L('찾을 낱말을 주세요.', 'Give the words to search for.'))
   const n = Math.max(1, Math.min(DRIVE_SEARCH.maxResults, Math.trunc(Number(max)) || 10))
   const tok = token || await googleAccessToken(userId)
+  // (both lists the same length, so a file deep in the every-word list keeps all_words; a failed any-word list does not sink a search
+  // the every-word list answered — 2nd review #133)
   const [all, any] = await Promise.all([
-    gapi(userId, driveListUrl(driveQuery(words, 'all'), Math.min(DRIVE_SEARCH.fetch, n * 3)), { token: tok }),
-    words.length > 1 ? gapi(userId, driveListUrl(driveQuery(words, 'any'), DRIVE_SEARCH.fetch), { token: tok }) : null,
+    gapi(userId, driveListUrl(driveQuery(words, 'all'), DRIVE_SEARCH.fetch), { token: tok }),
+    words.length > 1 ? gapi(userId, driveListUrl(driveQuery(words, 'any'), DRIVE_SEARCH.fetch), { token: tok }).catch(() => null) : null,
   ])
   const seen = new Map()
   for (const f of all.files || []) seen.set(f.id, { f, every: true })
   for (const f of any?.files || []) if (!seen.has(f.id)) seen.set(f.id, { f, every: false })
   // (a file from the second list whose name alone holds every word has them all: the first list's page just ended before it)
-  const found = [...seen.values()].map((x, i) => { const hits = nameHits(x.f.name, words); return { ...x, every: x.every || hits === words.length, i, hits } })
-    .sort((a, b) => b.hits - a.hits || Number(b.every) - Number(a.every) || a.i - b.i).slice(0, n)
+  const ranked = [...seen.values()].map((x, i) => { const hits = nameHits(x.f.name, words); return { ...x, every: x.every || hits === words.length, i, hits } })
+    .sort((a, b) => b.hits - a.hits || Number(b.every) - Number(a.every) || a.i - b.i)
+  // a few every-word files always make the cut: files with one common word in the name must not push them all out (2nd review #133)
+  const keepEvery = Math.min(ranked.filter((x) => x.every).length, Math.max(3, Math.ceil(n / 3)))
+  const found = ranked.slice(0, n)
+  for (const x of ranked.slice(n).filter((y) => y.every)) {
+    if (found.filter((y) => y.every).length >= keepEvery) break
+    const out = found.map((y, k) => [y, k]).reverse().find(([y]) => !y.every)
+    if (!out) break
+    found.splice(out[1], 1)
+    found.push(x)
+  }
+  found.sort((a, b) => b.hits - a.hits || Number(b.every) - Number(a.every) || a.i - b.i)
   const everyCount = found.filter((x) => x.every).length
-  const match = !found.length ? 'none' : everyCount === found.length ? 'all_words' : everyCount ? 'mixed' : 'any_word'
+  // (「no file has every word」 only when the every-word list itself came back empty)
+  const match = !found.length ? 'none' : everyCount === found.length ? 'all_words' : (all.files || []).length || everyCount ? 'mixed' : 'any_word'
   const { drive, folder } = await placeNames(userId, found.map((x) => x.f), tok)
   const note = {
     all_words: L('낱말이 모두 이름이나 내용에 있는 파일이에요(내 드라이브 · 공유받은 파일 · 공유 드라이브). 이름에 낱말이 많은 파일이 먼저예요.',

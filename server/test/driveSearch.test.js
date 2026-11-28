@@ -102,7 +102,9 @@ test('DS-05 공유 드라이브 이름 · 상위 폴더 이름 · 개수 제한'
     [(u) => u.pathname === '/drive/v3/files/P2', () => Response.json({ error: { message: 'not found' } }, { status: 404 })],
   ])
   const r = await G.driveSearch('u1', { query: '교육', max: 99 }, TOKEN)
-  assert.equal(calls.find((c) => isList(c.url)).url.searchParams.get('pageSize'), String(Math.min(G.DRIVE_SEARCH.fetch, G.DRIVE_SEARCH.maxResults * 3)), 'max 는 30 까지')
+  // (both lists ask for the same page — a file deep in the every-word list keeps all_words: 2nd review #133; at most 30 come back)
+  assert.equal(calls.find((c) => isList(c.url)).url.searchParams.get('pageSize'), String(G.DRIVE_SEARCH.fetch))
+  assert.ok(r.files.length <= G.DRIVE_SEARCH.maxResults, 'max 는 30 까지')
   assert.equal(calls.find((c) => c.url.pathname === '/drive/v3/files/P1').url.searchParams.get('supportsAllDrives'), 'true')
   assert.equal(r.incomplete, true)
   assert.deepEqual(r.files[0], { id: 's1', name: '교육 과정 설계.pptx', mimeType: PPTX, modifiedTime: undefined, webViewLink: undefined, size: 1234, drive: '가나정밀 공유 드라이브', folder: '2026 교육', words_in_name: 1, all_words: true })
@@ -269,4 +271,19 @@ test('DS-14 (검토 6) 글이 안 나온 PDF 는 스캔본이거나 PDF 글 꺼�
   assert.equal(r.no_text, true)
   assert.match(r.note, /pdftotext/)
   assert.match(r.note, /스캔|scanned/)
+})
+
+test('DS-15 (2차 검토 1 · 3) 이름에 흔한 낱말 하나 든 파일이 많아도 모든 낱말이 든 파일은 남고, 하나라도 질의가 실패해도 찾기는 된다', async () => {
+  const memo = { id: 'memo', name: '주간 회의록', mimeType: 'application/vnd.google-apps.document' }
+  const pile = Array.from({ length: 12 }, (_, k) => ({ id: `p${k}`, name: `자료 ${k + 1}`, mimeType: 'application/pdf' }))
+  stubFetch([[isList, (u) => (qOf(u).startsWith('((') ? Response.json({ files: pile }) : Response.json({ files: [memo] }))]])
+  const r = await G.driveSearch('u1', { query: '가나정밀 협회 교육 자료', max: 10 }, TOKEN)
+  assert.equal(r.files.length, 10)
+  assert.ok(r.files.some((f) => f.id === 'memo' && f.all_words), 'the every-word file is kept')
+  assert.equal(r.match, 'mixed', 'not 「no file has every word」')
+  // the any-word list fails: the every-word list still answers
+  stubFetch([[isList, (u) => (qOf(u).startsWith('((') ? new Response('{"error":{"message":"too complex"}}', { status: 400 }) : Response.json({ files: [memo] }))]])
+  const r2 = await G.driveSearch('u1', { query: '가나정밀 협회 교육 자료' }, TOKEN)
+  assert.deepEqual(r2.files.map((f) => f.id), ['memo'])
+  assert.equal(r2.match, 'all_words')
 })
