@@ -433,7 +433,8 @@ onMounted(async () => {
         <button class="mbtn press" data-test="file-more" aria-haspopup="dialog" :aria-label="`${c.name} 메뉴 열기`" title="파일 메뉴" @click="openFileMenu($event.currentTarget)"><Icon name="more" :size="16" /></button>
       </div>
       <!-- a picture to look at, a sound or a video that plays right here (on the phone too) -->
-      <MediaPreview v-if="media && mediaUrl" :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" @play="sawShare(c.shared?.shareId)" />
+      <!-- (held · right-clicked, the preview is the card too: its menu — never the phone's own callout on the picture) -->
+      <MediaPreview v-if="media && mediaUrl" v-hold="onFileHold" hold-tap :kind="media" :src="mediaUrl" :name="c.name" @open="openFile" @play="sawShare(c.shared?.shareId)" />
       <small v-else-if="media && mediaErr" class="playerr">{{ mediaErr }}</small>
       <!-- 폴더에 정리 — what it did (the suggestion itself is in the card's menu): 「‘견적서’에 정리했어요 · 열기」 -->
       <p v-if="filing?.filed" class="ashared filed" data-test="filing-line"><Icon name="check" :size="12" />
@@ -678,13 +679,20 @@ button.uref { text-align: left; }
 .hbox > .bubble, .hbox > .doc { min-width: 0; }
 /* what follows a document answer clears its ⌄ (it hangs 14px below the card — a long 「「…」에 공유했어요 · 방 열기」 ran under it) */
 .row.k-doc > .hbox + * { margin-top: 20px; }
-/* ⋯ — the message's menu on a computer: shown by the message under the pointer, and to the keyboard (a phone: a long press —
-   as the messenger's reaction button, Messenger.vue .rxbtn) */
+/* ⋯ — the message's menu on a computer: shown by the message under the pointer, and to the keyboard */
 .mbtn { flex: none; align-self: center; width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; color: var(--text-secondary);
   background: var(--regular-solid-bg); border: 1px solid rgba(127, 127, 127, .2); opacity: 0; transition: opacity .12s; }
 .row:hover .mbtn, .mbtn:focus-visible { opacity: 1; }
 .mbtn:hover { color: var(--text-primary); }
-@media (hover: none) { .mbtn { display: none; } }
+/* a phone: a long press — the ⋯ takes no room and no look, but stays for a screen reader, a switch, a tablet's keyboard (PR #126 review);
+   with the keyboard's focus it shows over the answer's · card's corner */
+@media (hover: none) {
+  .hbox, .filerow { position: relative; }
+  .mbtn:not(:focus-visible) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .mbtn:focus-visible { position: absolute; top: 6px; right: 6px; z-index: 2; width: 36px; height: 36px; border-radius: 18px; box-shadow: var(--shadow-card); }
+  /* (a card's: in its row after 👥 — over the card's corner it would cover 👥) */
+  .filerow .mbtn:focus-visible { position: static; }
+}
 /* a folder suggestion waits in the card's menu */
 .file { position: relative; }
 .fdot { position: absolute; top: 9px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: #3b8cf0; box-shadow: 0 0 0 2px #1d1d1f; }
@@ -693,5 +701,5 @@ button.uref { text-align: left; }
 .chip.link .cgo { flex: none; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
 /* a phone's long press opens the answer's menu, not the text selection (as the messenger's bubbles — its 「글 선택」 gives the selection back);
    a file card's opens its menu, never the system's own callout */
-@media (pointer: coarse) { .holdable:not([data-selecting]), .file { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
+@media (pointer: coarse) { .holdable:not([data-selecting]), .file, .filecol :deep(.mp img), .filecol :deep(.mp video) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
 </style>

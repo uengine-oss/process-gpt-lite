@@ -2074,7 +2074,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/threa
 사용자(2026-11-28, 운영 휴대폰 사진 두 장 — 답마다 「공유」 · 「프로젝트로 시작」 알약, 파일 카드마다 「‘…’에 정리할까요? (확신 65%) [정리] · 다른 폴더 고르기」 줄): 「화면이 정신없으니 하단의 공유, 프로젝트로 등록, 폴더 정리 등 모든 것들 콘텍스트 메뉴로. 모바일에선 길게 누를때」. 화면 `Message.vue` · `AnswerShareSheet.vue`(답의 메뉴) · `FileCardMenu.vue`(파일 카드의 메뉴) · `HoldHint.vue` · `src/holdHint.js`(안내) · `holdMenu.js`(`data-hold-tap`: 누르면 열고 길게 누르면 메뉴) · `folders/useFiling.js`(줄과 메뉴가 같이 쓰는 정리 상태) · `src/menuKeys.js`(↑ ↓). 서버 · SQL 바뀜 없음. 시험 파일이 자기 스택(회사 `ctx-menu-ui`, BFF 8992 · Vite 5392 — `RT_CM_API_PORT` · `RT_CM_WEB_PORT`)과 가짜 판정 모델을 띄운다. 사람 · 회사는 지어낸 것이다(정하윤 · 김서연, 가나정밀 · 다온디자인).
 
 ```bash
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/context-menu-actions.spec.js   # F-CM-01~03 (공용 잠금 rec.lock)
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/context-menu-actions.spec.js   # F-CM-01~04 (공용 잠금 rec.lock)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2088,7 +2088,12 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/conte
 | 휴대폰에서 카드 길게 누르기는 끌기가 아님(끌기는 PC 만 — 메신저 · 폴더로 끌기 그대로) | 설계 | F-CM-02 · F-FM-05 · F-FM-08 | feature | ✅ |
 | 메신저로 받은 파일 · 메일 시트의 첨부는 지금처럼 줄로 정리 권유(같은 `useFiling.js`) | 설계(범위) | F-MD-03 · F-MD-04 | feature | ✅ |
 | 밝은 · 어두운 테마, 390 에서 메뉴 · 시트가 화면 안 · 옆으로 밀리지 않음 | 브리프 시험 | F-CM-01 · F-CM-02 | feature | ✅ |
-| 실제 iOS · Android 기기의 길게 누르기(시험은 Chromium 터치 입력) | — | — | — | ✗ |
+| (PR #126 검토) 휴대폰의 「⋯」는 자리 · 모양 없이(1px · 잘라 냄) 접근성 트리에 남음 — 화면 낭독기 · 스위치 · 태블릿 키보드로 「이 답의 메뉴 열기」 · 「<파일> 메뉴 열기」, Tab 초점이면 보임(답은 모서리, 카드는 👥 다음) → Enter → 첫 항목 → Esc 로 돌아옴 | PR #126 검토(접근성) | F-CM-04 · F-CM-01 · F-CM-02 · F-AS-03 | feature | ✅ |
+| (검토) 안내는 상단 막대 · 입력창 · 「기본」 알약에 가리지 않고 온전히 1.5 초 보여야 「봤다」(반쯤 깔리면 2 초가 지나도 아님), ✕ 는 44px | PR #126 검토 | F-CM-04 | feature | ✅ |
+| (검토) 「프로젝트로 시작」은 카드가 올라올 때까지 「프로젝트 카드를 준비하고 있어요…」(메뉴를 닫지 않음, 초점 유지), 실패는 메뉴에 까닭 · 다시 누름 | PR #126 검토 | F-CM-01 | feature | ✅ |
+| (검토) 그림 미리 보기를 길게 누르면 카드의 메뉴(휴대폰 그림 메뉴 아님) · 누르면 보기 화면, 길게 눌러도 문서 · 보기 화면이 열리지 않음(0.8 초 기다려 확인) | PR #126 검토 | F-CM-04 · F-CM-02 | feature | ✅ |
+| (검토) 정리 항목은 메뉴 안의 이름 있는 묶음(`role="group"` 「폴더에 정리」), 「폴더를 불러오는 중…」 · 「없어요」는 메뉴 밖 상태 글, 단계가 바뀌어도 초점은 시트 안(Esc 유지), 닫힌 메뉴는 늦게 끝난 정리 뒤 초점을 가져가지 않음 | PR #126 검토 | F-CM-02 · F-CM-04 | feature | ✅ |
+| 실제 iOS · Android 기기의 길게 누르기 · VoiceOver · TalkBack(시험은 Chromium 터치 입력 · 접근성 트리 이름) | — | — | — | ✗ |
 
 ### 설치 번들에 대고 돌리기 (Docker Compose)
 

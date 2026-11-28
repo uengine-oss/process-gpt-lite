@@ -9,7 +9,7 @@
 //   sent   「…」에 공유했어요 · 방 열기
 // Nothing goes anywhere before 보내기. A document: the answer as a Markdown file card under it (once) — from there the file's own 공유,
 // 내려받기 and IeumOffice.
-import { computed, ref, onMounted, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import PersonAvatar from './PersonAvatar.vue'
@@ -40,7 +40,8 @@ const preview = computed(() => data.value?.answer?.preview ?? text.value.split('
   .map((l) => l.replace(/^#{1,6}\s*|^>\s*/, '').replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).join(' ').slice(0, 220))
 
 // a dialog of its own: the focus goes into it, Esc closes it (only while the focus is in it — not another sheet's Esc) and the focus goes
-// back where it was (the ⋯ it was opened from; a long press had none to go back to)
+// back where it was (the ⋯ it was opened from; a long press had none to go back to). A step that takes away the focused item (rooms,
+// send, sent, back) gives the focus to the menu's first item or to the sheet itself — never to the page, where Esc would not reach the sheet.
 const sheet = ref(null)
 const close = () => { app.answerShare = null }
 const from = app.answerShare?.from || null
@@ -117,7 +118,22 @@ function selectText() {
   try { const sel = window.getSelection(); sel.removeAllRanges(); sel.selectAllChildren(el) } catch { /* nothing to select */ }
   setTimeout(() => document.addEventListener('selectionchange', done), 0)
 }
-function toProject() { const m = msg.value; close(); startProjectFrom(app, m).catch((e) => team.say(e.message || '프로젝트 카드를 만들지 못했어요.')) }
+// 「프로젝트로 시작」: the item says it is working until the card is under the chat (the sheet closes then, the card brought into view) —
+// a failure stays here, under the items (PR #126 review: it used to close at once, nothing said). (aria-disabled while it works, not
+// disabled: a disabled button loses the focus, and Esc would no longer reach the sheet)
+const projBusy = ref(false)
+let gone = false
+onBeforeUnmount(() => { gone = true })
+async function toProject() {
+  if (projBusy.value) return
+  projBusy.value = true; err.value = ''
+  try {
+    await startProjectFrom(app, msg.value)
+    if (!gone) close()
+  } catch (e) {
+    if (!gone) err.value = e.message || '프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.'
+  } finally { projBusy.value = false }
+}
 
 // ---------- to another app ----------
 // 「다른 앱으로 보내기」 (2026-11-28 — 「웹 앱으로 공유」 of the recording, the phone's share sheet): navigator.share with the answer's words as a
@@ -186,6 +202,12 @@ const says = computed(() => `「${pickTitle.value}」에 있는 사람들에게 
 const cutNote = computed(() => (data.value?.answer?.truncated ? `글이 길어서 앞부분 ${Number(data.value.answer.limit || 12000).toLocaleString('ko-KR')}자만 보내요.` : ''))
 const sentLine = computed(() => (sent.value?.title ? `「${sent.value.title}」에 공유했어요` : '대화방에 공유했어요'))
 function choose(p) { pick.value = p; step.value = 'send'; err.value = '' }
+watch(step, async () => {
+  await nextTick()
+  if (gone || sheet.value?.contains(document.activeElement)) return
+  const first = step.value === 'menu' ? sheet.value?.querySelector('[role="menuitem"]') : null
+  ;(first || sheet.value)?.focus()
+})
 function back() { if (step.value === 'send') { step.value = 'room'; pick.value = null } else step.value = 'menu'; err.value = '' }
 async function send() {
   if (busy.value || !pick.value) return
@@ -232,8 +254,8 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
               <small v-else>채팅에 Markdown 문서로 남겨요 · 이후 공유 · 내려받기 · 편집할 수 있어요</small></span>
             <Icon v-if="doc" name="check" :size="15" />
           </button>
-          <button class="mi press" role="menuitem" data-test="answer-share-project" @click="toProject">
-            <span class="ic"><Icon name="folder" :size="18" /></span><span class="mt"><b>프로젝트로 시작</b><small>이 답을 첫 문서로 담아 새 프로젝트를 만들어요 · 만들기 전에 한 번 더 물어봐요</small></span><Icon name="chevron" :size="14" />
+          <button class="mi press" role="menuitem" data-test="answer-share-project" :aria-disabled="projBusy ? 'true' : null" :aria-busy="projBusy ? 'true' : null" @click="toProject">
+            <span class="ic"><Icon name="folder" :size="18" /></span><span class="mt"><b :class="{ 'shimmer-text': projBusy }">{{ projBusy ? '프로젝트 카드를 준비하고 있어요…' : '프로젝트로 시작' }}</b><small>이 답을 첫 문서로 담아 새 프로젝트를 만들어요 · 만들기 전에 한 번 더 물어봐요</small></span><Icon name="chevron" :size="14" />
           </button>
           <button v-if="held" class="mi press" role="menuitem" data-test="answer-share-select" @click="selectText">
             <span class="ic"><Icon name="hand" :size="18" /></span><span class="mt"><b>글 선택</b><small>답에서 글을 골라 일부만 복사해요</small></span>
@@ -302,7 +324,7 @@ h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .menu { display: flex; flex-direction: column; gap: 4px; }
 .mi { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 10px; border-radius: 16px; text-align: left; color: var(--text-primary); }
 .mi:hover { background: var(--cell-bg, rgba(127, 127, 127, .1)); }
-.mi:disabled { opacity: .6; }
+.mi:disabled, .mi[aria-disabled="true"]:not([aria-busy="true"]) { opacity: .6; }
 .ic { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--field-bg); }
 .mt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mt b { font-size: 14.5px; font-weight: 600; }

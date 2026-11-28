@@ -37,6 +37,7 @@ cd e2e && PGPT_URL=http://localhost:5241 API_URL=http://127.0.0.1:8841 RT_FAKE_L
 | 후보 · 작업 폴더 · 메일 첨부 | 서버 「후보」 · 「메일의 첨부」(메일 원문은 대역) |
 | 채팅의 파일 카드는 정리 제안을 카드의 메뉴에 둔다 — 휴대폰에서 길게 눌러 정리(밝은 · 어두운) | F-CM-02(`context-menu-actions.spec.js`) · F-MD-03(채팅 카드: 점 · 오른쪽 단추 → 「새 폴더를 만들어 정리」) |
 | 채팅의 파일 카드는 정리 제안을 카드의 메뉴에 둔다 — PC 「⋯」 · 오른쪽 단추 · 키보드 · 누르면 문서 | F-CM-03(`context-menu-actions.spec.js`) |
+| 화면 낭독기 · 키보드 · 그림 미리 보기(PR #126 검토) | F-CM-04(`context-menu-actions.spec.js`) |
 
 시험하지 않은 것:
 - 실제 메일함(Gmail · IMAP)의 첨부를 메일 시트에서 정리 — 데모 메일함에는 첨부가 없다. 서버 시험이 메일 원문을 대역으로 넣어 판정 · 정리 · 카드 기록을 본다.
@@ -55,5 +56,6 @@ cd e2e && PGPT_URL=http://localhost:5241 API_URL=http://127.0.0.1:8841 RT_FAKE_L
 - 화면(2026-11-28 채팅 카드의 메뉴): `results/f-cm-*.png`
   - `02-cards` 카드 아래 줄 없음 · 제안 점 · 처음 한 번 안내 · `02-menu` 길게 누른 메뉴(열기 · 팀원에게 공유 · 「‘견적서’에 정리」 · 다른 폴더 고르기) · `02-new-folder` 「새 폴더를 만들어 정리: 거래처 계약서」 · `02-pick` 다른 폴더 고르기 · `02-filed` 카드 아래 「‘…’에 정리했어요 · 열기」(각 `-light` · `-dark`)
   - `03-card-hover` PC 「⋯」 · `03-card-menu` 오른쪽 단추로 연 메뉴
+  - `04-phone-keyboard-card` 휴대폰에서 Tab 으로 닿은 카드의 「⋯」(👥 다음) · `04-phone-picture-menu` 그림 미리 보기를 길게 눌러 연 카드의 메뉴
   - 시험: `cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/context-menu-actions.spec.js` (자기 스택 BFF 8992 · Vite 5392, 가짜 판정 모델)
 - 영상 초안(무음): `pgpt-pro/demo/product/messenger-folder-ko/out/messenger-folder-ko-ko.mp4` — 실제 판정 모델(회사 게이트웨이), `NOTES.md` 에 대역과 남긴 데이터.

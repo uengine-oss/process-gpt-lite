@@ -198,6 +198,9 @@ async function press(p, el, ms = 700) {
     b = n
   }
   const x = b.x + Math.min(b.width / 2, 60), y = b.y + b.height / 2
+  // (and nothing over it there: on a phone, right after 「채팅」 is pressed, Home's panel still lies over the chat for a moment — a touch
+  // then lands on Home, not on the answer)
+  await expect.poll(() => el.evaluate((node, [px, py]) => node.contains(document.elementFromPoint(px, py)), [x, y]), { timeout: 5000 }).toBe(true)
   const cdp = await p.context().newCDPSession(p)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
   await p.waitForTimeout(ms)
@@ -320,7 +323,10 @@ for (const theme of ['light', 'dark']) {
     await expect(row.locator('.doc')).toBeVisible({ timeout: 30000 })
     // nothing to press under the answer — it is held (2026-11-28); the ⋯ is a computer's
     await expect(row.locator('[data-test="answer-actions"], [data-test="answer-share-btn"], [data-test="answer-project-btn"]')).toHaveCount(0)
-    await expect(row.locator('[data-test="msg-more"]')).toBeHidden()
+    // (the ⋯ takes no room and no look on a phone — but stays for a screen reader · a keyboard: F-CM-04)
+    const more = row.getByRole('button', { name: '이 답의 메뉴 열기', exact: true })
+    await expect(more).toHaveCount(1)
+    expect((await more.boundingBox()).width).toBeLessThanOrEqual(1)
     await row.locator('.doc').scrollIntoViewIfNeeded()
     await noSideScroll(p)
     await shot(p, 'share', `f-as-03-phone-${theme}`)

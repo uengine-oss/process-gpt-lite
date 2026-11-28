@@ -13,7 +13,7 @@ cd server && node --test --test-concurrency=1 test/answerShareProject.integratio
 
 ```bash
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/answer-share-project.spec.js   # 자기 스택: BFF 8997 · Vite 5397
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/context-menu-actions.spec.js   # 답 · 파일의 문맥 메뉴(F-CM-01~03), 자기 스택: BFF 8992 · Vite 5392
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/context-menu-actions.spec.js   # 답 · 파일의 문맥 메뉴(F-CM-01~04), 자기 스택: BFF 8992 · Vite 5392
 ```
 
 | 스펙 시나리오 | 시험 | 사진 |
@@ -24,5 +24,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/conte
 | 한마디 없이 팀원에게 바로 · 거절 | AP-U-03 | — |
 | 휴대폰에서는 단추 대신 길게 누르고, 안내는 처음 한 번만(밝은 · 어두운) | F-CM-01 | `results/f-cm-01-hint-light.png` · `f-cm-01-answer-light.png` · `f-cm-01-menu-light.png` · `f-cm-01-project-light.png` · `…-dark.png` |
 | PC에서는 「⋯」 · 오른쪽 단추 · 키보드로 연다 | F-CM-03 | `results/f-cm-03-answer-hover.png` · `f-cm-03-answer-menu.png` |
+| 「프로젝트로 시작」 준비 중 · 실패(PR #126 검토) | F-CM-01 | `results/f-cm-01-project-busy-light.png` |
+| 휴대폰에서 화면 낭독기 · 키보드로 메뉴를 연다 · 안내 1.5 초(PR #126 검토) | F-CM-04 | `results/f-cm-04-phone-keyboard.png` |
 
 결과: `results/e2e-F-AS-F-CP.txt`.

@@ -6,7 +6,7 @@
 //          (확신도 N%) or a new one 「새 폴더를 만들어 정리: <이름>」, 「다른 폴더 고르기」 — filed: 「‘…’에 정리했어요 · 폴더에서 열어요」
 //   pick   the folders that can take it (edit or more, server lib/folders/filing.js) and a new folder's name
 // The filing itself is the card's (useFiling.js — the card's dot shows while a suggestion waits).
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import Icon from './Icon.vue'
 import { useTeam, shareable } from '../stores/team.js'
 import { menuKeys } from '../menuKeys.js'
@@ -34,7 +34,13 @@ async function focusFirst() {
 onMounted(() => { f.value?.load?.(); focusFirst() })
 function open() { emit('open'); close() }
 function share() { const m = props.msg; close(); team.startShare([m]) }
-async function file(to) { if (await f.value.fileIt(to)) close(true) }
+// (a menu closed meanwhile — Esc, the veil — takes no focus back later; busy: one filing at a time, the item keeps the focus — aria-disabled)
+let gone = false
+onBeforeUnmount(() => { gone = true })
+async function file(to) {
+  if (f.value.busy) return
+  if ((await f.value.fileIt(to)) && !gone) close(true)
+}
 async function pick() {
   f.value.err = ''
   step.value = 'pick'
@@ -42,7 +48,7 @@ async function pick() {
   await nextTick()
   sheet.value?.focus()
   await f.value.loadList()
-  if (document.activeElement === sheet.value || !sheet.value?.contains(document.activeElement)) focusFirst()
+  if (!gone && (document.activeElement === sheet.value || !sheet.value?.contains(document.activeElement))) focusFirst()
 }
 function back() { step.value = 'menu'; f.value.err = ''; focusFirst() }
 function openFolder() { close(); f.value.openFolder() }
@@ -70,8 +76,9 @@ const newName = computed({ get: () => f.value?.newName || '', set: (v) => { f.va
           <button v-if="canShare" class="mi press" role="menuitem" data-test="file-menu-share" @click="share">
             <span class="ic"><Icon name="team" :size="18" /></span><span class="mt"><b>팀원에게 공유</b><small>팀원을 골라 이 파일을 보내요</small></span><Icon name="chevron" :size="14" />
           </button>
-          <template v-if="f">
-            <p class="sec">폴더에 정리</p>
+          <!-- (a group of the menu's items, named — its heading is only seen: role="menu" holds menu items alone) -->
+          <div v-if="f" class="grp" role="group" aria-label="폴더에 정리" data-test="file-menu-filing">
+            <p class="sec" aria-hidden="true">폴더에 정리</p>
             <button v-if="f.filed" class="mi press" role="menuitem" data-test="file-menu-filed" @click="openFolder">
               <span class="ic ok"><Icon name="check" :size="18" /></span>
               <span class="mt"><b>{{ f.filed.already ? `이미 ‘${f.filed.name}’에 있어요` : `‘${f.filed.name}’에 정리했어요` }}</b><small>폴더에서 열어요</small></span><Icon name="chevron" :size="14" />
@@ -80,11 +87,11 @@ const newName = computed({ get: () => f.value?.newName || '', set: (v) => { f.va
               <button v-if="f.state === 'loading' || f.state === 'idle'" class="mi" role="menuitem" disabled data-test="file-menu-finding">
                 <span class="ic"><Icon name="folder" :size="18" /></span><span class="mt"><b class="shimmer-text">알맞은 폴더를 찾고 있어요…</b></span>
               </button>
-              <button v-else-if="f.sug?.folder" class="mi press" role="menuitem" data-test="file-menu-file" :disabled="f.busy" @click="file({ slug: f.sug.folder.slug, sub: f.sug.sub || '' })">
+              <button v-else-if="f.sug?.folder" class="mi press" role="menuitem" data-test="file-menu-file" :aria-disabled="f.busy ? 'true' : null" @click="file({ slug: f.sug.folder.slug, sub: f.sug.sub || '' })">
                 <span class="ic"><Icon name="folder" :size="18" /></span>
                 <span class="mt"><b data-test="file-menu-file-label">{{ f.busy ? '정리하는 중…' : `‘${f.where}’에 정리` }}</b><small>추천 · 확신도 {{ f.pct }}%</small></span><i class="tag">추천</i>
               </button>
-              <button v-else-if="f.sug?.newFolder" class="mi press" role="menuitem" data-test="file-menu-new" :disabled="f.busy" @click="file({ newFolder: f.sug.newFolder.name })">
+              <button v-else-if="f.sug?.newFolder" class="mi press" role="menuitem" data-test="file-menu-new" :aria-disabled="f.busy ? 'true' : null" @click="file({ newFolder: f.sug.newFolder.name })">
                 <span class="ic"><Icon name="plus" :size="18" /></span>
                 <span class="mt"><b data-test="file-menu-new-label">{{ f.busy ? '만드는 중…' : `새 폴더를 만들어 정리: ${f.sug.newFolder.name}` }}</b><small>맞는 폴더가 없어 새 폴더를 추천해요</small></span><i class="tag">추천</i>
               </button>
@@ -92,14 +99,14 @@ const newName = computed({ get: () => f.value?.newName || '', set: (v) => { f.va
                 <span class="ic"><Icon name="list" :size="18" /></span><span class="mt"><b>{{ f.sug?.folder || f.sug?.newFolder ? '다른 폴더 고르기' : '폴더 고르기' }}</b><small>편집할 수 있는 폴더 중에서 직접 골라요</small></span><Icon name="chevron" :size="14" />
               </button>
             </template>
-          </template>
+          </div>
         </div>
 
         <template v-else-if="step === 'pick' && f">
-          <div class="menu list scroll" role="menu" aria-label="정리할 폴더" data-test="file-menu-pick" @keydown="menuKeys">
-            <p v-if="!f.list" class="wait shimmer-text">폴더를 불러오는 중…</p>
-            <p v-else-if="!f.list.length" class="none">정리할 수 있는 폴더가 없어요. 편집 권한이 있는 폴더만 고를 수 있어요.</p>
-            <button v-for="x in f.list || []" :key="x.slug" class="mi opt press" role="menuitem" data-test="file-menu-folder" :data-slug="x.slug" :disabled="f.busy" @click="file({ slug: x.slug })">
+          <p v-if="!f.list" class="wait shimmer-text" role="status">폴더를 불러오는 중…</p>
+          <p v-else-if="!f.list.length" class="none" role="status">정리할 수 있는 폴더가 없어요. 편집 권한이 있는 폴더만 고를 수 있어요.</p>
+          <div v-else class="menu list scroll" role="menu" aria-label="정리할 폴더" data-test="file-menu-pick" @keydown="menuKeys">
+            <button v-for="x in f.list || []" :key="x.slug" class="mi opt press" role="menuitem" data-test="file-menu-folder" :data-slug="x.slug" :aria-disabled="f.busy ? 'true' : null" @click="file({ slug: x.slug })">
               <span class="ic"><Icon name="folder" :size="16" /></span><span class="mt"><b data-no-i18n>{{ x.name }}</b></span>
             </button>
           </div>
@@ -126,11 +133,11 @@ header { display: flex; align-items: flex-start; gap: 8px; }
 h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .sub { margin: 3px 0 0; font-size: 12.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .x { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--field-bg); flex: none; color: var(--text-primary); }
-.menu { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+.menu, .grp { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
 .list { overflow: auto; }
 .mi { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 7px 10px; border-radius: 16px; text-align: left; color: var(--text-primary); }
-.mi:hover:not(:disabled) { background: var(--cell-bg, rgba(127, 127, 127, .1)); }
-.mi:disabled { opacity: .6; }
+.mi:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--cell-bg, rgba(127, 127, 127, .1)); }
+.mi:disabled, .mi[aria-disabled="true"] { opacity: .6; }
 .mi.opt { min-height: 44px; }
 .ic { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--field-bg); }
 .ic.ok { color: var(--color-success); }

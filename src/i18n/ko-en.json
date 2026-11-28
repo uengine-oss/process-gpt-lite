@@ -3665,7 +3665,9 @@
   "이 답의 메뉴 열기": "Open this answer's menu",
   "공유 · 프로젝트로 시작 · 복사": "Share · Start a project · Copy",
   "폴더 정리 제안이 있어요": "A folder is suggested for this file",
-  "파일 메뉴": "File menu"
+  "파일 메뉴": "File menu",
+  "프로젝트 카드를 준비하고 있어요…": "Preparing the project card…",
+  "프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.": "I couldn't prepare the project card. Please press it again."
  },
  "patterns": [
   [
