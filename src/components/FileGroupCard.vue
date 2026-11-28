@@ -4,12 +4,13 @@
 // (src/fileGroups.js fileRuns: more than three documents of one turn — the stored messages are not changed, so older chats read the same).
 // The head says 「파일 21개 · 폴더 3개」 and the work folder they are in (「커리큘럼 · v2」); under it the files at the top, then one line per
 // folder, folded — pressed, its files open as compact rows (FileGroupRow.vue), each opening and with its menu as its own card would.
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import FileGroupRow from './FileGroupRow.vue'
+import HoldHint from './HoldHint.vue'
 import { fileTree, shownRows } from '../fileGroups.js'
 import { startDrag, cardItem, MAX } from '../fileDrag.js'
-import { touchOnly } from '../holdHint.js'
+import { touchOnly, holdHint, claimHint } from '../holdHint.js'
 import { kindLabel, cardKind } from '../artifacts.js'
 
 const props = defineProps({ msgs: { type: Array, default: () => [] } })
@@ -38,6 +39,10 @@ const time = computed(() => new Date(props.msgs[0]?.created_at).toLocaleString('
 const draggable = !touchOnly()
 const dragAll = (e) => startDrag(e, props.msgs.slice(0, MAX).map(cardItem))
 const el = ref(null)
+// 「길게 누르면 …」 once on a phone (src/holdHint.js): the card's rows have the card's menu, so the newest card drawn may host it, as a file card does
+const lead = computed(() => props.msgs[0]?.id || null)
+onMounted(() => { if (lead.value) claimHint(lead.value) })
+const hintHere = computed(() => !!lead.value && holdHint.host === lead.value && !holdHint.closed)
 </script>
 
 <template>
@@ -70,6 +75,7 @@ const el = ref(null)
         </div>
       </div>
     </section>
+    <HoldHint v-if="hintHere" />
   </div>
 </template>
 

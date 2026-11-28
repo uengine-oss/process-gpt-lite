@@ -102,13 +102,14 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 
 ```bash
 cd server && node --test test/fileGroups.test.js     # FG-U-01~08 — src/fileGroups.js
-cd server && node --test test/workFolder.test.js     # WF-U-01~10 — server/lib/workFolder.js
+cd server && node --test test/workFolder.test.js     # WF-U-01~14 — server/lib/workFolder.js
+cd server && node --test test/workFolderDocs.test.js # WD-U-01 — lib/office.js documentsOfRun 의 깊이(시험 폴더의 deepagents 작업 공간)
 ```
 
 실제 턴(실제 데이터베이스, 가짜 모델 · 가짜 deepagents — fetch 를 바꿔 끼움, 데이터베이스가 없으면 건너뜀):
 
 ```bash
-cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js   # WF-I-01~04
+cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js   # WF-I-01~06
 ```
 
 화면(자기 스택: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트, 가짜 모델 · 가짜 deepagents 는 빈 포트):
@@ -117,7 +118,7 @@ cd server && node --test --test-concurrency=1 test/workFolder.integration.test.j
 cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1
 ```
 
-시험 사람은 정하윤 · 한서윤(지어낸 이름)이다. 정하윤의 채팅에 네 턴을 데이터베이스에 바로 넣는다. 첫 턴은 녹화와 같은 모양의 21개 파일(맨 위 5개 + adr/ · curriculum/ · starter/ · starter/css/ · syllabus/, README.md 4개, curriculum.md 2개)이다. 이어서 커리큘럼/v1 의 5개, 커리큘럼/v2 의 6개, 회의메모 3개가 있다. constitution.md · adr/ADR-004.md · 커리큘럼/v2/README.md 는 올려 둔 사본의 주소가 있어 이음오피스로 열린다. 나머지는 작업실로 열린다. 한서윤은 실제 턴(F-WF-05)을 보낸다. 시험이 끝나면 행 · 올린 파일 · deepagents 작업 공간의 그 회사 폴더를 지운다.
+시험 사람은 정하윤 · 한서윤(지어낸 이름)이다. 정하윤의 채팅에 네 턴을 데이터베이스에 바로 넣는다. 첫 턴은 녹화와 같은 모양의 21개 파일(맨 위 5개 + adr/ · curriculum/ · starter/ · starter/css/ · syllabus/, README.md 4개, curriculum.md 2개)이다. 이어서 커리큘럼/v1 의 5개, 커리큘럼/v2 의 6개, 회의메모 3개가 있다. constitution.md · adr/ADR-004.md · 커리큘럼/v2/README.md 는 올려 둔 사본의 주소가 있어 이음오피스로 열린다. 나머지는 작업실로 열린다. 첫 턴의 spec.md 는 검수에서 걸린 편집본이다. 한서윤은 실제 턴(F-WF-05 · F-WF-06)을 보낸다. F-WF-06 에서 가짜 deepagents 는 파일 하나를 이벤트 없이(스크립트가 쓴 것처럼) 하위 폴더 깊이 쓴다. 시험이 끝나면 행 · 올린 파일 · deepagents 작업 공간의 그 회사 폴더를 지운다.
 
 | 스펙 시나리오 | 시험 |
 |---|---|
@@ -125,9 +126,13 @@ cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright tes
 | 일부만 고치기는 그 자리에서 | WF-I-03 · WF-U-04 |
 | 모델이 없거나 가벼운 한 번이면 예전처럼 | WF-I-04 · WF-U-09 |
 | 공유 폴더에서 일하는 프로젝트(템플릿의 결과물 폴더) | WF-U-10 |
-| 21개를 만든 턴은 카드 하나 · 펼치고 접기 · 줄을 누르면 카드처럼 | F-WF-01 · FG-U-02~05 |
+| 프로세스 폴더처럼 보이는 이름(PR #135 검토 1) | F-WF-06 · WF-I-06 · WF-U-13 |
+| 스크립트가 하위 폴더 깊이 쓴 파일(PR #135 검토 2) | F-WF-06 · WD-U-01 |
+| 턴은 판단을 기다리지 않는다 — 계획과 함께 시작, 계획 블록 뒤 0.3초, 늦은 판단은 버림 · 계획은 있으면 그것, 없으면 그 약속을 한도까지(PR #135 검토 3 · 4 · 5) | WF-I-05 · WF-U-11 · WF-U-12 · WF-I-01 · WF-I-04 |
+| 작업본 목록은 손으로 걷기(점 폴더 · node_modules 제외, 한도에서 멈춤 — PR #135 검토 6) · 이름 다듬기 · 모델에게는 JSON 이름(검토 9) | WF-U-14 · WF-U-07 · WF-U-08 |
+| 21개를 만든 턴은 카드 하나 · 펼치고 접기 · 줄을 누르면 카드처럼 · 검수 표시 · 컴퓨터의 공유 단추(검토 7) | F-WF-01 · FG-U-02~05 |
 | 휴대폰 390(밝은 · 어두운) | F-WF-02 |
-| PC 1440 의 목록 | F-WF-03 · FG-U-08 |
+| PC 1440 의 목록 · 옛 버전은 같은 대화 · 같은 자리의 새 버전 옆에서만 접힘(검토 8) | F-WF-03 · FG-U-08 |
 | 휴대폰의 더미 격자(메시지가 바뀌어도 열린 채) | F-WF-04 |
 
 F-WF-04 의 마지막 확인은 고치기 전의 더미로 돌리면 실패한다. 카드의 폴더 정리 제안이 저장되면 서버가 그 메시지를 다시 보내는데, 예전 더미는 그때마다 격자를 접었다.
@@ -136,9 +141,12 @@ F-WF-04 의 마지막 확인은 고치기 전의 더미로 돌리면 실패한�
 - `e2e/tests/feature/file-download.spec.js` 11/11
 - `e2e/tests/feature/context-menu-actions.spec.js` 6/6
 - `e2e/tests/feature/chat-artifacts.spec.js` · `conversations.spec.js` 13/13
+- (PR #135 검토 뒤) `e2e/tests/feature/plan-guard.spec.js` 6/6 · `file-download.spec.js` 11/11, `server/test/planGuard.test.js` 13/13 · `turnPlan.test.js` 22/22 · `craftWork.test.js` 8/8 · `capture-fixes.test.js` 9/9. `turnPlan.integration.test.js` 는 TP-I-01 하나가 실패한다(계획 상태 'asked' ≠ 'done'). 이 실패는 origin/main(6a2afd3)에서도 같아 이 바꿈과는 관계없다.
 
 시험하지 않은 것:
 - 실제 deepagents 에이전트가 그 한 줄대로 폴더에 쓰는지(가짜 deepagents 는 줄에 적힌 폴더에 쓴다).
 - 실제 모델이 「다시 하기」 · 「일부 고치기」 · 「새 일」을 얼마나 맞게 가르는지(판단 정확도). 모델은 시험마다 가짜다.
-- 공유 폴더 프로젝트의 실제 턴(작업본 목록을 디스크에서 읽는 길은 단위 시험에서 작업본 경로만 확인했다).
+- 공유 폴더 프로젝트의 실제 턴(작업본 목록을 디스크에서 읽는 길은 단위 시험(WF-U-12 · WF-U-14)에서만 확인했다).
+- 휴대폰에서 묶은 카드 아래에 뜨는 「길게 누르면 …」 안내(시험 자료에서는 가장 새 카드가 묶지 않은 회의메모 카드다).
+- 작업 폴더 안의 하위 폴더 이름. 에이전트가 하위 폴더 이름을 skills 로 지으면 `/skills/<이름>/` 경로 규칙 때문에 그 아래 파일이 카드가 되지 않는다. 줄은 첫 이름만 정한다.
 - 영어 화면. 새 문구(「파일 {0}개 · 폴더 {1}개」 · 「{0}개 더 보기」 · 「모두 펼치기」 · 「모두 접기」 · 「맨 위」)는 `src/i18n/ko-en.json`에 넣었다.

@@ -87,7 +87,7 @@ test('FG-U-04 all in one work folder: the tree starts inside it and the head nam
   const docs = ['README.md', 'syllabus/week-1.md', 'syllabus/week-2.md', 'starter/README.md'].map((r) => file(`커리큘럼/v2/${r}`))
   const t = fileTree(docs)
   assert.equal(t.common, '커리큘럼/v2')
-  assert.deepEqual(t.work, { folder: '커리큘럼', version: 2, key: '커리큘럼/v2' })
+  assert.deepEqual(t.work, { folder: '커리큘럼', version: 2, key: '커리큘럼/v2', path: '커리큘럼' })
   assert.deepEqual(t.sections.map((s) => s.dir), ['', 'starter', 'syllabus'])
   assert.equal(t.folders, 2)
   // (inside the card's folder: README.md at its top, the other in starter/)
@@ -123,12 +123,12 @@ test('FG-U-06 same-named files: the shortest end of their folder that differs, t
 })
 
 test('FG-U-07 a file\'s work folder and version: the folder before a version folder (inside a template\'s outputs too), else its first folder', () => {
-  assert.deepEqual(workFolderOf('커리큘럼/v2/README.md'), { folder: '커리큘럼', version: 2, key: '커리큘럼/v2' })
-  assert.deepEqual(workFolderOf('outputs/커리큘럼/v1/adr/ADR-001.md'), { folder: '커리큘럼', version: 1, key: 'outputs/커리큘럼/v1' })
-  assert.deepEqual(workFolderOf('starter/css/base.css'), { folder: 'starter', version: null, key: 'starter' })
+  assert.deepEqual(workFolderOf('커리큘럼/v2/README.md'), { folder: '커리큘럼', version: 2, key: '커리큘럼/v2', path: '커리큘럼' })
+  assert.deepEqual(workFolderOf('outputs/커리큘럼/v1/adr/ADR-001.md'), { folder: '커리큘럼', version: 1, key: 'outputs/커리큘럼/v1', path: 'outputs/커리큘럼' })
+  assert.deepEqual(workFolderOf('starter/css/base.css'), { folder: 'starter', version: null, key: 'starter', path: 'starter' })
   assert.equal(workFolderOf('README.md'), null)
   // (a folder named like a version at the top is just a folder)
-  assert.deepEqual(workFolderOf('v1/a.md'), { folder: 'v1', version: null, key: 'v1' })
+  assert.deepEqual(workFolderOf('v1/a.md'), { folder: 'v1', version: null, key: 'v1', path: 'v1' })
 })
 
 test('FG-U-08 the list in sections: one work folder and version together at its newest file\'s place, older versions folded, same names with their folder; search finds a folder', () => {
@@ -144,6 +144,13 @@ test('FG-U-08 the list in sections: one work folder and version together at its 
   assert.equal(s[1].items[0].hint, null)
   // one folder name in two conversations of the chat: two works
   const two = artifactSections([x('과정/v1/a.md', 2, 'c1'), x('과정/v1/b.md', 1, 'c2')])
+  // (PR #135 review) an older version folds only beside a newer one of the same work: the same conversation, the same place — conversation
+  // A's 커리큘럼 v1 stays open when B's 커리큘럼 is at v3, and so does a template's outputs/커리큘럼/v1 beside 커리큘럼/v3
+  const ab = artifactSections([x('커리큘럼/v3/a.md', 9, 'B'), x('커리큘럼/v1/a.md', 8, 'A'), x('커리큘럼/v2/a.md', 7, 'B')])
+  assert.deepEqual(ab.map((sec) => [sec.version, sec.older]), [[3, false], [1, false], [2, true]])
+  const places = artifactSections([x('커리큘럼/v3/a.md', 9), x('outputs/커리큘럼/v1/a.md', 8)])
+  assert.deepEqual(places.map((sec) => sec.older), [false, false])
+  assert.ok(ab.every((sec) => !('work' in sec)))
   assert.equal(two.length, 2)
   // the search box reads the folder too
   assert.deepEqual(filterArtifacts(items, 'v1').map((y) => y.msg.content.path.split('/').slice(-2).join('/')), ['v1/README.md', 'v1/week-1.md'])

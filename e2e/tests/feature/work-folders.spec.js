@@ -8,6 +8,9 @@
 //   F-WF-02 휴대폰 390(밝은 · 어두운): 카드가 화면 안, 옆으로 밀리지 않음, 줄을 길게 누르면 카드의 메뉴
 //   F-WF-03 PC 1440: 오른쪽 산출물 목록이 작업 폴더 · 버전으로 묶임 — 새 버전은 펼치고 옛 버전은 접힘, 같은 이름은 폴더가 붙음, 찾기는 폴더도 읽음
 //   F-WF-04 휴대폰 390: 산출물 더미의 격자도 작업 폴더 · 버전 이름 아래 · 같은 이름은 폴더가 붙음
+//   F-WF-06 (PR #135 검토) 실제 턴: 모델이 「process improvement plan」이라고 이름 지어도 process-* 가 아니라 work-process-improvement-plan/v1 —
+//           파일은 카드로 남고(process-* 폴더면 프로세스 생성물로 읽혀 카드가 없음), 에이전트의 스크립트가 쓴 하위 폴더 깊은 곳의 파일
+//           (syllabus/notes/…)도 카드 안에 들어옴
 //   F-WF-05 실제 턴(가짜 모델 · 가짜 deepagents): 「만들어 줘」 → 에이전트에게 「작업 폴더: … '…/v1/'」, 파일 6개가 카드 하나로 · 「처음부터
 //           다시」 → 모델이 v1 을 보고 「다시」로 판단, 에이전트에게 새 버전 v2 와 v1 을 그대로 두라는 줄, 두 번째 카드 「… · v2」
 // 자기 스택(lib/localStack.js: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트)과 이 파일이 띄우는 가짜 모델 · 가짜 deepagents
@@ -62,7 +65,8 @@ const llmServer = () => http.createServer(async (req, res) => {
 // ---- the fake deepagents: puts its files where the line it was given says (as an agent following it would) ----
 const { PGPT_ROOT } = await import(path.join(SERVER, 'lib/paths.js'))
 const workspace = () => path.join(PGPT_ROOT, 'services/deepagents/workspace', TENANT)
-const agent = { bodies: [], files: [] }
+// files: written with a file_artifact event (dated back); scripted: written by the agent's own script — no event, found in the folder
+const agent = { bodies: [], files: [], scripted: [] }
 const agentServer = () => http.createServer(async (req, res) => {
   const b = await bodyOf(req)
   if (req.url.endsWith('/chat/stop')) return send(res, { stopped: false })
@@ -85,6 +89,11 @@ const agentServer = () => http.createServer(async (req, res) => {
     fs.utimesSync(at, past, past)
     const p = ['/workspace/.bpmn', conv, dir, rel].filter(Boolean).join('/')
     res.write(`data: ${JSON.stringify({ type: 'file_artifact', name: rel.split('/').pop(), path: p, ext: rel.split('.').pop() })}\n\n`)
+  }
+  for (const rel of agent.scripted.splice(0)) {
+    const at = path.join(workspace(), '.bpmn', conv, dir, rel)
+    fs.mkdirSync(path.dirname(at), { recursive: true })
+    fs.writeFileSync(at, `# ${rel}\n\n스크립트가 만든 파일 — ${rel}\n`)
   }
   res.write(`data: ${JSON.stringify({ type: 'done', content: dir ? `「${dir}」에 담았어요.` : '만들었어요.' })}\n\n`)
   res.end()
@@ -109,6 +118,8 @@ async function turn(at, said, answer, room, rels) {
     const name = rel.split('/').pop()
     const c = { name, path: `/workspace/.bpmn/${room}/${rel}` }
     if (WITH_URL.has(rel)) c.url = (await attach(HY, name, `# ${name}\n\n가나정밀 교육 과정 — ${rel}\n`)).url
+    // (an edited copy whose 검수 found something — lib/review.js)
+    if (rel === 'spec.md' && room === OLD) c.review = { ok: false, summary: '표 두 개가 비었어요' }
     await S.q(`insert into pro_messages(thread_id,role,kind,content,created_at) values ($1,'agent','file',$2, now() - make_interval(secs => $3))`, [MAIN.id, c, at - 8 - i / 10])
     i++
   }
@@ -248,6 +259,11 @@ test('F-WF-01 PC 1280(밝은): 21개를 만든 턴은 카드 하나 — 폴더�
   const r = row(g1, 'constitution.md')
   await r.locator('button.file').hover()
   await expect.poll(() => r.locator('[data-test="file-more"]').evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+  // (PR #135 review) as its card: 공유 beside it with the pointer, the 검수 mark of an edited copy
+  await expect.poll(() => r.locator('.rshare').evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+  await expect(r.locator('.rshare')).toHaveAttribute('aria-label', 'constitution.md 공유')
+  await expect(row(g1, 'spec.md').locator('[data-test="file-review"]')).toHaveText('검수 확인 필요')
+  await expect(row(g1, 'spec.md').locator('[data-test="file-review"]')).toHaveAttribute('title', '표 두 개가 비었어요')
   await r.locator('[data-test="file-more"]').click()
   const menu = p.locator('[data-test="file-menu"]')
   await expect(menu).toBeVisible()
@@ -299,6 +315,8 @@ for (const theme of ['light', 'dark']) {
     // a phone's ⋯ takes no room — a long press on the row is its menu, not the file
     const r = row(g1.locator('[data-test="file-group-rows"][data-dir="adr"]'), 'ADR-004.md')
     expect((await r.locator('[data-test="file-more"]').boundingBox()).width).toBeLessThanOrEqual(1)
+    // (a phone's 공유 is the menu's — no button per row)
+    await expect(g1.locator('.rshare')).toHaveCount(0)
     await center(r)
     await shot(p, `f-wf-02-phone-folder-${theme}`)
     await press(p, r.locator('button.file'))
@@ -394,7 +412,8 @@ test('F-WF-05 실제 턴: 에이전트는 작업 폴더 · 버전을 듣고, 6�
   await expect(g1.locator('[data-test="file-group-where"]')).toHaveText('신입-교육-과정 · v1')
   const m1 = String(agent.bodies.at(-1)?.message || '')
   expect(m1).toContain("(작업 폴더: 이번 결과물은 산출물 폴더 안의 '신입-교육-과정/v1/' 에 두세요(이 일의 버전 1)")
-  expect(llm.folder.at(-1)).toContain('Existing work folders in this conversation:\n(none)')
+  expect(llm.folder.at(-1)).toContain('Existing work folders in this conversation (JSON, one per line):\n(none)')
+  expect(llm.folder.at(-1)).toContain('What the assistant understood: 가나정밀 신입 교육 과정 자료를')
   await expect(p.locator('.row.k-file')).toHaveCount(0)
   await shot(p, 'f-wf-05-live-v1')
   // 2) 「처음부터 다시」 → the model sees v1, the agent is told v2 and to keep v1
@@ -405,7 +424,7 @@ test('F-WF-05 실제 턴: 에이전트는 작업 폴더 · 버전을 듣고, 6�
   await expect(p.locator('[data-test="file-group"]')).toHaveCount(2, { timeout: 60000 })
   const g2 = p.locator('[data-test="file-group"]').nth(1)
   await expect(g2.locator('[data-test="file-group-where"]')).toHaveText('신입-교육-과정 · v2', { timeout: 20000 })
-  expect(llm.folder.at(-1)).toMatch(/- 신입-교육-과정: versions v1 \(latest v1: /)
+  expect(llm.folder.at(-1)).toContain('- {"folder":"신입-교육-과정","versions":["v1"],"latest":"v1","files":[')
   const m2 = String(agent.bodies.at(-1)?.message || '')
   expect(m2).toContain("새 버전 산출물 폴더 안의 '신입-교육-과정/v2/' 에 두세요(버전 2)")
   expect(m2).toContain("이전 버전 산출물 폴더 안의 '신입-교육-과정/v1/' 의 파일은 고치거나 지우지 말고 그대로 두세요")
@@ -416,6 +435,32 @@ test('F-WF-05 실제 턴: 에이전트는 작업 폴더 · 버전을 듣고, 6�
   expect(paths.filter((x) => x.includes('/신입-교육-과정/v2/'))).toHaveLength(5)
   await center(g2)
   await shot(p, 'f-wf-05-live-v2')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-WF-06 실제 턴: 「process improvement plan」은 work-process-improvement-plan/v1 — 파일은 카드로, 스크립트가 하위 폴더 깊이 쓴 파일도', async ({ browser }) => {
+  const p = await open(browser, SY, PC)
+  await toChat(p)
+  const box = p.locator('.composer textarea').first()
+  await expect(box).toBeVisible({ timeout: 30000 })
+  const groups = p.locator('[data-test="file-group"]')
+  const n = await groups.count()
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: 'process improvement plan', confidence: 0.93 }
+  agent.files.push('README.md', 'as-is.md', 'to-be.md', 'syllabus/roadmap.md')
+  agent.scripted.push('syllabus/notes/kickoff.md')
+  await box.fill('우리 팀 업무 처리 개선 계획 문서를 여러 개 만들어 줘')
+  await box.press('Enter')
+  await expect(groups).toHaveCount(n + 1, { timeout: 60000 })
+  const g = groups.last()
+  await expect(g.locator('[data-test="file-group-where"]')).toHaveText('work-process-improvement-plan · v1', { timeout: 20000 })
+  await expect(g.locator('[data-test="file-group-count"]')).toHaveText('파일 5개 · 폴더 2개')
+  expect(String(agent.bodies.at(-1)?.message || '')).toContain("산출물 폴더 안의 'work-process-improvement-plan/v1/' 에 두세요")
+  // the file the agent's script wrote four folders down is a card of the turn too
+  await g.locator('[data-test="file-group-folder"][data-dir="syllabus/notes"]').click()
+  await expect(g.locator('[data-test="file-card"][data-file="kickoff.md"]')).toBeVisible()
+  await center(g)
+  await shot(p, 'f-wf-06-live-reserved-name')
   expect(p.errors).toEqual([])
   await p.context().close()
 })

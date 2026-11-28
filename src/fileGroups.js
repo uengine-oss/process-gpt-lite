@@ -105,8 +105,9 @@ export function workFolderOf(rel) {
   const s = segs(rel).slice(0, -1)
   if (!s.length) return null
   const at = s.findIndex((x, i) => i > 0 && VERSION.test(x))
-  if (at > 0) return { folder: s[at - 1], version: Number(VERSION.exec(s[at])[1]), key: s.slice(0, at + 1).join('/') }
-  return { folder: s[0], version: null, key: s[0] }
+  // (path: the work folder with what is above it — its versions are told apart from another folder of the same name elsewhere)
+  if (at > 0) return { folder: s[at - 1], version: Number(VERSION.exec(s[at])[1]), key: s.slice(0, at + 1).join('/'), path: s.slice(0, at).join('/') }
+  return { folder: s[0], version: null, key: s[0], path: s[0] }
 }
 export const versionOf = (seg) => { const m = VERSION.exec(String(seg || '')); return m ? Number(m[1]) : null }
 
@@ -159,7 +160,7 @@ export function artifactSections(items) {
     if (!w) { out.push({ key: x.msg?.id, folder: null, version: null, items: [{ ...x, hint: hints.has(x.msg?.id) ? hints.get(x.msg.id) : null }] }); continue }
     // (one work folder of one conversation: the same folder name in two conversations is two works)
     const key = `${x.conv || ''}\u0000${w.key}`
-    if (!at.has(key)) { at.set(key, out.length); out.push({ key, folder: w.folder, version: w.version, inner: w.key.length + 1, items: [] }) }
+    if (!at.has(key)) { at.set(key, out.length); out.push({ key, folder: w.folder, version: w.version, work: `${x.conv || ''}\u0000${w.path}`, inner: w.key.length + 1, items: [] }) }
     out[at.get(key)].items.push(x)
   }
   for (const sec of out) {
@@ -168,8 +169,9 @@ export function artifactSections(items) {
     sec.items = sec.items.map((x) => ({ ...x, hint: inner.has(x.msg?.id) ? inner.get(x.msg.id) : null }))
     delete sec.inner
   }
-  // a folder's older versions fold by default: the newest version of each folder is the one open (versions of the same folder in this list)
+  // a folder's older versions fold by default: the newest version of each work folder is the one open — the same folder of the same
+  // conversation at the same place (conversation A's 커리큘럼 v1 stays open when B's 커리큘럼 is at v3)
   const newest = new Map()
-  for (const s of out) if (s.folder && s.version != null) newest.set(s.folder, Math.max(newest.get(s.folder) ?? -1, s.version))
-  return out.map((s) => ({ ...s, older: !!s.folder && s.version != null && s.version < newest.get(s.folder) }))
+  for (const s of out) if (s.folder && s.version != null) newest.set(s.work, Math.max(newest.get(s.work) ?? -1, s.version))
+  return out.map(({ work, ...s }) => ({ ...s, older: !!s.folder && s.version != null && s.version < newest.get(work) }))
 }

@@ -2272,9 +2272,9 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-
 사용자(2026-11-28 20:49 휴대폰 녹화 두 편 — 한 턴에서 파일 21개가 만들어져 채팅에 큰 카드 21개가 표시되고, 「이 프로젝트의 산출물 21개」에 README.md가 여러 번 나타난다): 「클로드 코드의 에이전트를 쓰면 이런 것 다 폴더로 관리해서 버전 1, 버전 2 뭐 이렇게 하든지 어떤 특정 폴더 안에다가 이렇게 담아 가지고 작업의 내용을 이렇게 관리」 · 「파일을 그냥 추가적으로 이렇게 계속 만들고 있기도 하고 기존에 걸 수정하던지」. 서버에서는 `server/lib/workFolder.js`가 작은 모델을 한 번 호출해 `{files, mode: new|redo|revise, folder, name, confidence}`를 받고, 버전은 코드가 계산한다. `server/lib/agent.js`는 그 한 줄을 계획 블록 뒤에 넣는다. 화면 관련 파일은 `src/fileGroups.js` · `FileGroupCard.vue` · `FileGroupRow.vue` · `ChatColumn.vue` · `ArtifactList.vue` · `ArtifactStack.vue`다. SQL은 없다.
 
 ```bash
-cd server && node --test test/fileGroups.test.js test/workFolder.test.js                 # FG-U-01~08 · WF-U-01~10
-cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js         # WF-I-01~04 (실제 DB, 가짜 모델 · deepagents)
-cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1   # F-WF-01~05
+cd server && node --test test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js   # FG-U-01~08 · WF-U-01~14 · WD-U-01
+cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js         # WF-I-01~06 (실제 DB, 가짜 모델 · deepagents)
+cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1   # F-WF-01~06
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2291,7 +2291,13 @@ cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright tes
 | 산출물 목록은 작업 폴더 · 버전으로 묶고, 새 버전은 펼치고 옛 버전은 접는다. 묶음 안에서 이름이 같은 파일에는 그 안의 폴더를 표시한다. 검색은 폴더 경로도 참조하며, 더미 격자도 묶음 이름 아래에 표시한다. | 녹화 11-28(README.md 여러 번) | FG-U-07 · FG-U-08 · F-WF-03 · F-WF-04 | unit · feature | ✅ |
 | 더미 격자는 보는 화면이 바뀔 때만 접힌다. 카드의 폴더 정리 제안을 저장해 메시지를 다시 받으면 격자가 접히던 문제를 고쳤다(수정 전 코드에서는 F-WF-04가 실패한다). | 시험이 찾은 결함 | F-WF-04 | feature | ✅ |
 | 문서 네 개 이상이 이어 나오던 기존 시험은 카드 안의 줄로도 그대로 통과한다(줄도 `[data-test="file-card"][data-file]` · `button.file`에 해당한다). | 회귀 | F-FD-01~11 · F-CM-01~04 · F-AS-01~08 · F-CV-01~05 | feature | ✅ |
-| (주 세션) 작업 폴더 판단은 앞단 계획이 오는 동안 함께 돈다 — 턴은 둘 중 느린 쪽만 기다린다, 계획이 가벼운 일이면 판단을 버린다 | 지연 | WF-U-11 · WF-I-01 · WF-I-04 | 단위 · DB | ✅ |
+| 작업 폴더 판단은 사람의 메시지가 저장될 때 앞단 계획과 함께 시작한다(대화방의 작업 폴더로 묻고, 턴이 정해진 대화의 폴더로 버전을 놓음). 계획이 있으면 그 계획을, 없으면 그 약속을 4초 + 0.3초까지 기다린다(이해한 내용이 모델에게 감, 가벼운 계획이면 묻지 않음). 턴은 계획 블록 뒤 0.3초만 기다리고, 늦은 판단은 멈추고 버린다(서버 기록) | PR #135 검토 3 · 4 · 5 | WF-U-11 · WF-U-12 · WF-I-01 · WF-I-04 · WF-I-05 | 단위 · DB | ✅ |
+| 앱이 다른 뜻으로 읽는 이름(process-*(대소문자 무관) · skill · skills · folders · uploads · 점 이름)은 작업 폴더 이름이 되지 않음 — work- 를 붙임(「process improvement plan」 → work-process-improvement-plan/v1, 그 파일들은 카드로), 작업본의 그런 폴더는 모델에게 보이지 않음 | PR #135 검토 1 | WF-U-13 · WF-I-06 · F-WF-06 | 단위 · DB · feature | ✅ |
+| 스크립트가 쓴 파일은 대화 폴더에서 네 단계 아래까지 찾음(작업 폴더의 하위 폴더), 프로세스 · 스킬 폴더는 두 단계 그대로, 점 폴더 · node_modules 제외, 걷는 항목 수 한도 | PR #135 검토 2 | WD-U-01 · F-WF-06 | 단위 · feature | ✅ |
+| 작업본 목록은 손으로 걸음(점 폴더 · node_modules 안 들어감, 가까운 것부터, 한도에서 멈춤) | PR #135 검토 6 | WF-U-14 | 단위 | ✅ |
+| 줄에 카드의 검수 표시(「검수 확인 필요」 · 요약) · 컴퓨터에서 포인터를 올리면 공유 단추 · 휴대폰은 메뉴의 공유(줄마다 단추 없음) · 「길게 누르면 …」 안내는 가장 새 카드가 묶은 카드이면 그 아래 | PR #135 검토 7 | F-WF-01 · F-WF-02 | feature | ✅ |
+| 옛 버전은 같은 대화 · 같은 자리의 새 버전 옆에서만 접힘(대화 B 의 v3 이 대화 A 의 v1 을 접지 않음) | PR #135 검토 8 | FG-U-08 | 단위 | ✅ |
+| 폴더 이름은 글자 단위로 40자에서 자른 뒤 다듬음(끝 . · - 없음, 이모지를 반으로 자르지 않음), 따옴표 지움, 모델에게는 이미 있는 이름을 JSON 문자열로, 따옴표가 든 이름은 보이지 않음 | PR #135 검토 9 | WF-U-07 · WF-U-08 · WF-U-13 | 단위 | ✅ |
 
 ---
 

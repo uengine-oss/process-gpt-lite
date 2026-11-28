@@ -586,6 +586,9 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project; store.composed = !!composed }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
   TP.begin({ turn: store?.turn, userId, threadId, msgId: said.id, text, files: [...files, ...(pointed?.shown || [])] })
+  // 작업 폴더 · 버전(lib/workFolder.js): read from here, beside the plan, the router and the turn's preparation — delegate tells it where the
+  // turn works and takes the note with the plan block (a turn that never reaches the agent leaves it)
+  if (store?.turn) store.folderRead = WF.startNote({ threadId, request: text, plan: WF.planOf(TP.viewOf(store.turn)), signal: store.turn.abort.signal })
   // the document open in the page's editor (src/stores/app.js send): this turn's delegate treats it
   // as the open document even when the live link (lib/craftLive.js) is down
   const doc = openDocOf(openDoc)
@@ -1744,6 +1747,11 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   const editsFrom = Date.now()
   const usedTools = new Set()
   let partial = ''
+  // 작업 폴더 · 버전(lib/workFolder.js, started in runTurn): where this turn's files go — <folder>/v<n>/, a new version for a redo, the latest edited
+  // in place. Told where the turn works (a project's once its folder is checked out, below); streamTurn takes the note with the plan block
+  const folderRead = adopted && mode !== 'skill' && !silent && !divider && !narrow && !pin?.folder ? store.folderRead || null : null
+  if (adopted && !folderRead) store.folderRead?.drop()
+  if (thread?.kind !== 'project') folderRead?.at({ conv: turn.conv || thread?.conversation_id, projectWork: null })
   // 같은 요청 알아보기(lib/context/repeat.js): 나나 팀원이 이미 같은 요청을 해 답이 있으면 에이전트를 부르지 않고 카드로 묻는다
   // (그 답 보기 · 요청하기 · 그래도 새로 하기). 파일을 붙인 요청, 「새로 하기」로 다시 보낸 요청은 보지 않는다.
   const freshAsked = !!turnCtx.getStore()?.fresh
@@ -1786,6 +1794,7 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (hint) { text += hint; console.log(`[folders] reference hint: '${ref.slug}' thread=${String(threadId).slice(0, 8)}`) }
     }
   }
+  folderRead?.at({ conv: turn.conv || thread?.conversation_id, projectWork })
   // the person asking inside a conversation of its own (a scheduled task's, the briefs', a mail's): what came into it that the agent never
   // saw goes before what they said (lib/ownConversations.js ownExcerpt — review 11-25 #8)
   if (pin && !background && !pin.folder && ['schedule', 'brief', 'mail'].includes(pin.kind)) {
@@ -1841,13 +1850,9 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // agent's own model calls go out with this person's key
   const llmAuth = await llmKeys.admit()
   // the plan the person was shown (lib/turnPlan.js §1.4): the agent records it with write_todos and does only that work
-  // 작업 폴더 · 버전(lib/workFolder.js): where this turn's files go — <folder>/v<n>/, a new version for a redo, the latest edited in place ('' as
-  // before); read while the front plan is still coming (its promise — the view's `ready`), so it adds no wait of its own
-  const folderNoteP = adopted && mode !== 'skill' && !silent && !divider && !narrow && !pin?.folder
-    ? WF.turnNote({ threadId, conv: turn.conv || thread?.conversation_id, projectWork, request: asked, plan: TP.viewOf(turn)?.ready || TP.viewOf(turn)?.plan || null })
-    : Promise.resolve('')
   const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
-  const folderNote = await folderNoteP
+  // (작업 폴더 · 버전 — the note when it is ready by a moment after the plan block, else none; lib/workFolder.js startNote)
+  const folderNote = folderRead ? await folderRead.take() : ''
   // 프로젝트 계획(lib/projectNote.js): every turn of a project, in whichever sub-topic — a sub-topic has its own history, and the plan changes
   // (design §4.3); background — the message decides
   const planMsg = thread?.kind === 'project' && mode !== 'skill' && !narrow ? planForAgent(turn.conv || thread?.conversation_id, await PN.noteRow(user.id, threadId).catch(() => null)) : { text: '', commit: () => {} }

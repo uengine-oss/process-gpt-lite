@@ -120,7 +120,8 @@ test('TP-I-01 (#1) 에이전트가 사람에게 물으면 저장되는 답은 JS
   const m = await p
   assert.equal(m.content.text, '링크의 글이 길어요.\n\n어떤 형식으로 정리할까요?\n- 세 줄 요약\n- 표로 정리')
   assert.ok(!/run_state|human_input_required/.test(m.content.text))
-  assert.equal(m.content.plan?.state, 'done')
+  // (a turn that stopped to ask is 'asked', not 'done' — its steps are not all done: PR #132, D-1128-09)
+  assert.equal(m.content.plan?.state, 'asked')
 })
 
 test('TP-I-02 (#2) 긴 요약 → write_todos → 짧은 마무리: 요약이 답에 남는다', { skip: !up }, async () => {

@@ -4,10 +4,14 @@
 // viewer, the workroom); held on a phone, right-clicked or its ⋯ on a computer, the card's menu (FileCardMenu.vue: 열기 · 팀원에게 공유 · 폴더에
 // 정리), with the dot while a folder suggestion waits and the line once it is filed; dragged like any file of the app.
 // hint: the folder that tells it apart from a same-named file of the turn ('' — at the top), or null when its name is alone.
+// As the card: its 검수 mark (「검수됨」 · 「검수 확인 필요」 — lib/review.js), 「편집본」, and 공유 beside it on a computer (shown with the
+// pointer, as the right column's rows; a phone's long press has 「팀원에게 공유」 in the menu — 21 share buttons would be the clutter this
+// card is for). The 「길게 누르면 …」 hint is the card's (FileGroupCard.vue), once under it.
 import { computed, ref, markRaw } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import FileCardMenu from './FileCardMenu.vue'
+import ShareButton from './team/ShareButton.vue'
 import { useFiling } from './folders/useFiling.js'
 import { hold } from './holdMenu.js'
 import { closeHint, touchOnly } from '../holdHint.js'
@@ -35,7 +39,8 @@ const menu = ref(null)
 const focusBack = () => { const a = document.activeElement; return a && a !== document.body ? a : null }
 const openMenu = (from = null) => { closeHint(); menu.value = { from: from ? markRaw(from) : null } }
 const onHold = (el, at) => openMenu(at?.touch ? null : focusBack())
-const draggable = !touchOnly()
+const touch = touchOnly()
+const draggable = !touch
 const drag = (e) => startDrag(e, [cardItem(props.msg)])
 </script>
 
@@ -45,9 +50,11 @@ const drag = (e) => startDrag(e, [cardItem(props.msg)])
       <!-- pressed: opens the file; held · right-clicked: its menu (data-hold-tap — components/holdMenu.js) -->
       <button v-hold="onHold" data-hold-tap class="file press" :title="`${c.name} · ${does}`" @click="open">
         <span class="fic" :class="fk">{{ kindLabel[fk] || 'FILE' }}</span>
-        <span class="fname"><b>{{ c.name }}</b><small v-if="hint != null" class="dir" data-test="file-dir">· <span v-if="hint" data-no-i18n>{{ hint }}</span><span v-else>맨 위</span></small><em v-if="c.edited">편집본</em></span>
+        <span class="fname"><b>{{ c.name }}</b><small v-if="hint != null" class="dir" data-test="file-dir">· <span v-if="hint" data-no-i18n>{{ hint }}</span><span v-else>맨 위</span></small><em v-if="c.edited">편집본</em><span v-if="c.review" class="reviewed" :class="{ warn: !c.review.ok }" data-test="file-review" :title="c.review.summary">{{ c.review.ok ? '검수됨' : '검수 확인 필요' }}</span></span>
         <span v-if="filing?.pending" class="fdot" data-test="filing-dot" role="img" aria-label="폴더 정리 제안이 있어요" title="폴더 정리 제안이 있어요" />
       </button>
+      <!-- 팀원에게 공유 (components/team) — not a private card (a mail's attachment, its edit: mine only); a computer's, with the pointer -->
+      <ShareButton v-if="!c.private && !touch" :msg="msg" compact class="rshare" />
       <button class="mbtn press" data-test="file-more" aria-haspopup="dialog" :aria-label="`${c.name} 메뉴 열기`" title="파일 메뉴" @click="openMenu($event.currentTarget)"><Icon name="more" :size="15" /></button>
     </div>
     <p v-if="filing?.filed" class="filed" data-test="filing-line"><Icon name="check" :size="11" />
@@ -70,6 +77,12 @@ const drag = (e) => startDrag(e, [cardItem(props.msg)])
 .fname b { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 500; }
 .fname .dir { flex: none; max-width: 48%; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: rgba(245, 245, 247, .62); }
 .fname em { flex: none; font-style: normal; font-size: 11px; color: #9fd0ff; }
+/* the last 검수 of an edited copy (lib/review.js) — the card's colours */
+.reviewed { flex: none; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; background: rgba(60, 190, 120, .22); color: #8fe0a8; }
+.reviewed.warn { background: rgba(240, 160, 40, .22); color: #ffc46b; }
+/* 공유: with the pointer (or the keyboard's focus), as the ⋯ */
+.rshare { flex: none; width: 28px !important; height: 28px; opacity: 0; transition: opacity .12s; background: rgba(245, 245, 247, .1); color: #f5f5f7; }
+.frow:hover .rshare, .rshare:focus-visible { opacity: 1; }
 .fdot { position: absolute; top: 5px; left: 31px; width: 8px; height: 8px; border-radius: 50%; background: #3b8cf0; box-shadow: 0 0 0 2px #1d1d1f; }
 /* ⋯ — the row's menu on a computer: shown by the row under the pointer, and to the keyboard (as a card's) */
 .mbtn { flex: none; width: 28px; height: 28px; margin-right: 4px; border-radius: 14px; display: grid; place-items: center; color: rgba(245, 245, 247, .75); background: rgba(245, 245, 247, .1); opacity: 0; transition: opacity .12s; }

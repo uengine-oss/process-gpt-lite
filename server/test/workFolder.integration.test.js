@@ -6,6 +6,10 @@
 //   WF-I-02 「처음부터 다시」: the model is shown 교육-과정 (v1) and answers redo — the line names v2 and to keep v1
 //   WF-I-03 a revision: the latest version, edited in place, no copies
 //   WF-I-04 the model down (500) — and a light front plan: no line, no work-folder call
+//   WF-I-05 (PR #135 review) the reading starts with the plan (runTurn) and the turn never waits for it: a model still answering a moment
+//           after the plan block is dropped — the agent gets the message without the line, well before the model would have answered
+//   WF-I-06 (PR #135 review) the model names the work 「process improvement plan」: placed as work-process-improvement-plan/v1, and its files
+//           come back as cards (a process-* folder would be read as a process generation and show none)
 //   cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -28,6 +32,7 @@ async function fakeLlm(body) {
   if (sys.includes('keeps the files of one piece of work')) {
     llm.folder.push(String(body.messages?.[1]?.content || ''))
     const a = typeof llm.answer === 'function' ? llm.answer() : llm.answer
+    if (llm.delay) await new Promise((r) => setTimeout(r, llm.delay))
     return a?.status ? json({ error: 'down' }, a.status) : reply(JSON.stringify(a || {}))
   }
   if (body.tools) return reply('DELEGATE')
@@ -43,6 +48,7 @@ globalThis.fetch = async (url, opts = {}) => {
     if (u.endsWith('/chat/stop')) return json({ stopped: false })
     if (!u.endsWith('/chat/stream')) return json([])
     agent.bodies.push(body)
+    agent.at = Date.now()
     const conv = body.conversation_id || `wfi-${crypto.randomBytes(4).toString('hex')}`
     const files = agent.files.splice(0)
     const rs = new ReadableStream({ start(c) {
@@ -81,9 +87,10 @@ test('WF-I-01 new work: the agent is told the work folder\'s first version, and 
   agent.files.push('교육-과정/v1/README.md', '교육-과정/v1/constitution.md', '교육-과정/v1/syllabus/week-1.md', '교육-과정/v1/syllabus/week-2.md', '교육-과정/v1/starter/README.md')
   await runTurn({ user, session, threadId: tid, text: '가나정밀 교육 과정 자료를 스펙킷 방식으로 만들어 줘' })
   assert.equal(llm.folder.length, 1)
-  // (the reading starts while the front plan is still coming — it has the person's request; the plan's sentence only when it was already there)
+  // (the reading starts with the plan and waits for it: the model has the person's request and what the plan understood)
   assert.match(llm.folder[0], /The person's request:\n가나정밀 교육 과정 자료를/)
-  assert.match(llm.folder[0], /Existing work folders in this conversation:\n\(none\)/)
+  assert.match(llm.folder[0], /What the assistant understood: 교육 과정 자료를 만들어 달라는/)
+  assert.match(llm.folder[0], /Existing work folders in this conversation \(JSON, one per line\):\n\(none\)/)
   const m = lastMessage()
   assert.match(m, /\(작업 폴더: 이번 결과물은 산출물 폴더 안의 '교육-과정\/v1\/' 에 두세요\(이 일의 버전 1\)/)
   // (after the file-location line and the plan block, before nothing of the person's words)
@@ -99,7 +106,7 @@ test('WF-I-02 「처음부터 다시」: the model sees the folder and its versi
   agent.files.push('교육-과정/v2/README.md', '교육-과정/v2/syllabus/week-1.md', '교육-과정/v2/syllabus/week-2.md', '교육-과정/v2/syllabus/week-3.md')
   await runTurn({ user, session, threadId: tid, text: '방향이 별로야. 처음부터 다른 구성으로 다시 만들어 줘' })
   assert.equal(llm.folder.length, 2)
-  assert.match(llm.folder[1], /- 교육-과정: versions v1 \(latest v1: /)
+  assert.ok(llm.folder[1].includes('- {"folder":"교육-과정","versions":["v1"],"latest":"v1","files":['), llm.folder[1])
   assert.match(llm.folder[1], /syllabus\/week-1\.md/)
   const m = lastMessage()
   assert.match(m, /새 버전 산출물 폴더 안의 '교육-과정\/v2\/' 에 두세요\(버전 2\)/)
@@ -112,7 +119,7 @@ test('WF-I-02 「처음부터 다시」: the model sees the folder and its versi
 test('WF-I-03 a revision of parts: the latest version, edited in place — no copies', { skip: !up }, async () => {
   llm.answer = { files: 'one', mode: 'revise', folder: '교육-과정', name: '교육 과정', confidence: 0.9 }
   await runTurn({ user, session, threadId: tid, text: '2주차 내용만 실습 위주로 고쳐 줘' })
-  assert.match(llm.folder.at(-1), /- 교육-과정: versions v1, v2 \(latest v2: /)
+  assert.ok(llm.folder.at(-1).includes('{"folder":"교육-과정","versions":["v1","v2"],"latest":"v2"'), llm.folder.at(-1))
   const m = lastMessage()
   assert.match(m, /이번 요청은 산출물 폴더 안의 '교육-과정\/v2\/' 의 파일을 고치는 일이에요\. 고칠 파일을 그 자리에서 고치고/)
   assert.doesNotMatch(m, /새 버전/)
@@ -126,7 +133,32 @@ test('WF-I-04 the model down, or a light one-off: no line — the turn goes as b
   llm.tier = 'light'
   llm.answer = { files: 'several', mode: 'new', name: '아무거나', confidence: 0.99 }
   await runTurn({ user, session, threadId: tid, text: '오늘 회의 몇 시였지?' })
-  // (the reading may already be on its way when the plan says light — it is dropped: no line)
-  assert.ok(llm.folder.length <= asked + 1)
+  // (the reading waits for the plan: a light one asks nothing)
+  assert.equal(llm.folder.length, asked)
   assert.doesNotMatch(lastMessage(), /작업 폴더/)
+})
+
+test('WF-I-05 the turn never waits for the reading: a model still answering after the plan block is dropped', { skip: !up }, async () => {
+  llm.tier = 'standard'
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: '늦은 자료', confidence: 0.95 }
+  llm.delay = 3000
+  const n = agent.bodies.length
+  const t0 = Date.now()
+  try {
+    await runTurn({ user, session, threadId: tid, text: '분기 보고 자료 여러 개 만들어 줘' })
+  } finally { llm.delay = 0 }
+  assert.equal(agent.bodies.length, n + 1)
+  assert.doesNotMatch(lastMessage(), /작업 폴더/)
+  assert.ok(agent.at - t0 < 2500, `the agent was asked ${agent.at - t0} ms after the message — not after the model's 3 s`)
+})
+
+test('WF-I-06 a work named like a process folder: work-process-improvement-plan/v1, and its files are cards', { skip: !up }, async () => {
+  llm.answer = { files: 'several', mode: 'new', folder: '', name: 'process improvement plan', confidence: 0.93 }
+  agent.files.push(...['README.md', 'as-is.md', 'to-be.md', 'roadmap.md'].map((f) => `work-process-improvement-plan/v1/${f}`))
+  const before = (await cards()).length
+  await runTurn({ user, session, threadId: tid, text: '우리 팀 업무 처리 개선 계획 문서 여러 개 만들어 줘' })
+  assert.match(lastMessage(), /산출물 폴더 안의 'work-process-improvement-plan\/v1\/'/)
+  const cs = (await cards()).slice(before)
+  assert.equal(cs.length, 4, JSON.stringify(cs.map((c) => c.path)))
+  assert.ok(cs.every((c) => c.path.includes('/work-process-improvement-plan/v1/')))
 })
