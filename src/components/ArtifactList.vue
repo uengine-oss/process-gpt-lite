@@ -12,6 +12,9 @@ import ShareButton from './team/ShareButton.vue'
 import { useApp } from '../stores/app.js'
 import { kindOf, kindLabel, openArtifact } from '../artifacts.js'
 import { CAPTION, filterArtifacts } from '../artifactScope.js'
+// files of one work folder and version together under its name, same-named files with their folder (spec chat-artifacts 「목록은 작업 폴더 ·
+// 버전으로 묶고 같은 이름은 폴더로 가른다」 — src/fileGroups.js)
+import { artifactSections } from '../fileGroups.js'
 import { whenText } from '../threadList.js'
 // a row is dragged like any file of the app (src/fileDrag.js): a messenger conversation (a link or a share), a folder, the composer
 import { startDrag, cardItem } from '../fileDrag.js'
@@ -29,6 +32,12 @@ const caption = computed(() => CAPTION[scope.value] || '산출물')
 const label = (m) => kindLabel[kindOf(m.content.name)] || 'FILE'
 watch(scope, () => { query.value = '' })
 const open = (m) => openArtifact(app, router, m)
+const sections = computed(() => artifactSections(shown.value))
+// a folder's older versions are folded until pressed; while searching every match shows
+const folds = ref(new Map())
+const folded = (s) => !!s.folder && !query.value.trim() && (folds.value.has(s.key) ? folds.value.get(s.key) : s.older)
+const toggle = (s) => { const m = new Map(folds.value); m.set(s.key, !folded(s)); folds.value = m }
+watch(scope, () => { folds.value = new Map() })
 </script>
 
 <template>
@@ -47,16 +56,25 @@ const open = (m) => openArtifact(app, router, m)
       <input v-model="query" type="search" placeholder="산출물 찾기" aria-label="산출물 찾기" data-testid="artifact-search" @keydown.esc="query = ''" />
     </label>
     <div class="rows scroll">
-      <div v-for="x in shown" :key="x.msg.id" class="roww" draggable="true" data-testid="artifact-drag" :data-file="x.msg.content.name" @dragstart="startDrag($event, [cardItem(x.msg)])">
-        <button class="row press" :title="x.msg.content.name" data-testid="artifact-row" :data-file="x.msg.content.name" @click="open(x.msg)">
-          <span class="tile" :class="kindOf(x.msg.content.name)">{{ label(x.msg) }}</span>
-          <span v-if="!rail" class="meta">
-            <b>{{ x.msg.content.name }}<em v-if="x.msg.content.edited">편집본</em></b>
-            <small>{{ whenText(x.msg.created_at) }}<template v-if="scope === 'chat' && x.convTitle"> · <span class="conv">{{ x.convTitle }}</span></template></small>
-          </span>
+      <!-- (folded to its rail: every file's tile, no folders) -->
+      <template v-for="s in rail ? [{ key: 'all', folder: null, items: shown }] : sections" :key="s.key">
+        <button v-if="s.folder" class="sech press" data-testid="artifact-folder" :data-folder="s.folder" :data-version="s.version ?? ''" :aria-expanded="!folded(s)" @click="toggle(s)">
+          <Icon name="chevron" :size="12" class="chev" :class="{ open: !folded(s) }" /><Icon name="folder" :size="15" class="fi" />
+          <b data-no-i18n>{{ s.folder }}</b><small v-if="s.version != null" class="ver" data-no-i18n>v{{ s.version }}</small><i class="sn">{{ s.items.length }}</i>
         </button>
-        <ShareButton v-if="!rail" :msg="x.msg" compact class="share" />
-      </div>
+        <template v-if="!folded(s)">
+          <div v-for="x in s.items" :key="x.msg.id" class="roww" :class="{ infolder: !!s.folder }" draggable="true" data-testid="artifact-drag" :data-file="x.msg.content.name" @dragstart="startDrag($event, [cardItem(x.msg)])">
+            <button class="row press" :title="x.hint != null ? `${x.msg.content.name} · ${x.hint}` : x.msg.content.name" data-testid="artifact-row" :data-file="x.msg.content.name" @click="open(x.msg)">
+              <span class="tile" :class="kindOf(x.msg.content.name)">{{ label(x.msg) }}</span>
+              <span v-if="!rail" class="meta">
+                <b><span class="nm">{{ x.msg.content.name }}</span><span v-if="x.hint != null" class="dir" data-testid="artifact-dir">· <span v-if="x.hint" data-no-i18n>{{ x.hint }}</span><span v-else>맨 위</span></span><em v-if="x.msg.content.edited">편집본</em></b>
+                <small>{{ whenText(x.msg.created_at) }}<template v-if="scope === 'chat' && x.convTitle"> · <span class="conv">{{ x.convTitle }}</span></template></small>
+              </span>
+            </button>
+            <ShareButton v-if="!rail" :msg="x.msg" compact class="share" />
+          </div>
+        </template>
+      </template>
       <p v-if="!rail && !shown.length" class="none" data-testid="artifact-none">「{{ query }}」와 맞는 산출물이 없어요.</p>
     </div>
   </aside>
@@ -93,6 +111,19 @@ const open = (m) => openArtifact(app, router, m)
 .meta b em { font-style: normal; margin-left: 6px; font-size: 11px; color: var(--color-info, #2a78d6); }
 .meta small { font-size: 11.5px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meta .conv { color: var(--text-secondary); }
+.meta b { display: flex; align-items: baseline; min-width: 0; }
+.meta b .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.meta b .dir { flex: none; margin-left: 4px; max-width: 55%; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 400; color: var(--text-secondary); }
+/* a work folder (and its version): its files under it, a little in */
+.sech { display: flex; align-items: center; gap: 6px; min-height: 32px; margin-top: 4px; padding: 4px 8px; border-radius: 12px; text-align: left; color: var(--text-primary); }
+.sech:hover { background: var(--field-bg); }
+.sech .chev { flex: none; color: var(--text-tertiary); transition: rotate .2s; }
+.sech .chev.open { rotate: 90deg; }
+.sech .fi { flex: none; color: var(--color-info, #2a78d6); }
+.sech b { min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sech .ver { flex: none; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; color: var(--text-secondary); background: var(--field-bg); }
+.sech .sn { margin-left: auto; font-style: normal; font-size: 11.5px; color: var(--text-tertiary); }
+.roww.infolder { margin-left: 14px; }
 /* 공유: on hover (always on a touch screen) */
 .share { flex: none; margin-right: 6px; opacity: 0; transition: opacity .15s; }
 .roww:hover .share, .share:focus-visible { opacity: 1; }

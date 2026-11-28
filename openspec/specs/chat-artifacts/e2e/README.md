@@ -93,3 +93,61 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 - 왼쪽에 붙인 메신저, 문서 패널에 붙인 메신저. 둘 다 페이지 폭을 줄이는 같은 길(`pageW`)을 쓰지만 화면으로는 오른쪽만 확인했다.
 - 실제 이음오피스 편집기 서버로 문서가 그려지는 모습(시험 스택에는 편집기 서버가 없다).
 - 영어 화면. 새 문구는 `src/i18n/ko-en.json`에 넣었다.
+
+## 작업 폴더 · 버전, 한 턴의 많은 파일은 카드 하나 (2026-11-28)
+
+요건 「한 턴의 결과물은 작업 폴더와 버전에」 · 「한 턴의 많은 파일은 카드 하나」 · 「목록은 작업 폴더 · 버전으로 묶고 같은 이름은 폴더로 가른다」의 시험이다.
+
+순수 규칙과 판단(데이터베이스 · 브라우저 없이, 모델은 가짜):
+
+```bash
+cd server && node --test test/fileGroups.test.js     # FG-U-01~08 — src/fileGroups.js
+cd server && node --test test/workFolder.test.js     # WF-U-01~16 — server/lib/workFolder.js
+cd server && node --test test/workFolderDocs.test.js # WD-U-01 — lib/office.js documentsOfRun 의 깊이(시험 폴더의 deepagents 작업 공간)
+```
+
+실제 턴(실제 데이터베이스, 가짜 모델 · 가짜 deepagents — fetch 를 바꿔 끼움, 데이터베이스가 없으면 건너뜀):
+
+```bash
+cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js   # WF-I-01~07
+```
+
+화면(자기 스택: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트, 가짜 모델 · 가짜 deepagents 는 빈 포트):
+
+```bash
+cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1
+```
+
+시험 사람은 정하윤 · 한서윤(지어낸 이름)이다. 정하윤의 채팅에 네 턴을 데이터베이스에 바로 넣는다. 첫 턴은 녹화와 같은 모양의 21개 파일(맨 위 5개 + adr/ · curriculum/ · starter/ · starter/css/ · syllabus/, README.md 4개, curriculum.md 2개)이다. 이어서 커리큘럼/v1 의 5개, 커리큘럼/v2 의 6개, 회의메모 3개가 있다. constitution.md · adr/ADR-004.md · 커리큘럼/v2/README.md 는 올려 둔 사본의 주소가 있어 이음오피스로 열린다. 나머지는 작업실로 열린다. 첫 턴의 spec.md 는 검수에서 걸린 편집본이다. 한서윤은 실제 턴(F-WF-05 · F-WF-06)을 보낸다. F-WF-06 에서 가짜 deepagents 는 파일 하나를 이벤트 없이(스크립트가 쓴 것처럼) 하위 폴더 깊이 쓴다. 시험이 끝나면 행 · 올린 파일 · deepagents 작업 공간의 그 회사 폴더를 지운다.
+
+| 스펙 시나리오 | 시험 |
+|---|---|
+| 새 일은 버전 1 · 「처음부터 다시」는 다음 버전, 앞 버전은 그대로 | WF-I-01 · WF-I-02 · F-WF-05 · WF-U-02 · WF-U-03 |
+| 일부만 고치기는 그 자리에서 | WF-I-03 · WF-U-04 |
+| 모델이 없거나 가벼운 한 번이면 예전처럼 | WF-I-04 · WF-U-09 |
+| 공유 폴더에서 일하는 프로젝트(템플릿의 결과물 폴더) | WF-U-10 |
+| 프로세스 폴더처럼 보이는 이름(PR #135 검토 1) | F-WF-06 · WF-I-06 · WF-U-13 |
+| 스크립트가 하위 폴더 깊이 쓴 파일(PR #135 검토 2) · 공유 폴더 작업본은 두 단계 그대로(확인 검토 2) | F-WF-06 · WD-U-01 |
+| 턴은 판단을 오래 기다리지 않는다 — 메시지가 올 때 계획을 기다리지 않고 바로 묻고(이해한 내용은 계획이 이미 있을 때만), 가벼운 계획이 오면 멈춤, 계획 블록 뒤 1.5초, 늦은 판단은 버림 · 계획 1.5초 · 모델 1 · 2.5초면 줄이 붙음(PR #135 검토 3 · 4 · 5, 확인 검토 1) | WF-I-07 · WF-I-05 · WF-U-11 · WF-U-12 · WF-I-01 · WF-I-04 |
+| 템플릿 프로젝트: 모델이 보는 목록도 결과물 폴더 안(확인 검토 3) · 이름-2 … 이름-50 뒤엔 폴더 없음(확인 검토 5) · 질문은 「이 채팅 · 프로젝트의 모든 대화」(확인 검토 6) | WF-U-15 · WF-U-16 · WF-U-12 |
+| 작업본 목록은 손으로 걷기(점 폴더 · node_modules 제외, 한도에서 멈춤 — PR #135 검토 6) · 이름 다듬기 · 모델에게는 JSON 이름(검토 9) | WF-U-14 · WF-U-07 · WF-U-08 |
+| 21개를 만든 턴은 카드 하나 · 펼치고 접기 · 줄을 누르면 카드처럼 · 검수 표시 · 컴퓨터의 공유 단추(검토 7) | F-WF-01 · FG-U-02~05 |
+| 휴대폰 390(밝은 · 어두운) | F-WF-02 |
+| PC 1440 의 목록 · 옛 버전은 같은 대화 · 같은 자리의 새 버전 옆에서만 접힘(검토 8) | F-WF-03 · FG-U-08 |
+| 휴대폰의 더미 격자(메시지가 바뀌어도 열린 채) | F-WF-04 |
+
+F-WF-04 의 마지막 확인은 고치기 전의 더미로 돌리면 실패한다. 카드의 폴더 정리 제안이 저장되면 서버가 그 메시지를 다시 보내는데, 예전 더미는 그때마다 격자를 접었다.
+
+같은 바꿈으로 기존 시험도 다시 돌렸다(모두 통과). 문서 네 개 이상이 한 턴에 이어 나오는 시험(file-download 의 docx · xlsx · pdf · dxf, 대화 맥락 시험의 영상 1 · 4 · 7 · 10.xlsx)은 이제 카드 하나 안의 줄로 보인다. 줄도 `[data-test="file-card"][data-file]` 과 `button.file` 을 가지므로 같은 선택자로 열린다.
+- `e2e/tests/feature/file-download.spec.js` 11/11
+- `e2e/tests/feature/context-menu-actions.spec.js` 6/6
+- `e2e/tests/feature/chat-artifacts.spec.js` · `conversations.spec.js` 13/13
+- (PR #135 확인 검토 뒤) `e2e/tests/feature/plan-guard.spec.js` 6/6 · `file-download.spec.js` 11/11, `server/test/planGuard.test.js` 13/13 · `turnPlan.test.js` 22/22, `turnPlan.integration.test.js` 8/8. (앞 회차에는 TP-I-01 하나가 origin/main 에서도 똑같이 실패했다 — 계획 상태 'asked' ≠ 'done', 이번 회차에서는 통과)
+
+시험하지 않은 것:
+- 실제 deepagents 에이전트가 그 한 줄대로 폴더에 쓰는지(가짜 deepagents 는 줄에 적힌 폴더에 쓴다).
+- 실제 모델이 「다시 하기」 · 「일부 고치기」 · 「새 일」을 얼마나 맞게 가르는지(판단 정확도). 모델은 시험마다 가짜다.
+- 공유 폴더 프로젝트의 실제 턴(작업본 목록을 디스크에서 읽는 길은 단위 시험(WF-U-12 · WF-U-14)에서만 확인했다).
+- 휴대폰에서 묶은 카드 아래에 뜨는 「길게 누르면 …」 안내(시험 자료에서는 가장 새 카드가 묶지 않은 회의메모 카드다).
+- 작업 폴더 안의 하위 폴더 이름. 에이전트가 하위 폴더 이름을 skills 로 지으면 `/skills/<이름>/` 경로 규칙 때문에 그 아래 파일이 카드가 되지 않는다. 줄은 첫 이름만 정한다.
+- 영어 화면. 새 문구(「파일 {0}개 · 폴더 {1}개」 · 「{0}개 더 보기」 · 「모두 펼치기」 · 「모두 접기」 · 「맨 위」)는 `src/i18n/ko-en.json`에 넣었다.

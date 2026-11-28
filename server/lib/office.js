@@ -110,6 +110,8 @@ const EXT = '(?:docx|odt|pptx|xlsx|xlsm|xls|csv|pdf|hwpx|hwp|markdown|md|txt|htm
 // a quoted path may hold spaces ("/workspace/11월 고객 세미나 예산표.xlsx"); a bare one may not
 const QUOTED_RE = new RegExp(`[\`*"'](\\/workspace\\/[^\`*"'\\n]+?\\.${EXT})[\`*"']`, 'g')
 const BARE_RE = new RegExp(`\\/workspace\\/[^\\s"'\`)\\]]+?\\.${EXT}\\b`, 'g')
+export const RUN_DEPTH = 4
+const RUN_ENTRIES = 5000
 export async function documentsOfRun({ text, dirs, since, userId = null }) {
   const t = String(text || '')
   // a markdown link carries the path URL-encoded ("견적서%20초안.xlsx"); the file on disk is not
@@ -120,17 +122,25 @@ export async function documentsOfRun({ text, dirs, since, userId = null }) {
   // name); otherwise another person's document saved meanwhile would turn up in this chat.
   // (where the agent's workspace is not on this machine: what the ArtCraft apps wrote here for this person — lib/craftWork.js)
   const onDisk = async (p) => await workspaceHostPath(p).catch(() => null) || await standInPath(p, { userId })
+  // a run's folder is walked RUN_DEPTH folders down: a work folder's version and the subfolders inside it (lib/workFolder.js —
+  // <folder>/v1/syllabus/week-1/notes.md), never into a dot folder or node_modules, and no more than RUN_ENTRIES entries per folder walked.
+  // A process generation's or a skill's own folder (process-*/, skill/, skills/) is walked two levels down, as before — and so is a project's
+  // shared-folder working copy (folders/<slug>/: its checkout rewrites every file's time each run, so deeper files of a team's folder would
+  // all look new; what the agent writes there comes as its own file_artifact events — PR #135 confirmation review)
   for (const dir of ['/workspace', ...dirs]) {
     const host = await onDisk(dir)
     if (!host) continue
-    const walk = async (d, depth) => {
+    let seen = 0
+    const walk = async (d, depth, limit) => {
       for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
+        if (++seen > RUN_ENTRIES) return
         const p = path.join(d, e.name)
-        if (e.isDirectory() && dir !== '/workspace' && depth < 2 && !e.name.startsWith('.') && e.name !== 'node_modules') await walk(p, depth + 1)
+        const below = depth === 0 && /^(?:process-|skills?$|folders$)/i.test(e.name) ? 2 : limit
+        if (e.isDirectory() && dir !== '/workspace' && depth < below && !e.name.startsWith('.') && e.name !== 'node_modules') await walk(p, depth + 1, below)
         else if (e.isFile() && editable(e.name) && (dir !== '/workspace' || t.includes(e.name)) && (await fs.stat(p)).mtimeMs >= since) found.add(path.join(dir, path.relative(host, p)))
       }
     }
-    await walk(host, 0)
+    await walk(host, 0, RUN_DEPTH)
   }
   // a path the answer only mentions is not a document unless it is on disk
   const real = []

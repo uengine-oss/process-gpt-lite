@@ -5,6 +5,8 @@
 // room beside the chat, its thin rail when folded, the Dock-style pile (components/ArtifactStack.vue) when it has not, nothing while a
 // document is open.
 
+import { relPath, dirOf } from './fileGroups.js'
+
 // what the view is: the whole main chat, one conversation of it (/chat/c/:cid), a project's room, one sub-topic of a project
 // (/projects/:id/t/:tid — src/projectTopics.js) — anything else has no files here
 export function artifactScope({ mode, activeId, mainId, convFilter, topicFilter = null, projectIds = [] }) {
@@ -30,11 +32,11 @@ export function artifactItems({ scope, messages = [], convOf = {}, convFilter = 
   return out.sort((a, b) => at(b.msg) - at(a.msg) || b.i - a.i).map(({ i, ...x }) => x)
 }
 
-// the list's search box: the file's name and the conversation it came from (plain text, for finding a row)
+// the list's search box: the file's name, its folder (커리큘럼/v2 — src/fileGroups.js) and the conversation it came from (plain text, for finding a row)
 export function filterArtifacts(items, query) {
   const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return [...(items || [])]
-  return (items || []).filter((x) => { const h = `${x.msg?.content?.name || ''}\n${x.convTitle || ''}`.toLowerCase(); return words.every((w) => h.includes(w)) })
+  return (items || []).filter((x) => { const h = `${x.msg?.content?.name || ''}\n${dirOf(relPath(x.msg?.content))}\n${x.convTitle || ''}`.toLowerCase(); return words.every((w) => h.includes(w)) })
 }
 
 export const CAPTION = { chat: '채팅의 산출물', conv: '이 대화의 산출물', project: '이 프로젝트의 산출물', topic: '이 주제의 산출물' }
