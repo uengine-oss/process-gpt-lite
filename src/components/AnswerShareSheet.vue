@@ -1,6 +1,8 @@
 <script setup>
 // 답을 공유 (2026-11-27 22:33 휴대폰 녹화: 「텍스트 결과가 나왔을 때 이것을 어딘가에 … 공유한다든지 하는 기능이 지금 존재하지 않아」 — spec answer-share,
-// server lib/answerShare.js). Opened by an answer's 「공유」 (Message.vue) or by holding / right-clicking the answer (its message menu):
+// server lib/answerShare.js). The answer's message menu (Message.vue): opened by holding the answer (a phone), right-clicking it or its ⋯
+// (a computer — the ⋯ shows by the answer under the pointer, and takes the keyboard). Nothing stays under the answer but what it did
+// (「「…」에 공유했어요 · 방 열기」) — 2026-11-28 「화면이 정신없으니 하단의 공유, 프로젝트로 등록 … 모든 것들 콘텍스트 메뉴로」:
 //   menu   대화방 · 사람에게 보내기 · 다른 앱으로 보내기(the phone's share sheet — where there is one) · 문서로 남기기 · 프로젝트로 시작 · 복사
 //   room   the conversations (the ones answers of this chat went to before first, with why) and the teammates with no conversation yet
 //   send   where it goes, what that room will see (the answer's title and words — no file, no mail body), a word to say, 보내기
@@ -16,6 +18,7 @@ import { useTeam } from '../stores/team.js'
 import { openArtifact } from '../artifacts.js'
 import { hidePaths } from '../paths.js'
 import { startProjectFrom, canShareOut } from '../answerActions.js'
+import { menuKeys } from '../menuKeys.js'
 
 const app = useApp()
 const team = useTeam()
@@ -36,15 +39,22 @@ const sentTitle = computed(() => data.value?.answer?.title || title.value)
 const preview = computed(() => data.value?.answer?.preview ?? text.value.split('\n').map((l) => l.trim()).filter(Boolean).slice(msg.value?.kind === 'doc' ? 1 : 0).slice(0, 4)
   .map((l) => l.replace(/^#{1,6}\s*|^>\s*/, '').replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).join(' ').slice(0, 220))
 
-// a dialog of its own: the focus goes into it, Esc closes it (only while the focus is in it — not another sheet's Esc)
+// a dialog of its own: the focus goes into it, Esc closes it (only while the focus is in it — not another sheet's Esc) and the focus goes
+// back where it was (the ⋯ it was opened from; a long press had none to go back to)
 const sheet = ref(null)
 const close = () => { app.answerShare = null }
+const from = app.answerShare?.from || null
+function dismiss() {
+  close()
+  if (from?.isConnected) from.focus?.({ preventScroll: true })
+}
 onMounted(async () => {
   if (step.value === 'room') loadRooms()
   // (the words as they may leave the chat — 「글 복사」 and 「다른 앱으로 보내기」 alike: asked for at once, on every screen)
   loadOut().catch(() => {})
   await nextTick()
-  ;(sheet.value?.querySelector('[role="menuitem"], input, textarea, button') || sheet.value)?.focus?.()
+  // (the menu's first item — not the header's ✕, which comes first in the page)
+  ;(sheet.value?.querySelector('[role="menuitem"]') || sheet.value?.querySelector('input, textarea, button') || sheet.value)?.focus?.()
 })
 
 // ---------- menu ----------
@@ -192,20 +202,20 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
 
 <template>
   <Teleport to="body">
-    <div v-if="msg" class="veil" data-test="answer-share-veil" @click.self="close">
+    <div v-if="msg" class="veil" data-test="answer-share-veil" @click.self="dismiss">
       <div ref="sheet" class="sheet glass blur-in" role="dialog" aria-modal="true" aria-label="답 공유" tabindex="-1" data-test="answer-share" :data-step="step"
-        @keydown.esc.stop.prevent="close">
+        @keydown.esc.stop.prevent="dismiss">
         <header>
           <button v-if="step === 'room' || step === 'send'" class="x press" aria-label="뒤로" data-test="answer-share-back" @click="back"><Icon name="back" :size="17" /></button>
           <div class="hd">
             <h2>{{ step === 'room' ? '대화방 · 사람에게 보내기' : step === 'send' ? '보내기 전에 확인해 주세요' : step === 'sent' ? '공유했어요' : '공유' }}</h2>
             <p class="sub"><span v-if="sentTitle" data-no-i18n>{{ sentTitle }}</span><template v-else>AI 답</template></p>
           </div>
-          <button class="x press" aria-label="닫기" data-test="answer-share-close" @click="close"><Icon name="close" :size="17" /></button>
+          <button class="x press" aria-label="닫기" data-test="answer-share-close" @click="dismiss"><Icon name="close" :size="17" /></button>
         </header>
 
         <!-- what to do with this answer -->
-        <div v-if="step === 'menu'" class="menu" role="menu">
+        <div v-if="step === 'menu'" class="menu" role="menu" @keydown="menuKeys">
           <button class="mi press" role="menuitem" data-test="answer-share-room" @click="toRooms">
             <span class="ic"><Icon name="team" :size="18" /></span><span class="mt"><b>대화방 · 사람에게 보내기</b><small>대화방이나 팀원을 골라 이 답을 보내요</small></span><Icon name="chevron" :size="14" />
           </button>

@@ -1,17 +1,19 @@
-
-Running 8 tests using 1 worker
-
+Running 13 tests using 1 worker
 ◇ injected env (12) from ../server/.env
-[answer-project] stack on BFF 8997 · web 5397
-  ✓  1 [feature] › tests/feature/answer-share-project.spec.js:206:1 › F-AS-01 답 카드의 「공유」 → 대화방 고르기 → 무엇이 보일지 확인 · 한마디 → 보내기 → 방에 AI 답 카드로 도착 (6.1s)
-  ✓  2 [feature] › tests/feature/answer-share-project.spec.js:261:1 › F-AS-02 「문서로 남기기」 → 채팅에 Markdown 파일 카드(공유 · 내려받기 · 편집이 되는 보통 파일 카드) (3.6s)
-  ✓  3 [feature] › tests/feature/answer-share-project.spec.js:284:3 › F-AS-03 휴대폰 390(밝은): 길게 누르면 같은 메뉴가 아래 시트로 · 「글 선택」 · 화면 안 (4.6s)
-  ✓  4 [feature] › tests/feature/answer-share-project.spec.js:284:3 › F-AS-03 휴대폰 390(어두운): 길게 누르면 같은 메뉴가 아래 시트로 · 「글 선택」 · 화면 안 (4.5s)
-  ✓  5 [feature] › tests/feature/answer-share-project.spec.js:328:1 › F-CP-01 말로 「이 내용을 기반으로 프로젝트를 하나 만들자」 → 확인 카드 → 「프로젝트」 탭에 생김 · 계획 · 첫 문서 · 채팅에 「프로젝트로 옮겼어요」 (5.6s)
-  ✓  6 [feature] › tests/feature/answer-share-project.spec.js:391:1 › F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿을 고르고 만들기 → 「템플릿으로 시작」과 같은 전용 작업 공간 (3.5s)
-  ✓  7 [feature] › tests/feature/answer-share-project.spec.js:431:3 › F-CP-03 휴대폰 390(밝은): 확인 카드가 화면 안 · 옆으로 밀리지 않음 (3.1s)
-  ✓  8 [feature] › tests/feature/answer-share-project.spec.js:431:3 › F-CP-03 휴대폰 390(어두운): 확인 카드가 화면 안 · 옆으로 밀리지 않음 (3.0s)
+[answer-project] stack on BFF 8992 · web 5392
+  ✓   1 [feature] › tests/feature/answer-share-project.spec.js:236:1 › F-AS-01 답의 메뉴(「⋯」) → 대화방 고르기 → 무엇이 보일지 확인 · 한마디 → 보내기 → 방에 AI 답 카드로 도착 (7.4s)
+  ✓   2 [feature] › tests/feature/answer-share-project.spec.js:293:1 › F-AS-02 「문서로 남기기」 → 채팅에 Markdown 파일 카드(공유 · 내려받기 · 편집이 되는 보통 파일 카드) (4.6s)
+  ✓   3 [feature] › tests/feature/answer-share-project.spec.js:316:3 › F-AS-03 휴대폰 390(밝은): 길게 누르면 같은 메뉴가 아래 시트로 · 「글 선택」 · 화면 안 (5.6s)
+  ✓   4 [feature] › tests/feature/answer-share-project.spec.js:316:3 › F-AS-03 휴대폰 390(어두운): 길게 누르면 같은 메뉴가 아래 시트로 · 「글 선택」 · 화면 안 (5.0s)
+  ✓   5 [feature] › tests/feature/answer-share-project.spec.js:361:1 › F-CP-01 말로 「이 내용을 기반으로 프로젝트를 하나 만들자」 → 확인 카드 → 「프로젝트」 탭에 생김 · 계획 · 첫 문서 · 채팅에 「프로젝트로 옮겼어요」 (6.1s)
+  ✓   6 [feature] › tests/feature/answer-share-project.spec.js:424:1 › F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿을 고르고 만들기 → 「템플릿으로 시작」과 같은 전용 작업 공간 (5.6s)
+  ✓   7 [feature] › tests/feature/answer-share-project.spec.js:465:3 › F-CP-03 휴대폰 390(밝은): 확인 카드가 화면 안 · 옆으로 밀리지 않음 (3.9s)
+  ✓   8 [feature] › tests/feature/answer-share-project.spec.js:465:3 › F-CP-03 휴대폰 390(어두운): 확인 카드가 화면 안 · 옆으로 밀리지 않음 (3.8s)
+  ✓   9 [feature] › tests/feature/answer-share-project.spec.js:491:3 › F-CP-04 휴대폰 390(밝은): 산출물 더미가 떠 있어도 맨 아래 카드의 단추는 더미 밑에 깔리지 않음 (5.1s)
+  ✓  10 [feature] › tests/feature/answer-share-project.spec.js:491:3 › F-CP-04 휴대폰 390(어두운): 산출물 더미가 떠 있어도 맨 아래 카드의 단추는 더미 밑에 깔리지 않음 (3.8s)
+  ✓  11 [feature] › tests/feature/answer-share-project.spec.js:619:3 › F-AS-04 휴대폰 390(밝은): 「다른 앱으로 보내기」 → 휴대폰 공유 시트에 정리된 평문(경로 · 비공개 주소 · 서식 기호 없음 · 「…(이어짐)」) · 취소는 조용히 · 복사는 정리된 글 (17.4s)
+  ✓  12 [feature] › tests/feature/answer-share-project.spec.js:619:3 › F-AS-04 휴대폰 390(어두운): 「다른 앱으로 보내기」 → 휴대폰 공유 시트에 정리된 평문(경로 · 비공개 주소 · 서식 기호 없음 · 「…(이어짐)」) · 취소는 조용히 · 복사는 정리된 글 (3.8s)
+  ✓  13 [feature] › tests/feature/answer-share-project.spec.js:745:1 › F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 「다른 앱으로 보내기」 없음 · 「글 복사」는 서버가 정리한 글(서명 주소 없음) (11.2s)
+  13 passed (1.5m)
 
-  8 passed (38.3s)
-
-# 검토 2 반영 뒤(2026-11-28): PASS (8) FAIL (0)
+# 2026-11-28 답 아래 단추를 메뉴로 옮긴 뒤(openMenu: 휴대폰 길게 누르기 · PC 「⋯」): PASS (13) FAIL (0) — BFF 8992 · Vite 5392(RT_AP_API_PORT · RT_AP_WEB_PORT)

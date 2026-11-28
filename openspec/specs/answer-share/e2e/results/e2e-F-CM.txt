@@ -1,0 +1,12 @@
+Running 5 tests using 1 worker
+◇ injected env (12) from ../server/.env
+[ctx-menu] stack on BFF 8992 · web 5392
+  ✓  1 [feature] › tests/feature/context-menu-actions.spec.js:206:3 › F-CM-01 휴대폰 390(밝은): 답 아래에 알약 없음 · 정보 줄은 그대로 · 처음 한 번 안내 · 길게 누르면 메뉴 → 보내기 · 프로젝트로 시작 (8.8s)
+  ✓  2 [feature] › tests/feature/context-menu-actions.spec.js:206:3 › F-CM-01 휴대폰 390(어두운): 답 아래에 알약 없음 · 정보 줄은 그대로 · 처음 한 번 안내 · 길게 누르면 메뉴 → 보내기 · 프로젝트로 시작 (8.0s)
+  ✓  3 [feature] › tests/feature/context-menu-actions.spec.js:268:3 › F-CM-02 휴대폰 390(어두운): 파일 카드 아래에 정리 줄 없음 · 제안이 있으면 점 · 길게 누르면 열기 · 공유 · 정리 · 다른 폴더 (3.3s)
+  ✓  4 [feature] › tests/feature/context-menu-actions.spec.js:268:3 › F-CM-02 휴대폰 390(밝은): 파일 카드 아래에 정리 줄 없음 · 제안이 있으면 점 · 길게 누르면 열기 · 공유 · 정리 · 다른 폴더 (11.0s)
+  ✓  5 [feature] › tests/feature/context-menu-actions.spec.js:370:1 › F-CM-03 PC 1280: 마우스를 올리면 「⋯」 · 오른쪽 클릭 · 「⋯」 · 키보드로 같은 메뉴, Esc 로 닫히고 초점이 돌아옴 — 답과 파일 카드, 안내 없음 (5.4s)
+  5 passed (40.7s)
+
+# 2026-11-28 답 · 파일의 문맥 메뉴: PASS (5) FAIL (0) — 자기 스택 BFF 8992 · Vite 5392, 공용 잠금 rec.lock
+# (앞선 한 번은 F-CM-02 밝은에서 폴더 목록이 정리 직후 아직 옛 색인이라 실패 — 목록은 커밋 뒤 따로 다시 색인됨(lib/folders/filing.js reindex). 목록 확인을 expect.poll 로 바꾼 뒤 통과)

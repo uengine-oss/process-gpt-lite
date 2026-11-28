@@ -2,12 +2,14 @@
 // 화면 Message.vue · AnswerShareSheet.vue · ProjectOfferCard.vue · team/AnswerRefCard.vue). 2026-11-27 22:33 휴대폰 녹화:
 // 「텍스트 결과가 나왔을 때 이것을 어딘가에 우리는 공유한다든지 하는 기능이 지금 존재하지 않아」 · 「이 내용을 가지고 … 프로젝트 하나 만들자 이렇게 말로 할
 // 수도 있고」 · 「여기로 프로젝트로 승격하겠다는 거거든」 · 「템플릿 폴더가 좀 우리가 추천이 좀 필요할 수도 있고 … 교육과정 만드는 템플릿 폴더」.
-//   F-AS-01 답 카드의 「공유」 → 대화방 · 사람에게 보내기 → 방 고르기 → 무엇이 보일지 확인 · 한마디 → 보내기 → 방에 도착(김서연이 AI 답 카드를 봄)
+//   (2026-11-28: 답 아래의 「공유」 · 「프로젝트로 시작」 단추는 답의 메시지 메뉴로 옮겼다 — 휴대폰은 길게 누르기, PC 는 답 옆 「⋯」 · 오른쪽 클릭.
+//    이 파일의 시험은 그 메뉴로 연다(openMenu). 단추가 없다는 것 · 「⋯」 · 키보드 · 안내는 context-menu-actions.spec.js F-CM-01~03)
+//   F-AS-01 답의 메뉴(「⋯」) → 대화방 · 사람에게 보내기 → 방 고르기 → 무엇이 보일지 확인 · 한마디 → 보내기 → 방에 도착(김서연이 AI 답 카드를 봄)
 //   F-AS-02 「문서로 남기기」 → 채팅에 Markdown 파일 카드(공유 단추가 있는 보통 파일 카드)
 //   F-AS-03 휴대폰 390(밝은 · 어두운): 길게 누르면 같은 메뉴가 아래 시트로, 「글 선택」, 화면 안 · 옆으로 밀리지 않음
 //   F-CP-01 말로 「이 내용을 기반으로 프로젝트를 하나 만들자」 → 확인 카드(이름 · 추천 템플릿과 까닭 · 만들기) → 「프로젝트」 탭에 생김 · 계획에 목적 · 첫 문서 ·
 //           채팅에 「프로젝트로 옮겼어요」(원래 대화는 그대로)
-//   F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿 고르기 → 「템플릿으로 시작」과 같은 작업 공간 막대
+//   F-CP-02 답의 메뉴 「프로젝트로 시작」 → 추천 템플릿 고르기 → 「템플릿으로 시작」과 같은 작업 공간 막대
 //   F-CP-03 휴대폰 390(밝은 · 어두운): 확인 카드가 화면 안
 //   F-CP-04 휴대폰 390(밝은 · 어두운): 산출물 더미(「MD 1 산출물」)가 떠 있어도 맨 아래 카드의 「만들기」 · 「아니요」가 더미 밑에 깔리지 않음(스펙 chat-artifacts)
 //   F-AS-04 휴대폰 390(밝은 · 어두운, 가짜 navigator.share): 「다른 앱으로 보내기」 → 휴대폰 공유 시트에 제목과 정리된 평문(경로 · 비공개 주소 · Markdown 기호
@@ -187,13 +189,32 @@ async function toChat(p, phone = false) {
 const composer = (p) => p.locator('[data-test="chat-composer"] textarea').last()
 // a real touch through the browser's input pipeline (Playwright has no long press) — as the messenger's reaction tests do
 async function press(p, el, ms = 700) {
-  const b = await el.boundingBox()
+  // (where it stays: the chat may still be scrolling to its end as it loads — a touch on a moving answer lands elsewhere)
+  let b = await el.boundingBox()
+  for (let i = 0; i < 20; i++) {
+    await p.waitForTimeout(120)
+    const n = await el.boundingBox()
+    if (n && b && Math.abs(n.y - b.y) < 1 && Math.abs(n.x - b.x) < 1) break
+    b = n
+  }
   const x = b.x + Math.min(b.width / 2, 60), y = b.y + b.height / 2
   const cdp = await p.context().newCDPSession(p)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
   await p.waitForTimeout(ms)
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   await cdp.detach().catch(() => {})
+}
+// the answer's message menu (no buttons under an answer since 2026-11-28 — spec answer-share): held on a phone, its ⋯ on a computer
+async function openMenu(p, row, phone = false) {
+  const body = row.locator('.bubble.agent, .doc').first()
+  await expect(body).toBeVisible({ timeout: 30000 })
+  await body.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  if (phone) await press(p, body)
+  else {
+    await body.hover()
+    await row.locator('[data-test="msg-more"]').click()
+  }
+  await expect(p.locator('[data-test="answer-share"]')).toHaveAttribute('data-step', 'menu')
 }
 async function openRoom(p, title) {
   await p.goto('/chat')
@@ -212,15 +233,17 @@ const inView = async (loc, p) => {
   return b
 }
 
-test('F-AS-01 답 카드의 「공유」 → 대화방 고르기 → 무엇이 보일지 확인 · 한마디 → 보내기 → 방에 AI 답 카드로 도착', async ({ browser }) => {
+test('F-AS-01 답의 메뉴(「⋯」) → 대화방 고르기 → 무엇이 보일지 확인 · 한마디 → 보내기 → 방에 AI 답 카드로 도착', async ({ browser }) => {
   const p = await open(browser, HY, DESK)
   await p.goto('/chat')
   const row = answerRow(p)
-  await expect(row.locator('[data-test="answer-actions"]')).toBeVisible({ timeout: 30000 })
-  await expect(row.locator('[data-test="answer-share-btn"]')).toHaveText(/공유/)
-  await expect(row.locator('[data-test="answer-project-btn"]')).toHaveText(/프로젝트로 시작/)
-  await shot(p, 'share', 'f-as-01-answer-buttons')
-  await row.locator('[data-test="answer-share-btn"]').click()
+  await expect(row.locator('.doc')).toBeVisible({ timeout: 30000 })
+  // nothing to press under the answer: the ⋯ by it (the pointer over it) opens its menu (2026-11-28)
+  await expect(row.locator('[data-test="answer-actions"], [data-test="answer-share-btn"], [data-test="answer-project-btn"]')).toHaveCount(0)
+  await row.locator('.doc').hover()
+  await expect(row.locator('[data-test="msg-more"]')).toBeVisible()
+  await shot(p, 'share', 'f-as-01-answer-more')
+  await row.locator('[data-test="msg-more"]').click()
   const sheet = p.locator('[data-test="answer-share"]')
   await expect(sheet).toHaveAttribute('data-step', 'menu')
   await expect(sheet).toContainText('데이터 분석 실무 교육안')
@@ -270,7 +293,7 @@ test('F-AS-01 답 카드의 「공유」 → 대화방 고르기 → 무엇이 �
 test('F-AS-02 「문서로 남기기」 → 채팅에 Markdown 파일 카드(공유 · 내려받기 · 편집이 되는 보통 파일 카드)', async ({ browser }) => {
   const p = await open(browser, HY, DESK)
   await p.goto('/chat')
-  await answerRow(p).locator('[data-test="answer-share-btn"]').click({ timeout: 30000 })
+  await openMenu(p, answerRow(p))
   const sheet = p.locator('[data-test="answer-share"]')
   await sheet.locator('[data-test="answer-share-doc"]').click()
   await expect(sheet.locator('[data-test="answer-doc-saved"]')).toContainText('데이터 분석 실무 교육안.md')
@@ -294,10 +317,11 @@ for (const theme of ['light', 'dark']) {
     const p = await open(browser, HY, PHONE, { theme })
     await toChat(p, true)
     const row = answerRow(p)
-    await expect(row.locator('[data-test="answer-actions"]')).toBeVisible({ timeout: 30000 })
-    await row.locator('[data-test="answer-actions"]').scrollIntoViewIfNeeded()
-    await inView(row.locator('[data-test="answer-share-btn"]'), p)
-    await inView(row.locator('[data-test="answer-project-btn"]'), p)
+    await expect(row.locator('.doc')).toBeVisible({ timeout: 30000 })
+    // nothing to press under the answer — it is held (2026-11-28); the ⋯ is a computer's
+    await expect(row.locator('[data-test="answer-actions"], [data-test="answer-share-btn"], [data-test="answer-project-btn"]')).toHaveCount(0)
+    await expect(row.locator('[data-test="msg-more"]')).toBeHidden()
+    await row.locator('.doc').scrollIntoViewIfNeeded()
     await noSideScroll(p)
     await shot(p, 'share', `f-as-03-phone-${theme}`)
     // a long press on the answer: its message menu
@@ -319,7 +343,7 @@ for (const theme of ['light', 'dark']) {
     expect(await p.evaluate(() => window.getSelection().toString())).toContain('1일차')
     expect(await doc.evaluate((el) => el.hasAttribute('data-selecting'))).toBe(true)
     // and the rooms step fits too
-    await row.locator('[data-test="answer-share-btn"]').click()
+    await openMenu(p, row, true)
     await p.locator('[data-test="answer-share-room"]').click()
     await expect(p.locator('[data-test="answer-room-option"]').first()).toBeVisible()
     await noSideScroll(p)
@@ -401,7 +425,8 @@ test('F-CP-02 답의 「프로젝트로 시작」 → 추천 템플릿을 고르
   test.setTimeout(180_000)
   const p = await open(browser, HY, DESK)
   await p.goto('/chat')
-  await answerRow(p).locator('[data-test="answer-project-btn"]').click({ timeout: 30000 })
+  await openMenu(p, answerRow(p))
+  await p.locator('[data-test="answer-share-project"]').click()
   const card = p.locator('[data-test="project-offer"][data-state="offered"]').last()
   await expect(card).toBeVisible({ timeout: 30000 })
   await card.locator('[data-test="offer-title"]').fill('가나정밀 2차 교육 과정')
@@ -440,7 +465,8 @@ for (const theme of ['light', 'dark']) {
   test(`F-CP-03 휴대폰 390(${theme === 'light' ? '밝은' : '어두운'}): 확인 카드가 화면 안 · 옆으로 밀리지 않음`, async ({ browser }) => {
     const p = await open(browser, HY, PHONE, { theme })
     await toChat(p, true)
-    await answerRow(p).locator('[data-test="answer-project-btn"]').click({ timeout: 30000 })
+    await openMenu(p, answerRow(p), true)
+    await p.locator('[data-test="answer-share-project"]').click()
     const card = p.locator('[data-test="project-offer"][data-state="offered"]').last()
     await expect(card).toBeVisible({ timeout: 30000 })
     // (the new card is the chat's last message: read where a person scrolls to it, the chat's end — centred, it passed under the files' pile)
@@ -468,7 +494,8 @@ for (const theme of ['light', 'dark']) {
     // the chat has a file (F-AS-02's document): its pile floats over the chat, above the composer
     await expect(p.locator('[data-test="pile"]')).toBeVisible({ timeout: 30000 })
     await expect(p.locator('.astack')).toHaveAttribute('data-place', 'above')
-    await answerRow(p).locator('[data-test="answer-project-btn"]').click({ timeout: 30000 })
+    await openMenu(p, answerRow(p), true)
+    await p.locator('[data-test="answer-share-project"]').click()
     const card = p.locator('[data-test="project-offer"][data-state="offered"]').last()
     await expect(card).toBeVisible({ timeout: 30000 })
     // the chat at its bottom, where it stays when the card comes (nobody scrolled)
@@ -551,10 +578,7 @@ const slowWords = (page, ms = 1500) => page.route('**/share/text', async (route)
 async function copyAtOnce(page, ansId, phone) {
   if (phone) await toChat(page, true)
   else await page.goto('/chat')
-  const b = page.locator(`.row[data-id="${ansId}"] [data-test="answer-share-btn"]`)
-  await expect(b).toBeVisible({ timeout: 30000 })
-  await b.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-  await b.click()
+  await openMenu(page, page.locator(`.row[data-id="${ansId}"]`), phone)
   const c = page.locator('[data-test="answer-share-copy"]')
   await c.click()
   // (the words were not here yet: nothing on the clipboard until they come)
@@ -602,9 +626,7 @@ for (const theme of ['light', 'dark']) {
     // the screen reads the path as its file's name (src/paths.js) — the words that go say the same
     await expect(row).toContainText('견적서 초안.xlsx', { timeout: 30000 })
     await expect(row).not.toContainText('/workspace/')
-    const btn = row.locator('[data-test="answer-share-btn"]')
-    await btn.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-    await btn.click()
+    await openMenu(p, row, true)
     const sheet = p.locator('[data-test="answer-share"]')
     await expect(sheet).toHaveAttribute('data-step', 'menu')
     const item = sheet.locator('[data-test="answer-share-apps"]')
@@ -673,10 +695,7 @@ for (const theme of ['light', 'dark']) {
       const gate = new Promise((ok) => { release = ok })
       await q.route('**/share/text', async (route) => { await gate; await route.continue() })
       await toChat(q, true)
-      const b2 = q.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`)
-      await expect(b2).toBeVisible({ timeout: 30000 })
-      await b2.evaluate((el) => el.scrollIntoView({ block: 'center' }))
-      await b2.click()
+      await openMenu(q, q.locator(`.row[data-id="${ans.id}"]`), true)
       const it2 = q.locator('[data-test="answer-share-apps"]')
       await it2.click()
       await expect(it2.locator('b')).toHaveText('보낼 글을 준비하고 있어요…')
@@ -700,11 +719,9 @@ for (const theme of ['light', 'dark']) {
       const t = await open(browser, HY, PHONE, { theme, init: CLIP_ITEM })
       await slowWords(t, 4500)
       await toChat(t, true)
-      const tb = t.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`)
-      await expect(tb).toBeVisible({ timeout: 30000 })
-      await tb.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+      await expect(t.locator(`.row[data-id="${ans.id}"] .bubble.agent`)).toBeVisible({ timeout: 30000 })
       const arrived = t.waitForResponse((r) => r.url().includes(`/messages/${ans.id}/share/text`))
-      await tb.click()
+      await openMenu(t, t.locator(`.row[data-id="${ans.id}"]`), true)
       const tc = t.locator('[data-test="answer-share-copy"]')
       await tc.click()
       await expect(t.locator('[data-test="answer-share-error"]')).toHaveText(NO_WORDS, { timeout: 8000 })
@@ -739,7 +756,7 @@ test('F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 
   const row = p.locator(`.row[data-id="${ans.id}"]`)
   // (the words for 「글 복사」 are asked for as the sheet opens, here too)
   const words = p.waitForResponse((r) => r.url().includes(`/messages/${ans.id}/share/text`) && r.ok())
-  await row.locator('[data-test="answer-share-btn"]').click({ timeout: 30000 })
+  await openMenu(p, row)
   const sheet = p.locator('[data-test="answer-share"]')
   await expect(sheet).toHaveAttribute('data-step', 'menu')
   for (const t of ['대화방 · 사람에게 보내기', '문서로 남기기', '프로젝트로 시작', '글 복사']) await expect(sheet.getByRole('menuitem').filter({ hasText: t })).toHaveCount(1)
@@ -759,7 +776,7 @@ test('F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 
   const f = await open(browser, HY, DESK, { init: CLIPBOARD })
   await f.route('**/share/text', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: '처리하지 못했어요.' }) }))
   await f.goto('/chat')
-  await f.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`).click({ timeout: 30000 })
+  await openMenu(f, f.locator(`.row[data-id="${ans.id}"]`))
   const fc = f.locator('[data-test="answer-share-copy"]')
   await fc.click()
   await expect(f.locator('[data-test="answer-share-error"]')).toHaveText(NO_WORDS)
@@ -787,7 +804,7 @@ test('F-AS-05 PC 1280 · 데스크톱 앱: 휴대폰 공유 시트가 없으면 
     Object.defineProperty(Navigator.prototype, 'share', { configurable: true, value: () => Promise.reject(new DOMException('Share is not supported', 'NotAllowedError')) })
   } })
   await d.goto('/chat')
-  await d.locator(`.row[data-id="${ans.id}"] [data-test="answer-share-btn"]`).click({ timeout: 30000 })
+  await openMenu(d, d.locator(`.row[data-id="${ans.id}"]`))
   await expect(d.locator('[data-test="answer-share"]')).toHaveAttribute('data-step', 'menu')
   await expect(d.locator('[data-test="answer-share-copy"]')).toBeVisible()
   await expect(d.locator('[data-test="answer-share-apps"]')).toHaveCount(0)
