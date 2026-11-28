@@ -45,7 +45,7 @@ test('PG-U-01 판정 읽기 — off 는 missing · changed 와 무엇 · 질문�
   assert.equal(PG.readVerdict({ ...OFF, confidence: 3 }, 3).confidence, 1)
   assert.equal(PG.readVerdict({ off: false, confidence: 0.9 }, 3).off, false)
   assert.equal(PG.readVerdict(null), null)
-  // (0.8: the measured false stops read 0.70 · 0.72, every right stop ≥ 0.85 — server/eval/planGuard)
+  // (0.8: every measured right stop read ≥ 0.85; of the 6 false stops it removes the two at 0.70 · 0.72 — server/eval/planGuard)
   assert.equal(PG.stops(PG.readVerdict({ ...OFF, confidence: 0.79 }, 3)), false, 'under the bar')
   assert.equal(PG.stops(PG.readVerdict({ ...OFF, confidence: 0.8 }, 3)), true, 'at the bar')
   assert.equal(PG.GUARD_BAR, 0.8)
