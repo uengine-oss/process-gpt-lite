@@ -5,7 +5,8 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { userFromJwt, q } from '../lib/supa.js'
+import { q } from '../lib/supa.js'
+import { mcpRoute } from '../lib/mcpAuth.js'
 import { catalog, extract } from '../lib/folders/indexer.js'
 import * as S from '../lib/folders/service.js'
 import { L, asUser } from '../lib/lang.js'
@@ -160,15 +161,12 @@ function buildServer(user) {
 
 // mounted before the generic /mcp/:connector route
 export function mountFolders(app) {
-  app.post('/mcp/folders', async (req, res) => {
-    let jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
-    const user = jwt ? await userFromJwt(jwt) : null
-    if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+  // (the person by the screen API's rules — lib/mcpAuth.js)
+  app.post('/mcp/folders', mcpRoute(async (req, res, { user }) => {
     const server = buildServer(user)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
-  })
+  }))
 }

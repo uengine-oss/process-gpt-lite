@@ -5,7 +5,8 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { userFromJwt, q } from '../lib/supa.js'
+import { q } from '../lib/supa.js'
+import { mcpRoute } from '../lib/mcpAuth.js'
 import { signedIn } from '../lib/people.js'
 import { config } from '../config.js'
 import * as S from '../lib/improve/service.js'
@@ -98,11 +99,8 @@ export { callTool as callImproveTool }
 
 // mounted before the generic /mcp/:connector route
 export function mountImprove(app) {
-  app.post('/mcp/improve', async (req, res) => {
-    let jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
-    const u = jwt ? await userFromJwt(jwt) : null
-    if (jwt && !u) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+  // (the person by the screen API's rules — lib/mcpAuth.js)
+  app.post('/mcp/improve', mcpRoute(async (req, res, { user: u }) => {
     let user = null
     if (u) {
       // (the name every screen shows — lib/people.js)
@@ -116,5 +114,5 @@ export function mountImprove(app) {
       await server.connect(transport)
       await transport.handleRequest(req, res, req.body)
     })
-  })
+  }))
 }

@@ -16,7 +16,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { config } from '../config.js'
 import { liveFor } from '../lib/craftLive.js'
-import { userFromJwt } from '../lib/supa.js'
+import { mcpRoute } from '../lib/mcpAuth.js'
 import { editOutcome, notAppliedResult, recordEdit, forAgent } from '../lib/officeEdits.js'
 
 // The registered name (mcp-hub server `pgpt-<name>`, tenant MCP key) is long on purpose: deepagents
@@ -78,15 +78,12 @@ function buildServer(user, jwt) {
 }
 
 export function mountOffice(app) {
-  app.post([`/mcp/${OFFICE_MCP}`, '/mcp/office'], async (req, res) => {
-    let jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
-    const user = jwt ? await userFromJwt(jwt) : null
-    if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+  // (the person by the screen API's rules — lib/mcpAuth.js; jwt: '' for the anonymous catalog)
+  app.post([`/mcp/${OFFICE_MCP}`, '/mcp/office'], mcpRoute(async (req, res, { user, jwt }) => {
     const server = buildServer(user, jwt)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
-  })
+  }))
 }

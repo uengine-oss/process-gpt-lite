@@ -18,6 +18,16 @@ cd server && node --test test/agentTools.test.js
 
 2026-11-25: 17개 통과.
 
+## MCP 경로의 로그인 확인 (실제 개발 DB · 로컬 GoTrue)
+
+```bash
+cd server && node --test --test-concurrency=1 test/mcpAuth.integration.test.js
+```
+
+「MCP 경로도 화면 API 와 같은 로그인 확인을 쓴다」: 설정마다 MCP 경로만 띄운 서버(`test/fixtures/mcpAuthServer.mjs`)에 모든 MCP 경로(19개)를 부른다 — MA-01 한 회사 설치 · MA-02 게이트웨이 뒤(토큰에 든 회사의 구성원인지) · MA-03 게이트웨이 뒤, 토큰에 회사가 없으면 예전과 같음 · MA-04 호스트 이름별 회사 · MA-05 익명 목록 · `{{user_jwt}}` · 잘못된 토큰 401 · MA-06 로그인 서버가 답하지 못할 때 503.
+
+2026-11-29: 4개 통과.
+
 ## 운영 점검 (Playwright, `e2e/tests/deploy/agent-tools.spec.js`, 로그인 없이 읽기만)
 
 ```bash

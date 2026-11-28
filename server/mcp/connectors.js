@@ -4,7 +4,7 @@
 // serves every user. Only connectors the user has connected show up in tools/list.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { userFromJwt } from '../lib/supa.js'
+import { mcpRoute } from '../lib/mcpAuth.js'
 import { google } from './connectors/google.js'
 import { youtube } from './connectors/youtube.js'
 import { slackConnector, githubConnector, notionConnector } from './connectors/saas.js'
@@ -80,21 +80,21 @@ async function buildServer(user, only) {
 export function mountConnectors(app) {
   // /mcp serves every connector; /mcp/<name> one connector, so each can be its own
   // mcp-hub server and its own entry in process-gpt's system registry (systems).
-  app.post(['/mcp', '/mcp/:connector'], async (req, res) => {
+  const known = (req, res, next) => {
     const only = req.params.connector
     if (only && !CONNECTORS.some((c) => c.name === only)) return res.status(404).json({ jsonrpc: '2.0', error: { code: -32601, message: `unknown connector ${only}` }, id: null })
-    let jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    // the hub's validator sends the registered header as-is; an unresolved placeholder means "no user"
-    if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
-    const user = jwt ? await userFromJwt(jwt) : null
-    // a token that is present but invalid is an error; no token at all gets the anonymous catalog
-    if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+    next()
+  }
+  // the person by the screen API's rules (lib/mcpAuth.js): the hub's validator sends the registered header as-is, so an unresolved
+  // placeholder — like no token at all — gets the anonymous catalog; a token that is present but refused is an error
+  app.post(['/mcp', '/mcp/:connector'], known, mcpRoute(async (req, res, { user }) => {
+    const only = req.params.connector
     const server = await buildServer(user, only)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
-  })
+  }))
   // stateless server: no SSE stream or session teardown
   const notAllowed = (req, res) => res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null })
   app.get(['/mcp', '/mcp/:connector'], notAllowed)

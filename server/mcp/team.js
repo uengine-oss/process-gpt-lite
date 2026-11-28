@@ -6,7 +6,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { userFromJwt } from '../lib/supa.js'
+import { mcpRoute } from '../lib/mcpAuth.js'
 import { signedIn } from '../lib/people.js'
 import { asUser, langOf } from '../lib/lang.js'
 import * as AT from '../lib/askTeammate.js'
@@ -59,16 +59,13 @@ function buildServer(user) {
 
 // mounted before the generic /mcp/:connector route
 export function mountTeam(app) {
-  app.post('/mcp/team', async (req, res) => {
-    let jwt = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    if (/^\{\{\s*user_jwt\s*\}\}$/.test(jwt)) jwt = ''
-    const u = jwt ? await userFromJwt(jwt) : null
-    if (jwt && !u) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
+  // (the person by the screen API's rules — lib/mcpAuth.js)
+  app.post('/mcp/team', mcpRoute(async (req, res, { user: u, jwt }) => {
     const user = u ? { id: u.id, email: u.email, name: (await signedIn(u)).name, jwt } : null
     const server = buildServer(user)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { transport.close(); server.close() })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
-  })
+  }))
 }

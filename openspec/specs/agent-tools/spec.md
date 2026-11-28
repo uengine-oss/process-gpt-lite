@@ -62,3 +62,16 @@ mcp-hub는 연결의 출처가 아니다. 허브는 에이전트에 연결을 �
 #### Scenario: 로컬 개발 설치
 - **WHEN** 로컬 회사(localhost)의 MCP 목록에 9개 항목이 모두 `http://localhost:8787/mcp/<경로>` 주소로 등록되어 있고, mcp-hub의 목록에도 9개가 모두 있다
 - **THEN** `agentTools`는 모두 `true`이고, 이름표는 `["tenant"]`이며, D-AT-* 10개가 통과한다
+
+### Requirement: MCP 경로도 화면 API 와 같은 로그인 확인을 쓴다
+시스템은 이 서버의 모든 MCP 경로(`/mcp`, `/mcp/<연결>`, 기본 도구의 `/mcp/<경로>`)에서 화면 API 의 로그인 확인(`auth()`)과 같은 규칙으로 사람을 확인해야 한다(SHALL). 규칙은 한 곳(`server/lib/mcpAuth.js`)에 있다.
+- 토큰이 없거나 `{{user_jwt}}` 가 채워지지 않은 요청은 사람이 없는 요청으로 보고, 익명 도구 목록을 그대로 준다(mcp-hub 검증 · D-AT). 도구 호출은 「unauthorized」로 답한다.
+- 로그인 서버가 받지 않는 토큰은 401, 로그인 서버가 답하지 못하면 503 과 `X-Auth-Retry: 1` 이다.
+- 게이트웨이 뒤(`PRO_TENANT_FROM_HEADER=1`)에서 토큰에 회사(`app_metadata.tenant_id`)가 들어 있으면 — MCP 경로는 그 회사에서 일한다 — 그 사람은 그 회사의 구성원(`public.users`)이어야 하며, 아니면 403 이다(화면 API 와 같다). 토큰에 회사가 없으면 예전과 같다(거절하지 않고, 회사는 예전처럼 정해진다).
+- 호스트 이름별 회사(`PRO_TENANT_HOSTS`)에서는 그 사람의 회사에서 실행한다. 한 회사 설치에서는 예전과 같다.
+
+#### Scenario: 회사 소속까지 화면 API 와 같은 규칙
+- **WHEN** 게이트웨이 뒤에서 에이전트가 `Authorization: Bearer <사람의 토큰>` 으로 `/mcp/folders` 를 부르고, 토큰에 든 회사가 A 이다
+- **THEN** 그 사람이 A 의 구성원이면 도구가 A 에서 실행되고, 구성원이 아니면 모든 MCP 경로가 403 `not a member of this tenant` 로 답한다
+- **AND** 토큰에 회사가 없으면 예전처럼 실행된다
+- **AND** 한 회사 설치와 호스트 이름별 회사 설치에서는 같은 사람의 호출이 예전처럼 실행되고, 토큰이 없거나 `{{user_jwt}}` 그대로인 요청은 익명 도구 목록을, 잘못된 토큰은 401 을 받는다(시험 `server/test/mcpAuth.integration.test.js` MA-01~06)
