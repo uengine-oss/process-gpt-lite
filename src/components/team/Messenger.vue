@@ -1,51 +1,39 @@
 <script setup>
-// The team messenger sheet: 받은 편지함 (what teammates shared or mentioned me in, "like email") and
-// 대화 (1:1 and small group threads). Shares and mentions sit in the same thread with that teammate.
-// From an item: open the artifact in the editor (my copy), "이어서 작업" (my agent picks it up), or reply.
+// The team messenger sheet: one list of conversations (1:1 and group rooms) and chips over it (2026-11-28 「받은 편지함 = 대화의
+// 거르개」 — the 받은 편지함 tab and its own blocks are gone): 전체 · 나에게 온 것 (the rooms' shares, mentions, file links, mail mentions,
+// questions and answers from others — each drawn as its room draws it, RoomMessage.vue, with 「어느 방 · 누가」 over it; pressed, the room
+// opens at that message) · 안 읽음 · 메일 (my mail cards — another source). One read state: the room's (seen in 나에게 온 것 → read up to it).
 // Where it sits (2026-11-24): floating over the page as it always was, or docked — a column at the right or left edge, or in
 // the document panel beside an open document — so the conversation goes on while the page is used (src/messengerDock.js,
 // ./useMessengerDock.js). The header is dragged onto a drop zone, or the dock button picks the place. A phone keeps the sheet.
-import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount, provide } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../Icon.vue'
 import { useApp } from '../../stores/app.js'
 import { useTeam, shareable } from '../../stores/team.js'
-import { kindOf, kindLabel, cardKind, viewMedia, mediaKindOf, sawShare } from '../../artifacts.js'
-// what my share's card says about each person it went to: changed · opened · not opened (src/shareReceipts.js)
-import { receiptOf, receiptHint, missingReceipts } from '../../shareReceipts.js'
+import { kindOf, kindLabel, viewMedia, mediaKindOf, sawShare } from '../../artifacts.js'
+// my share cards' people (src/shareReceipts.js): which cards to ask for
+import { missingReceipts } from '../../shareReceipts.js'
 // a picture · sound · video sent in the room: shown or played in place, opened in the viewer (not an editor) — src/openPlan.js
-import MediaPreview from '../MediaPreview.vue'
 import { openPlan } from '../../openPlan.js'
 import { craftMissing } from '../../officeEditor.js'
 import { BASE } from '../../base.js'
-import AssistSuggestion from './AssistSuggestion.vue'
-import MeetingRoomCard from '../meetings/MeetingRoomCard.vue'
 import { useMeetings } from '../../stores/meetings.js'
-import { langLabel } from '../../i18n/mainLangs.js'
 // (an agent's reply in a room names sandbox paths too: they read as file names, as in the chat — src/paths.js)
 import { hidePaths } from '../../paths.js'
-import ConflictChoice from './ConflictChoice.vue'
-import FolderSuggest from '../folders/FolderSuggest.vue'
+// one message as its room draws it — in the open conversation and in 나에게 온 것 alike (what it does is provided below)
+import RoomMessage from './RoomMessage.vue'
 // a person's circle, the same everywhere (PersonAvatar.vue) — and the name the server gives every screen (src/people.js)
 import PersonAvatar from '../PersonAvatar.vue'
 import { tagsFor, labelOf } from '../../people.js'
 // the one picker of teammates: a new conversation, inviting into a group room, a group made from a 1:1
 import PeoplePicker from './PeoplePicker.vue'
 import { uploadTeamFile, api } from '../../api.js'
-// link preview cards under a message with links (server lib/linkPreview.js)
-import LinkPreviews from '../LinkPreviews.vue'
 import { useMessengerDock } from './useMessengerDock.js'
 import DockMenu from './DockMenu.vue'
 import { narrow } from '../../viewport.js'
 import { verbLabel } from '../../mailKind.js'
-// file mentions (server lib/fileRefs.js): a folder's file, a chat artifact or a received file dragged in (src/fileDrag.js) — a link or a share
-import FileRefCard from './FileRefCard.vue'
-// a mail mentioned (server lib/mailMention.js): a summary for everyone but its owner, the body only when the owner shares it
-import MailRefCard from './MailRefCard.vue'
-// an AI answer a teammate shared from their chat (server lib/answerShare.js): its title and words
-import AnswerRefCard from './AnswerRefCard.vue'
-// an attachment of a mail mentioned in the room (server lib/mailAttachments.js)
-import MailAttRefCard from './MailAttRefCard.vue'
+// files of the app dragged in (src/fileDrag.js): a folder's file, a chat artifact or a received file — a link or a share
 import { dragKind, dragging as draggedItems, itemsOf, zoneWords, startDrag, shareItem, same, MAX as MAX_ITEMS } from '../../fileDrag.js'
 // "@" near the caret, as in the chat composer (useTeammateMention.js)
 import { caretXY } from './useTeammateMention.js'
@@ -53,10 +41,6 @@ import { caretXY } from './useTeammateMention.js'
 // 사람 말풍선에 좋아요 확인했음 사랑해 웃음 등을 붙힐 수 있게」 — server lib/team/messenger.js rename · lib/team/reactions.js)
 import RoomSettings from './RoomSettings.vue'
 import ReactionBar from './ReactionBar.vue'
-import ReactionChips from './ReactionChips.vue'
-// 「AI 가 대신 묻는 중」: a request the AI sent for someone — its form (server lib/askTeammate.js)
-import AskTeamForm from './AskTeamForm.vue'
-import { hold } from '../holdMenu.js'
 import { canReact } from '../../roomReactions.js'
 // what another app shared to Process GPT, meant for a room (components/ShareArrival.vue · src/shareInbox.js)
 import { inbox, loadDraft, saveDraft } from '../../shareInbox.js'
@@ -86,23 +70,22 @@ const close = () => { team.open = false }
 // what a drop zone does, said on it while the header is dragged
 const zoneWord = { left: '왼쪽에 붙이기', right: '오른쪽에 붙이기', panel: '문서 패널에 넣기', float: '떠 있게 두기' }
 
-// 받은 편지함 › 메일: the cards made from mail — one put away from Home is still here, and opens the same
-// mail sheet (2026-11-23: Home is notifications; the mail is kept here)
-const inboxKind = ref('team')   // team | mail
+// The list's chips (stores/team.js filter): 전체 · 나에게 온 것 · 안 읽음 (the rooms, by their one read state) · 메일. The count is said
+// once — on 안 읽음, the rooms' unread messages (it was said twice, on 받은 편지함 and on 대화, for the same items); 나에게 온 것 has a dot.
+const CHIPS = [{ id: 'all', label: '전체' }, { id: 'forme', label: '나에게 온 것' }, { id: 'unread', label: '안 읽음' }, { id: 'mail', label: '메일' }]
+const forMeUnread = computed(() => team.forMe.some((x) => x.unread))
+const shownThreads = computed(() => (team.filter === 'unread' ? team.threads.filter((t) => team.unread.byThread[t.id]) : team.threads))
+// 대화 › 메일: the cards made from mail — one put away from Home is still here, and opens the same mail sheet (2026-11-23: Home is
+// notifications; the mail is kept here). Another source than the rooms (pro_actions): no read state of its own.
 const mails = ref(null)
 async function loadMails() { try { mails.value = await app.mailCardList() } catch { mails.value = mails.value || [] } }
-watch(inboxKind, (k) => { if (k === 'mail') loadMails() })
-watch(() => app.mailCard, (a, was) => { if (!a && was && inboxKind.value === 'mail') loadMails() })
+watch(() => team.filter, (k) => { if (k === 'mail') loadMails(); if (k === 'forme') team.loadForMe() }, { immediate: true })
+watch(() => app.mailCard, (a, was) => { if (!a && was && team.filter === 'mail') loadMails() })
 const fromName = (f) => String(f || '').split('<')[0].replace(/"/g, '').trim() || String(f || '').replace(/[<>]/g, '')
 const mailState = (a) => (a.source?.sent ? '답장함' : a.source?.event ? (a.source.event.via === 'demo' ? '일정 기록함' : '캘린더에 넣음') : a.status === 'dismissed' ? '홈에서 닫음' : a.status === 'done' ? '처리함' : a.status === 'running' ? '진행 중' : '홈에 있음')
 const thread = computed(() => team.threads.find((t) => t.id === team.active) || null)
 const list = computed(() => team.msgs[team.active] || [])
 const myFiles = computed(() => (app.messages[app.mainThread?.id] || []).filter(shareable).slice(-12).reverse())
-const inboxUnread = computed(() => team.inbox.filter((x) => x.unread).length)
-// Whose face a message has: a person's own; an agent's — its owner's, with the agent's mark (2026-11-25: my own agent's result had a
-// 「j」 circle of its own); the room's AI (and an agent no one owns) — ✦
-const face = (s) => (s?.ai || (s?.agent && !s?.id) ? { kind: 'ai' }
-  : { kind: 'person', id: s?.id || undefined, name: (s?.agent ? s?.owner?.name : s?.name) || s?.name || '', agent: !!s?.agent })
 const otherOf = (t) => (t.members || []).find((p) => p.id !== app.me?.user?.id) || null
 // Same-named people told apart (src/sameNames.js — 2026-11-25: one person's two accounts were two identical 「윤가람」 rows): the 1:1
 // rooms' other people across the list, and a room's people within that room. A room named by its people (no title of its own) says
@@ -119,12 +102,10 @@ function titleOf(t) {
 }
 const roomTags = computed(() => tagsFor(thread.value?.members || []))
 const memberLabel = (m) => labelOf(roomTags.value, m)
-const senderLabel = (m) => (m.sender?.id && roomTags.value.get(String(m.sender.id)) ? labelOf(roomTags.value, m.sender, m.sender.name) : m.sender?.name)
 const when = (d) => {
   const t = new Date(d), mins = Math.round((Date.now() - t) / 60000)
   return mins < 1 ? '방금' : mins < 60 ? `${mins}분 전` : t.toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-const kindWord = { share: '공유', mention: '멘션', text: '메시지', agent: '에이전트 결과', fileref: '파일 링크', mailref: '메일 멘션', askteam: 'AI 가 대신 묻는 중', answer: 'AI 답 공유' }
 // team assist: the suggestion cards under the message that prompted them (lib/team/assist.js)
 const sugOf = (id) => (team.suggestions[team.active] || []).filter((x) => x.messageId === id)
 
@@ -214,15 +195,47 @@ watch(() => [team.open, team.active, ownShares.value.join()], () => {
   freshFor = team.active
   if (ids.length) team.loadReceipts(team.active, ids).catch(() => {})
 }, { immediate: true })
-const sentTo = (m) => (m.mine ? team.receipts[m.id] || [] : [])
-const receipt = (r) => receiptOf(r, when)
-// same-named people told apart (src/sameNames.js): the room's people and the card's together — 「한지우 · mail-b.test」 · 「한지우 · corp-a.test」
-const sentLabel = (m, r) => labelOf(tagsFor([...(thread.value?.members || []), ...sentTo(m)]), r)
-const changedFiles = (b) => (b ? [...b.modified, ...b.added] : [])
 const openBranch = (b, path) => opening(`b${b.room}${path}`, () => team.openBranchFile(b.room, path))
 // a sound or a video sent to me, played here: opened (its sender's card says so)
 const played = (a) => { if (!a.own) sawShare(a.shareId) }
-const reply = (m) => { team.tab = 'threads'; team.openThread(m.threadId, m.id) }
+
+// ---- 대화 › 나에게 온 것: the rooms' messages for me, as their rooms draw them, with 「어느 방 · 누가」 over each ----
+const roomOf = (m) => team.threads.find((t) => t.id === m.threadId) || null
+const whereOf = (m) => { const t = roomOf(m); return t ? titleOf(t) : '대화' }
+// (a 1:1 room is called by its other person: the writer once is enough)
+const whoOf = (m) => (m.sender?.name && m.sender.name !== whereOf(m) ? m.sender.name : '')
+// pressed: its room opens at it (it was 「답장」) — the room open on the screen is read, as any room opened
+const openItem = (m) => team.openThread(m.threadId, m.id)
+// Seen: an unread item that stays in view a moment reads its room up to it (one read state — server lib/team/messenger.js markRead upTo):
+// the room's count, the badge, the item and its Home card agree at once. A room's newest seen item is the one sent.
+const formeEl = ref(null)
+const SEEN_MS = 1200
+let seenObs = null
+const seenTimers = new Map() // message id → timer
+function seen(id) {
+  seenTimers.delete(id)
+  const m = team.forMe.find((x) => x.id === id)
+  if (!m?.unread || !team.open || document.visibilityState !== 'visible') return
+  // (several of a room seen at once: each reads up to itself — the server keeps the furthest, so the newest wins in any order)
+  team.markRead(m.threadId, { upTo: m.id }).catch(() => {})
+}
+function observeSeen() {
+  seenObs?.disconnect(); seenObs = null
+  for (const t of seenTimers.values()) clearTimeout(t)
+  seenTimers.clear()
+  const root = formeEl.value
+  if (!root || team.filter !== 'forme' || typeof IntersectionObserver === 'undefined') return
+  seenObs = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const id = e.target.dataset.forme
+      if (e.isIntersecting && !seenTimers.has(id)) seenTimers.set(id, setTimeout(() => seen(id), SEEN_MS))
+      else if (!e.isIntersecting && seenTimers.has(id)) { clearTimeout(seenTimers.get(id)); seenTimers.delete(id) }
+    }
+  }, { root, threshold: 0.6 })
+  for (const el of root.querySelectorAll('[data-test="forme-item"][data-unread="true"]')) seenObs.observe(el)
+}
+watch(() => [team.filter, team.open, team.forMe.map((x) => `${x.id}${x.unread ? 1 : 0}`).join()], () => nextTick(observeSeen))
+const onVisible = () => { if (document.visibilityState === 'visible') nextTick(observeSeen) }
 async function send() {
   // (the room this is sent to, kept: the person may move to another room while it goes)
   const room = team.active
@@ -382,7 +395,7 @@ const dragging = ref(false)
 const dropWords = ref('여기에 놓으면 보내요')
 let depth = 0
 const kindIn = (e) => dragKind(e.dataTransfer?.types)
-const canDrop = () => !!thread.value && team.tab === 'threads'
+const canDrop = () => !!thread.value
 function dragEnter(e) {
   const k = kindIn(e)
   if (!k) return
@@ -408,9 +421,9 @@ watch(draft, (v) => saveDraft(team.active, v))
 // 다른 앱의 「공유」로 온 파일 · 글 (2026-11-26 「지금 현재 대화창이 열려 있다고 치면 팀 메시지에 여기에 곧바로 첨부를 할 수 있을 거야.」): once the
 // room it was meant for is open here, the files go up as chips (as if picked with 「내 컴퓨터에서」) and the words go in the box — nothing
 // is sent until the person presses 보내기. 「다른 곳에」 (ShareArrival) takes them back out.
-watch(() => [inbox.forRoom, team.active, team.tab], () => {
+watch(() => [inbox.forRoom, team.active], () => {
   const s = inbox.forRoom
-  if (!s || team.active !== s.room || team.tab !== 'threads') return
+  if (!s || team.active !== s.room) return
   inbox.forRoom = null
   if (s.files?.length) addFiles(s.files, s.key)
   if (s.text) draft.value = draft.value.trim() ? `${draft.value.trimEnd()}\n${s.text}` : s.text
@@ -460,17 +473,18 @@ const autoName = computed(() => {
 const saveName = (name) => run('rename', async () => { await team.rename(thread.value.id, name); settings.value = false })
 
 // ---- reactions: a long press (phone), the hover button or a right-click (desktop) on someone else's bubble opens the bar over it ----
-const pane = ref(null)
+// (the bar sits in the sheet, over the list the bubble is in — the open conversation or 나에게 온 것 — and inside it)
+const sheet = ref(null)
 const rxBar = ref(null)
 const rx = ref(null)           // {m, anchor: {top, bottom, left}, x, top, left, ready}
-const rxOf = (m) => (list.value.find((x) => x.id === m.id) || m).reactions || []
+const rxOf = (m) => (list.value.find((x) => x.id === m.id) || team.forMe.find((x) => x.id === m.id) || m).reactions || []
 async function openRx(m, el, at = {}) {
   // (no reactions in this database yet — sql/062: the long press still offers 「복사」, a message with no words has nothing then)
-  if (!canReact(m) || !el || !pane.value || (team.rxOff && !m.body && !m.answer?.text)) return
+  if (!canReact(m) || !el || !sheet.value || (team.rxOff && !m.body && !m.answer?.text)) return
   const b = el.getBoundingClientRect()
   rx.value = { m, anchor: { top: b.top, bottom: b.bottom, left: b.left }, x: Number.isFinite(at.x) ? at.x : null, top: 0, left: 0, ready: false }
   await nextTick()
-  const box = rxBar.value?.el, pr = pane.value.getBoundingClientRect(), sc = scroller.value?.getBoundingClientRect()
+  const box = rxBar.value?.el, pr = sheet.value.getBoundingClientRect(), sc = el.closest('.scroll')?.getBoundingClientRect()
   if (!box || !rx.value) return
   const w = box.offsetWidth, h = box.offsetHeight
   const minTop = (sc ? sc.top : pr.top) - pr.top + 4, maxTop = (sc ? sc.bottom : pr.bottom) - pr.top - h - 4
@@ -491,15 +505,22 @@ async function copyRx() {
   if (!text) return
   try { await navigator.clipboard.writeText(text); team.say('복사했어요') } catch { err.value = '복사하지 못했어요.' }
 }
-// the long press · right-click (components/holdMenu.js) on the bubbles that take a reaction only — my own keep the browser's own menu (the
-// directive reads the binding at each press: a bubble that becomes reactable later — or stops — follows)
-const vRxHold = hold
+// (the long press · right-click — components/holdMenu.js — is on the bubbles that take a reaction only: RoomMessage.vue)
 const rxButton = (m, e) => openRx(m, e.currentTarget?.closest('.msg')?.querySelector('.bub'))
+
+// What a message does wherever it shows (RoomMessage.vue): the same in the open conversation and in 나에게 온 것
+provide('roomMessage', reactive({
+  busy, notes, conflictOf, rxId: computed(() => rx.value?.m.id || null),
+  openFile, noteOf, mediaOf, shareSrc, viewShare, relink, played, grown, dragShare, openBranch, cont, openRx, rxButton, react,
+}))
 
 // Esc puts the floating sheet away; a docked column stays until its ✕ (Esc there is the page's — an open document's, a dialog's)
 const onEsc = (e) => { if (e.key === 'Escape' && !docked.value && !drag.value) team.open = false }
-onMounted(() => { window.addEventListener('keydown', onEsc); team.loadThreads(); team.loadInbox() })
-onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
+onMounted(() => { window.addEventListener('keydown', onEsc); document.addEventListener('visibilitychange', onVisible); team.loadThreads(); team.loadForMe() })
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onEsc); document.removeEventListener('visibilitychange', onVisible)
+  seenObs?.disconnect(); for (const t of seenTimers.values()) clearTimeout(t)
+})
 </script>
 
 <template>
@@ -507,7 +528,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
   <div :class="docked ? ['msdock', `d-${lay.dock}`, { inpanel: lay.inPanel, resizing, dragging: !!drag }] : ['veil', { dragging: !!drag }]" :style="box"
     data-own-drop data-test="messenger" :data-dock="lay.dock" @click.self="!docked && close()"
     @dragenter.stop="dragEnter" @dragover.stop="dragOver" @dragleave.stop="dragLeave" @drop.stop="dropped">
-    <section class="ms" :class="{ glass: !lay.inPanel, inthread: !!team.active && team.tab === 'threads', single, docked }" :role="docked ? 'complementary' : 'dialog'" aria-label="팀 메시지">
+    <section ref="sheet" class="ms" :class="{ glass: !lay.inPanel, inthread: !!team.active, single, docked }" :role="docked ? 'complementary' : 'dialog'" aria-label="팀 메시지">
       <!-- a docked column's inner edge: drag (or ←/→) to make it wider or narrower -->
       <div v-if="docked" class="rsz" role="separator" aria-orientation="vertical" aria-label="메시지 너비" :aria-valuenow="lay.width" tabindex="0"
         data-test="msg-resize" @pointerdown="resizeStart" @keydown="resizeKey" />
@@ -518,79 +539,53 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
           <DockMenu v-if="dockable" :dock="lay.dock" @pick="team.setDock" />
           <button class="x press" aria-label="닫기" data-test="msg-close" @click="close"><Icon name="close" :size="16" /></button>
         </header>
-        <nav class="tabs">
-          <button :class="{ on: team.tab === 'inbox' }" @click="team.tab = 'inbox'">받은 편지함<i v-if="inboxUnread">{{ inboxUnread }}</i></button>
-          <button :class="{ on: team.tab === 'threads' }" @click="team.tab = 'threads'">대화<i v-if="team.unread.total">{{ team.unread.total }}</i></button>
+        <!-- one list of conversations, and what to show of it -->
+        <nav class="filt" role="tablist" aria-label="대화 거르기" data-test="msg-chips">
+          <button v-for="c in CHIPS" :key="c.id" class="press" role="tab" :aria-selected="team.filter === c.id" :class="{ on: team.filter === c.id }"
+            :data-test="`msg-chip-${c.id}`" @click="team.filter = c.id">{{ c.label }}<i v-if="c.id === 'unread' && team.unread.total" class="badge" data-test="msg-unread-count">{{ team.unread.total > 99 ? '99+' : team.unread.total }}</i><i
+              v-else-if="c.id === 'forme' && forMeUnread" class="ndot" data-test="msg-forme-dot" aria-label="새로 온 것이 있어요" /></button>
         </nav>
 
         <PeoplePicker v-if="picking" class="pick" :people="people" title="대화할 팀원 (여럿 고르면 그룹 대화)" confirm="대화 시작" empty="대화할 팀원이 없어요."
           :busy="busy === 'start'" @confirm="start" @cancel="picking = false" />
 
-        <div v-else-if="team.tab === 'inbox'" class="items scroll">
-          <div class="kinds">
-            <button class="press" :class="{ on: inboxKind === 'team' }" data-test="inbox-team" @click="inboxKind = 'team'">팀원의 공유 · 멘션</button>
-            <button class="press" :class="{ on: inboxKind === 'mail' }" data-test="inbox-mail" @click="inboxKind = 'mail'">메일</button>
-          </div>
-          <template v-if="inboxKind === 'mail'">
-            <button v-for="a in mails || []" :key="a.id" class="mailcard press" data-test="inbox-mail-card" @click="app.mailCardFrom = 'inbox'; app.mailCard = a">
-              <span class="mh"><span class="vb">{{ verbLabel(a) }}</span><b>{{ fromName(a.source?.from) }}</b><small>{{ when(a.created_at) }}</small></span>
-              <span class="subj">{{ a.source?.subject }}</span>
-              <span class="txt">{{ a.text }}</span>
-              <span class="st" :class="{ sent: a.source?.sent }">{{ mailState(a) }}</span>
-            </button>
-            <p v-if="mails && !mails.length" class="empty">메일에서 만든 카드가 아직 없어요.</p>
-          </template>
-          <template v-else>
-          <article v-for="m in team.inbox" :key="m.id" class="mail" :class="{ unread: m.unread }">
-            <div class="mh"><PersonAvatar v-bind="face(m.sender)" />
-              <!-- (a mail its owner's rule posted as it arrived — server lib/mailRooms.js: said as such) -->
-              <span class="who"><span><b>{{ m.sender.name }}</b> · <span :data-test="m.auto ? 'msg-auto' : null">{{ m.auto ? '메일 자동 공유' : kindWord[m.kind] }}</span></span><small>{{ when(m.at) }}</small></span></div>
-            <p v-if="m.context?.title" class="ctitle">{{ m.context.title }}</p>
-            <p v-if="m.answer?.title" class="ctitle" data-no-i18n>✦ {{ m.answer.title }}</p>
-            <p v-if="m.body" class="body" :data-no-i18n="team.tr[m.id]?.body ? '' : null">{{ hidePaths(team.trBody(m) || m.body) }}</p>
-            <p v-if="team.tr[m.id]?.body" class="trl"><span>AI 번역</span><button class="press" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
-            <div v-if="m.artifacts.length" class="arts">
-              <button v-for="a in m.artifacts" :key="a.shareId || a.name" class="art press" :class="{ off: !a.shareId }" :disabled="!a.shareId || busy === `f${a.shareId}`"
-                :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" :draggable="!!a.shareId" @dragstart="dragShare($event, a)" @click="openFile(a)">
-                <span class="fic" :class="cardKind(a)">{{ kindLabel[cardKind(a)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
-              </button>
-            </div>
-            <div v-if="m.artifacts.some((a) => mediaOf(a))" class="media">
-              <MediaPreview v-for="a in m.artifacts.filter((x) => mediaOf(x))" :key="'mp' + a.shareId" :kind="mediaOf(a)" :src="shareSrc(a)" :name="a.name" compact @open="viewShare(a)" @failed="relink(a)" @play="played(a)" />
-            </div>
-            <template v-for="a in m.artifacts" :key="'n' + (a.shareId || a.name)">
-              <p v-if="noteOf(a)" class="onote" :class="{ calm: noteOf(a).calm }" role="status" data-test="open-note" :data-file="a.name">
-                <Icon v-if="!noteOf(a).calm" name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
-              </p>
-            </template>
-            <template v-for="(r, i) in m.refs || []" :key="'r' + i + (r.path || r.actionId)">
-              <MailRefCard v-if="r.type === 'mail'" :m="m" :r="r" :i="i" />
-              <MailAttRefCard v-else-if="r.type === 'mailatt'" :m="m" :r="r" :i="i" />
-              <FileRefCard v-else :m="m" :r="r" :i="i" />
-            </template>
-            <div class="acts">
-              <button v-if="m.artifacts[0]?.shareId" class="b press" :disabled="!!busy" @click="openFile(m.artifacts[0])">{{ mediaOf(m.artifacts[0]) ? '열어 보기' : '편집기에서 열기' }}</button>
-              <button v-if="m.kind !== 'fileref' && m.kind !== 'mailref'" class="b main press" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
-              <button class="b ghost press" @click="reply(m)">답장</button>
-            </div>
-          </article>
-          <p v-if="!team.inbox.length" class="empty">아직 받은 공유나 멘션이 없어요.</p>
-          </template>
+        <!-- 메일: my mail cards (another source than the rooms) — the same mail sheet as from Home -->
+        <div v-else-if="team.filter === 'mail'" class="items scroll" data-test="msg-mail-list">
+          <button v-for="a in mails || []" :key="a.id" class="mailcard press" data-test="msg-mail-card" @click="app.mailCardFrom = 'inbox'; app.mailCard = a">
+            <span class="mh"><span class="vb">{{ verbLabel(a) }}</span><b>{{ fromName(a.source?.from) }}</b><small>{{ when(a.created_at) }}</small></span>
+            <span class="subj">{{ a.source?.subject }}</span>
+            <span class="txt">{{ a.text }}</span>
+            <span class="st" :class="{ sent: a.source?.sent }">{{ mailState(a) }}</span>
+          </button>
+          <p v-if="mails && !mails.length" class="empty">메일에서 만든 카드가 아직 없어요.</p>
         </div>
 
-        <div v-else class="items scroll">
-          <button v-for="t in team.threads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
+        <!-- 나에게 온 것: the rooms' own messages for me, drawn as their rooms draw them; 「어느 방 · 누가」 opens the room at it -->
+        <div v-else-if="team.filter === 'forme'" ref="formeEl" class="items scroll flist" data-test="forme-list" @scroll.passive="rx = null">
+          <div v-for="m in team.forMe" :key="m.id" class="fitem" :class="{ unread: m.unread }" data-test="forme-item" :data-forme="m.id" :data-room="m.threadId"
+            :data-unread="m.unread ? 'true' : 'false'">
+            <button class="where press" data-test="forme-open" title="이 대화에서 보기" @click="openItem(m)">
+              <Icon name="chat" :size="13" /><span class="wn"><b>{{ whereOf(m) }}</b><template v-if="whoOf(m)"> · {{ whoOf(m) }}</template></span><i v-if="m.unread" class="ndot" /><span class="go" aria-hidden="true">›</span>
+            </button>
+            <RoomMessage :m="m" :room="roomOf(m)" />
+          </div>
+          <p v-if="!team.forMe.length" class="empty">아직 나에게 온 공유나 멘션이 없어요.</p>
+        </div>
+
+        <!-- 전체 · 안 읽음: the rooms -->
+        <div v-else class="items scroll" data-test="msg-room-list">
+          <button v-for="t in shownThreads" :key="t.id" class="th press" :class="{ on: t.id === team.active }" @click="team.openThread(t.id)">
             <PersonAvatar v-if="t.kind === 'group'" kind="group">{{ t.members.length }}</PersonAvatar><PersonAvatar v-else :id="otherOf(t)?.id" :name="otherOf(t)?.name || t.title" />
             <span class="nm"><b>{{ titleOf(t) }}</b>
               <small>{{ t.last ? `${t.last.mine && !['invite', 'rename'].includes(t.last.kind) ? '나: ' : ''}${t.last.kind === 'share' ? `산출물 ${t.last.files}개 공유${t.last.body ? ' · ' + t.last.body : ''}` : t.last.body}` : '새 대화' }}</small></span>
             <i v-if="team.unread.byThread[t.id]" class="badge">{{ team.unread.byThread[t.id] }}</i>
           </button>
-          <p v-if="!team.threads.length" class="empty">팀원과 나눈 대화가 여기에 모여요.</p>
+          <p v-if="!shownThreads.length" class="empty">{{ team.filter === 'unread' ? '안 읽은 대화가 없어요.' : '팀원과 나눈 대화가 여기에 모여요.' }}</p>
         </div>
       </aside>
 
-      <main ref="pane" class="pane">
-        <template v-if="thread && team.tab === 'threads'">
+      <main class="pane">
+        <template v-if="thread">
           <header class="thd" :class="{ grab: dockable }" data-test="msg-thread-head" @pointerdown="dragStart">
             <button class="back press" aria-label="목록" @click="team.active = null"><Icon name="back" :size="18" /></button>
             <b>{{ titleOf(thread) }}</b><small data-test="msg-thread-members">{{ thread.members.map(memberLabel).join(', ') }}</small>
@@ -620,83 +615,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
             <RoomSettings :group="isGroup" :name="ownName" :auto="autoName" :busy="busy === 'rename'" @save="saveName" @cancel="settings = false" />
           </div>
           <div ref="scroller" class="msgs scroll" @scroll.passive="rx = null">
-            <template v-for="m in list" :key="m.id">
-            <!-- someone was invited (server lib/team/messenger.js invite): a line of the room's own -->
-            <p v-if="m.kind === 'invite'" class="sysline" data-test="msg-invite" :data-id="m.id">{{ m.body }}</p>
-            <!-- the room was named, or its name taken off (server lib/team/messenger.js rename) -->
-            <p v-else-if="m.kind === 'rename'" class="sysline" data-test="msg-rename" :data-id="m.id">{{ m.body }}</p>
-            <MeetingRoomCard v-else-if="String(m.kind).startsWith('meeting')" :m="m" :title="thread.title" />
-            <div v-else :data-id="m.id" class="msg" :class="{ mine: m.mine, card: m.kind !== 'text', agent: m.kind === 'agent', rxable: canReact(m), rxopen: rx?.m.id === m.id }">
-              <PersonAvatar v-if="!m.mine" v-bind="face(m.sender)" size="sm" />
-              <div v-rx-hold="canReact(m) ? (el, at) => openRx(m, el, at) : null" class="bub" data-test="msg-bubble">
-                <p v-if="m.kind === 'text' && !m.mine && thread.kind === 'group'" class="kind">{{ senderLabel(m) }}</p>
-                <p v-if="m.kind === 'agent'" class="kind">✦ {{ m.sender.name }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
-                <p v-else-if="m.kind !== 'text'" class="kind">{{ m.mine ? '보냄' : senderLabel(m) }} · {{ kindWord[m.kind] }}<template v-if="m.context?.title"> · {{ m.context.title }}</template></p>
-                <p v-if="m.body" class="txt" :data-no-i18n="team.tr[m.id]?.body ? '' : null" data-test="msg-text">{{ hidePaths(team.trBody(m) || m.body) }}</p>
-                <!-- auto-translation (another language than mine): AI 번역 · 원문 보기 / Show original -->
-                <p v-if="team.tr[m.id]?.body" class="trl" data-test="msg-tr"><span>AI 번역<template v-if="team.tr[m.id].from"> · <b data-no-i18n>{{ langLabel(team.tr[m.id].from) }}</b></template></span><button class="press" data-test="show-original" @click="team.toggleOriginal(m.id)">{{ team.original[m.id] ? '번역 보기' : '원문 보기' }}</button></p>
-                <details v-if="m.context?.excerpt?.length" class="ex"><summary>대화 발췌</summary><p v-for="(l, i) in m.context.excerpt" :key="i">{{ l }}</p></details>
-                <div v-if="m.artifacts.length" class="arts">
-                  <button v-for="a in m.artifacts" :key="a.name + a.shareId" class="art press" :class="{ off: !a.shareId, busy: busy === `f${a.shareId}` }" :disabled="!a.shareId"
-                    :title="a.shareId ? '' : '나에게 공유되지 않은 파일이라 열 수 없어요'" data-test="msg-file" :data-file="a.name" :draggable="!!a.shareId" @dragstart="dragShare($event, a)" @click="openFile(a)">
-                    <span class="fic" :class="cardKind(a)">{{ kindLabel[cardKind(a)] || 'FILE' }}</span><span class="an">{{ a.name }}</span>
-                  </button>
-                </div>
-                <!-- a picture to look at, a sound or a video that plays right here -->
-                <div v-if="m.artifacts.some((a) => mediaOf(a))" class="media">
-                  <MediaPreview v-for="a in m.artifacts.filter((x) => mediaOf(x))" :key="'mp' + a.name + a.shareId" :kind="mediaOf(a)" :src="shareSrc(a)" :name="a.name" compact
-                    @open="viewShare(a)" @failed="relink(a)" @loaded="grown" @play="played(a)" />
-                </div>
-                <template v-for="a in m.artifacts" :key="'n' + a.name + a.shareId">
-                  <p v-if="noteOf(a)" class="onote" :class="{ calm: noteOf(a).calm }" role="status" data-test="open-note" :data-file="a.name">
-                    <Icon v-if="!noteOf(a).calm" name="alert" :size="14" /><span>{{ noteOf(a).reason }}</span><a v-if="noteOf(a).url" :href="noteOf(a).url" target="_blank" rel="noopener" download>새 창에서 열기</a>
-                  </p>
-                </template>
-                <!-- file mentions: links to shared folders' files, in my own state (server lib/fileRefs.js) -->
-                <template v-for="(r, i) in m.refs || []" :key="'r' + i + (r.path || r.actionId)">
-                  <MailRefCard v-if="r.type === 'mail'" :m="m" :r="r" :i="i" />
-                  <MailAttRefCard v-else-if="r.type === 'mailatt'" :m="m" :r="r" :i="i" />
-                  <FileRefCard v-else :m="m" :r="r" :i="i" />
-                </template>
-                <!-- an AI answer shared from someone's chat (server lib/answerShare.js) -->
-                <AnswerRefCard v-if="m.kind === 'answer' && m.answer" :answer="m.answer" />
-                <!-- a request the AI sent for someone (server lib/askTeammate.js): the form for the one asked, the answer for both -->
-                <AskTeamForm v-if="m.kind === 'askteam' && m.ask" :m="m" />
-                <!-- 폴더에 정리: a file a teammate sent me (lib/folders/filing.js) -->
-                <template v-if="!m.mine && m.kind === 'share'"><FolderSuggest v-for="a in m.artifacts.filter((x) => x.shareId)" :key="'fs' + a.shareId" :share-id="a.shareId" :data-file="a.name" :label="m.artifacts.length > 1 ? a.name : ''" compact /></template>
-                <!-- my share: each person it went to — 「안 열어 봄」 · 「열어 봄 · 언제」 · what their copy changed (only I see this) -->
-                <div v-if="sentTo(m).length" class="brs" data-test="share-receipts">
-                  <div v-for="r in sentTo(m)" :key="r.id" class="br" :data-room="r.branch?.room || null" data-test="share-receipt" :data-person="r.id" :data-state="receipt(r).state">
-                    <PersonAvatar :id="r.id" :name="r.name" size="xs" :agent="receipt(r).state === 'changed' && r.branch?.by === 'agent'" :title="receipt(r).state === 'changed' && r.branch?.by === 'agent' ? '에이전트가 고침' : ''" />
-                    <span class="bl" :title="receiptHint(r, when) || null"><b data-test="receipt-name">{{ sentLabel(m, r) }}</b> <span class="rs" :class="receipt(r).state" data-test="receipt-state"><Icon v-if="receipt(r).state === 'opened'" name="check" :size="12" />{{ receipt(r).text }}</span></span>
-                    <button v-for="f in changedFiles(r.branch)" :key="f" class="art press sm" :title="`${f} (읽기 전용)`" data-test="branch-file" @click="openBranch(r.branch, f)">
-                      <Icon name="eye" :size="13" />{{ f.split('/').pop() }}
-                    </button>
-                    <p v-for="f in changedFiles(r.branch).filter((x) => notes[`b${r.branch.room}${x}`])" :key="'n' + f" class="onote" :class="{ calm: notes[`b${r.branch.room}${f}`].calm }" role="status" data-test="open-note">
-                      <Icon v-if="!notes[`b${r.branch.room}${f}`].calm" name="alert" :size="14" /><span>{{ notes[`b${r.branch.room}${f}`].reason }}</span>
-                      <a v-if="notes[`b${r.branch.room}${f}`].url" :href="notes[`b${r.branch.room}${f}`].url" target="_blank" rel="noopener" download>새 창에서 열기</a>
-                    </p>
-                  </div>
-                </div>
-                <ConflictChoice v-if="conflictOf[m.id]" :conflicts="conflictOf[m.id]" :busy="busy === `c${m.id}`" @pick="(c) => cont(m, c)" @cancel="delete conflictOf[m.id]" />
-                <button v-if="(!m.mine && (m.kind === 'share' || m.kind === 'mention')) || (m.mine && sentTo(m).some((r) => r.branch?.at))" class="b main press cont" :disabled="!!busy" @click="cont(m)">{{ busy === `c${m.id}` ? '넘기는 중…' : '이어서 작업' }}</button>
-                <small class="t">{{ when(m.at) }}</small>
-              </div>
-              <!-- a desktop's way in: the button by a teammate's bubble while the pointer is over it (or it has the focus) -->
-              <button v-if="canReact(m) && !team.rxOff" class="rxbtn press" data-test="rx-open" title="반응 남기기" aria-label="반응 남기기" @click="rxButton(m, $event)"><Icon name="smile" :size="16" /></button>
-            </div>
-            <!-- the reactions under it: emoji · count, mine marked; who reacted on a long press · the pointer resting on one -->
-            <ReactionChips v-if="m.reactions?.length && !['invite', 'rename'].includes(m.kind) && !String(m.kind).startsWith('meeting')" :chips="m.reactions"
-              :can="canReact(m) && !team.rxOff" :mine="m.mine" :data-for="m.id" @toggle="(k) => react(m, k)" />
-            <LinkPreviews v-if="m.body && m.kind !== 'invite' && m.kind !== 'rename' && !String(m.kind).startsWith('meeting')" :text="m.body" class="mlp" :class="{ mine: m.mine }" />
-            <AssistSuggestion v-for="sg in sugOf(m.id)" :key="sg.id" :s="sg" />
-            </template>
+            <RoomMessage v-for="m in list" :key="m.id" :m="m" :room="thread" :suggestions="sugOf(m.id)" />
             <!-- 「@AI …」 being answered (lib/team/aiHelp.js) -->
             <div v-if="aiWait" class="aiwait" data-test="ai-status" role="status"><span class="spark">✦</span><span class="shimmer-text">{{ aiWait.text }}</span></div>
           </div>
-          <!-- the reactions bar over the bubble it was opened on (its place measured once it is drawn) -->
-          <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="[rx.m.body, rx.m.answer?.text].filter(Boolean).join('\n\n')" :data-for="rx.m.id"
-            :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
           <Transition name="fade"><div v-if="dragging" class="mdrop" data-test="msg-dropzone"><div><Icon name="clip" :size="30" /><p>{{ dropWords }}</p></div></div></Transition>
           <footer class="cmp">
             <div v-if="attach.length || ups.length || refs.length" class="chips">
@@ -762,10 +684,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
         </template>
         <div v-else class="blank">
           <Icon name="team" :size="36" />
-          <p>{{ team.tab === 'inbox' ? '받은 공유와 멘션에서 바로 열거나 이어서 작업할 수 있어요.' : '대화를 고르거나 새 대화를 시작해 주세요.' }}</p>
+          <p>{{ team.filter === 'forme' ? '항목 위의 대화 이름을 누르면 해당 대화에서 메시지를 볼 수 있어요.' : '대화를 고르거나 새 대화를 시작해 주세요.' }}</p>
         </div>
       </main>
-      <!-- (in the section, not the conversation pane: seen in the inbox and on a phone too) -->
+      <!-- the reactions bar over the bubble it was opened on — the open conversation's or 나에게 온 것's (its place measured once it is drawn) -->
+      <ReactionBar v-if="rx" ref="rxBar" :mine="rxMine" :off="team.rxOff" :text="[rx.m.body, rx.m.answer?.text].filter(Boolean).join('\n\n')" :data-for="rx.m.id"
+        :style="{ top: `${rx.top}px`, left: `${rx.left}px`, visibility: rx.ready ? 'visible' : 'hidden' }" @pick="(k) => react(rx.m, k)" @copy="copyRx" @close="rx = null" />
+      <!-- (in the section, not the conversation pane: seen over the lists and on a phone too) -->
       <p v-if="err" class="err" role="alert">{{ err }}</p>
     </section>
     <!-- while the header is dragged: where it can go (src/messengerDock.js zones); anywhere else floats it -->
@@ -779,9 +704,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 </template>
 
 <style scoped>
-.kinds { display: flex; gap: 6px; padding: 2px 2px 8px; }
-.kinds button { height: 32px; padding: 0 12px; border-radius: 9999px; font-size: 13.5px; color: var(--text-secondary); background: var(--field-bg); }
-.kinds button.on { color: var(--text-primary); background: var(--chip-bg); font-weight: 500; }
+/* the list's chips: 전체 · 나에게 온 것 · 안 읽음 · 메일 — the count once, on 안 읽음 */
+.filt { display: flex; gap: 6px; padding: 4px 12px 10px; overflow-x: auto; scrollbar-width: none; }
+.filt::-webkit-scrollbar { display: none; }
+.filt button { flex: none; display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 9999px; font-size: 13.5px; color: var(--text-secondary); background: var(--field-bg, rgba(127, 127, 127, .1)); white-space: nowrap; }
+.filt button.on { color: var(--text-primary-on, #fff); background: var(--ink, #1d1d1f); font-weight: 500; }
+.ndot { display: inline-block; flex: none; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: #e5484d; }
+/* 나에게 온 것: each item is its room's own bubble, with where it is over it */
+.flist { display: flex; flex-direction: column; gap: 14px; padding-top: 2px; }
+.fitem { display: flex; flex-direction: column; gap: 6px; padding: 8px 8px 10px; border-radius: 16px; transition: background .4s; }
+.fitem.unread { background: rgba(42, 120, 214, .08); box-shadow: inset 3px 0 0 #2a78d6; }
+.where { align-self: flex-start; max-width: 100%; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12.5px;
+  color: var(--text-secondary); background: rgba(127, 127, 127, .1); }
+.where .wn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.where b { color: var(--text-primary); font-weight: 600; }
+.where .ndot { margin-left: 2px; }
+.where .go { font-size: 15px; line-height: 1; margin-left: 1px; }
 .mailcard { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; background: var(--field-bg); color: var(--text-primary); overflow-wrap: anywhere; }
 .mailcard .mh { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
 .mailcard .mh small { margin-left: auto; color: var(--text-tertiary); font-size: 12px; flex: none; }
@@ -797,47 +735,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .hd b { flex: 1; font-size: 18px; font-weight: 600; }
 .tb { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 15px; font-size: 13px; background: rgba(127, 127, 127, .12); color: var(--text-primary); }
 .x { width: 30px; height: 30px; border-radius: 15px; display: grid; place-items: center; color: var(--text-secondary); }
-.tabs { display: flex; gap: 4px; padding: 6px 12px 8px; }
-.tabs button { flex: 1; height: 34px; border-radius: 17px; font-size: 14px; color: var(--text-secondary); }
-.tabs button.on { background: var(--ink, #1d1d1f); color: var(--text-primary-on, #fff); }
-.tabs i, .badge { font-style: normal; display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; text-align: center; }
+.badge { font-style: normal; display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; text-align: center; }
 .items { flex: 1; overflow: auto; padding: 0 10px 12px; }
 .empty { font-size: 13px; color: var(--text-secondary); text-align: center; margin: 24px 8px; }
-.mail { padding: 12px; border-radius: 16px; margin-bottom: 8px; background: rgba(127, 127, 127, .07); }
-.mail.unread { background: rgba(42, 120, 214, .1); box-shadow: inset 3px 0 0 #2a78d6; }
-.mh { display: flex; align-items: center; gap: 10px; }
-.who { flex: 1; font-size: 14px; display: flex; flex-direction: column; }
-.who small { font-size: 11.5px; color: var(--text-tertiary); }
-.ctitle { margin: 8px 0 0; font-size: 12.5px; color: var(--text-secondary); }
-.body { margin: 6px 0 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
-.arts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.art { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; height: 36px; padding: 0 12px 0 4px; border-radius: 12px; background: #1d1d1f; color: #f5f5f7; font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.art .an { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* a file that is not shared with me looks it (it was a dead button that looked like the others) */
-.art.off, .art:disabled { opacity: .5; cursor: not-allowed; }
-.art.busy { opacity: .7; cursor: progress; }
-/* why a file did not open, under it (with the link when the app has no viewer for it) */
-.onote { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 6px; margin: 6px 0 0; padding: 6px 10px; border-radius: 10px; font-size: 12.5px; line-height: 1.45;
-  color: #b42318; background: rgba(198, 40, 40, .1); }
-.onote svg { flex: none; margin-top: 2px; }
-.onote span { flex: 1 1 160px; min-width: 0; }
-.onote a { color: #1a56c4; font-weight: 500; text-decoration: underline; }
-:root:not([data-theme="light"]) .onote { color: #ffb4ab; background: rgba(255, 100, 100, .14); }
-:root:not([data-theme="light"]) .onote a { color: #a1d0ff; }
-/* no viewer here for this format: said calmly, with its link — not a warning */
-.onote.calm { color: var(--text-secondary); background: rgba(127, 127, 127, .1); }
-.onote.calm a { color: inherit; }
-:root:not([data-theme="light"]) .onote.calm { color: var(--text-secondary); background: rgba(127, 127, 127, .14); }
-:root:not([data-theme="light"]) .onote.calm a { color: inherit; }
-/* pictures · sounds · videos of a message, under its file chips */
-.media { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 8px; max-width: 100%; }
 .fic { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: #fff; background: #6b6b66; }
 .fic.hwp { background: #1f6fd1; } .fic.doc { background: #2b579a; } .fic.xls { background: #217346; } .fic.ppt { background: #c43e1c; } .fic.pdf { background: #d93025; } .fic.cad { background: #0b6f88; } .fic.vec { background: #c2570c; } .fic.img { background: #7b3fbf; } .fic.snd { background: #0f8a5f; } .fic.vid { background: #b0223c; }
-.acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.b { height: 32px; padding: 0 13px; border-radius: 16px; font-size: 13.5px; background: rgba(127, 127, 127, .14); color: var(--text-primary); }
-.b.main { background: #2a78d6; color: #fff; }
-.b.ghost { background: transparent; color: var(--text-secondary); }
-.b:disabled { opacity: .55; }
 .th { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 14px; text-align: left; color: var(--text-primary); }
 .th.on { background: rgba(127, 127, 127, .14); }
 .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -856,17 +758,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 /* 대화방 설정: the gear by 「초대」 */
 .aitog.gear { margin-left: 6px; width: 26px; padding: 0; display: grid; place-items: center; }
 .aitog.gear.on { color: #2a78d6; background: rgba(42, 120, 214, .14); }
-/* reactions: the hover button by a teammate's bubble (a pointer that hovers; a phone long-presses the bubble instead) */
-.rxbtn { flex: none; align-self: center; width: 28px; height: 28px; border-radius: 14px; display: grid; place-items: center; color: var(--text-secondary);
-  background: var(--regular-solid-bg); border: 1px solid rgba(127, 127, 127, .2); opacity: 0; transition: opacity .12s; }
-.msg:hover .rxbtn, .rxbtn:focus-visible, .msg.rxopen .rxbtn { opacity: 1; }
-@media (hover: none) { .rxbtn { display: none; } }
-.msg.rxopen .bub { box-shadow: 0 0 0 2px rgba(42, 120, 214, .45); }
-/* a phone's long press opens the bar, not the text selection (「복사」 is in the bar) */
-@media (pointer: coarse) { .msg.rxable .bub { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } }
-/* a line of the room's own: who invited whom */
-.sysline { align-self: center; max-width: 90%; margin: 2px 0; padding: 4px 12px; border-radius: 12px; font-size: 12.5px; color: var(--text-secondary);
-  background: rgba(127, 127, 127, .1); text-align: center; overflow-wrap: anywhere; }
 .cap { margin: 6px 6px 6px; font-size: 12px; color: var(--text-secondary); }
 .row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; text-align: left; color: var(--text-primary); }
 .row.on { background: rgba(42, 120, 214, .14); }
@@ -879,31 +770,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .hd.grab, .thd.grab { cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
 .dragging .hd.grab, .dragging .thd.grab { cursor: grabbing; }
 .msgs { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-.msg { display: flex; align-items: flex-end; gap: 8px; max-width: 86%; }
-.msg.mine { align-self: flex-end; flex-direction: row-reverse; }
-.bub { border-radius: 18px; padding: 9px 13px; background: rgba(127, 127, 127, .12); font-size: 14.5px; line-height: 1.5; min-width: 0; }
-.mine .bub { background: #2a78d6; color: #fff; }
-.card .bub { background: var(--bubble-agent-bg, rgba(255, 255, 255, .7)); color: var(--text-primary); border: 1px solid rgba(127, 127, 127, .2); }
-.msg.flash .bub { animation: flash 1.6s; }
-@keyframes flash { 0%, 60% { box-shadow: 0 0 0 3px rgba(42, 120, 214, .55); } 100% { box-shadow: none; } }
 .aitog { margin-left: auto; flex: none; align-self: center; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; color: var(--text-secondary); background: rgba(127, 127, 127, .12); }
 .aitog.on { color: #7a5af5; background: rgba(122, 90, 245, .14); }
 .aitog.meet { margin-left: 6px; color: #fff; background: #7a5af5; font-weight: 500; }
 .aitog.meet.on { background: #e5484d; color: #fff; }
 .aitog.meet:disabled { opacity: .5; }
-.msg.agent .bub { border-color: rgba(122, 90, 245, .45); }
-.kind { margin: 0 0 4px; font-size: 12px; color: var(--text-secondary); }
-.txt { margin: 0; white-space: pre-wrap; word-break: break-word; }
-.trl { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; font-size: 11.5px; color: var(--text-secondary); }
-.trl span { opacity: .8; }
-.trl button { font-size: 11.5px; padding: 1px 8px; border-radius: 8px; background: rgba(127, 127, 127, .14); color: inherit; }
-.ex { margin-top: 6px; font-size: 12.5px; color: var(--text-secondary); }
-.ex summary { cursor: pointer; } .ex p { margin: 4px 0 0; }
-.cont { margin-top: 8px; }
-/* link cards sit under the bubble, on its side (past the avatar for a teammate's) */
-.msgs .mlp { align-self: flex-start; width: min(360px, calc(86% - 36px)); margin: -4px 0 0 36px; }
-.msgs .mlp.mine { align-self: flex-end; margin-left: 0; }
-.t { display: block; margin-top: 4px; font-size: 11px; opacity: .6; }
 .cmp { position: relative; padding: 10px 12px 12px; border-top: 1px solid rgba(127, 127, 127, .14); }
 .box { display: flex; align-items: flex-end; gap: 6px; border-radius: 22px; background: rgba(127, 127, 127, .1); padding: 4px; }
 .box textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; padding: 9px 6px; font-size: 14.5px; line-height: 19px; color: var(--text-primary); font-family: inherit; max-height: 120px; }
@@ -928,7 +799,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .chip .fx.hwp { background: #1f6fd1; } .chip .fx.doc { background: #2b579a; } .chip .fx.xls { background: #217346; } .chip .fx.ppt { background: #c43e1c; } .chip .fx.pdf { background: #d93025; } .chip .fx.md { background: #3d4451; }
 .chip .as { flex: none; font-style: normal; font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 7px; color: #2a78d6; background: rgba(42, 120, 214, .14); margin-left: 2px; }
 .chip .as.share { color: #0f8a5f; background: rgba(15, 138, 95, .14); }
-/* (not 「.mail」: that is the inbox's mail row) */
 .chip.ref.mailchip { background: rgba(122, 90, 245, .1); border-color: rgba(122, 90, 245, .38); }
 /* one line: the subject gives way first, the sender next; the switch, the tag and × keep their size */
 .chip.ref.mailchip .cn { flex: 0 1 auto; min-width: 0; max-width: 150px; }
@@ -948,7 +818,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
   background: rgba(122, 90, 245, .1); border: 1px solid rgba(122, 90, 245, .3); }
 .aiwait .spark { color: #7a5af5; font-size: 15px; animation: spin 2.4s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.art[draggable="true"] { cursor: grab; }
 .amenu .row.mine { border-bottom: 1px solid rgba(127, 127, 127, .16); border-radius: 12px 12px 4px 4px; margin-bottom: 4px; }
 .amenu .row.mine small { font-size: 12px; color: var(--text-secondary); }
 .mdrop { position: absolute; inset: 8px; z-index: 5; display: grid; place-items: center; border-radius: 18px; background: rgba(42, 120, 214, .12); border: 2.5px dashed rgba(42, 120, 214, .7); pointer-events: none; }
@@ -996,14 +865,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 .dz.on { background: rgba(42, 120, 214, .2); border-color: #2a78d6; border-style: solid; }
 :root:not([data-theme="light"]) .dz span { color: #a1d0ff; }
 .dghost { position: absolute; translate: 14px 14px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 14px; font-size: 13px; font-weight: 500; color: var(--text-primary); white-space: nowrap; pointer-events: none; box-shadow: 0 8px 26px rgba(0, 0, 0, .2); }
-.brs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.br { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
-.br .bl { color: var(--text-secondary); } .br .bl b { color: var(--text-primary); font-weight: 600; }
-/* opened: a small check in the colour of done; not opened yet: plain secondary text */
-.br .rs { display: inline-flex; align-items: center; gap: 3px; }
-.br .rs.opened { color: #0f7a52; }
-:root:not([data-theme="light"]) .br .rs.opened { color: #5fd3a2; }
-.art.sm { height: 26px; padding: 0 9px; font-size: 12px; gap: 4px; }
 </style>
 
 <style>

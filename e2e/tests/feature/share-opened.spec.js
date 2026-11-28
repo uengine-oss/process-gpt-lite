@@ -4,7 +4,7 @@
 //   F-SO-01 휴대폰 390px 밝은: 보낸 직후 세 줄 모두 「안 열어 봄」, 같은 이름은 「한지우 · mail-b.test」 · 「한지우 · corp-a.test」 → 한지우(mail-b)가
 //           방에서 그림의 작은 미리 보기를 봐도 그대로 → 눌러 크게 보면 보낸 사람의 열어 둔 카드가 새로 고침 없이 「열어 봄 · 방금」, 나머지는 「안 열어 봄」.
 //           받은 사람의 화면에는 이 줄이 없다
-//   F-SO-02 휴대폰 390px 밤: 정민호가 받은 편지함의 「열어 보기」로 연다 → 보낸 사람 카드: 두 사람 「열어 봄」, 한지우(corp-a) 「안 열어 봄」 · 옆으로 넘치지 않음
+//   F-SO-02 휴대폰 390px 밤: 정민호가 대화 › 나에게 온 것의 그림을 눌러 연다 → 보낸 사람 카드: 두 사람 「열어 봄」, 한지우(corp-a) 「안 열어 봄」 · 옆으로 넘치지 않음
 //   F-SO-03 영어 화면: 「Opened · just now」 · 「Not opened」, 이름의 주소 표시는 그대로
 //   F-SO-04 (PR #91 검토) 방을 연 채 새 공유를 보내면 그 메시지만 묻는다(이미 받은 카드는 다시 묻지 않음) — 새 카드도 「안 열어 봄」
 // 자기 스택(lib/localStack.js — 회사 share-open-ui, RT_API_FROM · RT_WEB_FROM 부터 빈 포트, 기본 8977 · 5377)을 띄우고 지운다. 모델은 부르지 않는다.
@@ -92,7 +92,7 @@ async function openMessenger(p) {
 }
 async function openRoom(p) {
   await openMessenger(p)
-  await p.locator('.ms .tabs button').filter({ hasText: /^(대화|Chats|Conversations)\d*$/ }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ hasText: ROOM }).first().click()
   await p.locator('.ms .cmp textarea').waitFor()
 }
@@ -152,13 +152,14 @@ test('F-SO-01 휴대폰 390px 밝은 — 안 열어 봄, 같은 이름은 주소
   await j1.context().close()
 })
 
-test('F-SO-02 휴대폰 390px 밤 — 정민호가 받은 편지함의 「열어 보기」로 열면 두 사람 「열어 봄」, 한지우(corp-a)만 「안 열어 봄」', async ({ browser }) => {
+test('F-SO-02 휴대폰 390px 밤 — 정민호가 대화 › 나에게 온 것에서 그림을 눌러 열면 두 사람 「열어 봄」, 한지우(corp-a)만 「안 열어 봄」', async ({ browser }) => {
   const mh = await page(browser, MH, { theme: 'dark' })
   await openMessenger(mh)
-  await mh.locator('.ms .tabs button').filter({ hasText: /받은 편지함/ }).click()
-  const item = mh.locator('.ms article.mail', { hasText: '이 화면 한번 봐 주세요' })
+  // (2026-11-28: the item is the room's own bubble — its picture opens the viewer as in the room; no 「열어 보기」 of its own)
+  await mh.locator('[data-test="msg-chip-forme"]').click()
+  const item = mh.locator('.ms [data-test="forme-item"]', { hasText: '이 화면 한번 봐 주세요' })
   await expect(item).toBeVisible({ timeout: 15000 })
-  await item.locator('.acts button').filter({ hasText: '열어 보기' }).click()
+  await item.locator(`[data-test="media-preview"][data-file="${SHOT_NAME}"] button`).click()
   await expect(mh.locator('[data-test="media-viewer"]')).toBeVisible()
   await expect.poll(() => opened(MH), { timeout: 10000 }).not.toBeNull()
   await mh.context().close()

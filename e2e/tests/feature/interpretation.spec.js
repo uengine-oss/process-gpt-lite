@@ -130,7 +130,7 @@ test.describe('다국어 협업 (spec pgpt-pro-meeting-interpretation)', () => {
     const page = await ctx.newPage()
     await page.goto('/chat')
     await page.locator('button.msg-btn').click()
-    await page.locator('.tabs button', { hasText: /Conversation|대화/ }).click()
+    await page.locator('[data-test="msg-chip-all"]').click()
     await page.locator('button.th', { hasText: '한지수' }).first().click()
     const bubble = page.locator('.msg', { has: page.locator('[data-test=msg-tr]') }).last()
     await expect(bubble.locator('[data-test=msg-text]')).toHaveText(r.items[sent.id].body, { timeout: 20000 })

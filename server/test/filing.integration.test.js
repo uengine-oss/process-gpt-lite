@@ -195,7 +195,7 @@ test('메신저에서 컴퓨터의 파일 보내기: 올리면 내 파일 카드
   assert.equal(sent.status, 200, sent.text)
   assert.equal(sent.body.kind, 'share')
   assert.equal(sent.body.artifacts[0].name, '견적서_한빛상사.md')
-  // the recipient sees it in the conversation and the inbox, with their own share id, and gets the same bytes
+  // the recipient sees it in the conversation and in 대화 › 나에게 온 것 (GET /team/inbox), with their own share id, and gets the same bytes
   const seen = await call(b, 'GET', `/team/threads/${t.body.id}/messages`)
   const last = seen.body.messages.at(-1)
   assert.equal(last.body, '견적서 보내드려요')

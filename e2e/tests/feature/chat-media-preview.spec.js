@@ -112,7 +112,7 @@ async function openThread(p, title, { phone = false } = {}) {
     await p.locator('button.msgs').click()
   } else await p.locator('button.msg-btn').click()
   await p.locator('.ms').waitFor()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ hasText: title }).first().click()
   await p.locator('.ms .cmp textarea').waitFor()
 }

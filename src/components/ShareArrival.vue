@@ -36,12 +36,12 @@ function track() {
   const who = whoNow()
   if (!who.uid) return
   const p = placeOf({ path: route.path, mode: route.meta.mode, settings: !!route.meta.settings, public: !!route.meta.public, noTeam: !!route.meta.noTeam || !route.matched.length, params: route.params },
-    { open: team.open && teamHere(), tab: team.tab, active: team.active })
+    { open: team.open && teamHere(), active: team.active })
   if (p === undefined) return
   writeLast(store(), p, who)
   if (p?.kind === 'folder') rememberFolder(store(), p.id, who)
 }
-watch(() => [route.fullPath, team.open, team.tab, team.active], track, { immediate: true })
+watch(() => [route.fullPath, team.open, team.active], track, { immediate: true })
 // the app going to the background — where another app's 「공유」 begins: the place open is still open as of now. (Not on pagehide: a share
 // arriving in a window left in the background unloads it — that is no sign the person was there.)
 const away = () => { if (document.visibilityState !== 'hidden') return; const who = whoNow(); if (who.uid) touchLast(store(), who) }

@@ -192,7 +192,7 @@ export function mediaLink(userId, shareId, { now } = {}) {
 }
 
 // The file card to open in the editor: the owner's own original, or the recipient's copy (made once).
-// record: the recipient opens it now (the messenger's chip, 받은 편지함, a meeting's material) — their open is recorded (recordOpen);
+// record: the recipient opens it now (the messenger's chip — in a room or in 대화 › 나에게 온 것 — a meeting's material) — their open is recorded (recordOpen);
 // false when it is only handed to their agent (team assist's work order: copiesFor)
 export async function openCopy(user, id, { record = true } = {}) {
   const s = await shareFor(user, id)

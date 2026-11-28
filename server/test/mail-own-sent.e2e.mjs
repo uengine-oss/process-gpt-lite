@@ -174,7 +174,7 @@ test('Gmail: 내 회사 주소 · send-as 별칭으로 고객에게 보낸 메�
     ['mo-answered', 'Review', 'draft'], ['mo-answered', 'Review', 'triage'], ['mo-customer', 'Reply', 'triage'], ['mo-group', 'Reply', 'triage'],
     ['mo-namesake', 'Reply', 'triage'], ['mo-note', 'Reply', 'triage'], ['mo-via', 'Reply', 'triage']])
   assert.ok(!cards.some((a) => ['mo-company', 'mo-alias', 'mo-selfcc'].includes(a.source?.mail_id)), '내가 보낸 메일의 카드는 없다')
-  // 받은 편지함 › 메일: the same
+  // 대화 › 메일 (the messenger's 메일 chip): the same
   const inbox = await json(await call('gmail', '/mail/cards'))
   assert.deepEqual([...new Set(inbox.map((a) => a.source?.mail_id))].sort(), ['mo-answered', 'mo-customer', 'mo-group', 'mo-namesake', 'mo-note', 'mo-via'])
   // my own mail is read (it does not come back) and kept in the archive with its labels

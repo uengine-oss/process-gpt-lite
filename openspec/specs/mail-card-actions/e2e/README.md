@@ -64,7 +64,7 @@ cd e2e && PGPT_URL=http://localhost:5194 API_URL=http://127.0.0.1:8793 RT_WORKER
   - `04a` Google: 「캘린더에 추가했어요 · …」 · 「캘린더에서 보기」 · `04b` 같은 웨비나의 둘째 메일: 「이미 캘린더에 있어요」
   - `05` Reply 카드는 그대로(머리 「답장」, 초안 바로)
   - `06a` Pay 카드: 「에이전트에게 맡기기」가 큰 단추 · `06b` 「답장도 쓰기」를 누른 뒤
-  - `07a` Home · 칩의 「일정 추가 · 납부 · 답장 · 검토」 · `07b` 받은 편지함 › 메일 · `07c` 영어 화면(Add to calendar · Pay · Reply · Review, 양식)
+  - `07a` Home · 칩의 「일정 추가 · 납부 · 답장 · 검토」 · `07b` 대화 › 메일 · `07c` 영어 화면(Add to calendar · Pay · Reply · Review, 양식)
   - `08a`~`08d` 390px: 칩 · 양식 · 「기록했어요」 · 맡기기 카드
 
 ---

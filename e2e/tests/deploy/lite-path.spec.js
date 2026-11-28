@@ -227,7 +227,7 @@ test('5 두 계정이 같은 대화방 회의에서 서로 들리고, 마치면 
     const enter = async (x, other) => {
       await x.page.reload()
       await x.page.locator('button.msg-btn').click()
-      await x.page.locator('.tabs button', { hasText: '대화' }).click()
+      await x.page.locator('[data-test="msg-chip-all"]').click()
       await x.page.locator('button.th', { hasText: other }).first().click()
     }
     // rooms are listed under the other person's name as the team list has it

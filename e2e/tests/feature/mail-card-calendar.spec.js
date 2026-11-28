@@ -3,7 +3,7 @@
 // 답장하기가 열리는...」). 고친 뒤(스펙 openspec/specs/mail-card-actions, 서버 lib/mailCard.js):
 //   - 시트의 큰 단추는 카드가 하는 일을 따른다: 일정 카드는 메일에서 읽은 일정 양식과 「캘린더에 추가」, 답장 카드는 지금 그대로,
 //     그 밖의 카드는 「에이전트에게 맡기기」 — 답장은 「답장도 쓰기」 아래로 접힌다. 누르기 전에는 아무것도 만들거나 보내지 않는다.
-//   - 단추 말은 사람의 언어로: 「일정 추가」 · 「답장」 · 「납부」 (Home 카드 · 브리프 칩 · 시트 머리 · 받은 편지함)
+//   - 단추 말은 사람의 언어로: 「일정 추가」 · 「답장」 · 「납부」 (Home 카드 · 브리프 칩 · 시트 머리 · 대화 › 메일)
 // 이 묶음의 서버는 PRO_LLM_BASE_URL 을 이 파일이 띄우는 가짜 모델(http://127.0.0.1:<RT_FAKE_LLM_PORT, 기본 59967>/v1)로, Google 의 Gmail ·
 // 캘린더 주소를 이 파일이 띄우는 가짜 Google(http://127.0.0.1:<RT_FAKE_GOOGLE_PORT, 기본 59966>)로 띄운다. 가짜 판정 모델은 웨비나
 // 카드면 일정(A), 아니면 그 밖의 일(C)을 고르고, 일정 읽기는 「내일 오후 3시 · 웨비나」를 돌려준다. 실제 메일 · 캘린더 없음.
@@ -360,7 +360,7 @@ test.describe('메일 카드의 일 — 일정 카드는 일정 양식, 답장�
     await cleanup(db, u)
   })
 
-  test('F-MC-07 단추 말은 사람의 언어로: Home · 칩 · 받은 편지함이 「일정 추가」 · 「납부」 · 「답장」 · 「검토」, 영어 화면은 Add to calendar · Pay · Reply', async ({ pageAs, db }) => {
+  test('F-MC-07 단추 말은 사람의 언어로: Home · 칩 · 대화 › 메일이 「일정 추가」 · 「납부」 · 「답장」 · 「검토」, 영어 화면은 Add to calendar · Pay · Reply', async ({ pageAs, db }) => {
     const review = { ...BILL, text: '청구서 내역 확인', subject: '11월 청구서 상세' }
     const { page, u, cards } = await setup(pageAs, db, 'mc-labels', [
       { verb: 'Add', kind: 'calendar', mail: WEBINAR }, { verb: 'Pay', kind: 'task', mail: BILL }, { verb: 'Reply', mail: { ...WEBINAR, text: '참석 여부 회신' } }, { verb: 'Review', kind: 'task', mail: review },
@@ -372,12 +372,11 @@ test.describe('메일 카드의 일 — 일정 카드는 일정 양식, 답장�
       await expect(page.locator('[data-test="mail-chip"]').filter({ hasText: a.text }).locator('[data-test="mail-chip-verb"]')).toHaveText(want[i])
     }
     await shot(page, 'f-mc-07a-labels.png')
-    // 팀 메시지 › 받은 편지함 › 메일
+    // 팀 메시지 › 대화 › 메일 (the 메일 chip)
     await page.locator('button.msg-btn').click()
     await page.locator('.ms').waitFor()
-    await page.locator('.ms .tabs button').filter({ hasText: '받은 편지함' }).click()
-    await page.locator('[data-test="inbox-mail"]').click()
-    const inbox = page.locator('[data-test="inbox-mail-card"]')
+    await page.locator('[data-test="msg-chip-mail"]').click()
+    const inbox = page.locator('[data-test="msg-mail-card"]')
     await expect(inbox).toHaveCount(4)
     for (const [i, a] of cards.entries()) await expect(inbox.filter({ hasText: a.text }).locator('.vb')).toHaveText(want[i])
     await shot(page, 'f-mc-07b-inbox.png')

@@ -2,7 +2,7 @@
 // 마우스를 올려야 보였고, 업무 카드에는 ✕ 가 없었다. 워크아이템 알림을 닫으면 같은 업무가 「Submit」 카드로 다시 나왔다.
 // (「이메일이나 bpm todolist 는, 다른 곳에서 목록을 볼 수 있을것이므로 … 삭제 가능해야 한다... 홈은 일종의 노티피케이션이므로」)
 // 고친 뒤: 모든 Home 카드는 ✕(휴대폰에서 늘 보임)나 옆으로 밀기로 닫힌다. 업무는 루틴 「내 입력이 필요해요」에, 메일은
-// 팀 메시지 › 받은 편지함 › 메일에 남는다. 이 묶음의 서버는 mail-reply.spec.js 와 같이 가짜 모델로 띄운다(PRO_LLM_BASE_URL).
+// 팀 메시지 › 대화 › 메일에 남는다. 이 묶음의 서버는 mail-reply.spec.js 와 같이 가짜 모델로 띄운다(PRO_LLM_BASE_URL).
 import crypto from 'node:crypto'
 import { test, expect } from '../../lib/fixtures.js'
 
@@ -57,7 +57,7 @@ async function seedRoutine(db, u, cleanup, { keepNotice = false } = {}) {
 }
 
 test.describe('Home 은 알림 — 메일 카드 · 업무 카드도 닫는다', () => {
-  test('F-HD-01 메일 카드: 휴대폰에서 ✕ 가 보이고, 밀어서 닫으면 Home 에서 사라지고 받은 편지함 › 메일에 남아 다시 연다', async ({ pageAs, db, cleanup }) => {
+  test('F-HD-01 메일 카드: 휴대폰에서 ✕ 가 보이고, 밀어서 닫으면 Home 에서 사라지고 대화 › 메일에 남아 다시 연다', async ({ pageAs, db, cleanup }) => {
     const page = await pageAs('hd-mail', { viewport: PHONE, touch: true })
     const u = page.user
     const mailId = `demo-hd-${crypto.randomUUID().slice(0, 8)}`
@@ -80,10 +80,10 @@ test.describe('Home 은 알림 — 메일 카드 · 업무 카드도 닫는다',
     await expect(page.locator('[data-test="mail-sheet"]'), '밀기는 카드를 여는 누름이 아니다').toHaveCount(0)
     const [row] = await db.q('select status from pro_actions where id=$1', [a.id])
     expect(row.status).toBe('dismissed')
-    // 팀 메시지 › 받은 편지함 › 메일
+    // 팀 메시지 › 대화 › 메일 (the 메일 chip)
     await page.locator('button.msgs').click()
-    await page.locator('[data-test="inbox-mail"]').click()
-    const kept = page.locator('[data-test="inbox-mail-card"]').filter({ hasText: '개인정보 처리 안내 확인' })
+    await page.locator('[data-test="msg-chip-mail"]').click()
+    const kept = page.locator('[data-test="msg-mail-card"]').filter({ hasText: '개인정보 처리 안내 확인' })
     await expect(kept).toContainText('홈에서 닫음')
     await settled(page)
     await page.screenshot({ path: test.info().outputPath('f-hd-01-inbox.png') })

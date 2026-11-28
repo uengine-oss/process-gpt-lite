@@ -64,11 +64,15 @@ async function share(page, fileName, to, note) {
   await sp.locator('.send').click()
   return sp
 }
-// the newest inbox item with this note
-const inboxItem = (page, note) => page.locator('.mail', { hasText: note }).first()
+// the newest item of 대화 › 나에게 온 것 with this note (the room's own bubble — 2026-11-28)
+async function inboxItem(page, note) {
+  await page.locator('[data-test="msg-chip-forme"]').click()
+  return page.locator('[data-test="forme-item"]', { hasText: note }).first()
+}
 async function openFromInbox(page, note) {
   await openMessenger(page)
-  await inboxItem(page, note).getByRole('button', { name: '편집기에서 열기' }).click()
+  // (its file chip, as in the room: the item has no 「편집기에서 열기」 of its own)
+  await (await inboxItem(page, note)).locator('[data-test="msg-file"]').first().click()
   await expect(page.locator('.sheet iframe')).toBeVisible({ timeout: 30_000 })
 }
 // the open Word document's page in the editor
@@ -85,7 +89,7 @@ async function editAndSave(page, text) {
 }
 async function openDmWith(page, name) {
   await openMessenger(page)
-  await page.locator('.tabs button', { hasText: '대화' }).click()
+  await page.locator('[data-test="msg-chip-all"]').click()
   // by the room's title: the last message under it can name the other person too
   await page.locator('.th').filter({ has: page.locator('.nm > b', { hasText: new RegExp(`^${name}$`) }) }).first().click()
 }
@@ -179,7 +183,7 @@ test('W-03 박대리가 이어서 작업하면 전용 작업 대화에서 넘겨
   test.setTimeout(30 * 60_000)
   const [park, hong] = await people(pageAs, 'park', 'hong')
   await openMessenger(park)
-  await inboxItem(park, s.note1).getByRole('button', { name: '이어서 작업' }).click()
+  await (await inboxItem(park, s.note1)).locator('[data-test="msg-continue"]').click()
   await park.waitForURL(/\/projects\/[0-9a-f-]{36}/, { timeout: 30_000 })
   const thread = /projects\/([0-9a-f-]{36})/.exec(park.url())[1]
   expect(`pro:${thread}`, '공유의 작업 대화 = 박대리 브랜치 방').toBe(s.parkRoom)

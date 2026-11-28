@@ -272,7 +272,7 @@ test('F-AV-04 Process GPT 가 DB 에 쓴 사진을 Lite 가 보여 준다 — �
   await d.goto('/chat')
   await d.locator('button.msg-btn').click()
   await d.locator('.ms').waitFor()
-  await d.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await d.locator('[data-test="msg-chip-all"]').click()
   const th = d.locator('.ms .th').filter({ hasText: '김서연' }).first()
   await shows(d, `.ms .th:has-text("김서연") ${AVATAR}`, DIRECT)
   await expect(th).toBeVisible()
@@ -494,7 +494,7 @@ async function openRoom(p, title, { phone = false } = {}) {
     await p.locator('button.msgs').click()
   } else await p.locator('button.msg-btn').click()
   await p.locator('.ms').waitFor()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: new RegExp(`^${title}$`) }) }).click()
   await p.locator('.ms .cmp textarea').waitFor()
 }

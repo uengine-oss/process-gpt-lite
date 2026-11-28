@@ -100,7 +100,7 @@ async function openThread(page, title, { phone = false } = {}) {
     if (phone) { await page.locator('.seg button').filter({ hasText: '홈' }).click(); await page.locator('button.msgs').click() } else await page.locator('button.msg-btn').click()
     await page.locator('.ms').waitFor()
   }
-  await page.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await page.locator('[data-test="msg-chip-all"]').click()
   await page.locator('.ms .th').filter({ hasText: title }).first().click()
   await page.locator('.ms .cmp textarea').waitFor()
 }

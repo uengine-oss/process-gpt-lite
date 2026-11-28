@@ -442,20 +442,45 @@ async function notifyMembers(me, t, row, kind, files, context, recipients, { att
   }
 }
 
-export async function markRead(me, roomId) {
+// One read state for a room (2026-11-28 「받은 편지함 = 대화의 거르개」): pro_chat_reads is the only one. The room opened reads it whole;
+// a message seen or opened in 대화 › 나에게 온 것, or its Home card put away (lib/notify.js dismiss), reads it up to that message —
+// upTo: a message of this room (its uuid) · upToAt: a time (a 'chat' notice names no message: the newest message by then). Reading up to
+// a point never takes the room back (an older point than the one read changes nothing). The room's 'team' notices for the messages
+// read and its 'chat' notices up to then are checked with it (Home · the bell · the phone), as opening the room always did.
+const CHAT_NOTICE_SLACK_MS = 1000 // a 'chat' notice is written as its message goes in: within a second of the message's own time
+export async function markRead(me, roomId, { upTo = null, upToAt = null } = {}) {
   const t = await memberThread(me, roomId)
   if (!t) throw new TeamError(404, L('대화를 찾지 못했어요.', "I couldn't find that conversation."))
-  // read up to the newest message (its timeStamp comes from whoever wrote it, whose clock may run ahead of the DB's)
-  await q(`insert into pro_chat_reads(room_id,user_id,last_read_at)
-           values ($1,$2,greatest(now(), (select max(public.pro_chat_ts(messages)) from chats where id=$1)))
-           on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at`, [t.id, me.id])
-  // process-gpt's own unread flag on my participant entry, and the bell/Home notices for this room
-  await q(`update chat_rooms set participants = (select jsonb_agg(case when p->>'id'=$2 then p - 'isExistUnReadMessage' else p end) from jsonb_array_elements(participants) p) where id=$1`, [t.id, me.id])
-  const n = await q(`update notifications set is_checked=true where tenant_id=$1 and user_id = any($2) and coalesce(is_checked,false)=false
-                     and ((type='team' and url like $3) or (type='chat' and url=$4)) returning id`, [T(), [me.id, me.email], `/pro/team/${t.id}/%`, `/chats?id=${t.id}`])
-  emit(me.id, 'team', { type: 'read', threadId: t.id })
+  const part = !!(upTo || upToAt)
+  let at
+  if (!part) {
+    // read up to the newest message (its timeStamp comes from whoever wrote it, whose clock may run ahead of the DB's)
+    ;[{ at }] = await q(`insert into pro_chat_reads(room_id,user_id,last_read_at)
+             values ($1,$2,greatest(now(), (select max(public.pro_chat_ts(messages)) from chats where id=$1)))
+             on conflict (room_id,user_id) do update set last_read_at=excluded.last_read_at returning last_read_at as at`, [t.id, me.id])
+  } else {
+    const [p] = upTo
+      ? (ROOM.test(String(upTo)) ? await q(`select public.pro_chat_ts(messages) as ts from chats where id=$1 and uuid::text=$2`, [t.id, String(upTo)]) : [])
+      : await q(`select max(public.pro_chat_ts(messages)) as ts from chats where id=$1 and public.pro_chat_ts(messages) <= $2::timestamptz + make_interval(secs => $3)`,
+        [t.id, iso(upToAt), CHAT_NOTICE_SLACK_MS / 1000])
+    if (!p?.ts) return { ok: true, at: null }
+    ;[{ at }] = await q(`insert into pro_chat_reads(room_id,user_id,last_read_at) values ($1,$2,$3)
+             on conflict (room_id,user_id) do update set last_read_at=greatest(pro_chat_reads.last_read_at, excluded.last_read_at) returning last_read_at as at`, [t.id, me.id, p.ts])
+  }
+  // process-gpt's own unread flag on my participant entry — once nothing newer is left unread
+  const [{ rest }] = part ? await q(`select count(*)::int as rest from chats where id=$1 and public.pro_chat_ts(messages) > $2 and coalesce(messages->>'email','') <> $3`, [t.id, at, me.email]) : [{ rest: 0 }]
+  if (!rest) await q(`update chat_rooms set participants = (select jsonb_agg(case when p->>'id'=$2 then p - 'isExistUnReadMessage' else p end) from jsonb_array_elements(participants) p) where id=$1`, [t.id, me.id])
+  // the bell/Home notices for this room: all of them, or those of the messages read
+  const n = !part
+    ? await q(`update notifications set is_checked=true where tenant_id=$1 and user_id = any($2) and coalesce(is_checked,false)=false
+               and ((type='team' and url like $3) or (type='chat' and url=$4)) returning id`, [T(), [me.id, me.email], `/pro/team/${t.id}/%`, `/chats?id=${t.id}`])
+    : await q(`update notifications n set is_checked=true where n.tenant_id=$1 and n.user_id = any($2) and coalesce(n.is_checked,false)=false
+               and ((n.type='team' and n.url like $3 and exists (select 1 from chats c where c.id=$5 and n.url = $6 || c.uuid::text and public.pro_chat_ts(c.messages) <= $7))
+                 or (n.type='chat' and n.url=$4 and n.time_stamp <= $7::timestamptz + make_interval(secs => $8))) returning n.id`,
+      [T(), [me.id, me.email], `/pro/team/${t.id}/%`, `/chats?id=${t.id}`, t.id, `/pro/team/${t.id}/`, at, CHAT_NOTICE_SLACK_MS / 1000])
+  emit(me.id, 'team', { type: 'read', threadId: t.id, at: at ? iso(at) : null })
   if (n.length) emit(me.id, 'notifications', {})
-  return { ok: true }
+  return { ok: true, at: at ? iso(at) : null }
 }
 
 export async function unread(me) {
@@ -464,16 +489,24 @@ export async function unread(me) {
   return { total: Object.values(byThread).reduce((s, n) => s + n, 0), byThread }
 }
 
-// "받은 편지함": what teammates shared with me or mentioned me in, newest first
+// 대화 › 나에게 온 것 (it was the 받은 편지함 tab until 2026-11-28): the rooms' own messages, filtered — what teammates shared with me,
+// mentioned me in, linked, asked or answered — newest first. Nothing is kept apart for it: each item is a room's message as the room
+// shows it (its reactions too), unread by the room's one read state (pro_chat_reads)
+export const FOR_ME = ['share', 'mention', 'fileref', 'mailref', 'askteam', 'answer']
 export async function inbox(me) {
   const rows = await q(`select c.uuid, c.id, c.messages, coalesce(rd.last_read_at, 'epoch'::timestamptz) as last_read_at
                         from chats c join chat_rooms r on r.id=c.id and r.tenant_id=$1 and r.participants @> $3::jsonb
                         left join pro_chat_reads rd on rd.room_id=c.id and rd.user_id=$2
-                        where c.messages->'pgpt'->>'kind' in ('share','mention','fileref','mailref','askteam','answer') and coalesce(c.messages->>'email','') <> $4
-                        order by coalesce(public.pro_chat_ts(c.messages), now()) desc limit 50`, [T(), me.id, JSON.stringify([{ id: me.id }]), me.email])
+                        where c.messages->'pgpt'->>'kind' = any($5) and coalesce(c.messages->>'email','') <> $4
+                        order by coalesce(public.pro_chat_ts(c.messages), now()) desc limit 50`, [T(), me.id, JSON.stringify([{ id: me.id }]), me.email, FOR_ME])
   const senders = await people([...new Set(rows.map((r) => r.messages.userId).filter(Boolean))])
   const by = Object.fromEntries(senders.map((p) => [p.email, p]))
-  return Promise.all(rows.map(async (r) => { const v = await viewFor(me, r, by); return { ...v, unread: new Date(v.at) > new Date(r.last_read_at) } }))
+  const list = await Promise.all(rows.map(async (r) => { const v = await viewFor(me, r, by); return { ...v, unread: new Date(v.at) > new Date(r.last_read_at) } }))
+  // (each room's reactions in one query — the same chips the room shows)
+  const rooms = [...new Set(list.map((m) => m.threadId))]
+  const rx = new Map((await Promise.all(rooms.map(async (id) => [...(await RX.forMessages(me.id, id, list.filter((m) => m.threadId === id).map((m) => m.id)))]))).flat())
+  for (const m of list) m.reactions = rx.get(m.id) || []
+  return list
 }
 
 export async function message(me, uuid) {

@@ -82,7 +82,7 @@ async function openRoom(p) {
   await p.locator('.seg button').filter({ hasText: /^홈$/ }).click()
   await p.locator('button.msgs').click()
   await p.locator('.ms').waitFor()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: /^시니어그룹$/ }) }).first().click()
   await p.locator('.ms .cmp textarea').waitFor()
 }
@@ -433,7 +433,7 @@ async function openRoomEn(p) {
   await p.locator('.seg button').filter({ hasText: /^Home$/ }).click()
   await p.locator('button.msgs').click()
   await p.locator('.ms').waitFor()
-  await p.locator('.ms .tabs button').nth(1).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await p.locator('.ms .th').filter({ has: p.locator('.nm b', { hasText: /^시니어그룹$/ }) }).first().click()
   await p.locator('.ms .cmp textarea').waitFor()
 }
@@ -572,7 +572,7 @@ test('F-ST-12 보낸 말은 쓰던 말로 돌아오지 않는다 — 보내는 �
   const p = await desk(browser, HY)
   await p.goto('/chat')
   await p.locator('button.msg-btn').click()
-  await p.locator('.ms .tabs button').filter({ hasText: '대화' }).click()
+  await p.locator('[data-test="msg-chip-all"]').click()
   await deskRoom(p, '김서연')
   await p.locator('.ms .cmp textarea').fill('김서연에게 쓰던 말')
   await deskRoom(p, '시니어그룹')

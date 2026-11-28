@@ -1,6 +1,6 @@
 // Home 은 알림이다 — 메일 카드 · 업무 카드도 닫는다(2026-11-23 「이메일이나 bpm todolist 는, 다른 곳에서 목록을 볼 수
 // 있을것이므로 … 삭제 가능해야 한다... 홈은 일종의 노티피케이션이므로」). 닫아도 Home 만 바뀐다: 업무는 그대로 내 것이고
-// (루틴), 메일 카드는 받은 편지함 › 메일에 남는다. 워크아이템 알림을 닫으면 그 업무의 Home 카드도 함께 닫힌다. 실제 DB.
+// (루틴), 메일 카드는 팀 메시지 › 대화 › 메일(칩)에 남는다. 워크아이템 알림을 닫으면 그 업무의 Home 카드도 함께 닫힌다. 실제 DB.
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
@@ -40,7 +40,7 @@ test('워크아이템 알림을 닫으면 그 업무의 Home 카드도 닫힌다
   assert.ok((await hiddenTodos(me.id)).has(todo))
 })
 
-test('닫은 메일 카드는 받은 편지함 › 메일에 남고, 업무 카드 표시는 거기 섞이지 않는다', async () => {
+test('닫은 메일 카드는 대화 › 메일에 남고, 업무 카드 표시는 거기 섞이지 않는다', async () => {
   const [open] = await q(`insert into pro_actions(user_id, verb, text, source) values ($1,'Reply','열린 메일 카드',$2) returning id`, [me.id, { mail_id: 'm-open', subject: 'a' }])
   const [closed] = await q(`insert into pro_actions(user_id, verb, text, source, status) values ($1,'Review','닫은 메일 카드',$2,'dismissed') returning id`, [me.id, { mail_id: 'm-closed', subject: 'b' }])
   const list = await mailCards(me.id)

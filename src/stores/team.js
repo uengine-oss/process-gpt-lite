@@ -1,5 +1,5 @@
-// Team sharing and messenger (server/routes/team.js): the inbox, threads with teammates, the share
-// picker and the people "@" suggests. Live updates arrive as 'team' events, re-broadcast on the
+// Team sharing and messenger (server/routes/team.js): one list of conversations with teammates and what of theirs is for me
+// (대화 › 나에게 온 것 — the rooms' own messages, filtered), the share picker and the people "@" suggests. Live updates arrive as 'team' events, re-broadcast on the
 // window by api.js events() — one stream per page, which this store opens too when the chat has not (boot).
 import { defineStore } from 'pinia'
 import { api, events } from '../api.js'
@@ -22,6 +22,9 @@ import { receiptChunks, mergeReceipts } from '../shareReceipts.js'
 import { clearRoom } from '../browserNotify.js'
 
 const store = () => { try { return window.localStorage } catch { return null } }
+// what 대화 › 나에게 온 것 lists: a teammate's share, mention, file link, mail mention, question (AI asking for them) and shared AI answer —
+// the same kinds as the server's (lib/team/messenger.js FOR_ME)
+export const FOR_ME = ['share', 'mention', 'fileref', 'mailref', 'askteam', 'answer']
 
 // file cards that can be shared: the ones with a storage object behind them (not workroom-only files)
 // a stored file, or one the agent left in its work folder (shared through the branch commit)
@@ -31,9 +34,11 @@ export const useTeam = defineStore('team', {
   state: () => ({
     booted: false,
     open: false,              // messenger sheet
-    tab: 'inbox',             // inbox | threads
+    // the messenger's one list and its chips (2026-11-28 「받은 편지함 = 대화의 거르개」): all · forme (나에게 온 것: the rooms' shares,
+    // mentions, file links, mail mentions, questions, answers from others) · unread · mail (my mail cards — another source)
+    filter: 'all',
     threads: [],
-    inbox: [],
+    forMe: [],                // 나에게 온 것: room messages (server lib/team/messenger.js inbox), each with unread by the room's read state
     unread: { total: 0, byThread: {} },
     active: null,             // thread id shown in the messenger
     msgs: {},                 // threadId -> [message]
@@ -74,13 +79,13 @@ export const useTeam = defineStore('team', {
       window.addEventListener('pgpt:event', (e) => this.onEvent(e.detail))
       // the page's live events, also where the chat never booted (the folder screen with the messenger docked beside it)
       events(() => {})
-      await Promise.all([this.loadUnread(), this.loadThreads(), this.loadInbox()]).catch(() => {})
+      await Promise.all([this.loadUnread(), this.loadThreads(), this.loadForMe()]).catch(() => {})
     },
     // (asked again on every read, and a room in a meeting is read again and again as its cards change: only the newest answer counts)
     async loadUnread() { const r = await this.latest('unread', '/team/unread'); if (r) this.unread = r },
     // Lists asked for again and again (on open, on every arriving message) answer out of order on a busy
     // server: only the newest request's answer is kept — an older one, asked before a share arrived,
-    // must not put back the inbox without it (the share was missing on the first open)
+    // must not put back 나에게 온 것 without it (the share was missing on the first open)
     async latest(key, path) {
       const n = (this._seq = (this._seq || 0) + 1)
       ;(this._want ||= {})[key] = n
@@ -88,7 +93,7 @@ export const useTeam = defineStore('team', {
       return r && this._want[key] === n ? r : null
     },
     async loadThreads() { const r = await this.latest('threads', '/team/threads'); if (r) this.threads = r },
-    async loadInbox() { const r = await this.latest('inbox', '/team/inbox'); if (r) { this.inbox = r; this.takeTr(this.inbox) } },
+    async loadForMe() { const r = await this.latest('forme', '/team/inbox'); if (r) { this.forMe = r; this.takeTr(this.forMe) } },
 
     // ---- auto-translation: messages in another language than my main one ----
     myLang() { return useApp().me?.mainLang || 'ko' },
@@ -161,17 +166,21 @@ export const useTeam = defineStore('team', {
             this.unread = { total: this.unread.total + 1, byThread: { ...this.unread.byThread, [data.threadId]: (this.unread.byThread[data.threadId] || 0) + 1 } }
             if (!this.open) this.say(`${m.sender.name}님: ${m.kind === 'share' ? `${m.artifacts[0]?.name || '산출물'} 공유` : m.body.slice(0, 40)}`, { threadId: data.threadId, messageId: m.id })
           }
-          // a share or mention is in the inbox at once (the event carries it as the inbox lists it)
-          if (m.kind === 'share' || m.kind === 'mention') {
-            const item = { ...m, unread: !looking }
-            const i = this.inbox.findIndex((x) => x.id === m.id)
-            if (i >= 0) this.inbox[i] = { ...this.inbox[i], ...item }
-            else this.inbox.unshift(item)
+          // 나에게 온 것 at once, whatever it is of them (a share, a mention, a file link, a mail mention, a question, an answer): the event
+          // carries the message as the room shows it — an update keeps the item's read state and its reactions
+          if (FOR_ME.includes(m.kind)) {
+            const i = this.forMe.findIndex((x) => x.id === m.id)
+            if (i >= 0) this.forMe[i] = { ...this.forMe[i], ...m, reactions: m.reactions || this.forMe[i].reactions, unread: looking ? false : this.forMe[i].unread }
+            else this.forMe.unshift({ ...m, reactions: m.reactions || [], unread: !looking })
           }
-          if (m.kind !== 'text') this.loadInbox()
+          if (m.kind !== 'text') this.loadForMe()
         }
         this.loadThreads()
-      } else if (data.type === 'read') this.loadUnread()
+      } else if (data.type === 'read') {
+        // the room read here or on another device, whole or up to a message: its items of 나에게 온 것 up to then, and the counts
+        this.readUpTo(data.threadId, data.at)
+        this.loadUnread()
+      }
       else if (data.type === 'assist') {
         const list = (this.suggestions[data.threadId] ||= [])
         const i = list.findIndex((x) => x.id === data.suggestion.id)
@@ -206,8 +215,8 @@ export const useTeam = defineStore('team', {
     async openMessenger(threadId, messageId, { reply = false } = {}) {
       this.open = true
       this.toast = null
-      if (threadId) { this.tab = 'threads'; await this.openThread(threadId, messageId); if (reply) this.replyAt = Date.now() }
-      else this.loadInbox()
+      if (threadId) { await this.openThread(threadId, messageId); if (reply) this.replyAt = Date.now() }
+      else this.loadForMe()
     },
     async openThread(id, messageId) {
       this.active = id
@@ -237,15 +246,31 @@ export const useTeam = defineStore('team', {
       this.takeTr(fresh)
       this.loadThreads()
     },
-    async markRead(id) {
-      // its notification on this device goes too (one per room: src/browserNotify.js clearRoom)
-      clearRoom(id)
-      const n = this.unread.byThread[id] || 0
-      if (n) this.unread = { total: Math.max(0, this.unread.total - n), byThread: { ...this.unread.byThread, [id]: 0 } }
-      await api(`/team/threads/${id}/read`, { method: 'POST' }).catch(() => {})
-      for (const x of this.inbox) if (x.threadId === id) x.unread = false
+    // One read state: the room's (server pro_chat_reads). Opened, the room is read whole; upTo (a message's id — an item of 나에게 온 것
+    // seen or opened) reads it up to that message only: the count comes back from the server, later messages stay unread.
+    async markRead(id, { upTo = null } = {}) {
+      if (!upTo) {
+        // its notification on this device goes too (one per room: src/browserNotify.js clearRoom)
+        clearRoom(id)
+        const n = this.unread.byThread[id] || 0
+        if (n) this.unread = { total: Math.max(0, this.unread.total - n), byThread: { ...this.unread.byThread, [id]: 0 } }
+      }
+      const r = await api(`/team/threads/${id}/read`, { method: 'POST', ...(upTo ? { body: { upTo } } : {}) }).catch(() => null)
+      if (upTo) {
+        const m = this.forMe.find((x) => x.id === upTo)
+        this.readUpTo(id, r?.at || m?.at || null)
+        await this.loadUnread()
+        return r
+      }
+      this.readUpTo(id, null)
       const t = this.threads.find((x) => x.id === id)
       if (t) t.unread = 0
+      return r
+    },
+    // the items of 나에게 온 것 of a room read up to a time (null: all of them)
+    readUpTo(id, at) {
+      const to = at ? new Date(at).getTime() : Infinity
+      for (const x of this.forMe) if (x.threadId === id && x.unread && new Date(x.at).getTime() <= to) x.unread = false
     },
     // teammates into a group room I am in (POST /team/rooms/:id/invite): someone already there is left as is
     async invite(threadId, userIds) {
@@ -264,16 +289,17 @@ export const useTeam = defineStore('team', {
       return r
     },
     setReactions(threadId, messageId, reactions) {
-      const list = this.msgs[threadId]
-      const i = list ? list.findIndex((x) => x.id === messageId) : -1
-      if (i >= 0) list[i] = { ...list[i], reactions: Array.isArray(reactions) ? reactions : [] }
+      // (the same message where it shows: its room, and 나에게 온 것)
+      for (const list of [this.msgs[threadId], this.forMe]) {
+        const i = list ? list.findIndex((x) => x.id === messageId) : -1
+        if (i >= 0) list[i] = { ...list[i], reactions: Array.isArray(reactions) ? reactions : [] }
+      }
     },
     // One of my reactions on someone else's message, put on or taken off (POST /team/messages/:id/reactions): the chips change at once,
     // then become the server's — back as they were if it refused
     async react(m, key) {
       if (this.rxOff) return null
-      const list = this.msgs[m.threadId] || []
-      const was = list.find((x) => x.id === m.id)?.reactions || []
+      const was = (this.msgs[m.threadId] || []).find((x) => x.id === m.id)?.reactions || this.forMe.find((x) => x.id === m.id)?.reactions || []
       const on = !was.find((c) => c.key === key)?.mine
       const meId = useApp().me?.user?.id
       const me = { id: meId, name: this.threads.find((t) => t.id === m.threadId)?.members?.find((p) => p.id === meId)?.name || '' }
@@ -293,7 +319,6 @@ export const useTeam = defineStore('team', {
     async startThread(members, title) {
       const t = await api('/team/threads', { method: 'POST', body: { members, title } })
       await this.loadThreads()
-      this.tab = 'threads'
       await this.openThread(t.id)
       return t
     },
@@ -355,7 +380,7 @@ export const useTeam = defineStore('team', {
     // 「본문 공유」 · 「공유 그만두기」 (the owner): every member's card changes (the message comes back as each one sees it)
     async shareMailRef(m, i, on) {
       const x = await api('/team/refs/share', { method: 'POST', body: { messageId: m.id, index: i, on } })
-      for (const list of [this.msgs[m.threadId], this.inbox]) {
+      for (const list of [this.msgs[m.threadId], this.forMe]) {
         const k = (list || []).findIndex((y) => y.id === m.id)
         if (k >= 0 && x) list[k] = { ...list[k], refs: x.refs }
       }
@@ -364,7 +389,7 @@ export const useTeam = defineStore('team', {
     // 권한 요청: the folder's owners are told; the card says it was asked
     async requestRef(m, i) {
       const r = await api('/team/refs/request', { method: 'POST', body: { messageId: m.id, index: i } })
-      for (const list of [this.msgs[m.threadId], this.inbox]) {
+      for (const list of [this.msgs[m.threadId], this.forMe]) {
         const x = (list || []).find((y) => y.id === m.id)
         if (x?.refs?.[i] && r.requested) x.refs[i] = { ...x.refs[i], state: { ...(x.refs[i].state || {}), requested: true, card: 'requested' } }
       }
