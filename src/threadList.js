@@ -84,3 +84,8 @@ export function createTaps({ gap = 400, now = () => Date.now() } = {}) {
     dblclick(e, { double }) { return fire(double) },
   }
 }
+
+// 「프로젝트로 옮기기」 from the list's row (components/ThreadList.vue — spec thread-to-project): not a standing conversation whose runs keep
+// arriving in the chat — a scheduled task's, the briefs' (server lib/conversationMove.js STANDING) — nor an empty one
+export const STANDING = ['schedule', 'brief']
+export const movable = (c) => !!c && !STANDING.includes(c.kind) && Number(c.count) > 0

@@ -8,8 +8,9 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
-import { sortThreads, filterThreads, threadLine, whenText } from '../threadList.js'
+import { sortThreads, filterThreads, threadLine, whenText, movable } from '../threadList.js'
 import { hold as vHold } from './holdMenu.js'
+import { touchOnly } from '../holdHint.js'
 
 // sheet: the list is a page of its own over the chat (a phone): picking a row closes it, and the chat shows that conversation
 const props = defineProps({ sheet: { type: Boolean, default: false } })
@@ -28,9 +29,11 @@ const KIND_LABEL = { schedule: '예약 작업', brief: '브리프', mail: '메�
 // conversation bar's 「다른 대화 ▾」): a long press (phone), a right-click or the folder button (PC) opens the same sheet
 // (ConversationMoveSheet.vue — spec thread-to-project). Not for the standing conversations — a scheduled task's, the briefs' — whose
 // runs keep arriving in the chat (server lib/conversationMove.js STANDING), nor for an empty one.
-const STANDING = ['schedule', 'brief']
-const movable = (c) => !!c && !STANDING.includes(c.kind) && Number(c.count) > 0
-function moveFrom(c) { if (movable(c)) app.moveSheet = { conv: c.id, title: c.title, count: c.count } }
+function moveFrom(c) { if (movable(c)) app.moveSheet = { conv: c.id, title: c.title || '제목 없는 대화', count: c.count } }
+// the hint follows the input, not the width: a finger holds, a mouse right-clicks (a narrow desktop window has no long press, a tablet no
+// right button — PR #129 review 4); said only when there is a conversation to move
+const touch = touchOnly()
+const anyMovable = computed(() => all.value.some(movable))
 function pick(c) {
   router.push(c ? `/chat/c/${encodeURIComponent(c.id)}` : '/chat')
   if (props.sheet) app.setThreadList(false)
@@ -48,7 +51,7 @@ onMounted(() => nextTick(() => el.value?.querySelector('.item.on:not(.all)')?.sc
         <Icon name="close" :size="18" />
       </button>
     </div>
-    <p class="cap">판단 모델이 주제별로 나눈 대화예요. 고르면 채팅이 그 대화만 보여 줘요. {{ sheet ? '길게 누르면' : '오른쪽 단추로 누르면' }} 프로젝트로 옮길 수 있어요.</p>
+    <p class="cap">판단 모델이 주제별로 나눈 대화예요. 고르면 채팅이 그 대화만 보여 줘요.<template v-if="anyMovable"> <span data-testid="thread-move-hint">{{ touch ? '길게 누르면 프로젝트로 옮길 수 있어요.' : '오른쪽 단추로 누르면 프로젝트로 옮길 수 있어요.' }}</span></template></p>
     <label v-if="all.length" class="find">
       <Icon name="search" :size="16" />
       <input v-model="query" type="search" placeholder="대화 찾기" aria-label="대화 찾기" data-testid="thread-search" enterkeyhint="search" @keydown.esc="query = ''" />
@@ -106,7 +109,7 @@ onMounted(() => nextTick(() => el.value?.querySelector('.item.on:not(.all)')?.sc
 .item.on { color: var(--text-primary); }
 .item.on .name { font-weight: 500; }
 .row1, .row2 { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.name { flex: 1; min-width: 0; font-size: 24px; line-height: 1.3; letter-spacing: -0.02em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: keep-all; overflow-wrap: anywhere; }
+.name { flex: 1; min-width: 0; font-size: 26px; line-height: 1.3; letter-spacing: -0.02em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: keep-all; overflow-wrap: anywhere; }
 /* a scheduled task's, the briefs', a mail's conversation: its icon before the title */
 .kind { flex: none; align-self: center; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9999px; color: var(--text-primary); background: var(--bubble-user-bg); }
 .line { flex: 1; min-width: 0; font-size: 14px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -122,8 +125,13 @@ onMounted(() => nextTick(() => el.value?.querySelector('.item.on:not(.all)')?.sc
    (the button stays in the accessibility tree — a screen reader, a keyboard — but takes no room and no touch) */
 .mv { position: absolute; top: 12px; right: -6px; width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; color: var(--text-primary);
   background: var(--regular-solid-bg, var(--button-bg)); box-shadow: var(--shadow-card, 0 2px 10px rgba(0, 0, 0, .12)); opacity: 0; transition: opacity .2s; }
-.rowwrap:hover .mv, .mv:focus-visible { opacity: 1; }
-.rowwrap.movable:hover .item .row1 { padding-right: 34px; }
+.mv:focus-visible { opacity: 1; }
+/* (only where a pointer hovers: a finger's tap must not reveal a button — iOS then drops the tap as a hover menu; the room for it is kept
+   always, so a long title does not wrap under the pointer — PR #129 review 2 · 5) */
+@media (hover: hover) {
+  .rowwrap:hover .mv { opacity: 1; }
+  .rowwrap.movable .item .row1 { padding-right: 34px; }
+}
 @media (hover: none) {
   .mv:not(:focus-visible) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; pointer-events: none; }
 }

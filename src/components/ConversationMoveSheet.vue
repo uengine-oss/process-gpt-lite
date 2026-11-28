@@ -6,11 +6,12 @@
 // Before the move: what happens to it, in words — only in the project from now on, gone from the chat's list and 전체 대화 — and, when
 // the project works in a shared folder other people are members of, that they will see what it makes there: confirmed once more (a box
 // to tick; the server refuses without it). Done: the page goes to the project's conversation.
-import { computed, ref, watch, nextTick, onMounted } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import { useApp } from '../stores/app.js'
 import { topicPath } from '../projectTopics.js'
+import { wideLayout } from '../viewport.js'
 import { moveNotice, membersLine, movedNotice, followedNotice, projectLine } from '../convMove.js'
 
 const app = useApp()
@@ -49,8 +50,11 @@ async function load() {
   const named = s.value?.project && data.value?.projects?.find((p) => p.id === s.value.project && p.writable)
   if (named && data.value.conversation?.movable !== false) pick(named)
 }
-// (the focus at once — Esc closes it while the projects still load; opened from the list's row, the focus was left on the row's button)
+// (the focus at once — Esc closes it while the projects still load; opened from the list's row, the focus was left on the row's button);
+// closed, the focus goes back to what opened it when that is still there (a row of a long list — PR #129 review)
+const opener = typeof document !== 'undefined' ? document.activeElement : null
 onMounted(() => { nextTick(() => sheet.value?.focus()); load() })
+onBeforeUnmount(() => { if (opener && opener !== document.body && opener.isConnected) opener.focus?.({ preventScroll: true }) })
 watch(() => s.value?.conv, (v, old) => { if (v && v !== old) { step.value = 'pick'; picked.value = null; load() } })
 
 function pick(p) {
@@ -89,12 +93,18 @@ async function toNew() {
   busy.value = true
   err.value = ''
   try {
-    const { offer } = await app.moveOffer(s.value.conv)
+    const conv = s.value.conv
+    const { offer } = await app.moveOffer(conv)
     const list = (app.messages[offer.thread_id] ||= [])
     if (offer && !list.some((m) => m.id === offer.id)) list.push(offer)
     close()
-    await nextTick()
-    document.querySelector(`.row[data-id="${offer.id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // (opened from the conversation list — PR #129 review 1: on a phone the list is a sheet and the chat under it is not there, on a wide
+    // screen another conversation may be the one shown; the card is filed in this conversation) — the chat of this conversation first
+    if (app.mode !== 'chat' || app.convFilter !== conv) await router.push(`/chat/c/${encodeURIComponent(conv)}`)
+    if (app.threadList && !wideLayout.value) app.setThreadList(false)
+    let row = null
+    for (let i = 0; i < 30 && !row; i++) { await nextTick(); row = document.querySelector(`.row[data-id="${offer.id}"]`); if (!row) await new Promise((ok) => setTimeout(ok, 40)) }
+    row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   } catch (e) {
     if (e.code === 'moved' && e.place?.project?.id) { close(); go(e.place, followedNotice(e.place.project.title)); return }
     err.value = e.message
@@ -106,7 +116,7 @@ async function toNew() {
   <Teleport to="body">
     <div v-if="s" class="veil" data-test="move-veil" @click.self="close">
       <div ref="sheet" class="sheet glass blur-in" role="dialog" aria-modal="true" aria-label="프로젝트로 옮기기" tabindex="-1" data-test="conv-move" :data-step="step"
-        @keydown.esc.stop.prevent="close">
+        :aria-busy="!data && !loadErr ? 'true' : undefined" @keydown.esc.stop.prevent="close">
         <header>
           <button v-if="step === 'confirm'" class="x press" aria-label="뒤로" data-test="move-back" @click="back"><Icon name="back" :size="17" /></button>
           <div class="hd">
