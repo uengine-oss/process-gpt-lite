@@ -77,7 +77,7 @@ test('WD-U-02 scripts: beside the agent\'s own files they are cards (a web page\
   assert.deepEqual(names(dropScaffolding(page, { written, ended: true })), ['작은-웹-페이지/v1/index.html', '작은-웹-페이지/v1/style.css', '작은-웹-페이지/v1/README.md'])
   // what an install or a build left, a dot folder's helper: never cards (the conversation's own .bpmn/<room>/ is not such a folder)
   const left = ['site/v1/node_modules/left-pad/index.js', 'site/v1/dist/bundle.js', 'site/v1/build/out.js', '.cache/check.py', 'site/v1/lib/__pycache__/m.py',
-    'site/v1/.venv/bin/activate.sh', 'venv/lib/x.py', '.git/hooks/pre-commit.sh', 'site/v1/.pytest_cache/v.py', 'site/v1/.next/server/page.js', 'dist/app.js',
+    'site/v1/.venv/bin/activate.sh', 'venv/lib/x.py', '.git/hooks/pre-commit.sh', 'site/v1/.pytest_cache/v.py', 'site/v1/.next/server/page.js', 'site/v1/.tmp/run.sh', '.scratch/try.py', 'dist/app.js',
     'folders/edu/site/v2/build/out.js'].map((r) => f(r))
   const all = [...page, ...left]
   assert.deepEqual(names(dropScaffolding(all, { written: new Set(all.map((x) => x.path)) })), names(page))

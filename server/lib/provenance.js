@@ -73,12 +73,12 @@ export const checkoutFile = (p) => /\/\.bpmn\/[^/]+\/folders\//.test(String(p ||
 // the scripts are part of the work and stay cards — run or not: a script the person asked for is usually test-run by the agent, and an
 // extra helper row (analyze.py that printed the numbers for report.md) is better than a requested file lost (PR #137 review, decided).
 // Never a card either way: a script of a stopped turn (half-run), one that is not this turn's own writing, one inside what an install or
-// a run leaves (node_modules, __pycache__, .venv · venv, .cache, .git, .pytest_cache, .next — at any depth)
+// a run leaves (node_modules, __pycache__, .venv · venv, .cache, .git, .pytest_cache, .next, and a scratch folder .tmp · .scratch — at any depth)
 // or a build's output (dist/ · build/ right under the work folder's version, or the conversation folder's top — tools/build/release.sh and
 // .github/scripts/deploy.sh stay). Only paths and names are read.
 // files: the turn's cards ({name, path, url, open …}); written: the paths the agent wrote this turn (file_artifact without a url)
 export const SCRIPT = /\.(?:py|js|mjs|cjs|ts|sh)$/i
-const LEFT_BEHIND = new Set(['node_modules', '__pycache__', '.venv', 'venv', '.cache', '.git', '.pytest_cache', '.next'])
+const LEFT_BEHIND = new Set(['node_modules', '__pycache__', '.venv', 'venv', '.cache', '.git', '.pytest_cache', '.next', '.tmp', '.scratch'])
 const BUILD_OUT = new Set(['dist', 'build'])
 const VERSION = /^v\d{1,4}$/i
 // a path's folders inside its conversation's folder (or a project's working copy there, or the workspace): '.bpmn/<room>/' is where it is,
