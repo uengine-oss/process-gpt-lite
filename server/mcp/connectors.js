@@ -95,9 +95,11 @@ export function mountConnectors(app) {
     const user = jwt ? await userFromJwt(jwt) : null
     // a token that is present but invalid is an error; no token at all gets the anonymous catalog
     if (jwt && !user) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'unauthorized: invalid or expired user JWT' }, id: null })
-    const server = await buildServer(user, only, { conv: conversationOf(req.headers['x-conversation-id']), jwt: user ? jwt : '' })
+    // (signal: the caller went away — a tool that waits, the browser's, stops waiting)
+    const gone = new AbortController()
+    const server = await buildServer(user, only, { conv: conversationOf(req.headers['x-conversation-id']), jwt: user ? jwt : '', signal: gone.signal })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
-    res.on('close', () => { transport.close(); server.close() })
+    res.on('close', () => { gone.abort(); transport.close(); server.close() })
     await server.connect(transport)
     await transport.handleRequest(req, res, req.body)
   })

@@ -546,9 +546,9 @@ ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「�
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (103개) | 739 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03, 대화 속 그림 · 소리 · 영상 F-MP-01…08, … 에이전트가 호출하는 내장 브라우저 F-AB-01…05의 6개) |
+| feature | `tests/feature/*.spec.js` (103개) | 741 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03, 대화 속 그림 · 소리 · 영상 F-MP-01…08, … 에이전트가 호출하는 내장 브라우저 F-AB-01…06의 8개 포함) |
 | agent | `tests/agent/*.spec.js` (14개) | 33 (회의 A-14, 후행 습관 A-FU-01) |
-| 합계 | | 846 (2026-11-28에 `npx playwright test --list`로 집계, F-AB-01…05의 6개 포함) |
+| 합계 | | 848 (2026-11-28에 `npx playwright test --list`로 집계한 846에 2026-11-29 F-AB-06의 2개를 더한 값) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
@@ -2274,7 +2274,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-
 ```bash
 cd server && node --test test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js   # FG-U-01~08 · WF-U-01~16 · WD-U-01
 cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js         # WF-I-01~07 (실제 DB, 가짜 모델 · deepagents)
-cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1   # F-WF-01~06
+cd e2e && npx playwright test --project=feature tests/feature/work-folders.spec.js --workers=1   # 공용 녹화 잠금 안에서 실행 · F-WF-01~06
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2367,20 +2367,24 @@ e2e/
 
 ```bash
 cd server && node --test --test-concurrency=1 test/agentBrowser.test.js test/agentTools.test.js          # AB-U · agentTools
-cd server && node --test --test-concurrency=1 test/agentBrowser.integration.test.js                      # AB-I-01~04 (실제 DB · HTTP MCP · Chromium)
-cd e2e && ~/.claude/tools/lite/reclock.sh run agent-browser -- npx playwright test --project=feature tests/feature/agent-browser.spec.js --workers=1   # F-AB-01~05
+cd server && node --test --test-concurrency=1 test/agentBrowser.integration.test.js                      # AB-I-01~06 (실제 DB · HTTP MCP · Chromium)
+cd e2e && npx playwright test --project=feature tests/feature/agent-browser.spec.js --workers=1   # 공용 녹화 잠금 안에서 실행 실행 · F-AB-01~06
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
 |---|---|---|---|---|
 | 내장 브라우저가 기본 도구 목록에 포함된다 — `/api/config agentTools.browser`, 허브 묶음, 운영 점검 D-AT-browser. 연결기이면서 기본 도구여도 허브에는 한 번만 묶는다 | 운영 11-28 · 브리프 P0 | agentTools 「내장 브라우저(pgpt-browser) …」 · 「이름은 한 목록」 · 「shape」 · D-AT-browser | 단위 · deploy | ✅ |
 | 에이전트의 대화(`X-Conversation-Id`)로 해당 사용자의 방을 찾는다 — 그 사람의 진행 중인 턴, 해당 대화의 방, 프로젝트 주제를 확인한다. 다른 사람의 대화는 거절하고 어느 방에도 카드를 표시하지 않는다. 대화가 없으면 기존 방식을 따른다 | 브리프 P1 | AB-U 「대화 → 방」 · AB-I-02 · F-AB-04 | 단위 · DB · feature | ✅ |
-| 사람의 메시지에 답하는 턴이면 그 사람의 작업으로 실행한다(own · 사람의 말 · 계획 배경 · 줄). 루틴 · 예약 · 서버가 만든 턴이거나 턴이 끝난 뒤라면 읽기만 한다 | 브리프 P1 | AB-U 「사람이 있는 턴」 · 「사람이 있으면 …」 · AB-I-01 · AB-I-03 | 단위 · DB | ✅ |
+| 사람이 글로 쓴 메시지에 답하는 턴이면 그 사람의 작업으로 실행한다(own · 사람의 말 · 계획은 배경으로만 · 줄은 사람의 말로만). 루틴 · 예약 · 서버가 만든 턴 · 파일만 보낸 메시지이거나 턴이 끝난 뒤라면 공개 페이지를 읽기만 한다. 저장된 로그인을 쓰지 않으며(`PRO_BROWSER_TOOL_LOGINS=unattended`일 때만 예외), 무언가를 만드는 단추도 누르지 않는다 | 브리프 P1 · 보안 검토 2 · 6 | AB-U 「사람이 있는 턴」 · 「사람이 있으면 …」 · AB-I-01 · AB-I-03 | 단위 · DB | ✅ |
+| 에이전트가 시작한 작업에서 보내기 · 지우기 · 게시 · 공유 · 설정 바꾸기를 사람이 말하지 않았다면, 해당 단추와 사이트를 적은 카드에서 사람의 승인을 받는다(판정 0.7, 판정은 동작 · 페이지 · 사람의 말만 읽음, 판정이 없으면 승인 카드 표시, 승인은 한 번의 누름에만 적용). 자기 작업 공간에서는 승인 카드 없이 생성한다 | 보안 검토 1 | AB-U 「바깥에 영향을 주는 동작」 · 「판정이 읽는 것」 · AB-I-05 · F-AB-06 | 단위 · DB · feature | ✅ |
+| 에이전트가 시작한 작업은 사람이 있든 없든 PC의 내부망을 열지 않는다. 시작 주소는 공개 주소(끝에 점이 붙은 이름 · 내부 서비스 이름 · 한 단어로 된 이름은 받지 않음)나 회사가 허락한 주소여야 한다 | 보안 검토 3 · 7 | AB-U 「… PC 의 내부망을 열지 않는다」 · 「시작 주소」 | 단위 | ✅ |
+| 멈추기(계획 지킴이의 멈춤 · 바로잡는 말 포함)는 해당 턴에서 에이전트가 시작한 작업도 멈춘다. 멈춘 작업은 이어서 진행하지 않는다 | 보안 검토 4 | AB-U 「멈추기」 · AB-I-06 | 단위 · DB | ✅ |
+| 한 사람당 동시에 진행할 수 있는 에이전트 작업은 두 개까지다. 이후 호출은 이유와 함께 거절한다. 호출이 끊기면 기다림을 멈추고, 결과는 열려 있는 호출에 돌려준 뒤에야 받은 것으로 본다. 작업이 끝나면 호출의 토큰을 버린다 | 보안 검토 8 | AB-U 「동시에 진행되는 …」 · 「기다림」 | 단위 · DB | ✅ |
 | 에이전트 턴 도중에 해당 방에 작업 카드가 곧바로 나타난다(실시간 화면). 계획 카드는 「에이전트 · 브라우저 · 스튜디오」를 표시하고, 실시간 줄에는 브라우저의 진행 상황이 표시된다. 답은 카드 뒤에 오며, 답에 남은 계획에도 같은 내용이 표시된다 | 브리프 P3 | AB-I-01 · F-AB-01 | DB · feature | ✅ |
 | 4분 안(시험에서는 4초)에 `running` + `task_id` + 진행 상황을 반환한다. `browser_task_wait`로 결과(요약 · 메모 · 주소 · 페이지 글 · 받은 파일 = 채팅의 파일 카드)를 받는다 | 브리프 P2 | AB-U 「기다림」 · AB-I-01 · AB-I-04 · F-AB-01 | 단위 · DB · feature | ✅ |
 | 브라우저가 카드로 질문하면 호출은 곧바로 `waiting_for_person`과 질문을 반환한다. 사람이 카드에서 선택하면 에이전트가 그 답이 포함된 결과를 받아 이어서 답한다 | 브리프 P2 | AB-U 「기다림」 · F-AB-02 | 단위 · feature | ✅ |
-| `browser_task_say`는 카드에 「에이전트가 전한 말」로 표시된다. 사람의 말이나 승인으로 취급하지 않으며, 사람에게 한 질문의 답으로도 취급하지 않는다. 다른 사람의 작업 id로는 기다리거나 말을 전할 수 없다 | 브리프 P2 | AB-I-04 · AB-I-02 · AB-U 「말 전하기」 · 「작업 찾기」 | 단위 · DB | ✅ |
-| 턴이 먼저 끝나면 같은 대화에서 한 번 이어서 진행한다(「Lite 가 보냄」, composed). 그사이에 사람이 메시지를 썼거나(작업에 준 답 제외), 다른 턴이 진행 중이거나, 멈춘 턴이거나, 이미 받은 결과이거나, 이어 하는 턴의 작업이거나, `PRO_BROWSER_HANDBACK=0`이면 이어서 진행하지 않는다 | 브리프 P2 | AB-U 「이어 하기」 · AB-I-04 · F-AB-03 | 단위 · DB · feature | ✅ |
+| `browser_task_say`는 같은 대화에서 에이전트가 시작한 작업에만 말을 전하며, 카드에 「에이전트가 전한 말」로 표시된다. 이 말은 사람의 말이나 승인으로 취급하지 않는다. 판정에서 읽는 사람의 말에 포함하지 않으며, 사람에게 한 질문의 답으로도 취급하지 않는다. 다른 사람의 작업 id로는 기다리거나 말을 전할 수 없다. 카드에서 다시 읽은 작업은 결과만 읽을 수 있다 | 브리프 P2 · 보안 검토 9 | AB-I-04 · AB-I-02 · AB-U 「말 전하기」 · 「작업 찾기」 | 단위 · DB | ✅ |
+| 턴이 먼저 끝나면 같은 대화에서 한 번 이어서 진행한다(「Lite 가 보냄」, composed). 메시지에는 작업 id와 상태만 있고 사이트의 글은 없다. 에이전트는 `browser_task_wait`로 결과를 읽는다. 해당 턴의 메시지 뒤에 사람이 무엇이든 썼거나(턴 도중 포함), 다른 턴이 진행 중이거나, 멈춘 턴이거나, 이미 받은 결과이거나, 이어서 진행하는 턴의 작업이거나, `PRO_BROWSER_HANDBACK=0`이면 이어서 진행하지 않는다 | 브리프 P2 · 보안 검토 5 | AB-U 「이어 하기」 · AB-I-04 · F-AB-03 | 단위 · DB · feature | ✅ |
 | 도구 설명에는 이 서버의 브라우저 스킬을 이름 · 이름표 · 설명과 함께 싣는다. `skill`은 그 이름 중 하나다. 사람을 기다리는 동안 같은 내용을 다시 묻지 말라는 안내도 포함한다 | 브리프 P2 · 정규식 금지 | AB-U 「도구 설명」 | 단위 | ✅ |
 | 폭 390인 휴대폰의 밝은 화면과 어두운 화면에서 작업 중인 계획 카드와 작업 카드가 화면 안에 표시되고, 화면이 옆으로 밀리지 않는다 | 브리프 P3 | F-AB-05 | feature | ✅ |
 | 실제 deepagents(origin/master 277a8c9, 회사 게이트웨이 모델, 공통 목록에 `pgpt-browser` 한 줄)가 한국어 요청에 스스로 `browser_task`를 선택했다. 19초에 카드가 나타났고(계획 카드 「에이전트 · 브라우저」), 46초에 작업이 끝나자 그 결과로 남은 단계를 이어서 진행했다 | 실제 확인 11-28 | `openspec/specs/agent-browser/e2e/README.md` 「실제 deepagents 로 확인」 | 실제 확인 | ✅ |

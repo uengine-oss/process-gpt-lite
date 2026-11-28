@@ -23,13 +23,22 @@ import { startStudio } from './fixtures/studio.mjs'
 process.env.PRO_BROWSER_PRIVATE_ALLOW = '127.0.0.1,localhost'
 
 // ---- the judge: the page check says the page is fine, a page that is generating is busy; anything else the default ----
+const effects = [] // what the effect gate was asked
 const judgeServer = await new Promise((r) => {
   const s = http.createServer((req, res) => {
     let raw = ''
     req.on('data', (c) => { raw += c })
     req.on('end', () => {
       if (!req.url.startsWith('/judge')) { res.writeHead(404); return res.end() }
-      const keys = (JSON.parse(raw).options || []).map((o) => o.key)
+      const b = JSON.parse(raw)
+      const keys = (b.options || []).map((o) => o.key)
+      effects.push({ state: String(b.state || '') })
+      // the effect gate (lib/browser.js EFFECT_OPTIONS): removing is outside the person's workspace, generating is in it, the rest only looks
+      const control = /Control: "([^"]*)"/.exec(String(b.state || ''))?.[1] || ''
+      if (keys.includes('outside')) {
+        const p = /삭제|delete/i.test(control) ? { outside: 0.92 } : /생성/.test(control) ? { own: 0.9 } : { look: 0.9 }
+        return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ probabilities: p, model: 'scripted' }))
+      }
       const p = keys.includes('login_needed') ? { ok: 1 } : keys.includes('idle') ? { busy: 1 } : keys.includes('none') ? { none: 1 } : keys.includes('new') ? { new: 1 } : { other: 1 }
       res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ probabilities: p, model: 'scripted' }))
     })
@@ -39,6 +48,7 @@ const judgeServer = await new Promise((r) => {
 
 // ---- the model: the front plan, the router (DELEGATE), the plan guard, the browser's plan and its agent (by the task's goal) ----
 const scripts = {} // goal's first line → (body) => [tool, args]
+const lastTool = (b) => String([...b.messages].reverse().find((m) => m.role === 'tool')?.content || '')
 const lastPage = (b) => { const m = [...b.messages].reverse().find((x) => x.role === 'user' && typeof x.content === 'string' && x.content.startsWith('{')); return m ? JSON.parse(m.content.split('\n')[0]) : { els: [], text: '' } }
 const el = (b, text) => lastPage(b).els.find((e) => e.text === text || e.name === text)
 // the studio: 생성 → wait while 「생성 중」 → 다운로드 → finish (read from the page each time: a look again after words passed on is the same move)
@@ -200,6 +210,7 @@ test('AB-I-01 사람의 턴 도중의 browser_task: 카드가 그 방에 곧바�
   assert.ok(card, '작업 카드')
   assert.ok(!turn.finished, '턴이 아직 돈다')
   assert.equal(card.content.goal, GOAL, '사람의 작업 — 「읽기만」 꼬리가 없다')
+  assert.equal(card.content.byAgent, true, '에이전트가 시작한 작업 — 이어서 해도 그대로')
   assert.ok(await until(() => TP.viewOf(turn)?.handler?.label === '에이전트 · 브라우저'), `계획 카드의 처리 줄: ${TP.viewOf(turn)?.handler?.label}`)
   const r = await call
   assert.equal(r.error, false, r.text)
@@ -244,15 +255,24 @@ test('AB-I-02 다른 사람의 대화 id 는 거절 · 다른 사람의 작업 i
   assert.equal(mine.out.state, 'done')
 })
 
-test('AB-I-03 턴이 끝난 뒤 같은 대화에서 부르면 사람이 없으니 읽기만', { skip: !up }, async () => {
+test('AB-I-03 턴이 끝난 뒤 같은 대화에서 부르면 사람이 없으니 읽기만 — 만드는 동작은 하지 않고, 저장된 로그인도 쓰지 않는다', { skip: !up }, async () => {
   const GOAL = '스튜디오 첫 화면의 제목을 읽는다'
-  scripts[GOAL] = (b) => (lastPage(b).els.length && !b.messages.some((m) => m.role === 'tool') ? ['note', { text: `제목: ${lastPage(b).title}` }] : ['finish', { summary: '제목은 스튜디오예요.' }])
+  // (the browser's model tries to make something and to fill a saved login: neither happens in a run nobody watches)
+  const moves = [(b) => ['click', { i: el(b, '생성').i }], (b) => ['fill_secret', { i: el(b, '파일 고르기').i, field: 'username' }], (b) => ['note', { text: `제목: ${lastPage(b).title}` }], () => ['finish', { summary: '제목은 스튜디오예요.' }]]
+  const told = []
+  scripts[GOAL] = (b) => { const k = b.messages.filter((m) => m.role === 'tool').length; if (k) told.push(lastTool(b)); return moves[Math.min(k, moves.length - 1)](b) }
   const r = await mcp(aSession.access_token, CONV, 'browser_task', { goal: GOAL, start_url: site.url })
   assert.equal(r.error, false, r.text)
-  assert.match(r.out.note || '', /only reads/)
+  assert.match(r.out.note || '', /only reads public pages/)
   const card = (await tasksOf(A.id)).at(-1)
   assert.equal(card.thread_id, mainA, '그 대화의 방')
   assert.match(card.content.goal, /^스튜디오 첫 화면의 제목을 읽는다\n\n\(읽기만 하세요/)
+  assert.match(told[0], /^not done: nobody is watching this task, so it only reads/, '「생성」은 누르지 않았다')
+  assert.match(told[1], /no credential saved/)
+  assert.ok(r.out.notes.some((n) => /사람이 없는 작업이라 「생성」은\(는\) 하지 않음/.test(n)), r.out.notes.join(' | '))
+  assert.ok(r.out.notes.some((n) => /사람이 없는 작업이라 저장된 로그인를 쓰지 않음/.test(n)), r.out.notes.join(' | '))
+  // (the page still waits: 생성 was never pressed)
+  assert.match(r.out.page_text, /대기/)
 })
 
 test('AB-I-04 오래 걸리는 작업: running 으로 돌아오고, 말 전하기는 카드에, 턴이 먼저 끝나면 같은 대화로 한 번 이어 하기', { skip: !up }, async () => {
@@ -282,17 +302,87 @@ test('AB-I-04 오래 걸리는 작업: running 으로 돌아오고, 말 전하�
   const hb = await nth(n0 + 2, 60000)
   assert.equal(hb.body.conversation_id, CONV)
   assert.match(hb.body.message, /\(Lite 가 보낸 메시지예요\. 사람이 쓴 말이 아니에요\.\)/)
-  assert.match(hb.body.message, new RegExp(`\\[browser_task ${r.out.task_id}\\] state: done`))
-  assert.match(hb.body.message, /summary: 긴 오디오 보고서를 받았어요\./)
-  assert.match(hb.body.message, /오디오 보고서\.pdf/)
+  assert.match(hb.body.message, new RegExp(`task_id: ${r.out.task_id} · state: done`))
+  assert.match(hb.body.message, /browser_task_wait/)
+  // nothing the website wrote is in the message: the agent reads the result as a tool result
+  assert.doesNotMatch(hb.body.message, /긴 오디오 보고서를 받았어요|오디오 보고서\.pdf|완료/)
   const said = await until(async () => (await msgs(mainA)).filter((m) => m.role === 'user').at(-1))
-  assert.deepEqual(said.content.handback, { taskId: r.out.task_id, title: said.content.handback.title })
+  assert.equal(said.content.handback.taskId, r.out.task_id)
   assert.equal(said.content.composed, true)
-  assert.match(said.content.text, /^브라우저 작업 「.+」이\(가\) 끝났어요\. 결과를 보고 남은 일을 이어서 해 주세요\.$/)
+  assert.equal(said.content.text, '브라우저 작업이 끝났어요. 에이전트가 결과를 읽고 남은 일을 이어서 해요.')
+  const read = await mcp(aSession.access_token, CONV, 'browser_task_wait', { task_id: r.out.task_id, seconds: 5 })
+  assert.match(read.out.summary, /^긴 오디오 보고서를 받았어요\./)
+  assert.match(read.out.files[0].name, /오디오 보고서\.pdf$/)
   answer(hb, '긴 오디오 보고서를 받았어요. 이어서 정리했어요.')
   await until(async () => (await msgs(mainA)).some((m) => m.role === 'agent' && m.kind === 'text' && /이어서 정리했어요/.test(m.content.text)))
   // never twice
   await new Promise((ok) => setTimeout(ok, 1500))
   assert.equal(streams.length, n0 + 2)
+  delete process.env.PRO_BROWSER_TOOL_MS
+})
+
+test('AB-I-05 에이전트가 시작한 작업: 사람이 말하지 않은 지우기는 승인 카드에서 멈추고(「취소」면 하지 않음), 자기 작업 공간의 생성은 카드 없이', { skip: !up }, async () => {
+  const { startNotebooks } = await import('./fixtures/notebooks.mjs')
+  const nb = await startNotebooks()
+  try {
+    const GOAL = '노트북 목록을 정리한다'
+    const told = []
+    scripts[GOAL] = (b) => {
+      const k = b.messages.filter((m) => m.role === 'tool').length
+      if (k) told.push(lastTool(b))
+      if (k === 0) return ['click', { i: el(b, 'more_vert').i }]
+      if (k === 1) return ['click', { i: el(b, 'delete 삭제').i }]
+      return ['finish', { summary: /not done/.test(lastTool(b)) ? '지우지 않았어요.' : '지웠어요.' }]
+    }
+    const n0 = streams.length
+    const p = runTurn({ user: { id: A.id, email: A_MAIL, name: '시험 에이' }, session: aSession, threadId: mainA, text: '노트북 사이트의 목록을 보기 좋게 정리해 줘' })
+    const h = await nth(n0 + 1)
+    await until(() => turns.agentTurnsOf(A.id).find((t) => t.conv === CONV))
+    const call = mcp(aSession.access_token, CONV, 'browser_task', { goal: GOAL, start_url: `${nb.url}/notebooks?n=3` })
+    // the press waits on the person's approval card, naming the control and the site
+    const card = await until(async () => (await msgs(mainA)).find((m) => m.kind === 'choice' && m.content.approval && m.content.state === 'pending'), 30000)
+    assert.ok(card, '승인 카드')
+    assert.match(card.content.question, /「delete 삭제」을\(를\) 누를까요\? 에이전트가 시작한 작업이라/)
+    const task = (await tasksOf(A.id)).at(-1)
+    assert.equal(task.content.state, 'needs_input')
+    assert.equal(task.content.need, 'approve')
+    // the judgment read the person's own words — not the goal the agent wrote
+    const asked = effects.filter((e) => e.state.includes('Control: "delete 삭제"')).at(-1).state
+    assert.match(asked, /"노트북 사이트의 목록을 보기 좋게 정리해 줘"/)
+    assert.doesNotMatch(asked, /노트북 목록을 정리한다/)
+    await browser.answerCard(A.id, card.id, '취소')
+    const r = await call
+    assert.equal(r.out.state, 'done', r.text)
+    assert.match(r.out.summary, /^지우지 않았어요\./)
+    assert.match(told[1], /^not done: the user declined/)
+    assert.equal(r.out.page_text.match(/제목 없는 노트북/g)?.length, 3, '목록은 그대로')
+    answer(h, '지우지 않고 그대로 두었어요.')
+    await p
+  } finally { await nb.close() }
+  // making something in the person's own workspace (AB-I-01's 「생성」) went on without a card
+  assert.ok(effects.some((e) => e.state.includes('Control: "생성"')))
+  const approvals = (await msgs(mainA)).filter((m) => m.kind === 'choice' && m.content.approval)
+  assert.equal(approvals.length, 1, '승인 카드는 지우기 하나뿐')
+})
+
+test('AB-I-06 멈추기: 그 턴에서 에이전트가 시작한 작업도 멈추고, 이어 하기는 없다', { skip: !up }, async () => {
+  process.env.PRO_BROWSER_TOOL_MS = '1500'
+  const { stopTurns } = await import('../lib/agent.js')
+  const GOAL = '스튜디오에서 멈출 오디오 보고서를 생성한다'
+  scripts[GOAL] = studio('받았어요.')
+  const n0 = streams.length
+  const p = runTurn({ user: { id: A.id, email: A_MAIL, name: '시험 에이' }, session: aSession, threadId: mainA, text: '스튜디오에서 아주 긴 보고서를 만들어 줘' })
+  const h = await nth(n0 + 1)
+  void h
+  await until(() => turns.agentTurnsOf(A.id).find((t) => t.conv === CONV))
+  const r = await mcp(aSession.access_token, CONV, 'browser_task', { goal: GOAL, start_url: `${site.url}?ms=20000` })
+  assert.equal(r.out.state, 'running', r.text)
+  await stopTurns({ user: { id: A.id, email: A_MAIL, name: '시험 에이' }, session: aSession, threadId: mainA })
+  await p
+  const card = await until(async () => { const [m] = await q('select content from pro_messages where id=$1', [r.out.task_id]); return m.content.state === 'cancelled' ? m : null }, 15000)
+  assert.ok(card, '작업 카드가 멈췄다')
+  assert.match(card.content.summary, /에이전트의 답을 멈춰서 이 작업도 멈췄어요/)
+  await new Promise((ok) => setTimeout(ok, 2000))
+  assert.equal(streams.length, n0 + 1, '이어 하기 없음')
   delete process.env.PRO_BROWSER_TOOL_MS
 })

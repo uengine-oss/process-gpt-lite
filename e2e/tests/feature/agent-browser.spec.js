@@ -9,11 +9,12 @@
 //   F-AB-03 PC: 에이전트 턴이 먼저 끝난 오래 걸리는 작업 → 끝나면 같은 대화로 한 번 이어 하기(「Lite 가 보냄」), 두 번은 없다
 //   F-AB-04 PC: 다른 사람의 대화 id 로 부르면 거절 — 어느 방에도 작업 카드가 없다
 //   F-AB-05 휴대폰 390(밝은 · 어두운): 일하는 중의 작업 카드와 계획 카드가 화면 안, 옆으로 밀리지 않음
+//   F-AB-06 PC · 휴대폰 390: 에이전트가 시작한 작업에서 사람이 말하지 않은 지우기는 사람의 승인 카드에서 멈추고, 「취소」면 하지 않는다
 // 자기 스택(lib/localStack.js: 회사 agentbrowser-ui 의 BFF + Vite, 9061 · 5461 부터 빈 포트)을 띄우고 지운다. 가짜 모델 · 판정(9066)과
 // 가짜 deepagents(9067)는 이 파일이 띄운다 — 가짜 deepagents 는 스트림 도중에 Lite 의 /mcp/browser 를 사람의 토큰과 X-Conversation-Id 로
 // 부른다. 사이트는 server/test/fixtures/studio.mjs(생성을 누르면 몇 초 뒤 다운로드). 브라우저 작업은 그 BFF 의 진짜 Chromium 이 한다.
 // 사람은 지어낸 것(한지우 · 문도윤).
-//   cd e2e && ~/.claude/tools/lite/reclock.sh run agent-browser -- npx playwright test --project=feature tests/feature/agent-browser.spec.js --workers=1
+//   cd e2e && npx playwright test --project=feature tests/feature/agent-browser.spec.js --workers=1   (공용 녹화 잠금 안에서)
 import { test, expect } from '@playwright/test'
 import http from 'node:http'
 import fs from 'node:fs'
@@ -41,12 +42,14 @@ const ASK = {
   ask: '스튜디오에서 오디오를 만들어 줘, 목소리는 나한테 물어보고',
   handback: '스튜디오에서 긴 오디오 보고서를 만들고, 끝나면 이어서 정리해 줘',
   other: '다른 사람 대화로 브라우저 작업을 해 봐',
+  tidy: '노트북 사이트의 목록을 보기 좋게 정리해 줘',
 }
-const caseOf = (t) => (t.includes('목소리') ? 'ask' : t.includes('끝나면 이어서') ? 'handback' : t.includes('다른 사람 대화') ? 'other' : 'audio')
+const caseOf = (t) => (t.includes('목소리') ? 'ask' : t.includes('끝나면 이어서') ? 'handback' : t.includes('다른 사람 대화') ? 'other' : t.includes('목록을 보기 좋게') ? 'tidy' : 'audio')
 const GOAL = {
   audio: '스튜디오에서 오디오 보고서를 생성하고 다운로드한다',
   ask: '스튜디오에서 어느 목소리로 할지 사람에게 물어 정한 뒤 오디오를 만든다',
   handback: '스튜디오에서 긴 오디오 보고서를 생성하고 다운로드한다',
+  tidy: '노트북 목록을 정리한다',
 }
 const WAIT_MS = { audio: 7000, ask: 1000, handback: 9000 }
 const STEPS = ['스튜디오에서 오디오 보고서 만들기', '파일 받아 오기', '결과 알려 주기']
@@ -61,6 +64,12 @@ function browserMove(goal, b) {
   if (!b.messages.some((m) => m.role === 'assistant')) runs[goal] = { gen: false, dl: false, asked: false }
   const s = runs[goal] || (runs[goal] = { gen: false, dl: false, asked: false })
   const kase = Object.entries(GOAL).find(([, g]) => g === goal)?.[0]
+  if (kase === 'tidy') {
+    const k = b.messages.filter((m) => m.role === 'tool').length
+    if (k === 0) return ['click', { i: el(b, 'more_vert').i }]
+    if (k === 1) return ['click', { i: el(b, 'delete 삭제').i }]
+    return ['finish', { summary: /^not done/.test(lastTool(b)) ? '지우지 않았어요.' : '지웠어요.' }]
+  }
   if (kase === 'ask') {
     if (!s.asked) { s.asked = true; return ['need_user', { reason: '어느 목소리로 오디오를 만들까요?', options: VOICES, need: 'other' }] }
     const chose = /chose: (.*?)\. Continue/.exec(lastTool(b))?.[1] || /"(.*)"/.exec(lastTool(b))?.[1] || ''
@@ -93,11 +102,13 @@ function answerLlm(b) {
   if (/제목을|A title for/.test(sys)) return { content: '스튜디오 보고서' }
   return { content: b.response_format ? '{}' : 'OK' }
 }
-const judgeOf = (keys) => (keys.includes('login_needed') ? { ok: 1 } : keys.includes('idle') ? { busy: 1 } : keys.includes('none') ? { none: 1 } : keys.includes('new') ? { new: 1 } : { other: 1 })
+// (the effect gate — server lib/browser.js EFFECT_OPTIONS: removing reaches outside the person's workspace, generating stays in it)
+const effectOf = (state) => { const c = /Control: "([^"]*)"/.exec(state)?.[1] || ''; return /삭제|delete/i.test(c) ? { outside: 0.92 } : /생성/.test(c) ? { own: 0.9 } : { look: 0.9 } }
+const judgeOf = (keys, state = '') => (keys.includes('outside') ? effectOf(state) : keys.includes('login_needed') ? { ok: 1 } : keys.includes('idle') ? { busy: 1 } : keys.includes('none') ? { none: 1 } : keys.includes('new') ? { new: 1 } : { other: 1 })
 
 // ---- the fake deepagents: to-dos, then Lite's /mcp/browser in the middle of its stream, then the answer from the result ----
 const agent = { calls: [], handbacks: [] }
-let S, A, Bp, site
+let S, A, Bp, site, notes
 let otherConv = ''
 const FINAL = ['done', 'failed', 'needs_review', 'cancelled']
 async function mcp(jwt, conv, name, args) {
@@ -118,10 +129,12 @@ async function runAgent(body, res) {
   res.write(`event: metadata\ndata: ${JSON.stringify({ conversation_id: conv })}\n\n`)
   agent.calls.push({ conv, msg })
   await sleep(500)
-  // Lite's handback: the task's result, sent by Lite once the turn that asked for it was over
+  // Lite's handback: which task is over — the agent reads its result with browser_task_wait (a tool result, not words in the message)
   if (msg.includes('(Lite 가 보낸 메시지예요')) {
     agent.handbacks.push({ conv, msg })
-    return answer(`브라우저 작업의 결과를 받아 이어서 정리했어요. ${(/summary: (.*)/.exec(msg)?.[1] || '').trim()}`)
+    const id = /task_id: ([0-9a-f-]{36})/.exec(msg)?.[1]
+    const r = id ? await mcp(jwt, conv, 'browser_task_wait', { task_id: id, seconds: 30 }) : null
+    return answer(`브라우저 작업의 결과를 받아 이어서 정리했어요. ${String(r?.out?.summary || '').split('\n')[0]}`)
   }
   const c = caseOf(msg)
   say({ type: 'plan_todos', todos: STEPS.map((content, i) => ({ content, status: i ? 'pending' : 'in_progress' })) })
@@ -130,7 +143,7 @@ async function runAgent(body, res) {
     const r = await mcp(jwt, otherConv, 'browser_task', { goal: '다른 사람의 방에서 읽기', start_url: site.url })
     return answer(r.error ? `브라우저 작업을 시작하지 못했어요: ${r.text}` : '시작했어요.')
   }
-  const args = { goal: GOAL[c], start_url: `${site.url}?ms=${WAIT_MS[c]}`, skill: 'fake-studio' }
+  const args = c === 'tidy' ? { goal: GOAL.tidy, start_url: `${notes.url}/notebooks?n=3` } : { goal: GOAL[c], start_url: `${site.url}?ms=${WAIT_MS[c]}`, skill: 'fake-studio' }
   say({ type: 'token', content: '스튜디오 사이트에서 직접 만들게요.' })
   say({ type: 'tool_start', tool: 'browser_task', input: args })
   let r = await mcp(jwt, conv, 'browser_task', args)
@@ -158,7 +171,7 @@ test.beforeAll(async () => {
     const b = await bodyOf(req)
     if (req.url.startsWith('/judge')) {
       res.writeHead(200, { 'content-type': 'application/json' })
-      return res.end(JSON.stringify({ probabilities: judgeOf((b.options || []).map((o) => o.key)), model: 'fake' }))
+      return res.end(JSON.stringify({ probabilities: judgeOf((b.options || []).map((o) => o.key), String(b.state || '')), model: 'fake' }))
     }
     const r = answerLlm(b)
     if (r.delay) await sleep(r.delay)
@@ -175,6 +188,8 @@ test.beforeAll(async () => {
   }), AGENT_PORT)
   const { startStudio } = await import(pathToFileURL(path.join(SERVER, 'test/fixtures/studio.mjs')).href)
   site = await startStudio()
+  const { startNotebooks } = await import(pathToFileURL(path.join(SERVER, 'test/fixtures/notebooks.mjs')).href)
+  notes = await startNotebooks()
   const skills = fs.mkdtempSync(path.join(os.tmpdir(), 'ab-skills-'))
   fs.mkdirSync(path.join(skills, 'fake-studio'))
   fs.writeFileSync(path.join(skills, 'fake-studio', 'SKILL.md'), '---\nname: fake-studio\ndescription: 시험용 스튜디오 사이트에서 보고서 · 오디오를 만들고 파일로 받아 온다.\nmetadata:\n  runs_in: browser\n  label: 스튜디오\n---\n시험용.\n')
@@ -197,6 +212,7 @@ test.afterAll(async () => {
   for (const s of servers) await new Promise((ok) => { s.closeAllConnections?.(); s.close(ok) })
   servers = []
   await site?.close()
+  await notes?.close()
   if (S) {
     fs.mkdirSync(path.join(REPO, 'e2e/reports'), { recursive: true })
     fs.writeFileSync(path.join(REPO, 'e2e/reports', `bff-${TENANT}.log`), S.logs.join(''))
@@ -331,12 +347,14 @@ test('F-AB-03 PC: 에이전트 턴이 먼저 끝난 작업은 끝난 뒤 같은 
   const said = p.locator('.row.r-user').filter({ has: p.getByTestId('handback') }).last()
   await expect(said).toBeVisible({ timeout: 90_000 })
   await expect(said.getByTestId('handback')).toHaveText('Lite 가 보냄 · 브라우저 작업이 끝나 에이전트가 이어서 해요')
-  await expect(said.locator('.bubble')).toContainText('이(가) 끝났어요. 결과를 보고 남은 일을 이어서 해 주세요.')
+  await expect(said.locator('.bubble')).toHaveText('브라우저 작업이 끝났어요. 에이전트가 결과를 읽고 남은 일을 이어서 해요.')
   const ans = answers(p).last()
   await expect(ans.locator('.bubble')).toContainText('브라우저 작업의 결과를 받아 이어서 정리했어요. 긴 오디오 보고서를 만들어 받았어요.', { timeout: 60_000 })
   expect(agent.handbacks.length).toBe(n0 + 1)
   expect(agent.handbacks.at(-1).conv).toBe(conv)
-  expect(agent.handbacks.at(-1).msg).toMatch(/오디오 보고서\.pdf/)
+  // the message names the task and its state only — what the site wrote reaches the agent as the tool's result
+  expect(agent.handbacks.at(-1).msg).toMatch(/task_id: [0-9a-f-]{36} · state: done/)
+  expect(agent.handbacks.at(-1).msg).not.toMatch(/만들어 받았어요|\.pdf|완료/)
   const [m] = await S.q(`select content from pro_messages where thread_id=$1 and role='user' and content ? 'handback'`, [tid])
   expect(m.content.composed).toBe(true)
   await ans.scrollIntoViewIfNeeded()
@@ -386,6 +404,30 @@ for (const theme of ['light', 'dark']) {
     expect(await noOverflow(p)).toBe(true)
     await answers(p).last().scrollIntoViewIfNeeded()
     await shot(p, `f-ab-05-phone-answered-${theme}`)
+    expect(p.errors).toEqual([])
+    await p.context().close()
+  })
+}
+
+for (const [label, opts] of [['PC', DESK], ['휴대폰 390', PHONE]]) {
+  test(`F-AB-06 ${label}: 에이전트가 시작한 작업에서 사람이 말하지 않은 지우기는 승인 카드에서 멈추고, 「취소」면 하지 않는다`, async ({ browser }) => {
+    test.setTimeout(120_000)
+    const tid = await clearMain(A)
+    const p = await open(browser, A, opts)
+    await send(p, ASK.tidy)
+    const choice = p.locator('.row.k-choice').last()
+    await expect(choice).toContainText('「delete 삭제」을(를) 누를까요? 에이전트가 시작한 작업이라', { timeout: 60_000 })
+    await expect(choice.locator('.ghost-btn')).toHaveText('취소')
+    await expect(choice.locator('.dark-btn')).toHaveText('승인')
+    // the task waits on the person — the agent's turn too
+    const [task] = await tasksOf(A.id).then((l) => l.filter((t) => t.thread_id === tid))
+    expect(task.content.need).toBe('approve')
+    await expect(p.locator('[data-testid="turn-card"]').last()).toBeVisible()
+    if (opts === PHONE) expect(await noOverflow(p)).toBe(true)
+    await choice.scrollIntoViewIfNeeded()
+    await shot(p, `f-ab-06-${opts === PHONE ? 'phone' : 'pc'}-approval`)
+    await choice.locator('.ghost-btn').click()
+    await expect(answers(p).last().locator('.bubble')).toContainText('지우지 않았어요.', { timeout: 60_000 })
     expect(p.errors).toEqual([])
     await p.context().close()
   })

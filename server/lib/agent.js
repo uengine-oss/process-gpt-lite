@@ -6,6 +6,7 @@ import { q } from './supa.js'
 import { addMessage, history, getThread, setThreadStatus } from './store.js'
 import { runBrowserTask, runningIn, waitingIn, activeIn, answerWaiting, steer as steerBrowser } from './browser.js'
 import * as BQ from './browserQueue.js'
+import * as AB from './agentBrowser.js'
 import { createSchedule, nextRun, cronAfter, dueAt, listSchedules } from './scheduler.js'
 import { createMission, createProcessSchedule, listSkills, workspaceHostPath, runMission } from './missions.js'
 import { wantsRunNow, telegramIntent, pickSchedule, recentScheduleIds, channelsOf } from './scheduleIntent.js'
@@ -575,6 +576,8 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
   }
   // what the person typed, before an empty message with files gets its words — a bare link or file hands over work (review PR #105 #9)
   const bare = wordless(text)
+  // (their own words, as typed: a message of files or references only has none — lib/agentBrowser.js reads these, never words put in for them)
+  const typed = String(text || '').trim()
   // (only a mail pointed at — lib/mailMention.js: the words say so)
   const onlyMail = !files.length && pointed?.shown?.length && pointed.shown.every((x) => x.as === 'mail' || x.error)
   if (!text?.trim() && (files.length || pointed?.shown?.some((x) => !x.error))) text = onlyMail ? L('이 메일을 확인해 줘', 'Please look at this mail') : L('첨부한 파일을 확인해 줘', 'Please look at the attached files')
@@ -596,7 +599,7 @@ async function handleTurn({ user, session, threadId, text, context, onDelta, fil
       // (the screen says Lite sent it, not the person — components/Message.vue)
       ...(handback?.taskId ? { handback: { taskId: String(handback.taskId), title: String(handback.title || '').slice(0, 120) } } : {}) })
   const store = turnCtx.getStore()
-  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.habitId = habitId || null; store.project = project; store.composed = !!composed }
+  if (store) { store.userMsgId = said.id; store.fresh = !!fresh; store.said = text; store.typed = again ? String(text || '').trim() : typed; store.habitId = habitId || null; store.project = project; store.composed = !!composed }
   // the plan card (lib/turnPlan.js): turn.start now, what was understood and the steps within a few seconds, beside this path
   TP.begin({ turn: store?.turn, userId, threadId, msgId: said.id, text, files: [...files, ...(pointed?.shown || [])] })
   // 작업 폴더 · 버전(lib/workFolder.js): read from here, beside the plan, the router and the turn's preparation — delegate tells it where the
@@ -1569,6 +1572,8 @@ async function askStop(session, conv) {
 async function stopTurn(t, session, why) {
   t.stopped = true
   if (why) t.reason = why
+  // the browser tasks the agent started in this turn stop with it, and none is handed back (lib/agentBrowser.js)
+  AB.stopTasksOf(t)
   // the stream ends with "turn cancelled" once deepagents stops it; if it does not, stop waiting
   const ok = t.started ? await askStop(session, t.conv) : false
   if (!ok) t.abort.abort()
@@ -1686,7 +1691,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   turn.fromUser = !!adopted
   // whose words this turn answers (lib/agentBrowser.js: a browser task the agent asks for runs as the person's own only on a turn that
   // answers their own message — not a routine's, not one the server composed — with their words, never the agent's goal, as its basis)
-  if (adopted) Object.assign(turn, { said: asked, auto: !!store.auto, composed: !!store.composed, handback: store.handback || null })
+  // (said: the person's typed words — none for a message of files only; msgId: their message — what they write after it is newer)
+  if (adopted) Object.assign(turn, { said: typeof store.typed === 'string' ? store.typed : asked, msgId: store.userMsgId || null, auto: !!store.auto, composed: !!store.composed, handback: store.handback || null })
   turn.title = String(text || '').trim().split('\n')[0].slice(0, 60)
   // a shared folder's run room (folderTurn) is never offered to the router as a conversation in progress
   turn.folder = !!pin?.folder
