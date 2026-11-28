@@ -16,7 +16,9 @@ import { isEn } from './lang.js'
 // The guard is the second line: the agent itself is asked to stop and ask when it cannot follow the plan (lib/turnPlan.js OFF_PLAN —
 // the user, 2026-11-28: 「1차적으로 딥에이전트한테 넘어갈 때 걸러지는 게 제일 좋아 … 지킴이를 통해서 계획대로 갔는지를 평가하는 것은
 // 2차적인 부차적인 거고 지킴이가 비용이 많이 들 수가 있어」). Measured on 24 labelled turns × 2 (server/eval/planGuard/cases.json ·
-// measure.mjs): every right stop read ≥ 0.85, the false stops on reasonable borderline runs read 0.70 · 0.72 — so 0.8, not the usual 0.7.
+// measure.mjs): every right stop read ≥ 0.85 — so 0.8, not the usual 0.7. Of the 6 false stops on reasonable borderline runs it removes
+// the two at 0.70 · 0.72; four stay (steps done in another order at 0.92 twice, a similar-named other file at 0.82 · 0.85 — the agreement
+// itself asks about that one).
 export const GUARD_BAR = 0.8
 export const guardOn = () => !/^(off|0|false|no)$/i.test(String(process.env.PRO_PLAN_GUARD ?? 'on').trim())
 // a check after this many tools with no other reason to look (a long run of searches, then writing)
