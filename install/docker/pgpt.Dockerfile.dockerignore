@@ -21,3 +21,4 @@ server/test
 **/*.log
 **/.DS_Store
 **/node_modules
+server/eval

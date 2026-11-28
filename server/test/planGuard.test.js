@@ -5,7 +5,7 @@
 //   PG-U-01 판정 읽기: off 는 missing · changed 와 what · question 이 있을 때만, 단계 번호 범위, 보기 3개까지
 //   PG-U-02 단계 결과 읽기: 모든 단계를 덮을 때만
 //   PG-U-03 언제 묻나: 할 일 목록이 움직일 때(처음 기록은 아님) · 첫 파일 · 도구 4개마다 · 중간 글, 겹치면 하나 뒤에 한 번
-//   PG-U-04 0.7 이상이면 한 번만 멈춤(onStop), 아래면 그대로, 모델 오류면 그대로
+//   PG-U-04 0.8 이상이면 한 번만 멈춤(onStop), 아래면 그대로, 모델 오류면 그대로
 //   PG-U-05 계획이 없거나(앞단 실패) 꺼져 있거나 턴이 끝났으면 묻지 않음
 //   PG-U-06 끝 확인: 단계 결과 + 벗어남, 멈춘 턴 · 모델 오류는 null
 //   PG-U-07 저장된 계획의 단계: 멈춘 단계는 못 함/바꿈 + 까닭, 확인 중엔 에이전트의 상태, 확인이 오면 결과 · 없으면 예전처럼 완료
@@ -45,8 +45,10 @@ test('PG-U-01 판정 읽기 — off 는 missing · changed 와 무엇 · 질문�
   assert.equal(PG.readVerdict({ ...OFF, confidence: 3 }, 3).confidence, 1)
   assert.equal(PG.readVerdict({ off: false, confidence: 0.9 }, 3).off, false)
   assert.equal(PG.readVerdict(null), null)
-  assert.equal(PG.stops(PG.readVerdict({ ...OFF, confidence: 0.69 }, 3)), false, 'under the bar')
-  assert.equal(PG.stops(PG.readVerdict({ ...OFF, confidence: 0.7 }, 3)), true, 'at the bar')
+  // (0.8: the measured false stops read 0.70 · 0.72, every right stop ≥ 0.85 — server/eval/planGuard)
+  assert.equal(PG.stops(PG.readVerdict({ ...OFF, confidence: 0.79 }, 3)), false, 'under the bar')
+  assert.equal(PG.stops(PG.readVerdict({ ...OFF, confidence: 0.8 }, 3)), true, 'at the bar')
+  assert.equal(PG.GUARD_BAR, 0.8)
 })
 
 test('PG-U-02 단계 결과 읽기 — 모든 단계를 덮을 때만', () => {
@@ -90,7 +92,7 @@ test('PG-U-03 언제 묻나 — 할 일이 움직일 때 · 첫 파일 · 도구
   assert.match(slow.calls[1].user, /찾지 못했어요. 공개 자료로 할게요./, 'the later check reads the later note')
 })
 
-test('PG-U-04 0.7 이상이면 한 번만 멈춤, 아래 · 모델 오류는 그대로', async () => {
+test('PG-U-04 0.8 이상이면 한 번만 멈춤, 아래 · 모델 오류는 그대로', async () => {
   let stopped = []
   const low = fakeAsk([{ ...OFF, confidence: 0.6 }])
   const g1 = PG.createGuard({ view: view(), request: 'x', ask: low.ask, enabled: true, gap: 0, onStop: (v) => stopped.push(v) })
@@ -229,7 +231,7 @@ test('PG-U-10 스트림이 끝난 뒤 온 판정은 멈추지 않고 끝 확인�
   assert.equal(fin.outcomes, null)
 })
 
-test('PG-U-11 한 턴의 판정은 6번까지, 15초 간격(검토 #132-3)', async () => {
+test('PG-U-11 한 턴의 판정은 기본 3번까지(주어진 max 를 따름), 15초 간격(검토 #132-3)', async () => {
   const { ask, calls } = fakeAsk([{ off: false, confidence: 0.1 }])
   const g = PG.createGuard({ view: view(), request: 'x', ask, enabled: true, gap: 0, max: 6 })
   for (let i = 0; i < 12; i++) { g.note(`메모 ${i}`); await g.settle() }
@@ -241,7 +243,12 @@ test('PG-U-11 한 턴의 판정은 6번까지, 15초 간격(검토 #132-3)', asy
   assert.equal(spaced.calls.length, 1, 'a second reason within the gap waits')
   g2.close()
   assert.equal(PG.GAP_MS, 15000)
-  assert.equal(PG.MAX_CHECKS, 6)
+  assert.equal(PG.MAX_CHECKS, 3)
+  const dflt = fakeAsk([{ off: false, confidence: 0.1 }])
+  const g3 = PG.createGuard({ view: view(), request: 'x', ask: dflt.ask, enabled: true, gap: 0 })
+  for (let i = 0; i < 8; i++) { g3.note(`메모 ${i}`); await g3.settle() }
+  assert.equal(dflt.calls.length, 3, 'the default cap')
+  g3.close()
 })
 
 test('PG-U-12 나란히 부른 도구의 결과는 그 도구에(검토 #132-7) · 같은 보기는 하나로 · 기록은 지시가 아니라고 알림', async () => {

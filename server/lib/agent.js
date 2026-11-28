@@ -1431,8 +1431,8 @@ export function connectorHint(text) {
   const tools = hit.map(([, t]) => t).join(', ')
   const servers = hit.map(([, , s]) => s).join(', ')
   const yt = hit.some(([, t]) => t.includes('youtube_'))
-  return L(`\n\n(외부 서비스 정보는 이 순서로 구하세요. ① 연결된 커넥터·API 도구를 웹 조회보다 먼저: ${tools}. ② 그 도구가 목록에 없거나 실패하면 공개 페이지·RSS 를 샌드박스에서 직접 읽기${yt ? YT_PUBLIC : ''}. ③ 그래도 안 되면 내장 브라우저(browser_task 도구가 있을 때, 읽기만). ④ 모두 안 되면 "연결되어 있지 않다"로 끝내지 말고 무엇이 없어서 못 했는지와 어디서 연결하는지를 정확히 쓰세요: 도구가 돌려준 missing·how_to_connect 를 그대로 옮기고, 도구가 아예 목록에 없으면 "이 회사 에이전트에 ${servers} 커넥터가 등록되어 있지 않아 관리자가 등록해야 해요"라고 쓰세요.)`,
-    `\n\n(Get outside-service information in this order. 1) The connected connector/API tools, before searching the web: ${tools}. 2) If those tools are not in your list or fail, read public pages or feeds yourself in the sandbox${yt ? YT_PUBLIC_EN : ''}. 3) If that fails too, the built-in browser (the browser_task tool, when you have it; reading only). 4) If everything fails, do not stop at "not connected": say exactly what was missing and where to connect it — copy the missing and how_to_connect a tool returned, and if the tools are not in your list at all, say "the ${servers} connector is not registered for this company's agents; an administrator has to register it".)`)
+  return L(`\n\n(외부 서비스 정보는 이 순서로 구하세요. ① 연결된 커넥터·API 도구를 웹 조회보다 먼저: ${tools}. ② 그 도구가 목록에 없거나 실패하면 공개 페이지·RSS 를 샌드박스에서 직접 읽기${yt ? YT_PUBLIC : ''}. ③ 그래도 안 되면 내장 브라우저(browser_task 도구가 있을 때, 읽기만). ④ 모두 안 되면 "연결되어 있지 않다"로 끝내지 말고 무엇이 없어서 못 했는지와 어디서 연결하는지를 정확히 알리세요(계획이 있는 일이면 그 내용을 request_human_input 으로 묻는 말에 담고, 다른 자료로 대신하지 마세요): 도구가 돌려준 missing·how_to_connect 를 그대로 옮기고, 도구가 아예 목록에 없으면 "이 회사 에이전트에 ${servers} 커넥터가 등록되어 있지 않아 관리자가 등록해야 해요"라고 쓰세요.)`,
+    `\n\n(Get outside-service information in this order. 1) The connected connector/API tools, before searching the web: ${tools}. 2) If those tools are not in your list or fail, read public pages or feeds yourself in the sandbox${yt ? YT_PUBLIC_EN : ''}. 3) If that fails too, the built-in browser (the browser_task tool, when you have it; reading only). 4) If everything fails, do not stop at "not connected": say exactly what was missing and where to connect it (in work with a plan, put that in a request_human_input question and do not substitute other material) — copy the missing and how_to_connect a tool returned, and if the tools are not in your list at all, say "the ${servers} connector is not registered for this company's agents; an administrator has to register it".)`)
 }
 
 // While skill-creator works its raw output (test prompts, sample data, interleaved subagent
@@ -1854,8 +1854,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // with usage limits on (lib/llmKeys.js): refused before the agent starts when a limit is spent, and the
   // agent's own model calls go out with this person's key
   const llmAuth = await llmKeys.admit()
-  // the plan the person was shown (lib/turnPlan.js §1.4): the agent records it with write_todos and does only that work
-  const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn) : ''
+  // the plan the person was shown (lib/turnPlan.js §1.4): the agent does only that work, and asks (request_human_input) when it cannot
+  const planText = adopted && mode !== 'skill' && !silent && !divider ? await TP.planBlock(turn, { ask: !store?.auto }) : ''
   // (작업 폴더 · 버전 — the note when it is ready by a moment after the plan block, else none; lib/workFolder.js startNote)
   const folderNote = folderRead ? await folderRead.take() : ''
   // 프로젝트 계획(lib/projectNote.js): every turn of a project, in whichever sub-topic — a sub-topic has its own history, and the plan changes
@@ -1971,9 +1971,12 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       if (j.type === 'token' && j.content) { all += j.content; segs.token(j.content); partial = segs.answer() }
       // a tool is being called: the text before it was on the way, not the answer — unless the call is bookkeeping (the to-do
       // list, a think step): then the text goes on (review 11-25 #2)
-      if (j.type === 'tool_start') { if (TP.bookkeeping(j.tool || j.tool_name || j.name)) segs.mark(); else segs.cut() }
+      // the agent stops to ask the person itself (the plan's agreement, lib/turnPlan.js OFF_PLAN): the guard is done — no check on the note
+      // before the question, and a reading already on its way lands as late, never a second stop over the agent's own question (review #136-1)
+      if (j.type === 'tool_start') { const t = j.tool || j.tool_name || j.name; if (TP.asksPerson(t)) guard?.close(); if (TP.bookkeeping(t)) segs.mark(); else segs.cut() }
       if (j.type === 'plan_tools') {
         const called = (Array.isArray(j.tools) ? j.tools : []).map((t) => t?.tool || t?.name || '')
+        if (called.some(TP.asksPerson)) guard?.close()
         if (called.length && called.every(TP.bookkeeping)) segs.mark(); else segs.cut()
       }
       if (j.type === 'plan_todos') { TP.todos(turn, j.todos); guard?.todos(TP.todosOf(j.todos)) }

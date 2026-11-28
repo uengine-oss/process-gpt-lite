@@ -55,3 +55,6 @@ node_modules
 .scratch/
 server/.scratch/
 server/.forms/
+
+# eval runs write their results here (server/eval/planGuard/measure.mjs)
+server/eval/planGuard/out/
