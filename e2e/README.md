@@ -2031,7 +2031,7 @@ cd e2e && npx playwright test --project=feature tests/feature/pc-proposals.spec.
 ```bash
 cd server && node --test test/convMove.test.js test/conversations.test.js   # TM-U-01~04 · 서버 = 화면 규칙
 cd server && node --test --test-concurrency=1 test/conversationMove.integration.test.js   # TM-I-01~19 · 실제 DB · 실제 라우트 · 실제 공유 폴더 권한 · 실제 턴(가짜 deepagents)
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js   # F-TM-01~07 (공용 잠금 rec.lock)
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js   # F-TM-01~10 (공용 잠금 rec.lock)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2071,6 +2071,10 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/threa
 | 대화 목록은 사진 위에서도 프로젝트 목록처럼 읽힘 — 이름의 글자 크기는 22px(휴대폰) · 26px(넓은 화면), 선택한 행은 글자색 · 굵기로 구별, 한 줄 요약 · 안내의 불투명도는 50% 이상, 시각 · 메시지 수는 배경색이 있는 배지에 표시, 같은 복잡한 배경 위의 프로젝트 목록 사진과 비교 | 사용자 「채팅 쓰레드 너무 글씨가 흐려... 그냥 프로젝트 쪽과 같이」 | F-TM-08 · F-CT-08 | feature | ✅ |
 | 예약 작업 · 브리프 · 빈 대화에는 옮기기 동작이 없음(서버도 거절 — `STANDING`, 화면 규칙 `src/threadList.js` `movable` 이 서버 목록과 같음) | 서버 규칙 · PR #129 검토 | `chatThreadList.test.js` · 서버 TM-I | 단위 · DB | ✅ |
 | (검토) 목록에서 「새 프로젝트로 옮기기」 → 그 대화의 채팅으로 가서(휴대폰은 목록 시트 닫힘) 카드가 화면 안 · 안내 문장은 입력 방식(터치 · 마우스)을 따름 · 프로젝트를 불러오는 중에도 Esc(aria-busy) · 그냥 닫으면 연 단추로 초점 · 카드 초안을 만드는 동안 창을 닫으면 그 대화로 끌고 가지 않음(카드는 채팅에 남음) | PR #129 검토 · 마지막 확인 | F-TM-08 · F-TM-09 | feature | ✅ |
+| 걸러 본 대화의 막대에 「프로젝트로 옮기기」가 바로 보임 — 폴더 단추(휴대폰 · 넓은 화면 모두 글자 없이, 툴팁 · 낭독기 이름), 이름을 누르면 막대의 메뉴(맨 위 「프로젝트로 옮기기」), 이름을 길게 누르거나 오른쪽 단추로 누르면 바로 창(글자 선택 없음), 휴대폰 막대는 한 줄 · 「메시지 N개」는 이름 아래로 옮겨 이름이 줄지 않음, 키보드가 올라오면 폴더도 접힘, 예약 작업 대화 · 프로젝트 안에는 없음, 키보드 Enter · 닫으면 초점이 단추로 | 18:06 휴대폰 녹화 「… 이런 헤더 부분에 어딘가 있거나 해야 …」 · 「길게 누르기도 해보고 별걸 다 해봐도 어느 UI에서 지금 나오는 건지」 | F-TM-10 · F-TM-05 | feature | ✅ |
+| (PR #130 검토) 휴대폰의 「다른 대화 ▾」는 목록 아이콘(영어 「Other conversations ▾」가 이름을 두 글자로 줄이던 것) · 폴더와 함께 32px 동그라미, 긴 공개 등급(「요약 공개 · 부서」 + 「민감 제안」)은 등급 글자가 먼저 「…」, 이름은 72px 이상(360 영어 화면), 이름과 「다른 대화 ▾」 모두 펼침 상태를 알림, 이름은 Tab 자리가 아님, 글자 선택 막기는 터치 화면만, 폴더 · 화살표의 대비를 계산으로 확인, F-TM-10 은 자기 대화(가장 오래된 대화)로 — F-TM-08 · F-TM-09 는 「첫 행」 · 「마지막 행」이 아니라 대화 K 를 골라 카드를 남김 | PR #130 검토 | F-TM-10 | feature | ✅ |
+| (함께 고침) 막대 메뉴의 「프로젝트로 옮기기」 줄이 예약 작업 · 브리프의 대화에도 보이던 것 — 서버가 거절하는 대화에는 줄을 두지 않음(목록의 행과 같은 규칙 `movable`) | 18:06 녹화 회차 | F-TM-10 | feature | ✅ |
+| (시험 고침) F-TM-05 의 메시지 찾기가 시각에 따라 두 행을 잡던 것 — 「오후 5:21」 + 「2일차는 …」 이 「…5:212일차는」 으로 읽혀 「12일차는」 과 겹침, 말풍선 글의 처음부터 맞춤 | 11-28 17:21 실행 | F-TM-05 | feature | ✅ |
 | 실제 iPhone 의 첫 탭(포인터를 올릴 때만 단추를 보이게 해 iOS 가 탭을 삼키지 않도록 함) | PR #129 검토 | — | — | ◐ 실제 기기 확인 필요 |
 | 실제 사내 모델이 그 말에 `move_to_project` 를 고르는지 · 실제 판정 모델이 말한 프로젝트를 맞히는지 | — | — (가짜 모델) | — | ✗ |
 

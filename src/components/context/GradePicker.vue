@@ -119,7 +119,7 @@ const VIA = { lead: '장', admin: '관리자', grant: '허락' }
   <span v-if="ready" class="gp" :class="{ compact }">
     <button ref="chip" type="button" class="gchip press" :class="['g-' + cur.visibility, { on: open }]" :aria-expanded="open" data-testid="grade-chip"
       :title="`공개 등급: ${gradeLabel(cur.visibility, cur.reach)} — 누르면 바꿉니다`" @click.stop="toggle">
-      <i class="gdot" />{{ gradeLabel(cur.visibility, cur.reach) }}
+      <i class="gdot" /><span class="gl">{{ gradeLabel(cur.visibility, cur.reach) }}</span>
       <span v-if="cur.sensitive === 'confirmed'" class="badge bad">민감</span>
       <span v-else-if="cur.sensitive === 'proposed'" class="badge warn">민감 제안</span>
     </button>
@@ -213,6 +213,8 @@ const VIA = { lead: '장', admin: '관리자', grant: '허락' }
 .gchip:hover, .gchip.on { border-color: var(--color-info); }
 .compact .gchip { height: 28px; padding: 0 10px; font-size: 12.5px; }
 .gdot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--text-tertiary); }
+/* (its words can end in 「…」 where the chip is given less room — the conversation bar on a phone) */
+.gl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .g-listed .gdot { background: #9b8cff; }
 .g-summary .gdot { background: var(--color-info); }
 .g-open .gdot { background: var(--color-success); }

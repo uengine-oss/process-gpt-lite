@@ -1,0 +1,32 @@
+# 2026-11-28 걸러 본 대화의 막대 「프로젝트로 옮기기」 (F-TM-10, PR #130 검토 반영 뒤) — 자기 스택 8994/5394, 가짜 모델 · deepagents
+
+Running 18 tests using 1 worker
+[1/18] [feature] › tests/feature/project-topics.spec.js:196:1 › F-PS-01 프로젝트의 메시지는 그 프로젝트의 주제 가운데서만 나뉜다 — 새 주제는 새 대화, 이어지는 말은 그 주제로
+[feature] › tests/feature/project-topics.spec.js:196:1 › F-PS-01 프로젝트의 메시지는 그 프로젝트의 주제 가운데서만 나뉜다 — 새 주제는 새 대화, 이어지는 말은 그 주제로
+◇ injected env (0) from ../server/.env
+[2/18] [feature] › tests/feature/project-topics.spec.js:245:1 › F-PS-02 주제 하나로 좁히면 그 주제의 메시지 · 산출물만, 거기서 보낸 말은 그 주제로 이어지고, 「전체」로 돌아간다
+[3/18] [feature] › tests/feature/project-topics.spec.js:289:1 › F-PS-03 답 위의 「↳ 주제」 표시를 누르면 그 주제로 좁혀진다
+[4/18] [feature] › tests/feature/project-topics.spec.js:298:1 › F-PS-04 주제가 생기기 전부터 있던 프로젝트 — 원래 대화가 프로젝트 이름의 첫 주제가 되고, 새 주제와 나뉘며, 다시 이어진다
+[5/18] [feature] › tests/feature/project-topics.spec.js:325:1 › F-PS-05 390px 휴대폰 — 막대 · 목록 창이 화면 안, 옆으로 밀리지 않음, 고르면 그 주제(밝은 · 밤)
+[6/18] [feature] › tests/feature/project-topics.spec.js:352:1 › F-PS-06 밤 테마의 넓은 화면 — 왼쪽 목록의 주제 행과 막대
+[7/18] [feature] › tests/feature/project-topics.spec.js:363:1 › F-PS-07 폴더에서 일하는 프로젝트 — 주제마다 대화는 따로, 변형은 프로젝트에 하나, 작업 폴더는 그 턴의 주제 대화 안
+[8/18] [feature] › tests/feature/project-topics.spec.js:389:1 › F-PS-08 라우터가 닿지 않으면 예전처럼 — 프로젝트의 대화로 답하고 오류 없음, 새 프로젝트에는 주제 막대가 없음
+[9/18] [feature] › tests/feature/thread-to-project.spec.js:232:1 › F-TM-01 휴대폰 390(밝은): 걸러 본 대화 → 프로젝트로 옮기기 → 구성원이 있는 프로젝트는 한 번 더 확인 → 프로젝트에서만 보임 · 채팅 목록에서 사라짐 · 옛 링크는 프로젝트로
+[feature] › tests/feature/thread-to-project.spec.js:232:1 › F-TM-01 휴대폰 390(밝은): 걸러 본 대화 → 프로젝트로 옮기기 → 구성원이 있는 프로젝트는 한 번 더 확인 → 프로젝트에서만 보임 · 채팅 목록에서 사라짐 · 옛 링크는 프로젝트로
+◇ injected env (0) from ../server/.env
+[thread-move] stack on BFF 8994 · web 5394
+[10/18] [feature] › tests/feature/thread-to-project.spec.js:320:1 › F-TM-02 휴대폰 390(어두운): 구성원 없는 프로젝트(추가 문구 없음) → 옮김 → 「채팅으로 되돌리기」 → 채팅의 그 대화로
+[11/18] [feature] › tests/feature/thread-to-project.spec.js:356:1 › F-TM-03 넓은 화면 1280: 「새 프로젝트로 옮기기」 → 카드(옮길 대화 · 알림 · 「만들고 옮기기」) → 새 프로젝트의 그 대화
+[12/18] [feature] › tests/feature/thread-to-project.spec.js:387:1 › F-TM-04 휴대폰 390(밝은): 말로 「이 대화 견적 모음 프로젝트로 옮겨 줘」 → 카드(판정 모델이 고른 프로젝트) → 같은 알림을 거쳐 옮김
+[13/18] [feature] › tests/feature/thread-to-project.spec.js:420:1 › F-TM-05 긴 대화의 맨 아래에서도 대화 막대가 위에 붙어 있다 — 휴대폰은 한 줄, 글을 쓰는 동안은 더 접힘(밝은 · 어두운 · 1280)
+[14/18] [feature] › tests/feature/thread-to-project.spec.js:481:1 › F-TM-06 옛 화면에서 옮긴 대화에 보낸 말은 프로젝트의 그 주제로 따라가고 입력창에 다시 들어감
+[15/18] [feature] › tests/feature/thread-to-project.spec.js:510:1 › F-TM-07 1280: 그 사이 다른 화면으로 갔으면 끌고 가지 않고 알림만 — 나중에 그 대화를 열면 말이 입력창에
+[16/18] [feature] › tests/feature/thread-to-project.spec.js:580:1 › F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트 목록처럼 읽힘(큰 이름 · 진한 한 줄 · 시각과 수는 배지) · 길게 누르면 「프로젝트로 옮기기」
+[17/18] [feature] › tests/feature/thread-to-project.spec.js:654:1 › F-TM-09 1280(어두운): 대화 목록의 행에 포인터를 올리면 「프로젝트로 옮기기」 단추, 오른쪽 클릭도 같은 창 — 누르면 그 대화가 걸러짐
+[18/18] [feature] › tests/feature/thread-to-project.spec.js:731:1 › F-TM-10 걸러 본 대화의 막대에 「프로젝트로 옮기기」가 바로 보임 — 이름을 누르면 메뉴, 길게 누르면 바로 · 예약 작업 대화와 프로젝트 안에는 없음
+  18 passed (2.4m)
+
+# 같은 변경의 회귀 — 개발 서버 8885/5285(가짜 deepagents 8986 · 모델 8987): chat-thread-list · chat-thread-view · conversations · chat-artifacts
+  30 passed (1.6m)
+
+# 단위: chatThreadList · convMove · conversations 17/17, vite build 통과
