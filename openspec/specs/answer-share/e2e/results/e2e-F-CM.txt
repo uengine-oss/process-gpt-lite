@@ -1,0 +1,13 @@
+Running 6 tests using 1 worker
+◇ injected env (12) from ../server/.env
+[ctx-menu] stack on BFF 8992 · web 5392
+  ✓  1 [feature] › tests/feature/context-menu-actions.spec.js:244:3 › F-CM-01 휴대폰 390(밝은): 답 아래에 알약 없음 · 정보 줄은 그대로 · 처음 한 번 안내 · 길게 누르면 메뉴 → 보내기 · 프로젝트로 시작 (9.7s)
+  ✓  2 [feature] › tests/feature/context-menu-actions.spec.js:244:3 › F-CM-01 휴대폰 390(어두운): 답 아래에 알약 없음 · 정보 줄은 그대로 · 처음 한 번 안내 · 길게 누르면 메뉴 → 보내기 · 프로젝트로 시작 (8.6s)
+  ✓  3 [feature] › tests/feature/context-menu-actions.spec.js:326:3 › F-CM-02 휴대폰 390(어두운): 파일 카드 아래에 정리 줄 없음 · 제안이 있으면 점 · 길게 누르면 열기 · 공유 · 정리 · 다른 폴더 (3.9s)
+  ✓  4 [feature] › tests/feature/context-menu-actions.spec.js:326:3 › F-CM-02 휴대폰 390(밝은): 파일 카드 아래에 정리 줄 없음 · 제안이 있으면 점 · 길게 누르면 열기 · 공유 · 정리 · 다른 폴더 (20.5s)
+  ✓  5 [feature] › tests/feature/context-menu-actions.spec.js:432:1 › F-CM-03 PC 1280: 마우스를 올리면 「⋯」 · 오른쪽 클릭 · 「⋯」 · 키보드로 같은 메뉴, Esc 로 닫히고 초점이 돌아옴 — 답과 파일 카드, 안내 없음 (10.3s)
+  ✓  6 [feature] › tests/feature/context-menu-actions.spec.js:516:1 › F-CM-04 휴대폰 390: 「⋯」는 보이지 않아도 화면 낭독기 · 키보드로 닿음(Tab → 보임 → Enter → 메뉴 → Esc 로 돌아옴) · 안내는 온전히 1.5 초 보여야 기억 (13.1s)
+  6 passed (1.2m)
+
+# 2026-11-28 PR #126 검토 반영 뒤: PASS (6) FAIL (0) — 두 번 연속(F-CM-04 새로: 휴대폰 「⋯」 접근성 트리 · Tab · 안내 1.5 초 · ✕ 44px · 그림 미리 보기 길게 누르기). 자기 스택 BFF 8992 · Vite 5392, 공용 잠금 rec.lock
+# (그 앞 한 번: F-CM-04 「strict mode violation: locator('.msgs') resolved to 2 elements」 — 「채팅」을 누른 직후 홈 목록도 페이지에 있음, 안내가 든 목록(closest)으로 고침)

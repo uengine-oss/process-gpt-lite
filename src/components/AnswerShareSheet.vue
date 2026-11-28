@@ -1,13 +1,15 @@
 <script setup>
 // 답을 공유 (2026-11-27 22:33 휴대폰 녹화: 「텍스트 결과가 나왔을 때 이것을 어딘가에 … 공유한다든지 하는 기능이 지금 존재하지 않아」 — spec answer-share,
-// server lib/answerShare.js). Opened by an answer's 「공유」 (Message.vue) or by holding / right-clicking the answer (its message menu):
+// server lib/answerShare.js). The answer's message menu (Message.vue): opened by holding the answer (a phone), right-clicking it or its ⋯
+// (a computer — the ⋯ shows by the answer under the pointer, and takes the keyboard). Nothing stays under the answer but what it did
+// (「「…」에 공유했어요 · 방 열기」) — 2026-11-28 「화면이 정신없으니 하단의 공유, 프로젝트로 등록 … 모든 것들 콘텍스트 메뉴로」:
 //   menu   대화방 · 사람에게 보내기 · 다른 앱으로 보내기(the phone's share sheet — where there is one) · 문서로 남기기 · 프로젝트로 시작 · 복사
 //   room   the conversations (the ones answers of this chat went to before first, with why) and the teammates with no conversation yet
 //   send   where it goes, what that room will see (the answer's title and words — no file, no mail body), a word to say, 보내기
 //   sent   「…」에 공유했어요 · 방 열기
 // Nothing goes anywhere before 보내기. A document: the answer as a Markdown file card under it (once) — from there the file's own 공유,
 // 내려받기 and IeumOffice.
-import { computed, ref, onMounted, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from './Icon.vue'
 import PersonAvatar from './PersonAvatar.vue'
@@ -16,6 +18,7 @@ import { useTeam } from '../stores/team.js'
 import { openArtifact } from '../artifacts.js'
 import { hidePaths } from '../paths.js'
 import { startProjectFrom, canShareOut } from '../answerActions.js'
+import { menuKeys } from '../menuKeys.js'
 
 const app = useApp()
 const team = useTeam()
@@ -36,15 +39,23 @@ const sentTitle = computed(() => data.value?.answer?.title || title.value)
 const preview = computed(() => data.value?.answer?.preview ?? text.value.split('\n').map((l) => l.trim()).filter(Boolean).slice(msg.value?.kind === 'doc' ? 1 : 0).slice(0, 4)
   .map((l) => l.replace(/^#{1,6}\s*|^>\s*/, '').replace(/\*\*|__|`/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')).join(' ').slice(0, 220))
 
-// a dialog of its own: the focus goes into it, Esc closes it (only while the focus is in it — not another sheet's Esc)
+// a dialog of its own: the focus goes into it, Esc closes it (only while the focus is in it — not another sheet's Esc) and the focus goes
+// back where it was (the ⋯ it was opened from; a long press had none to go back to). A step that takes away the focused item (rooms,
+// send, sent, back) gives the focus to the menu's first item or to the sheet itself — never to the page, where Esc would not reach the sheet.
 const sheet = ref(null)
 const close = () => { app.answerShare = null }
+const from = app.answerShare?.from || null
+function dismiss() {
+  close()
+  if (from?.isConnected) from.focus?.({ preventScroll: true })
+}
 onMounted(async () => {
   if (step.value === 'room') loadRooms()
   // (the words as they may leave the chat — 「글 복사」 and 「다른 앱으로 보내기」 alike: asked for at once, on every screen)
   loadOut().catch(() => {})
   await nextTick()
-  ;(sheet.value?.querySelector('[role="menuitem"], input, textarea, button') || sheet.value)?.focus?.()
+  // (the menu's first item — not the header's ✕, which comes first in the page)
+  ;(sheet.value?.querySelector('[role="menuitem"]') || sheet.value?.querySelector('input, textarea, button') || sheet.value)?.focus?.()
 })
 
 // ---------- menu ----------
@@ -107,7 +118,29 @@ function selectText() {
   try { const sel = window.getSelection(); sel.removeAllRanges(); sel.selectAllChildren(el) } catch { /* nothing to select */ }
   setTimeout(() => document.addEventListener('selectionchange', done), 0)
 }
-function toProject() { const m = msg.value; close(); startProjectFrom(app, m).catch((e) => team.say(e.message || '프로젝트 카드를 만들지 못했어요.')) }
+// 「프로젝트로 시작」: the item says it is working until the card is under the chat (the sheet closes then, the card brought into view) —
+// a failure stays here, under the items (PR #126 review: it used to close at once, nothing said). (aria-disabled while it works, not
+// disabled: a disabled button loses the focus, and Esc would no longer reach the sheet)
+const projBusy = ref(false)
+// (moved on to another step while it worked: the outcome stays in the sheet, whatever step — a step change clears err, not this; the sheet
+// closed meanwhile: a failure is a notice — PR #126 last check)
+const projNote = ref(null)
+let gone = false
+onBeforeUnmount(() => { gone = true })
+async function toProject() {
+  if (projBusy.value) return
+  projBusy.value = true; err.value = ''; projNote.value = null
+  try {
+    await startProjectFrom(app, msg.value)
+    if (gone) return
+    if (step.value === 'menu') close()
+    else projNote.value = { text: '프로젝트 카드를 채팅에 올렸어요. 이 창을 닫으면 보여요.', bad: false }
+  } catch (e) {
+    if (gone) team.say(e.message || '프로젝트 카드를 만들지 못했어요. 답의 메뉴에서 「프로젝트로 시작」을 다시 눌러 주세요.')
+    else if (step.value === 'menu') err.value = e.message || '프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.'
+    else projNote.value = { text: e.message || '프로젝트 카드를 만들지 못했어요. 메뉴에서 다시 눌러 주세요.', bad: true }
+  } finally { projBusy.value = false }
+}
 
 // ---------- to another app ----------
 // 「다른 앱으로 보내기」 (2026-11-28 — 「웹 앱으로 공유」 of the recording, the phone's share sheet): navigator.share with the answer's words as a
@@ -176,6 +209,12 @@ const says = computed(() => `「${pickTitle.value}」에 있는 사람들에게 
 const cutNote = computed(() => (data.value?.answer?.truncated ? `글이 길어서 앞부분 ${Number(data.value.answer.limit || 12000).toLocaleString('ko-KR')}자만 보내요.` : ''))
 const sentLine = computed(() => (sent.value?.title ? `「${sent.value.title}」에 공유했어요` : '대화방에 공유했어요'))
 function choose(p) { pick.value = p; step.value = 'send'; err.value = '' }
+watch(step, async () => {
+  await nextTick()
+  if (gone || sheet.value?.contains(document.activeElement)) return
+  const first = step.value === 'menu' ? sheet.value?.querySelector('[role="menuitem"]') : null
+  ;(first || sheet.value)?.focus()
+})
 function back() { if (step.value === 'send') { step.value = 'room'; pick.value = null } else step.value = 'menu'; err.value = '' }
 async function send() {
   if (busy.value || !pick.value) return
@@ -192,20 +231,20 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
 
 <template>
   <Teleport to="body">
-    <div v-if="msg" class="veil" data-test="answer-share-veil" @click.self="close">
+    <div v-if="msg" class="veil" data-test="answer-share-veil" @click.self="dismiss">
       <div ref="sheet" class="sheet glass blur-in" role="dialog" aria-modal="true" aria-label="답 공유" tabindex="-1" data-test="answer-share" :data-step="step"
-        @keydown.esc.stop.prevent="close">
+        @keydown.esc.stop.prevent="dismiss">
         <header>
           <button v-if="step === 'room' || step === 'send'" class="x press" aria-label="뒤로" data-test="answer-share-back" @click="back"><Icon name="back" :size="17" /></button>
           <div class="hd">
             <h2>{{ step === 'room' ? '대화방 · 사람에게 보내기' : step === 'send' ? '보내기 전에 확인해 주세요' : step === 'sent' ? '공유했어요' : '공유' }}</h2>
             <p class="sub"><span v-if="sentTitle" data-no-i18n>{{ sentTitle }}</span><template v-else>AI 답</template></p>
           </div>
-          <button class="x press" aria-label="닫기" data-test="answer-share-close" @click="close"><Icon name="close" :size="17" /></button>
+          <button class="x press" aria-label="닫기" data-test="answer-share-close" @click="dismiss"><Icon name="close" :size="17" /></button>
         </header>
 
         <!-- what to do with this answer -->
-        <div v-if="step === 'menu'" class="menu" role="menu">
+        <div v-if="step === 'menu'" class="menu" role="menu" @keydown="menuKeys">
           <button class="mi press" role="menuitem" data-test="answer-share-room" @click="toRooms">
             <span class="ic"><Icon name="team" :size="18" /></span><span class="mt"><b>대화방 · 사람에게 보내기</b><small>대화방이나 팀원을 골라 이 답을 보내요</small></span><Icon name="chevron" :size="14" />
           </button>
@@ -222,8 +261,8 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
               <small v-else>채팅에 Markdown 문서로 남겨요 · 이후 공유 · 내려받기 · 편집할 수 있어요</small></span>
             <Icon v-if="doc" name="check" :size="15" />
           </button>
-          <button class="mi press" role="menuitem" data-test="answer-share-project" @click="toProject">
-            <span class="ic"><Icon name="folder" :size="18" /></span><span class="mt"><b>프로젝트로 시작</b><small>이 답을 첫 문서로 담아 새 프로젝트를 만들어요 · 만들기 전에 한 번 더 물어봐요</small></span><Icon name="chevron" :size="14" />
+          <button class="mi press" role="menuitem" data-test="answer-share-project" :aria-disabled="projBusy ? 'true' : null" :aria-busy="projBusy ? 'true' : null" @click="toProject">
+            <span class="ic"><Icon name="folder" :size="18" /></span><span class="mt"><b :class="{ 'shimmer-text': projBusy }">{{ projBusy ? '프로젝트 카드를 준비하고 있어요…' : '프로젝트로 시작' }}</b><small>이 답을 첫 문서로 담아 새 프로젝트를 만들어요 · 만들기 전에 한 번 더 물어봐요</small></span><Icon name="chevron" :size="14" />
           </button>
           <button v-if="held" class="mi press" role="menuitem" data-test="answer-share-select" @click="selectText">
             <span class="ic"><Icon name="hand" :size="18" /></span><span class="mt"><b>글 선택</b><small>답에서 글을 골라 일부만 복사해요</small></span>
@@ -271,6 +310,7 @@ function openRoom() { const id = sent.value?.id; close(); if (id) team.openMesse
         <p v-else-if="step === 'sent'" class="sent" data-test="answer-sent" :data-room="sent?.id"><Icon name="check" :size="16" /><span>{{ sentLine }}</span></p>
 
         <p v-if="err" class="err" role="alert" data-test="answer-share-error">{{ err }}</p>
+        <p v-if="projNote" :class="projNote.bad ? 'err' : 'pnote'" :role="projNote.bad ? 'alert' : 'status'" data-test="answer-project-note" :data-bad="projNote.bad ? 1 : null">{{ projNote.text }}</p>
         <footer v-if="step === 'send' || step === 'sent'">
           <button v-if="step === 'send'" class="go press" :disabled="busy" data-test="answer-send" @click="send">{{ busy ? '보내는 중…' : '보내기' }}</button>
           <button v-else class="go press" data-test="answer-room-open" @click="openRoom">방 열기</button>
@@ -292,7 +332,7 @@ h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .menu { display: flex; flex-direction: column; gap: 4px; }
 .mi { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 10px; border-radius: 16px; text-align: left; color: var(--text-primary); }
 .mi:hover { background: var(--cell-bg, rgba(127, 127, 127, .1)); }
-.mi:disabled { opacity: .6; }
+.mi:disabled, .mi[aria-disabled="true"]:not([aria-busy="true"]) { opacity: .6; }
 .ic { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; flex: none; background: var(--field-bg); }
 .mt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mt b { font-size: 14.5px; font-weight: 600; }
@@ -322,6 +362,7 @@ h2 { margin: 2px 0 0; font-size: 17px; font-weight: 600; }
 .sent { display: flex; align-items: center; gap: 8px; margin: 6px 2px; font-size: 14.5px; }
 .sent svg { color: var(--color-success); flex: none; }
 .err { margin: 0; color: var(--color-error, #c62828); font-size: 12.5px; overflow-wrap: anywhere; }
+.pnote { margin: 0; color: var(--text-secondary); font-size: 12.5px; overflow-wrap: anywhere; }
 footer { display: flex; justify-content: flex-end; gap: 8px; }
 .go { height: 40px; padding: 0 20px; border-radius: 20px; background: var(--text-primary); color: var(--ink-inverse, #fff); font-size: 14.5px; font-weight: 600; }
 .go:disabled { opacity: .45; }

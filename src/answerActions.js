@@ -1,10 +1,11 @@
-// What an AI answer's 「프로젝트로 시작」 does — the answer's button (Message.vue) and its 공유 sheet (AnswerShareSheet.vue) alike
+// What an AI answer's 「프로젝트로 시작」 does — an item of the answer's message menu (AnswerShareSheet.vue: held, right-clicked or its ⋯)
 // (spec chat-to-project, server lib/chatProject.js): the confirm card under the chat — the one still open for this answer, or a new one —
 // brought into view. Nothing is made before the card's 「만들기」.
 import { nextTick } from 'vue'
 
-// an answer worth acting on: the agent's text or document answer with words in it (structure: a short acknowledgement — 「네, 처리할게요.」 —
-// shows no buttons, its message menu still has them)
+// an answer: the agent's text or document answer with words in it — it has the message menu. One worth acting on (not a short
+// acknowledgement — 「네, 처리할게요.」) may carry a phone's one-time 「길게 누르면 …」 (src/holdHint.js); no answer has buttons under it
+// (2026-11-28 「하단의 공유, 프로젝트로 등록 … 모든 것들 콘텍스트 메뉴로」)
 export const ANSWER_MIN_CHARS = 80
 export function isAnswer(m) {
   return !!m?.id && m.role === 'agent' && (m.kind === 'text' || m.kind === 'doc') && !!String(m.content?.text || '').trim() && !m.content?.stopped && !m.content?.note

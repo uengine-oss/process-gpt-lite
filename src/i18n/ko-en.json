@@ -3651,7 +3651,23 @@
   "옮길 대화": "Conversation to move",
   "채팅으로 되돌렸어요 · 채팅 목록에 다시 있어요": "Moved back to the chat · it is in the chat list again",
   "옮길 프로젝트": "Project to move to",
-  "이 대화는 다른 프로젝트로 옮겼어요": "This conversation moved to another project"
+  "이 대화는 다른 프로젝트로 옮겼어요": "This conversation moved to another project",
+  "정리할 폴더 고르기": "Choose a folder to file it in",
+  "팀원을 골라 이 파일을 보내요": "Pick a teammate and send them this file",
+  "알맞은 폴더를 찾고 있어요…": "Finding the right folder…",
+  "맞는 폴더가 없어 새 폴더를 추천해요": "No folder fits, so a new one is suggested",
+  "편집할 수 있는 폴더 중에서 직접 골라요": "Pick one yourself from the folders you can edit",
+  "폴더에서 열어요": "Opens it in the folder",
+  "폴더를 불러오는 중…": "Loading folders…",
+  "정리할 수 있는 폴더가 없어요. 편집 권한이 있는 폴더만 고를 수 있어요.": "No folder can take it. Only folders you can edit are listed.",
+  "답이나 파일을 길게 누르면 공유 · 프로젝트로 시작 · 폴더 정리를 할 수 있어요": "Press and hold an answer or a file to share it, start a project or file it in a folder",
+  "안내 닫기": "Close the tip",
+  "이 답의 메뉴 열기": "Open this answer's menu",
+  "공유 · 프로젝트로 시작 · 복사": "Share · Start a project · Copy",
+  "폴더 정리 제안이 있어요": "A folder is suggested for this file",
+  "파일 메뉴": "File menu",
+  "프로젝트 카드를 준비하고 있어요…": "Preparing the project card…",
+  "프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.": "I couldn't prepare the project card. Please press it again."
  },
  "patterns": [
   [
@@ -8281,6 +8297,22 @@
   [
    "이 대화는 프로젝트 「{0}」으로 옮겼어요 · 그 대화를 열면 보낸 말이 입력창에 다시 들어가요",
    "This conversation moved to the project \"{0}\" · open it and what you sent will be back in the box"
+  ],
+  [
+   "‘{0}’에 정리",
+   "File in ‘{0}’"
+  ],
+  [
+   "추천 · 확신도 {0}%",
+   "Suggested · {0}% sure"
+  ],
+  [
+   "새 폴더를 만들어 정리: {0}",
+   "Create a new folder and file it: {0}"
+  ],
+  [
+   "{0} 메뉴 열기",
+   "Open the menu of {0}"
   ]
  ],
  "context": [
