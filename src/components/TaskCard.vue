@@ -178,8 +178,9 @@ const queueActs = computed(() => {
 })
 // repetitive work that keeps changing the page (deleting one item after another): how many rounds so far, not a stop
 const progressN = computed(() => (running.value || needs.value ? c.value.progress?.count || 0 : 0))
-// what the person said to it in the chat — an answer to its question, or how to go on — shown as received
-const heard = computed(() => (running.value || needs.value ? (c.value.steered?.text ? { kind: '받은 지시', text: c.value.steered.text } : c.value.answered?.text ? { kind: '채팅으로 답함', text: c.value.answered.text } : null) : null))
+// what the person said to it in the chat — an answer to its question, or how to go on — shown as received (by: 'agent' — words the agent
+// that asked for this task passed on, server lib/browser.js relay: never the person's answer)
+const heard = computed(() => (running.value || needs.value ? (c.value.steered?.text ? { kind: c.value.steered.by === 'agent' ? '에이전트가 전한 말' : '받은 지시', text: c.value.steered.text } : c.value.answered?.text ? { kind: '채팅으로 답함', text: c.value.answered.text } : null) : null))
 
 // Nothing has moved for a while (server lib/browser.js guard → content.stall { what, since, after }): instead of a screen
 // that looks frozen, what it is waiting on, for how long, and 다시 시도 (that step again) · 그만두기 (stop the task).

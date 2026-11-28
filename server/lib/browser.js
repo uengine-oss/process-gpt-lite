@@ -117,6 +117,8 @@ async function keepDownloadFor(userId, task, file) {
     const saved = await saveAttachment({ id: userId }, name, type, data)
     await addMessage(userId, task.threadId, 'agent', 'file', { name: saved.name, url: saved.url, size: saved.size, ...(type ? { type } : {}), ...(saved.path ? { path: saved.path } : {}), taskId: task.id })
     ;(task.downloads ||= []).push(saved.name)
+    // (every file the task kept, for its result: an agent that asked for the task reads it from there — mcp/connectors/browser.js)
+    ;(task.kept ||= []).push({ name: saved.name, url: saved.url, ...(type ? { type } : {}), ...(saved.path ? { path: saved.path } : {}) })
     task.log.push({ kind: 'download', text: L(`${saved.name} 받기`, `Download ${saved.name}`), ok: true })
   } catch (e) {
     console.warn('[browser] download', e.message)
@@ -423,7 +425,8 @@ export const keptFiles = (files) => (files || []).filter((f) => f?.name && (f.ur
 // background: the project's plan (lib/projectNote.js) — shown to the planner and the agent as context; never stored on the card nor read by
 // any check of the goal (a plan that names a purchase does not let the task buy: review PR #105 #1)
 // said: the person's own words that started it (their message, a room rule's words) — the purchase gate reads them, never the goal alone
-async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, unattended, own = !unattended, gates = config.browserGates, files = [], skill, resume = null, from = null, instruction = '', after = null, queue = null, background = '', said = null, joined = () => {} }) {
+// onCard: told the task's card id as soon as the card is up (an agent that asked for the task follows it by that id — lib/agentBrowser.js)
+async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, unattended, own = !unattended, gates = config.browserGates, files = [], skill, resume = null, from = null, instruction = '', after = null, queue = null, background = '', said = null, onCard = null, joined = () => {} }) {
   const s = sessionRec(userId)
   const t0 = Date.now()
   // the task to go on with: the same card (resume) or a new one that carries on from it (from)
@@ -451,6 +454,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
   const card = resume ? { id: resume } : await addMessage(userId, threadId, 'agent', 'task', { title: firstLine(goal), goal, steps: [], state: 'running', url: shown(startUrl || ''), ...(sk ? { skill: sk.name } : {}), ...(from ? { from } : {}) })
   if (resume) await updateMessage(userId, card.id, { state: 'running', need: null, reason: '', summary: '', stall: null, progress: null, blocked: null, offer: null, order: null, answered: null, steered: null })
   s.planning.set(card.id, false)
+  try { onCard?.(card.id) } catch { /* the caller's own */ }
   // an idle browser is taken now — where it runs is decided (the person's PC or this server: takeBrowser), its page checked
   // (a page a task before left stuck: a fresh tab or browser — healthy) — and opens the start page while the plan is being
   // made (the page is not anyone else's)
@@ -627,6 +631,7 @@ async function runBrowserTaskNow({ userId, threadId, goal, startUrl, onAction, u
     keepLastAt(card.id, s.driver.url())
     result.notes = task.notes
     result.taskId = task.id
+    result.files = task.kept || []
     result.stats = { ...task.stats, ms: Date.now() - t0, avg_ms: averages(task.stats.turn_ms) }
     console.log(`[browser] task ${task.id} ${result.state} in ${Math.round(result.stats.ms / 1000)}s on ${task.where?.kind === 'local' ? `the PC (${task.where.device})` : 'this server'} · ${task.stats.turns} turns${task.stats.extended ? ` (budget extended ${task.stats.extended}× — ${task.progressCount} rounds of progress)` : ''} · plan ${task.stats.plan_ms}ms · per turn ${Object.entries(result.stats.avg_ms).map(([k, v]) => `${k} ${v}ms`).join(', ')}${task.stats.stalls ? ` · ${task.stats.stalls} stalls` : ''}${task.stats.retries ? ` · ${task.stats.retries} retried` : ''}`)
     result.where = task.where
@@ -743,6 +748,9 @@ async function drive(s, task, { messages, onAction, stop = () => false }) {
     // what the person said in the chat since the last look (steering, an answer to a wait on the screen): it goes before the plan
     const told = task.told.splice(0)
     if (told.length) hint += `\n[The person said in the chat while you were working — follow it; where it differs from the plan or the goal, it wins: ${told.map((x) => `"${x}"`).join(' ')}]`
+    // what the agent that asked for this task passed on (relay): not the person's words — never an approval, a sign-in or a purchase
+    const relayed = (task.relayed || []).splice(0)
+    if (relayed.length) hint += `\n[The assistant that asked for this task adds (not the person's own words; it never approves a payment, a sending or a deletion): ${relayed.map((x) => `"${x}"`).join(' ')}]`
     messages.push({ role: 'user', content: hide(task, JSON.stringify(snap)) + hint })
     pushed = 1
     t = Date.now()
@@ -2342,6 +2350,45 @@ export function activeIn(userId, threadId) {
   const step = (t.steps || [])[Math.max(0, (t.stepsDone || 0))] || ''
   return { taskId: t.id, title: t.title, waiting: !!t.waiting, seq: t.waiting ? t.asking?.seq || 0 : 0, step, doing: t.doing || '', question: t.waiting ? String(t.asking?.question || t.asking?.reason || '') : '',
     vault: !!t.asking?.vault, locked: !!(t.waiting && t.asking?.locked) }
+}
+// A task of this person's by its card id, as it stands now, for an agent that asked for it (lib/agentBrowser.js): the one holding the
+// browser (running, or waiting for the person — what it asked), one waiting in line, or one whose plan is still being made. null: it is
+// not under way here (over, or another server's). progress: the last few things it did and noted, as on its card.
+export function taskState(userId, taskId) {
+  const s = sessions.get(userId)
+  if (!s || !taskId) return null
+  const t = s.task?.id === taskId ? s.task : null
+  if (t && !t.cancelled) {
+    const did = (t.log || []).filter((x) => x.ok).slice(-4).map((x) => x.text)
+    const progress = [...did, ...(t.notes || []).slice(-3).map((n) => String(n).slice(0, 200)), ...(t.doing && !t.waiting ? [t.doing] : [])].slice(-6)
+    const step = (t.steps || [])[Math.max(0, t.stepsDone || 0)] || ''
+    if (t.waiting) {
+      const a = t.asking || {}
+      return { state: 'waiting_for_person', title: t.title, seq: a.seq || 0, question: String(a.question || a.reason || '').slice(0, 600), options: (a.options || []).map(String).slice(0, 8),
+        need: a.need || '', locked: !!(a.locked || a.vault), progress, step, over: !!t.over }
+    }
+    return { state: 'running', title: t.title, progress, step, doing: t.doing || '', over: !!t.over }
+  }
+  const inLine = s.queue.find((x) => x.task.id === taskId)?.task
+  if (inLine && !inLine.cancelled) return { state: 'queued', title: inLine.title, progress: [], step: '' }
+  if (s.planning.has(taskId) && !s.planning.get(taskId)) return { state: 'running', title: '', progress: [], step: '' }
+  return null
+}
+// Words for a running task from the agent that asked for it (browser_task_say — mcp/connectors/browser.js). Unlike steer, they are not
+// the person's: they never count as what the person asked (the purchase gate — personWords), and they never end a wait on the person
+// (their question stays theirs, on its card) — the task reads them on its next look. → { waiting } when the task took them, else null
+export async function relay(userId, taskId, text) {
+  const t = sessions.get(userId)?.task
+  const said = String(text || '').trim().slice(0, 2000)
+  if (!t || t.cancelled || t.over || !said || (taskId && t.id !== taskId)) return null
+  ;(t.relayed ||= []).push(said)
+  await updateMessage(userId, t.id, { steered: { text: said.slice(0, 300), at: new Date().toISOString(), by: 'agent' } }).catch(() => {})
+  console.log(`[browser] task ${t.id}: words from the agent that asked for it${t.waiting ? ' (kept until the person answers)' : ''}`)
+  if (!t.waiting && t.retry && !t.retry.signal.aborted) {
+    t.stats.steered = (t.stats.steered || 0) + 1
+    t.retry.abort('retry')
+  }
+  return { waiting: !!t.waiting }
 }
 // a pick-one card the person answered in the chat instead: it shows what they wrote (typed), and is no longer actionable
 async function settleTyped(userId, cardId, value) {

@@ -9,7 +9,7 @@
 
 같은 날 사용자는 다음과 같이 결정했다: 「기본 툴들은 공통 mcp 이므로, 테넌트에 따로 등록 관계없이 등록될 수 있도록」. 이제 deepagents는 공통 MCP 목록(`COMMON_MCP_SERVERS`, process-gpt-k8s의 `process-gpt-deepagents-config`)을 모든 회사의 목록에 합치고, 공통 목록에 있는 이름을 `GET /mcp/common`으로 알린다(deepagents e28c370, 설정과 함께 운영에 반영). 이 스펙은 기본 도구가 실제로 에이전트에 연결되어 있는지를 Lite가 알리고, 운영 점검에서 이를 확인하는 방법을 다룬다. 공통 목록 자체의 규칙은 craft-apps 스펙의 「기본 도구는 모든 회사의 에이전트에 공통 MCP 로 이어진다」에 있다.
 
-- 기본 도구(10개, `server/mcp/toolServers.js`의 단일 목록): 공유 폴더 `pgpt-folders` · 패널 앱 `pgpt-panelapps` · 프로세스 개선 `pgpt-improve` · ArtCraft 5종 `pgpt-cadcraft` · `pgpt-vectorcraft` · `pgpt-photocraft` · `pgpt-soundcraft` · `pgpt-filmcraft` · 이음오피스 `pgpt-ieumoffice-live-editor` · 내 계정으로 보내기 `pgpt-mail`(2026-11-27, 스펙 `mail-reply-review`). 서버 경로는 `/mcp/<pgpt- 를 뺀 이름>`이다(이음오피스는 `/mcp/office`도 같은 경로로 취급한다). 로컬 mcp-hub가 묶는 목록(`server/mcp/connectors.js`)도 이 목록이다.
+- 기본 도구(12개, `server/mcp/toolServers.js`의 단일 목록): 공유 폴더 `pgpt-folders` · 패널 앱 `pgpt-panelapps` · 프로세스 개선 `pgpt-improve` · 팀원에게 묻기 `pgpt-team` · ArtCraft 5종 `pgpt-cadcraft` · `pgpt-vectorcraft` · `pgpt-photocraft` · `pgpt-soundcraft` · `pgpt-filmcraft` · 이음오피스 `pgpt-ieumoffice-live-editor` · 내 계정으로 보내기 `pgpt-mail`(2026-11-27, 스펙 `mail-reply-review`) · 내장 브라우저 `pgpt-browser`(2026-11-28, 스펙 `agent-browser` — 연결기 경로 `/mcp/:connector`가 응답하며, 허브에는 한 번만 묶인다). 서버 경로는 `/mcp/<pgpt- 를 뺀 이름>`이다(이음오피스는 `/mcp/office`도 같은 경로로 취급한다). 로컬 mcp-hub도 이 목록을 사용해 도구를 묶는다(`server/mcp/connectors.js`).
 - 연결 여부 판단: `server/lib/agentTools.js` → `GET /api/config`의 `agentTools`(참 · 거짓), `agentToolsVia`(이름표).
 - 운영 점검: `e2e/tests/deploy/agent-tools.spec.js`(D-AT-*, 로그인 없이 읽기만 수행).
 
@@ -28,7 +28,7 @@ mcp-hub는 연결의 출처가 아니다. 허브는 에이전트에 연결을 �
 
 회사 목록을 읽지 못하면(데이터베이스 오류 · 시간 초과) 모든 도구가 연결되지 않은 것으로 응답한다. 공통 목록이나 허브가 응답하지 않으면(공통 목록이 없는 deepagents는 404) 응답하지 않은 쪽만 판단에서 제외한다. 응답은 1분 동안 캐시한다.
 
-운영 점검(D-AT-*)에서는 웹 편집기와 CLI가 모두 설치된 각 ArtCraft 앱이 연결되어 있어야 한다고 본다. 이음오피스 편집기를 제공하는 설치에서는 이음오피스 편집 도구도 연결되어 있어야 하며, 공유 폴더 · 패널 앱 · 프로세스 개선 · 내 계정으로 보내기는 항상 연결되어 있어야 한다. 하나라도 연결되지 않았으면 점검은 실패하고, 메시지에 해당 도구 이름과 「회사 MCP 등록이 없다」(또는 「회사 항목이 다른 곳을 가리킨다」, 「허브에 없다」)를 적는다. `agentTools`를 알리지 않는 서버는 통과시키지 않고 「이 설치의 서버가 너무 오래돼 알 수 없다」라는 메시지와 함께 실패로 처리한다.
+운영 점검(D-AT-*)에서는 웹 편집기와 CLI가 모두 설치된 각 ArtCraft 앱이 연결되어 있어야 한다. 이음오피스 편집기를 제공하는 설치 환경에서는 이음오피스 편집 도구도 연결되어 있어야 한다. 공유 폴더 · 패널 앱 · 프로세스 개선 · 팀원에게 묻기 · 내 계정으로 보내기 · 내장 브라우저는 항상 연결되어 있어야 한다. 하나라도 연결되지 않으면 점검은 실패하며, 메시지에 해당 도구 이름과 「회사 MCP 등록이 없다」(또는 「회사 항목이 다른 곳을 가리킨다」, 「허브에 없다」)를 적는다. `agentTools`를 알리지 않는 서버는 「이 설치의 서버가 너무 오래돼 알 수 없다」라는 메시지와 함께 실패로 처리한다.
 
 #### Scenario: PhotoCraft 가 회사 목록에도 공통 목록에도 없다
 - **WHEN** 서버에 PhotoCraft 웹 편집기와 CLI가 있고(`craft.photocraft`가 `{web: true, cli: true}`), 회사의 MCP 목록에 PhotoCraft를 가리키는 항목이 없으며, deepagents의 공통 목록에도 `pgpt-photocraft`가 없다(또는 `/mcp/common`이 404)

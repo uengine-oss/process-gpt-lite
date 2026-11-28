@@ -546,9 +546,9 @@ ProcessGPT 포털의 설정 › 테마 설정 「휴대폰 화면」에서 「�
 | 단계 | 파일 | 시험 수 |
 |---|---|---|
 | smoke | `tests/smoke/*.spec.js` (6개) | 74 |
-| feature | `tests/feature/*.spec.js` (31개) | 201 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03, 대화 속 그림 · 소리 · 영상 F-MP-01…08) |
+| feature | `tests/feature/*.spec.js` (103개) | 739 (프로세스 지도 F-PO-01…23, 방 규칙 F-RR-01…04, 후행 습관 F-FU-01…10, 서버 단위 시험 4묶음 포함, 회의 F-MT-01…08, 팀 맥락 공유 F-TC-01…10, 포털에서 넘어온 휴대폰 F-PT-01…03, 대화 속 그림 · 소리 · 영상 F-MP-01…08, … 에이전트가 호출하는 내장 브라우저 F-AB-01…05의 6개) |
 | agent | `tests/agent/*.spec.js` (14개) | 33 (회의 A-14, 후행 습관 A-FU-01) |
-| 합계 | | 308 (`npx playwright test --list` 로 센 2026-11-20 의 300 + F-MP-01…08) |
+| 합계 | | 846 (2026-11-28에 `npx playwright test --list`로 집계, F-AB-01…05의 6개 포함) |
 
 openspec 명세 13개의 요구사항 112개: 덮음 73 · 일부 20 · 공백 19. 명세 밖의 기능 요건(영상·최근 추가 기능: 대화 목록·산출물 스택·로봇 버튼·끊김 복구·유휴 타임아웃·DB 풀·멘션·예약·설치 번들 등) 31개: 덮음 27 · 일부 1 · 공백 3.
 
@@ -2360,6 +2360,31 @@ e2e/
                            team-process · schedules · workroom · vault-connectors · server-unit
   tests/agent/journeys.spec.js
 ```
+
+### 87. 에이전트가 턴 도중에 내장 브라우저를 호출한다 — 작업 카드가 채팅에 곧바로 나타나고, 사람은 카드에서 답하며, 결과는 에이전트에게 돌아간다 (스펙 `agent-browser` · `agent-tools`)
+
+2026-11-28 운영: 프로젝트 방에서 티스토리 링크를 NotebookLM에 넣고 슬라이드와 오디오 오버뷰를 만들어 달라고 요청했고, 앞단 계획에도 같은 내용을 적었다(① NotebookLM에 새 노트북 만들기 ② 링크를 소스로 추가하기 ③ 슬라이드 자료 생성하기 ④ 오디오 오버뷰 생성 후 파일 받기). 턴은 에이전트(deepagents)로 넘어갔지만, 운영 에이전트의 공통 MCP 목록에는 브라우저가 없었다. 에이전트는 페이지를 직접 받아 reportlab으로 PDF를 만들기 시작했고, 계획 지킴이가 턴을 멈췄다. 사용자: 「랭체인 디베이전트가 일을 하는 도중에 이 브라우저 유즈 기존의 브라우저 유즈가 또 불려질 수 있는 … 화면상에 곧바로 나타나면서 진행사항이 나타나면서 서로 커뮤니케이션 하면서 왔다갔다 일이 되어야」. 기존 `/mcp/browser`는 읽기만 했고, 240초 뒤 「아직」을 반환하며 끝나 이후 진행 상황을 확인할 방법이 없었다. 또한 에이전트의 대화로 방을 찾지 않고 가장 최근에 작업하던 방으로 추정했다. 수정 후에는 `pgpt-browser`가 기본 도구 목록(`server/mcp/toolServers.js`)에 포함된다. 대화(`X-Conversation-Id`)로 해당 사용자의 방을 찾고, 사람의 메시지에 답하는 턴이면 그 사람의 작업으로 실행한다. `browser_task_wait`로 진행 상황을 확인하고 `browser_task_say`로 말을 전하며, 턴이 먼저 끝나면 한 번 이어서 진행한다(`server/lib/agentBrowser.js`). 운영 환경에서는 process-gpt-k8s의 공통 MCP 목록에 `pgpt-browser` 한 줄을 추가해야 한다(추가하기 전까지 D-AT-browser가 실패한다).
+
+```bash
+cd server && node --test --test-concurrency=1 test/agentBrowser.test.js test/agentTools.test.js          # AB-U · agentTools
+cd server && node --test --test-concurrency=1 test/agentBrowser.integration.test.js                      # AB-I-01~04 (실제 DB · HTTP MCP · Chromium)
+cd e2e && ~/.claude/tools/lite/reclock.sh run agent-browser -- npx playwright test --project=feature tests/feature/agent-browser.spec.js --workers=1   # F-AB-01~05
+```
+
+| 기능 요건 | 근거 | 시험 | 단계 | |
+|---|---|---|---|---|
+| 내장 브라우저가 기본 도구 목록에 포함된다 — `/api/config agentTools.browser`, 허브 묶음, 운영 점검 D-AT-browser. 연결기이면서 기본 도구여도 허브에는 한 번만 묶는다 | 운영 11-28 · 브리프 P0 | agentTools 「내장 브라우저(pgpt-browser) …」 · 「이름은 한 목록」 · 「shape」 · D-AT-browser | 단위 · deploy | ✅ |
+| 에이전트의 대화(`X-Conversation-Id`)로 해당 사용자의 방을 찾는다 — 그 사람의 진행 중인 턴, 해당 대화의 방, 프로젝트 주제를 확인한다. 다른 사람의 대화는 거절하고 어느 방에도 카드를 표시하지 않는다. 대화가 없으면 기존 방식을 따른다 | 브리프 P1 | AB-U 「대화 → 방」 · AB-I-02 · F-AB-04 | 단위 · DB · feature | ✅ |
+| 사람의 메시지에 답하는 턴이면 그 사람의 작업으로 실행한다(own · 사람의 말 · 계획 배경 · 줄). 루틴 · 예약 · 서버가 만든 턴이거나 턴이 끝난 뒤라면 읽기만 한다 | 브리프 P1 | AB-U 「사람이 있는 턴」 · 「사람이 있으면 …」 · AB-I-01 · AB-I-03 | 단위 · DB | ✅ |
+| 에이전트 턴 도중에 해당 방에 작업 카드가 곧바로 나타난다(실시간 화면). 계획 카드는 「에이전트 · 브라우저 · 스튜디오」를 표시하고, 실시간 줄에는 브라우저의 진행 상황이 표시된다. 답은 카드 뒤에 오며, 답에 남은 계획에도 같은 내용이 표시된다 | 브리프 P3 | AB-I-01 · F-AB-01 | DB · feature | ✅ |
+| 4분 안(시험에서는 4초)에 `running` + `task_id` + 진행 상황을 반환한다. `browser_task_wait`로 결과(요약 · 메모 · 주소 · 페이지 글 · 받은 파일 = 채팅의 파일 카드)를 받는다 | 브리프 P2 | AB-U 「기다림」 · AB-I-01 · AB-I-04 · F-AB-01 | 단위 · DB · feature | ✅ |
+| 브라우저가 카드로 질문하면 호출은 곧바로 `waiting_for_person`과 질문을 반환한다. 사람이 카드에서 선택하면 에이전트가 그 답이 포함된 결과를 받아 이어서 답한다 | 브리프 P2 | AB-U 「기다림」 · F-AB-02 | 단위 · feature | ✅ |
+| `browser_task_say`는 카드에 「에이전트가 전한 말」로 표시된다. 사람의 말이나 승인으로 취급하지 않으며, 사람에게 한 질문의 답으로도 취급하지 않는다. 다른 사람의 작업 id로는 기다리거나 말을 전할 수 없다 | 브리프 P2 | AB-I-04 · AB-I-02 · AB-U 「말 전하기」 · 「작업 찾기」 | 단위 · DB | ✅ |
+| 턴이 먼저 끝나면 같은 대화에서 한 번 이어서 진행한다(「Lite 가 보냄」, composed). 그사이에 사람이 메시지를 썼거나(작업에 준 답 제외), 다른 턴이 진행 중이거나, 멈춘 턴이거나, 이미 받은 결과이거나, 이어 하는 턴의 작업이거나, `PRO_BROWSER_HANDBACK=0`이면 이어서 진행하지 않는다 | 브리프 P2 | AB-U 「이어 하기」 · AB-I-04 · F-AB-03 | 단위 · DB · feature | ✅ |
+| 도구 설명에는 이 서버의 브라우저 스킬을 이름 · 이름표 · 설명과 함께 싣는다. `skill`은 그 이름 중 하나다. 사람을 기다리는 동안 같은 내용을 다시 묻지 말라는 안내도 포함한다 | 브리프 P2 · 정규식 금지 | AB-U 「도구 설명」 | 단위 | ✅ |
+| 폭 390인 휴대폰의 밝은 화면과 어두운 화면에서 작업 중인 계획 카드와 작업 카드가 화면 안에 표시되고, 화면이 옆으로 밀리지 않는다 | 브리프 P3 | F-AB-05 | feature | ✅ |
+| 실제 deepagents(origin/master 277a8c9, 회사 게이트웨이 모델, 공통 목록에 `pgpt-browser` 한 줄)가 한국어 요청에 스스로 `browser_task`를 선택했다. 19초에 카드가 나타났고(계획 카드 「에이전트 · 브라우저」), 46초에 작업이 끝나자 그 결과로 남은 단계를 이어서 진행했다 | 실제 확인 11-28 | `openspec/specs/agent-browser/e2e/README.md` 「실제 deepagents 로 확인」 | 실제 확인 | ✅ |
+| NotebookLM 자체(구글에 로그인한 서버 브라우저) | 운영 확인 | — | 운영 | ✗ |
 
 ### 쓸 때 주의
 

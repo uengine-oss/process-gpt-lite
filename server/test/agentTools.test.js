@@ -27,7 +27,7 @@ const entry = (url, more = {}) => ({ url, type: 'streamable-http', headers: { Au
 const ALL = LITE_TOOL_SERVERS.map((t) => t.key)
 
 test('이름은 한 목록: 허브가 묶는 이름 = 공통 목록 이름 = pgpt-<이 서버의 경로>, ArtCraft 앱 · 이음오피스 이름과 같다', async () => {
-  assert.deepEqual(LITE_TOOL_SERVER_NAMES, ['pgpt-folders', 'pgpt-panelapps', 'pgpt-improve', 'pgpt-team', 'pgpt-cadcraft', 'pgpt-vectorcraft', 'pgpt-photocraft', 'pgpt-soundcraft', 'pgpt-filmcraft', 'pgpt-ieumoffice-live-editor', 'pgpt-mail'])
+  assert.deepEqual(LITE_TOOL_SERVER_NAMES, ['pgpt-folders', 'pgpt-panelapps', 'pgpt-improve', 'pgpt-team', 'pgpt-cadcraft', 'pgpt-vectorcraft', 'pgpt-photocraft', 'pgpt-soundcraft', 'pgpt-filmcraft', 'pgpt-ieumoffice-live-editor', 'pgpt-mail', 'pgpt-browser'])
   // (entered the way the server's imports reach them: test/craftInstall.test.js)
   await import('../lib/craftWork.js')
   const { CRAFT_APPS } = await import('../mcp/craft.js')
@@ -37,6 +37,42 @@ test('이름은 한 목록: 허브가 묶는 이름 = 공통 목록 이름 = pgp
   const fs = await import('node:fs/promises')
   const src = await fs.readFile(new URL('../mcp/connectors.js', import.meta.url), 'utf8')
   assert.match(src, /const ALWAYS = LITE_TOOL_SERVER_NAMES\b/, 'connectors.js 의 허브 묶음은 같은 목록')
+})
+
+test('내장 브라우저(pgpt-browser): 목록에 있고 /mcp/browser 는 연결기 길이 답한다 · 연결기이자 기본 도구라도 허브에는 한 번만 묶인다', async () => {
+  assert.deepEqual(tool('browser'), { key: 'browser', paths: ['browser'], server: 'pgpt-browser' })
+  // (loaded the way the server loads it — lib/agent.js first: connectors.js sits in an import cycle through it)
+  await import('../lib/agent.js')
+  const C = await import('../mcp/connectors.js')
+  assert.ok(C.CONNECTORS.some((c) => c.name === 'browser' && C.hubServerName(c.name) === tool('browser').server), '연결기 이름 = 기본 도구 이름')
+  // the hub binding: a hub that has pgpt-browser, a person the browser connector counts as connected
+  const servers = LITE_TOOL_SERVER_NAMES.map((name, i) => ({ id: `s${i}`, name }))
+  const puts = []
+  const hub = http.createServer((req, res) => {
+    let raw = ''
+    req.on('data', (c) => { raw += c })
+    req.on('end', () => {
+      if (req.method === 'PUT') puts.push(JSON.parse(raw))
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(req.url === '/servers' ? servers : []))
+    })
+  })
+  await new Promise((r) => hub.listen(0, '127.0.0.1', r))
+  after(() => hub.close())
+  const saved = process.env.PRO_MCP_HUB_URL
+  process.env.PRO_MCP_HUB_URL = `http://127.0.0.1:${hub.address().port}`
+  try {
+    // (HUB is read when connectors.js loads: a fresh copy of the module sees this hub)
+    const fresh = await import(`../mcp/connectors.js?hub=${Date.now()}`)
+    const r = await fresh.ensureHubBinding('00000000-0000-4000-8000-000000000001', 'acme')
+    assert.equal(r.ok, true)
+    const ids = puts.at(-1).map((b) => b.server_id)
+    const browserId = servers.find((s) => s.name === 'pgpt-browser').id
+    assert.equal(ids.filter((x) => x === browserId).length, 1, 'pgpt-browser 는 한 번')
+    assert.equal(new Set(ids).size, ids.length, '같은 서버를 두 번 묶지 않는다')
+    assert.equal(r.bound, LITE_TOOL_SERVER_NAMES.length)
+  } finally {
+    if (saved === undefined) delete process.env.PRO_MCP_HUB_URL; else process.env.PRO_MCP_HUB_URL = saved
+  }
 })
 
 test('hub: 허브만으로는 이어지지 않는다 — 허브가 답하는데 그 이름이 없으면 hub-filtered 로 이어지지 않음', () => {
@@ -69,6 +105,9 @@ test('tenant: 키가 아니라 주소로 — 켜진 항목이 이 서버의 /mcp
   assert.deepEqual(on(via).sort(), ['craft.photocraft', 'craft.vectorcraft', 'folders', 'office'])
   assert.deepEqual(via['craft.photocraft'], ['tenant'])
   assert.equal(tenantReaches(tool('office'), { x: entry('http://lite/mcp/ieumoffice-live-editor') }), true)
+  // the built-in browser: its entry (as the common list carries it, with the conversation header) reaches /mcp/browser
+  assert.equal(tenantReaches(tool('browser'), { b: entry('http://lite:8787/mcp/browser', { headers: { Authorization: 'Bearer {{user_jwt}}', 'X-Conversation-Id': '{{conversation_id}}' } }) }, true), true)
+  assert.deepEqual(decide({ tenant: null, common: new Set(['pgpt-browser']) }).browser, ['common'])
 })
 
 test('tenant: 꺼진 항목(enabled:false)은 아님', () => {
@@ -182,9 +221,9 @@ test('localhost 주소: 에이전트가 이 기계에서 돌면(로컬 개발) �
   }
 })
 
-test('shape: /api/config 모양 — office · folders · panelapps · improve · team 과 craft.<앱>', () => {
+test('shape: /api/config 모양 — office · folders · panelapps · improve · team · mail · browser 와 craft.<앱>', () => {
   const s = shape(decide({ tenant: null, common: new Set(['pgpt-photocraft']) }), (v) => v.length > 0)
-  assert.deepEqual(s, { folders: false, panelapps: false, improve: false, team: false, office: false, mail: false,
+  assert.deepEqual(s, { folders: false, panelapps: false, improve: false, team: false, office: false, mail: false, browser: false,
     craft: { cadcraft: false, vectorcraft: false, photocraft: true, soundcraft: false, filmcraft: false } })
 })
 
