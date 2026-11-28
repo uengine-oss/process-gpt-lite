@@ -2190,7 +2190,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   if (tc?.said && !ended && !silent && !divider && mode !== 'skill' && !contract) {
     afterTurn({ user, threadId, msg, conv: turn.conv || routing?.conversation_id || pin?.conversationId || thread?.conversation_id || null, title: context?.title, said: tc.said, files, attached: uploads, fromHabit: tc.habitId, session }).catch((e) => console.warn('[followups]', e.message))
     // 회사 프로세스 지도(design-v0.3 §12): a new request that starts one of the company's processes is offered as that process
-    if (!tc.habitId && !tc.fileEvent) import('./ontology/run.js').then((m) => m.chatSuggest({ user, threadId, said: tc.said, conv: turn.conv || routing?.conversation_id || null })).catch((e) => console.warn('[ontology] chat suggest', e.message))
+    // (not under a turn that already did the work: its answer and the file cards it posted go along — events.js onChat)
+    if (!tc.habitId && !tc.fileEvent) import('./ontology/run.js').then((m) => m.chatSuggest({ user, threadId, said: tc.said, conv: turn.conv || routing?.conversation_id || null, answer: body, made: posted.length })).catch((e) => console.warn('[ontology] chat suggest', e.message))
   }
   return msg
   }

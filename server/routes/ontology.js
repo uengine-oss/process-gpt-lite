@@ -123,6 +123,10 @@ export function ontologyRoutes(auth) {
       skipped: r2.snapshot.skipped, nodes: r2.snapshot.nodes, procDefId: r2.snapshot.procDefId, bindings: r2.bindings || null })
     return r2
   }))
+  // 「아니요, 이번엔 그냥 할게요」와 그 까닭(declines.js): 카드 메시지에 남겨 모든 화면이 같은 카드를 보고, 다음 채팅 요청을 견줄 때 읽는다 — 자기 카드만.
+  // reason: unrelated · not-now(칩) · note(직접 적은 말 — 모델이 읽는다) · skip(까닭 없이 넘어가기)
+  r.post('/ontology/entry/decline', auth, h(async (req) => (await import('../lib/ontology/declines.js')).declineCard(req.user, String(req.body?.messageId || ''), {
+    reason: req.body?.reason ? String(req.body.reason) : null, note: String(req.body?.note || '').slice(0, 1000), skip: req.body?.skip === true })))
   r.get('/ontology/cases', auth, h(() => q(`select id, bundle as proc, entry_task, trigger, status, instances, history, engine, map_pin, created_at from pro_po_cases where tenant_id=$1 order by created_at desc limit 30`, [config.tenantId])))
   r.get('/ontology/cases/:id', auth, h(async (req) => {
     const c = await R.getCase(req.params.id)

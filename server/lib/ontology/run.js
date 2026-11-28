@@ -423,12 +423,13 @@ export async function routeMail(userId, mail) {
 }
 
 // a new request typed in chat that is the start of one of the company's processes: offered, never started by itself (a person
-// typed it — the events that start promoted processes are mails and finished steps); once per conversation
-export async function chatSuggest({ user, threadId, said, conv }) {
+// typed it — the events that start promoted processes are mails and finished steps); once per conversation. It is read after the turn,
+// so a turn that already did the work (answer: its saved answer · made: the file cards it posted) gets no card under it (events.js onChat)
+export async function chatSuggest({ user, threadId, said, conv, answer = '', made = 0 }) {
   if (!ontologyEnabled() || String(said || '').trim().length < 12) return null
   const [asked] = await q(`select 1 from pro_messages where thread_id=$1 and kind='onto-entry' and content->>'source'='chat' and coalesce(content->>'conv','')=$2 and created_at > now() - interval '1 day' limit 1`, [threadId, conv || ''])
   if (asked) return null
-  return (await import('./events.js')).onChat({ user, threadId, said, conv })
+  return (await import('./events.js')).onChat({ user, threadId, said, conv, answer, made })
 }
 
 // ---------- agent steps (orchestration pgpt-pro-onto) ----------
