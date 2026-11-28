@@ -7,11 +7,11 @@
 // that send them (a guard that stopped the run asks in the answer itself — the chat's quick replies)
 import { ref, computed, watch } from 'vue'
 import { useApp } from '../stores/app.js'
-import { planParts, STEP_MARK } from '../turnView.js'
+import { planParts, STEP_MARK, STEP_SAYS } from '../turnView.js'
 
-const props = defineProps({ plan: Object, notes: { type: Array, default: () => [] }, guard: { type: Object, default: null }, threadId: String })
+const props = defineProps({ plan: Object, notes: { type: Array, default: () => [] }, guard: { type: Object, default: null }, threadId: String, at: { type: String, default: null } })
 const app = useApp()
-const info = computed(() => planParts(props.plan, props.notes))
+const info = computed(() => planParts(props.plan, props.notes, { guardAsked: !!props.guard?.stopped, at: props.at }))
 const steps = computed(() => (Array.isArray(props.plan?.steps) ? props.plan.steps : []))
 const after = computed(() => (props.guard?.after && props.guard.question ? props.guard : null))
 const open = ref(!!info.value?.trouble || !!after.value)
@@ -31,7 +31,7 @@ function answer(o) { sent.value = o; app.send(o, props.threadId) }
       <p class="pu" data-no-i18n>{{ plan.understood }}</p>
       <ol v-if="steps.length">
         <li v-for="(s, i) in steps" :key="s.id || i" :class="s.state" :data-state="s.state" data-testid="plan-step">
-          <span class="pm" :aria-label="s.state">{{ STEP_MARK[s.state] || i + 1 }}</span>
+          <span class="pm" role="img" :aria-label="`${i + 1}단계 · ${STEP_SAYS[s.state] || STEP_SAYS.pending}`">{{ STEP_MARK[s.state] || i + 1 }}</span>
           <span><span data-no-i18n>{{ s.text }}</span><small v-if="s.why" class="why" data-no-i18n data-testid="plan-step-why">{{ s.why }}</small></span>
         </li>
       </ol>

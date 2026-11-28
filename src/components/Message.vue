@@ -98,7 +98,12 @@ const time = computed(() => new Date(props.msg.created_at).toLocaleString('ko-KR
 const panelReq = computed(() => (/^새 패널 만들기:\s*/.test(c.value.text || '') ? c.value.text.replace(/^새 패널 만들기:\s*/, '') : null))
 // "- 네, 이대로 진행 (설명)" style options closing an agent question become tappable replies
 // (src/replies.js: only a real choice list — a report's bullet lines stay text)
-const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? parseReplies(c.value.text) : null))
+// (a turn the plan guard stopped to ask — server lib/planGuard.js: its options are buttons whatever their wording — review #132-6)
+const guardReplies = () => {
+  const o = c.value.guard?.stopped && Array.isArray(c.value.ask?.options) ? c.value.ask.options.filter(Boolean) : []
+  return o.length ? { body: [c.value.guard.what, c.value.ask.question].filter(Boolean).join('\n\n'), options: o.map((label) => ({ label })) } : null
+}
+const replies = computed(() => (props.msg.role === 'agent' && props.msg.kind === 'text' && !c.value.stopped ? guardReplies() || parseReplies(c.value.text) : null))
 const chipIcon = { clock: 'clock', panel: 'panel', check: 'check', bell: 'bell', refresh: 'refresh', folder: 'folder', send: 'up' }
 // the mails a message is about (모닝 브리프: its Home cards; a line about one mail): chips that open them (MailChips, server lib/mailFlow.js)
 const mailRefs = computed(() => (Array.isArray(c.value.mails) ? c.value.mails : c.value.mail && (c.value.mail.actionId || c.value.mail.mailId) ? [c.value.mail] : []))
@@ -245,7 +250,7 @@ onMounted(async () => {
       <small v-if="ctxBy" class="by" :class="ctx.escalated || ctx.rechecked ? 'escalated' : ctx.strategy">{{ ctxBy }} {{ ctx.confidence != null ? ctx.confidence.toFixed(2) : '' }}</small>
     </div>
     <!-- the plan this answer worked to, over it — where the running turn's plan card was (2026-11-28 녹화 20:49) -->
-    <PlanFold v-if="showPlan" :plan="c.plan" :notes="planNotes" :guard="c.guard || null" :thread-id="msg.thread_id" />
+    <PlanFold v-if="showPlan" :plan="c.plan" :notes="planNotes" :guard="c.guard || null" :thread-id="msg.thread_id" :at="msg.created_at" />
     <!-- a scheduled run's output is introduced by its task, tappable to manage it (hark) -->
     <button v-if="msg.kind === 'divider' && c.scheduleId" class="sched press" @click="router.push(`/settings/schedules?open=${c.scheduleId}`)"><Icon name="clock" :size="15" /> {{ c.text }} 관리</button>
     <div v-else-if="msg.kind === 'divider'" class="divider">{{ c.text }}</div>

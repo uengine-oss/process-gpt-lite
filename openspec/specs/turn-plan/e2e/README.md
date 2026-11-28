@@ -79,6 +79,7 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/turn-
 | 에이전트가 멈추기 요청에 응답하지 않는다 | F-PG-02(휴대폰 390 어두운 · 밝은, `/chat/stop` 이 stopped:false → 연결을 끊고 같은 질문 · 계획, 옆으로 밀리지 않음) |
 | 턴이 끝난 뒤에 요청이나 계획에서 벗어난 사실이 확인된다 | F-PG-03(답은 그대로, 「계획과 다르게 진행했어요」 상자 · 상황 · 질문 · 단추, 누르면 보내지고 「보냈어요」) · PG-U-06 |
 | 영어 화면(계획에서 벗어남) | F-PG-05(「Plan 1/3 · Step 1 not done · Step 2 done another way」, 「This went differently from the plan」, 계획 줄에 한글 없음) |
+| 검토 #132 반영 | PG-U-10(스트림이 끝난 뒤 온 판정은 멈추지 않고 끝 판정에) · PG-U-11(6번 · 15초) · PG-U-12(나란히 부른 도구의 결과, 같은 보기 하나로, 기록은 지시가 아님) · PG-U-13(멈춘 단계는 판정 때의 목록) · PG-U-08(400자 요약 + 긴 맺음은 그대로) |
 | 긴 답 앞에 짧은 별도 문장을 쓴다 | PG-U-08(「Update README structure section.」 뒤 긴 답 → 긴 답만, 긴 요약 뒤 맺음 한 줄 → 둘 다) |
 
 ## 채팅 아래 한 줄 (F-CC, `e2e/tests/feature/compact-composer.spec.js`)
@@ -166,5 +167,5 @@ cd server && node --test --test-concurrency=1 test/turnPlan.integration.test.js 
 - 실제 deepagents가 `done.content`에 마지막 답만 담는지는 코드 검토(출력 정리 함수)로만 확인했다. 운영 턴에서는 확인하지 않았다.
 - 운영 모델(`PRO_LLM_FRONT_MODEL=claude-sonnet-5-5`)의 앞단 계획 시간과 문장은 측정하지 않았다. 이 PC의 모델 게이트웨이에는 frentis만 연결된다.
 - 영어 화면에서 답 아래의 「어떻게 했나요 · 1단계 · 조회한 곳 …」 줄은 번역되지 않는다. 이 변경 전부터 있던 현상이다(사전의 `어떻게 했나요 · {0}단계{1}`가 `{1}` 앞의 공백 때문에 일치하지 않음).
-- 계획에서 벗어남 판정(2026-11-28)은 가짜 모델로만 시험했다. 실제 모델(운영 Sonnet 5.5)이 녹화의 상황 — 드라이브 검색이 비고 「공개 자료로 할게요」 — 에서 0.7 을 넘기는지, 계속 찾는 중에 멈추지 않는지는 운영 반영 뒤 로그(`[plan-guard] … off= confidence=`)로 본다. 판정은 할 일이 바뀔 때 · 첫 파일 · 도구 4번 · 메모마다 한 번씩이라 3분짜리 턴에 5~8번 부른다.
+- 계획에서 벗어남 판정(2026-11-28): 화면 시험은 가짜 모델로 했다. 실제 모델로는 판정 하나만 따로 돌렸다(`server/eval/planGuard/real.mjs`, 회사 게이트웨이 frentis — `results/plan-guard-real-model.txt`). 녹화의 상황(드라이브에서 못 찾고 공개 자료로 감)은 멈춤 · missing · 1단계 · 0.92, 아직 찾는 중 · 찾아서 쓰는 중은 멈추지 않음. 운영 모델(Sonnet 5.5)이 녹화의 상황 — 드라이브 검색이 비고 「공개 자료로 할게요」 — 에서 0.7 을 넘기는지, 계속 찾는 중에 멈추지 않는지는 운영 반영 뒤 로그(`[plan-guard] … off= confidence=`)로 본다. 판정은 할 일이 바뀔 때 · 첫 파일 · 도구 4번 · 메모마다 한 번씩이라 3분짜리 턴에 5~8번 부른다.
 - 멈춘 턴에서 에이전트가 그때까지 쓴 파일은 카드로 남는다(지우지 않음).

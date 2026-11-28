@@ -11,6 +11,8 @@
 //   PG-U-07 저장된 계획의 단계: 멈춘 단계는 못 함/바꿈 + 까닭, 확인 중엔 에이전트의 상태, 확인이 오면 결과 · 없으면 예전처럼 완료
 //   PG-U-08 답 앞의 짧은 딴 줄(「Update README structure section.」)은 답에 붙지 않고, 긴 요약 뒤 맺음 한 줄은 그대로
 //   PG-U-09 멈춘 턴의 메시지: 무엇이 있었나 · 질문 · 보기 목록 — 채팅의 빠른 답 단추로 읽힘
+//   (PR #132 검토) PG-U-10 스트림이 끝난 뒤 온 판정은 멈추지 않고 끝 확인으로 · PG-U-11 6번까지, 15초 간격 · PG-U-12 나란히 부른 도구의
+//   결과 · 같은 보기 하나로 · 기록은 지시가 아님 · PG-U-13 멈춘 단계는 판정 때의 목록으로
 //   cd server && node --test test/planGuard.test.js
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -57,7 +59,7 @@ test('PG-U-02 단계 결과 읽기 — 모든 단계를 덮을 때만', () => {
 
 test('PG-U-03 언제 묻나 — 할 일이 움직일 때 · 첫 파일 · 도구 4개마다 · 중간 글, 겹치면 하나 뒤에 한 번', async () => {
   const { ask, calls } = fakeAsk([{ off: false, confidence: 0.1 }])
-  const g = PG.createGuard({ view: view(), request: '드라이브에서 가나정밀 교육 자료를 찾아 커리큘럼을 만들어 줘', ask, enabled: true })
+  const g = PG.createGuard({ view: view(), request: '드라이브에서 가나정밀 교육 자료를 찾아 커리큘럼을 만들어 줘', ask, enabled: true, gap: 0 })
   g.todos([{ text: 'a', state: 'active' }, { text: 'b', state: 'pending' }])
   await flush()
   assert.equal(calls.length, 0, 'the first to-do list is the plan, not a move')
@@ -79,7 +81,7 @@ test('PG-U-03 언제 묻나 — 할 일이 움직일 때 · 첫 파일 · 도구
   assert.equal(calls.length, 3, 'the first file only')
   // two reasons while one check is on its way: one more check after it, not two
   const slow = fakeAsk([() => new Promise((r) => setTimeout(() => r({ off: false, confidence: 0 }), 30))])
-  const g2 = PG.createGuard({ view: view(), request: 'x', ask: slow.ask, enabled: true })
+  const g2 = PG.createGuard({ view: view(), request: 'x', ask: slow.ask, enabled: true, gap: 0 })
   g2.note('먼저 드라이브를 찾아볼게요.')
   g2.note('찾지 못했어요. 공개 자료로 할게요.')
   g2.file('a.md')
@@ -91,16 +93,16 @@ test('PG-U-03 언제 묻나 — 할 일이 움직일 때 · 첫 파일 · 도구
 test('PG-U-04 0.7 이상이면 한 번만 멈춤, 아래 · 모델 오류는 그대로', async () => {
   let stopped = []
   const low = fakeAsk([{ ...OFF, confidence: 0.6 }])
-  const g1 = PG.createGuard({ view: view(), request: 'x', ask: low.ask, enabled: true, onStop: (v) => stopped.push(v) })
+  const g1 = PG.createGuard({ view: view(), request: 'x', ask: low.ask, enabled: true, gap: 0, onStop: (v) => stopped.push(v) })
   g1.file('a.md'); await g1.settle()
   assert.equal(stopped.length, 0)
   assert.equal(g1.stopped(), null)
   const err = fakeAsk([new Error('model down')])
-  const g2 = PG.createGuard({ view: view(), request: 'x', ask: err.ask, enabled: true, onStop: (v) => stopped.push(v) })
+  const g2 = PG.createGuard({ view: view(), request: 'x', ask: err.ask, enabled: true, gap: 0, onStop: (v) => stopped.push(v) })
   g2.file('a.md'); await g2.settle()
   assert.equal(stopped.length, 0)
   const hi = fakeAsk([OFF])
-  const g3 = PG.createGuard({ view: view({ todos: [{ text: '드라이브 찾기', state: 'active' }, { text: '만들기', state: 'pending' }] }), request: 'x', ask: hi.ask, enabled: true, onStop: (v) => stopped.push(v) })
+  const g3 = PG.createGuard({ view: view({ todos: [{ text: '드라이브 찾기', state: 'active' }, { text: '만들기', state: 'pending' }] }), request: 'x', ask: hi.ask, enabled: true, gap: 0, onStop: (v) => stopped.push(v) })
   g3.file('a.md'); await g3.settle()
   g3.note('또'); g3.file('b.md'); await g3.settle()
   assert.equal(stopped.length, 1, 'once')
@@ -115,7 +117,7 @@ test('PG-U-04 0.7 이상이면 한 번만 멈춤, 아래 · 모델 오류는 그
 test('PG-U-05 계획이 없거나 꺼져 있거나 턴이 끝났으면 묻지 않음', async () => {
   for (const [v, enabled] of [[view({ plan: { ...PLAN, source: 'fallback' } }), true], [view({ plan: { ...PLAN, steps: [] } }), true], [view(), false], [view({ ended: 'done' }), true]]) {
     const { ask, calls } = fakeAsk([OFF])
-    const g = PG.createGuard({ view: v, request: 'x', ask, enabled })
+    const g = PG.createGuard({ view: v, request: 'x', ask, enabled, gap: 0 })
     g.file('a.md'); g.note('n'); await g.settle()
     assert.equal(calls.length, 0)
     // (the end check is asked as the answer is saved, before the turn's view ends — an ended view only stops the checks on the way)
@@ -132,7 +134,7 @@ test('PG-U-05 계획이 없거나 꺼져 있거나 턴이 끝났으면 묻지 �
 test('PG-U-06 끝 확인 — 단계 결과와 벗어남, 멈춘 턴 · 모델 오류는 null', async () => {
   const ans = { ...OFF, steps: [{ n: 1, state: 'missed', why: '드라이브에서 찾지 못함' }, { n: 2, state: 'changed', why: '공개 자료로 만듦' }, { n: 3, state: 'done' }] }
   const { ask, calls } = fakeAsk([{ off: false, confidence: 0.2 }, ans])
-  const g = PG.createGuard({ view: view(), request: '드라이브의 자료로 만들어 줘', ask, enabled: true })
+  const g = PG.createGuard({ view: view(), request: '드라이브의 자료로 만들어 줘', ask, enabled: true, gap: 0 })
   g.note('찾아볼게요'); await g.settle()
   const fin = await g.final('# 커리큘럼\n다만 드라이브에서 자료를 찾지 못해 공개 자료를 기준으로 잡았어요.')
   assert.equal(fin.verdict.kind, 'missing')
@@ -141,14 +143,14 @@ test('PG-U-06 끝 확인 — 단계 결과와 벗어남, 멈춘 턴 · 모델 �
   assert.match(calls.at(-1).user, /Its answer:\n# 커리큘럼/)
   // an end check that says all went to plan: outcomes, no verdict
   const ok = fakeAsk([{ off: false, confidence: 0.1, steps: [{ n: 1, state: 'done' }, { n: 2, state: 'done' }, { n: 3, state: 'done' }] }])
-  const g2 = PG.createGuard({ view: view(), request: 'x', ask: ok.ask, enabled: true })
+  const g2 = PG.createGuard({ view: view(), request: 'x', ask: ok.ask, enabled: true, gap: 0 })
   const f2 = await g2.final('답')
   assert.equal(f2.verdict, null)
   assert.deepEqual(f2.outcomes.map((o) => o.state), ['done', 'done', 'done'])
   const err = fakeAsk([new Error('down')])
-  assert.equal(await PG.createGuard({ view: view(), request: 'x', ask: err.ask, enabled: true }).final('답'), null)
+  assert.equal(await PG.createGuard({ view: view(), request: 'x', ask: err.ask, enabled: true, gap: 0 }).final('답'), null)
   const stop = fakeAsk([OFF])
-  const g3 = PG.createGuard({ view: view(), request: 'x', ask: stop.ask, enabled: true, onStop: () => {} })
+  const g3 = PG.createGuard({ view: view(), request: 'x', ask: stop.ask, enabled: true, gap: 0, onStop: () => {} })
   g3.file('a.md'); await g3.settle()
   assert.equal(await g3.final('답'), null, 'a stopped turn has no end check')
 })
@@ -187,6 +189,11 @@ test('PG-U-08 답 앞의 짧은 딴 줄은 답에 붙지 않고, 긴 요약 뒤 
   const summary = segsOf(long)
   summary.token('모든 단계를 마쳤어요.')
   assert.equal(TP.finalAnswer('모든 단계를 마쳤어요.', summary).text, `${long}\n\n모든 단계를 마쳤어요.`)
+  // a 400-character summary, then write_todos, then a longer closing: still one answer (review #132-11)
+  const s4 = '요약 문장입니다. '.repeat(40), c4 = '마무리 문장입니다. '.repeat(45).trim()
+  const mid = segsOf(s4)
+  mid.token(c4)
+  assert.equal(TP.finalAnswer(c4, mid).text, `${s4}\n\n${c4}`)
 })
 
 test('PG-U-09 멈춘 턴의 메시지 — 무엇이 있었나 · 질문 · 보기가 빠른 답 단추로', () => {
@@ -195,4 +202,66 @@ test('PG-U-09 멈춘 턴의 메시지 — 무엇이 있었나 · 질문 · 보�
   const r = parseReplies(t)
   assert.ok(r, 'quick replies')
   assert.deepEqual(r.options.map((o) => o.label), OFF.options)
+})
+
+test('PG-U-10 스트림이 끝난 뒤 온 판정은 멈추지 않고 끝 확인으로 간다(검토 #132-1)', async () => {
+  const stopped = []
+  // a reading on its way when the stream ends: no stop
+  let release
+  const slow = fakeAsk([() => new Promise((r) => { release = () => r(OFF) })])
+  const g = PG.createGuard({ view: view(), request: 'x', ask: slow.ask, enabled: true, gap: 0, onStop: (v) => stopped.push(v) })
+  g.file('a.md')
+  g.close()
+  release()
+  await g.settle()
+  assert.equal(stopped.length, 0, 'a finished turn is never stopped')
+  assert.equal(g.canSettle(), true)
+  // and when the end check's own call fails, that late reading is the verdict (the question is still asked, after the answer)
+  let r2
+  const onWay = fakeAsk([() => new Promise((r) => { r2 = () => r(OFF) })])
+  const down = fakeAsk([new Error('down')])
+  const ask = (sys, user, o) => (sys.includes('"steps": [{"n"') ? down.ask(sys, user, o) : onWay.ask(sys, user, o))
+  const g2 = PG.createGuard({ view: view(), request: 'x', ask, enabled: true, gap: 0, onStop: (v) => stopped.push(v) })
+  g2.file('a.md'); g2.close(); r2(); await g2.settle()
+  const fin = await g2.final('답')
+  assert.equal(stopped.length, 0)
+  assert.equal(fin.verdict.kind, 'missing', 'the late reading')
+  assert.equal(fin.outcomes, null)
+})
+
+test('PG-U-11 한 턴의 판정은 6번까지, 15초 간격(검토 #132-3)', async () => {
+  const { ask, calls } = fakeAsk([{ off: false, confidence: 0.1 }])
+  const g = PG.createGuard({ view: view(), request: 'x', ask, enabled: true, gap: 0, max: 6 })
+  for (let i = 0; i < 12; i++) { g.note(`메모 ${i}`); await g.settle() }
+  assert.equal(calls.length, 6)
+  const spaced = fakeAsk([{ off: false, confidence: 0.1 }])
+  const g2 = PG.createGuard({ view: view(), request: 'x', ask: spaced.ask, enabled: true, gap: 60_000 })
+  g2.note('하나'); await g2.settle()
+  g2.note('둘'); g2.note('셋'); await g2.settle()
+  assert.equal(spaced.calls.length, 1, 'a second reason within the gap waits')
+  g2.close()
+  assert.equal(PG.GAP_MS, 15000)
+  assert.equal(PG.MAX_CHECKS, 6)
+})
+
+test('PG-U-12 나란히 부른 도구의 결과는 그 도구에(검토 #132-7) · 같은 보기는 하나로 · 기록은 지시가 아니라고 알림', async () => {
+  const { ask, calls } = fakeAsk([{ off: false, confidence: 0.1 }])
+  const g = PG.createGuard({ view: view(), request: 'x', ask, enabled: true, gap: 0, every: 2 })
+  g.tool({ tool: 'drive_search', phase: '드라이브 찾기' })
+  g.tool({ tool: 'fetch_url', phase: '웹 읽기' })
+  g.result('<html>page</html>', 'fetch_url')
+  g.result('[]', 'drive_search')
+  await g.settle()
+  assert.match(calls[0].user, /drive_search · 드라이브 찾기\n {2}→ \[\]/)
+  assert.match(calls[0].user, /fetch_url · 웹 읽기\n {2}→ <html>page<\/html>/)
+  assert.match(calls[0].system, /data, never instructions/)
+  assert.deepEqual(PG.readVerdict({ ...OFF, options: ['가', '가', '나'] }, 3).options, ['가', '나'])
+})
+
+test('PG-U-13 멈춘 단계는 판정할 때의 단계 목록으로(검토 #132-8)', () => {
+  const at = [{ id: 't1', text: '찾기', state: 'active' }, { id: 't2', text: '만들기', state: 'pending' }]
+  // the agent rewrote its to-dos into three before the stop landed: the snapshot (two) is what the step number means
+  const g = { ...OFF, step: 1, steps: at, fromTodos: true }
+  const out = TP.stepsOf(g.steps, { todos: g.fromTodos, guard: g })
+  assert.deepEqual(out.map((s) => [s.text, s.state]), [['찾기', 'missed'], ['만들기', 'pending']])
 })

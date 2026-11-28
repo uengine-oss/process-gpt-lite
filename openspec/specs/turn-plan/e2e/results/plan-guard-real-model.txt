@@ -1,0 +1,5 @@
+# 지킴이 판정 — 실제 모델(회사 게이트웨이 frentis-ai-model, 2026-11-28) · server/eval/planGuard/real.mjs (지어낸 회사 · 파일 이름)
+  model frentis-ai-model
+  wentOn 3910 ms {"off":true,"step":1,"kind":"missing","what":"구글 드라이브에서 가나정밀 교육 자료를 찾지 못했고, 대신 GitHub spec-kit README를 참고 소스로 삼아 진행을 계속하고 있어요.","question":"가나정밀 교육 자료가 드라이브에 다른 이름으로 있거나 다른 폴더에 있을 수 있어요. 어떻게 할까요?","options":["다른 이름으로 다시 검색해 봐","파일 위치를 알려줄게","GitHub 기준으로 계속 진행해"],"confidence":0.92}
+  searching 1088 ms {"off":false,"step":0,"kind":"none","what":"","question":"","options":[],"confidence":0}
+  fine 3819 ms {"off":false,"step":0,"kind":"none","what":"","question":"","options":[],"confidence":0.9}

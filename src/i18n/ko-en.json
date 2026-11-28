@@ -3688,6 +3688,26 @@
  },
  "patterns": [
   [
+   "{0}단계 · 했음",
+   "Step {0} · done"
+  ],
+  [
+   "{0}단계 · 못 함",
+   "Step {0} · not done"
+  ],
+  [
+   "{0}단계 · 다르게 함",
+   "Step {0} · done another way"
+  ],
+  [
+   "{0}단계 · 하는 중",
+   "Step {0} · in progress"
+  ],
+  [
+   "{0}단계 · 아직",
+   "Step {0} · not yet"
+  ],
+  [
    "{0}단계 못 함",
    "Step {0} not done"
   ],

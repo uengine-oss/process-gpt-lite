@@ -348,8 +348,11 @@ export function saved(turn, state, body = '', { outcomes = null, guard = null, c
   const v = viewOf(turn)
   if (!v?.plan) return {}
   const notes = v.notes.map((n) => n.text).filter((t) => !(body && String(body).includes(t)))
-  const todos = !!v.todos.length
-  const steps = stepsOf(todos ? v.todos : v.plan.steps, { state, todos, outcomes, guard, checking })
+  // (a guard's stop is read against the steps as they were when it judged — the agent may rewrite its to-dos before the stop lands:
+  // review #132-8)
+  const todos = guard?.steps?.length ? !!guard.fromTodos : !!v.todos.length
+  const shown = guard?.steps?.length ? guard.steps : todos ? v.todos : v.plan.steps
+  const steps = stepsOf(shown, { state, todos, outcomes, guard, checking })
   return {
     plan: { understood: v.plan.understood, steps, handler: v.handler, tier: v.plan.tier, model: v.plan.model || null, source: v.plan.source,
       state, ms: Date.now() - v.startedAt, stages: v.stages.slice(0, 20), fromTodos: todos, ...(checking ? { checking: true } : {}) },
@@ -467,10 +470,11 @@ export function finalAnswer(done, segs) {
   const d = typeof done === 'string' && !isJson(done) ? done.trim() : ''
   const seg = segs?.answer?.() || ''
   // the last message only (done.content), unless the segment it ends is longer — the text before it was followed by bookkeeping
-  // only (a summary, then write_todos, then a closing line): then the whole segment is the answer. Only when what came before is the
-  // longer part — a stray line ahead of a long answer (「Update README structure section.」 before the whole answer, 2026-11-28 녹화
-  // 20:49) is not part of it.
-  if (d && seg.length > d.length && seg.endsWith(d) && seg.length - d.length > d.length) return { text: seg }
+  // only (a summary, then write_todos, then a closing line): then the whole segment is the answer — unless what came before is one
+  // short line (「Update README structure section.」 ahead of the whole answer, 2026-11-28 녹화 20:49): that is not part of it
+  // (review #132-11: a 400-character summary before a longer closing is still kept)
+  const before = d && seg.length > d.length && seg.endsWith(d) ? seg.slice(0, seg.length - d.length).trim() : ''
+  if (before && (before.includes('\n') || before.length > PROMOTE_CHARS)) return { text: seg }
   return { text: d || seg }
 }
 
