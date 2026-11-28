@@ -8,6 +8,7 @@
 //   WF-I-04 the model down (500) — and a light front plan: no line, no work-folder call
 //   WF-I-05 (PR #135 review) the reading starts with the plan (runTurn) and the turn never waits for it: a model still answering a moment
 //           after the plan block is dropped — the agent gets the message without the line, well before the model would have answered
+//   WF-I-07 (PR #135 confirmation review) the usual timing: the plan takes ~1.5 s, the model ~1 s (and 2.5 s) — the note reaches the agent
 //   WF-I-06 (PR #135 review) the model names the work 「process improvement plan」: placed as work-process-improvement-plan/v1, and its files
 //           come back as cards (a process-* folder would be read as a process generation and show none)
 //   cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js
@@ -28,7 +29,10 @@ const llm = { folder: [], tier: 'standard', answer: null }
 async function fakeLlm(body) {
   const sys = String(body.messages?.[0]?.content || '')
   if (body.logprobs) return json({ choices: [{ message: { content: 'A' }, logprobs: { content: [{ token: 'A', logprob: Math.log(0.9), top_logprobs: [{ token: 'A', logprob: Math.log(0.9) }] }] } }] })
-  if (sys.includes('what you understood and how the work will go')) return reply(JSON.stringify({ understood: '교육 과정 자료를 만들어 달라는 요청으로 이해했어요.', steps: ['자료 만들기'], tier: llm.tier, certainty: 'sure' }))
+  if (sys.includes('what you understood and how the work will go')) {
+    if (llm.planDelay) await new Promise((r) => setTimeout(r, llm.planDelay))
+    return reply(JSON.stringify({ understood: '교육 과정 자료를 만들어 달라는 요청으로 이해했어요.', steps: ['자료 만들기'], tier: llm.tier, certainty: 'sure' }))
+  }
   if (sys.includes('keeps the files of one piece of work')) {
     llm.folder.push(String(body.messages?.[1]?.content || ''))
     const a = typeof llm.answer === 'function' ? llm.answer() : llm.answer
@@ -87,10 +91,9 @@ test('WF-I-01 new work: the agent is told the work folder\'s first version, and 
   agent.files.push('교육-과정/v1/README.md', '교육-과정/v1/constitution.md', '교육-과정/v1/syllabus/week-1.md', '교육-과정/v1/syllabus/week-2.md', '교육-과정/v1/starter/README.md')
   await runTurn({ user, session, threadId: tid, text: '가나정밀 교육 과정 자료를 스펙킷 방식으로 만들어 줘' })
   assert.equal(llm.folder.length, 1)
-  // (the reading starts with the plan and waits for it: the model has the person's request and what the plan understood)
+  // (the reading starts when the message comes, beside the plan — it has the person's request; the whole chat's folders)
   assert.match(llm.folder[0], /The person's request:\n가나정밀 교육 과정 자료를/)
-  assert.match(llm.folder[0], /What the assistant understood: 교육 과정 자료를 만들어 달라는/)
-  assert.match(llm.folder[0], /Existing work folders in this conversation \(JSON, one per line\):\n\(none\)/)
+  assert.match(llm.folder[0], /Existing work folders in this chat or project — any of its conversations \(JSON, one per line\):\n\(none\)/)
   const m = lastMessage()
   assert.match(m, /\(작업 폴더: 이번 결과물은 산출물 폴더 안의 '교육-과정\/v1\/' 에 두세요\(이 일의 버전 1\)/)
   // (after the file-location line and the plan block, before nothing of the person's words)
@@ -133,15 +136,15 @@ test('WF-I-04 the model down, or a light one-off: no line — the turn goes as b
   llm.tier = 'light'
   llm.answer = { files: 'several', mode: 'new', name: '아무거나', confidence: 0.99 }
   await runTurn({ user, session, threadId: tid, text: '오늘 회의 몇 시였지?' })
-  // (the reading waits for the plan: a light one asks nothing)
-  assert.equal(llm.folder.length, asked)
+  // (the model is asked at once; the light plan stops the reading — no line)
+  assert.ok(llm.folder.length <= asked + 1)
   assert.doesNotMatch(lastMessage(), /작업 폴더/)
 })
 
 test('WF-I-05 the turn never waits for the reading: a model still answering after the plan block is dropped', { skip: !up }, async () => {
   llm.tier = 'standard'
   llm.answer = { files: 'several', mode: 'new', folder: '', name: '늦은 자료', confidence: 0.95 }
-  llm.delay = 3000
+  llm.delay = 4500
   const n = agent.bodies.length
   const t0 = Date.now()
   try {
@@ -149,7 +152,7 @@ test('WF-I-05 the turn never waits for the reading: a model still answering afte
   } finally { llm.delay = 0 }
   assert.equal(agent.bodies.length, n + 1)
   assert.doesNotMatch(lastMessage(), /작업 폴더/)
-  assert.ok(agent.at - t0 < 2500, `the agent was asked ${agent.at - t0} ms after the message — not after the model's 3 s`)
+  assert.ok(agent.at - t0 < 3500, `the agent was asked ${agent.at - t0} ms after the message — not after the model's 4.5 s (1.5 s grace after the plan block)`)
 })
 
 test('WF-I-06 a work named like a process folder: work-process-improvement-plan/v1, and its files are cards', { skip: !up }, async () => {
@@ -161,4 +164,19 @@ test('WF-I-06 a work named like a process folder: work-process-improvement-plan/
   const cs = (await cards()).slice(before)
   assert.equal(cs.length, 4, JSON.stringify(cs.map((c) => c.path)))
   assert.ok(cs.every((c) => c.path.includes('/work-process-improvement-plan/v1/')))
+})
+
+test('WF-I-07 the usual timing: a plan that takes ~1.5 s and a model that takes ~1 s (or 2.5 s) — the note reaches the agent', { skip: !up }, async () => {
+  llm.tier = 'standard'
+  try {
+    for (const [plan, model, name] of [[1500, 1000, '분기 보고 자료'], [1500, 2500, '분기 회의 자료']]) {
+      llm.planDelay = plan
+      llm.delay = model
+      llm.answer = { files: 'several', mode: 'new', folder: '', name, confidence: 0.93 }
+      const t0 = Date.now()
+      await runTurn({ user, session, threadId: tid, text: `${name} 여러 개 만들어 줘` })
+      assert.match(lastMessage(), new RegExp(`산출물 폴더 안의 '${name.replaceAll(' ', '-')}\\/v1\\/'`), `plan ${plan} ms, model ${model} ms`)
+      assert.ok(agent.at - t0 < plan + 1500 + 1000, `asked ${agent.at - t0} ms after the message`)
+    }
+  } finally { llm.planDelay = 0; llm.delay = 0 }
 })

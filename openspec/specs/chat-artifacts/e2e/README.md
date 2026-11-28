@@ -102,14 +102,14 @@ cd e2e && PGPT_URL=http://localhost:5283 API_URL=http://127.0.0.1:8883 RT_WORKER
 
 ```bash
 cd server && node --test test/fileGroups.test.js     # FG-U-01~08 — src/fileGroups.js
-cd server && node --test test/workFolder.test.js     # WF-U-01~14 — server/lib/workFolder.js
+cd server && node --test test/workFolder.test.js     # WF-U-01~16 — server/lib/workFolder.js
 cd server && node --test test/workFolderDocs.test.js # WD-U-01 — lib/office.js documentsOfRun 의 깊이(시험 폴더의 deepagents 작업 공간)
 ```
 
 실제 턴(실제 데이터베이스, 가짜 모델 · 가짜 deepagents — fetch 를 바꿔 끼움, 데이터베이스가 없으면 건너뜀):
 
 ```bash
-cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js   # WF-I-01~06
+cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js   # WF-I-01~07
 ```
 
 화면(자기 스택: 회사 work-folders-ui 의 BFF + Vite, 8941 · 5341 부터 빈 포트, 가짜 모델 · 가짜 deepagents 는 빈 포트):
@@ -127,8 +127,9 @@ cd e2e && ~/.claude/tools/lite/reclock.sh run work-folders -- npx playwright tes
 | 모델이 없거나 가벼운 한 번이면 예전처럼 | WF-I-04 · WF-U-09 |
 | 공유 폴더에서 일하는 프로젝트(템플릿의 결과물 폴더) | WF-U-10 |
 | 프로세스 폴더처럼 보이는 이름(PR #135 검토 1) | F-WF-06 · WF-I-06 · WF-U-13 |
-| 스크립트가 하위 폴더 깊이 쓴 파일(PR #135 검토 2) | F-WF-06 · WD-U-01 |
-| 턴은 판단을 기다리지 않는다 — 계획과 함께 시작, 계획 블록 뒤 0.3초, 늦은 판단은 버림 · 계획은 있으면 그것, 없으면 그 약속을 한도까지(PR #135 검토 3 · 4 · 5) | WF-I-05 · WF-U-11 · WF-U-12 · WF-I-01 · WF-I-04 |
+| 스크립트가 하위 폴더 깊이 쓴 파일(PR #135 검토 2) · 공유 폴더 작업본은 두 단계 그대로(확인 검토 2) | F-WF-06 · WD-U-01 |
+| 턴은 판단을 오래 기다리지 않는다 — 메시지가 올 때 계획을 기다리지 않고 바로 묻고(이해한 내용은 계획이 이미 있을 때만), 가벼운 계획이 오면 멈춤, 계획 블록 뒤 1.5초, 늦은 판단은 버림 · 계획 1.5초 · 모델 1 · 2.5초면 줄이 붙음(PR #135 검토 3 · 4 · 5, 확인 검토 1) | WF-I-07 · WF-I-05 · WF-U-11 · WF-U-12 · WF-I-01 · WF-I-04 |
+| 템플릿 프로젝트: 모델이 보는 목록도 결과물 폴더 안(확인 검토 3) · 이름-2 … 이름-50 뒤엔 폴더 없음(확인 검토 5) · 질문은 「이 채팅 · 프로젝트의 모든 대화」(확인 검토 6) | WF-U-15 · WF-U-16 · WF-U-12 |
 | 작업본 목록은 손으로 걷기(점 폴더 · node_modules 제외, 한도에서 멈춤 — PR #135 검토 6) · 이름 다듬기 · 모델에게는 JSON 이름(검토 9) | WF-U-14 · WF-U-07 · WF-U-08 |
 | 21개를 만든 턴은 카드 하나 · 펼치고 접기 · 줄을 누르면 카드처럼 · 검수 표시 · 컴퓨터의 공유 단추(검토 7) | F-WF-01 · FG-U-02~05 |
 | 휴대폰 390(밝은 · 어두운) | F-WF-02 |
@@ -141,7 +142,7 @@ F-WF-04 의 마지막 확인은 고치기 전의 더미로 돌리면 실패한�
 - `e2e/tests/feature/file-download.spec.js` 11/11
 - `e2e/tests/feature/context-menu-actions.spec.js` 6/6
 - `e2e/tests/feature/chat-artifacts.spec.js` · `conversations.spec.js` 13/13
-- (PR #135 검토 뒤) `e2e/tests/feature/plan-guard.spec.js` 6/6 · `file-download.spec.js` 11/11, `server/test/planGuard.test.js` 13/13 · `turnPlan.test.js` 22/22 · `craftWork.test.js` 8/8 · `capture-fixes.test.js` 9/9. `turnPlan.integration.test.js` 는 TP-I-01 하나가 실패한다(계획 상태 'asked' ≠ 'done'). 이 실패는 origin/main(6a2afd3)에서도 같아 이 바꿈과는 관계없다.
+- (PR #135 확인 검토 뒤) `e2e/tests/feature/plan-guard.spec.js` 6/6 · `file-download.spec.js` 11/11, `server/test/planGuard.test.js` 13/13 · `turnPlan.test.js` 22/22, `turnPlan.integration.test.js` 8/8. (앞 회차에는 TP-I-01 하나가 origin/main 에서도 똑같이 실패했다 — 계획 상태 'asked' ≠ 'done', 이번 회차에서는 통과)
 
 시험하지 않은 것:
 - 실제 deepagents 에이전트가 그 한 줄대로 폴더에 쓰는지(가짜 deepagents 는 줄에 적힌 폴더에 쓴다).

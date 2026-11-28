@@ -124,7 +124,9 @@ export async function documentsOfRun({ text, dirs, since, userId = null }) {
   const onDisk = async (p) => await workspaceHostPath(p).catch(() => null) || await standInPath(p, { userId })
   // a run's folder is walked RUN_DEPTH folders down: a work folder's version and the subfolders inside it (lib/workFolder.js —
   // <folder>/v1/syllabus/week-1/notes.md), never into a dot folder or node_modules, and no more than RUN_ENTRIES entries per folder walked.
-  // A process generation's or a skill's own folder (process-*/, skill/, skills/) is walked two levels down, as before.
+  // A process generation's or a skill's own folder (process-*/, skill/, skills/) is walked two levels down, as before — and so is a project's
+  // shared-folder working copy (folders/<slug>/: its checkout rewrites every file's time each run, so deeper files of a team's folder would
+  // all look new; what the agent writes there comes as its own file_artifact events — PR #135 confirmation review)
   for (const dir of ['/workspace', ...dirs]) {
     const host = await onDisk(dir)
     if (!host) continue
@@ -133,7 +135,7 @@ export async function documentsOfRun({ text, dirs, since, userId = null }) {
       for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
         if (++seen > RUN_ENTRIES) return
         const p = path.join(d, e.name)
-        const below = depth === 0 && /^(?:process-|skills?$)/i.test(e.name) ? 2 : limit
+        const below = depth === 0 && /^(?:process-|skills?$|folders$)/i.test(e.name) ? 2 : limit
         if (e.isDirectory() && dir !== '/workspace' && depth < below && !e.name.startsWith('.') && e.name !== 'node_modules') await walk(p, depth + 1, below)
         else if (e.isFile() && editable(e.name) && (dir !== '/workspace' || t.includes(e.name)) && (await fs.stat(p)).mtimeMs >= since) found.add(path.join(dir, path.relative(host, p)))
       }

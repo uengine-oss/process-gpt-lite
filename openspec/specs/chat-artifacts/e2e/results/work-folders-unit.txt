@@ -1,54 +1,59 @@
-# cd server && node --test test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js  (2026-11-28 22:24, feat/work-folders-versions after PR #135 review, uncommitted)
-✔ FG-U-01 where a card's file sits: its conversation folder, a project's working copy, uploads, the top — a card with no path is its name (0.872709ms)
-✔ FG-U-02 a turn's run: more than three documents are one card — three or fewer keep their cards; pictures keep theirs; another turn, conversation or a pause breaks it (1.913166ms)
-✔ FG-U-03 a run's tree: 「파일 21개 · 폴더 n개」, the top first, then the folders by path, names in number order, same names with their folder (6.686875ms)
-✔ FG-U-04 all in one work folder: the tree starts inside it and the head names its folder and version — a project's working copy the same (0.280416ms)
-✔ FG-U-05 a section shows a few rows, the rest behind 「n개 더 보기」 — all of them when only a few more (0.063084ms)
-✔ FG-U-06 same-named files: the shortest end of their folder that differs, the top as '', a name alone nothing (0.084292ms)
-✔ FG-U-07 a file's work folder and version: the folder before a version folder (inside a template's outputs too), else its first folder (0.10325ms)
-✔ FG-U-08 the list in sections: one work folder and version together at its newest file's place, older versions folded, same names with their folder; search finds a folder (1.133208ms)
-✔ WF-U-01 work folders from earlier file paths: versions, the latest, its files, files in no folder — not dot folders, not other rooms (1.637875ms)
-✔ WF-U-02 new work: <folder>/v1 — a name of the request's language, cleaned; one new file, no file, unsure, a field not ours: no folder (0.314417ms)
-✔ WF-U-03 redo: the next version, the earlier one named to be kept — a folder without versions holds the first; work made before folders gets a folder at v2 (0.171125ms)
-✔ WF-U-04 revise: the latest version edited in place — a folder without versions in place, files in no folder in place with no folder named (0.118041ms)
-✔ WF-U-05 new work whose name is taken: a versioned folder gets its next version, a plain folder or a file of that name a name of its own (0.101709ms)
-✔ WF-U-06 the line the agent gets: where (inside the output folder, or the working copy's path), the version, keep the earlier one, no copies (0.327042ms)
-✔ WF-U-07 a folder name: one path segment — no slashes, dots at the ends, control characters; spaces become hyphens; 40 characters (0.08725ms)
-✔ WF-U-08 the model is shown the request, what was understood and the folders with their versions (0.169125ms)
-✔ WF-U-09 a turn: earlier cards read, the model asked once, the line — a light plan asks nothing, no model or a refusal is no line (0.884084ms)
-✔ WF-U-10 a project with a shared folder: the work folder is inside its working copy (a template's workspace: inside its outputs folder) (0.472708ms)
-✔ WF-U-11 the front plan from the turn's view (PR #135 review): the plan when it is there, else its promise for at most FRONT_MS + 300 — understood reaches the model, a light plan asks nothing (114.331083ms)
-✔ WF-U-12 a turn's reading started with its plan (startNote): asked with the thread's folders before the turn knows where it works, placed against that conversation's own; the note in time or dropped (174.660875ms)
-✔ WF-U-13 a name the app reads as something else never becomes a work folder (PR #135 review): process-* (any case), skill, skills, folders, uploads, dot names (0.89775ms)
-✔ WF-U-14 a working copy on disk (PR #135 review): walked by hand — no dot folders, no node_modules, nearest first, stopped at the cap (34.083375ms)
-✔ WD-U-01 a work folder's subfolders are walked (four folders down); process · skill folders two as before; no dot folders, no node_modules, only this turn's (14.714083ms)
-ℹ tests 23
+# cd server && node --test test/fileGroups.test.js test/workFolder.test.js test/workFolderDocs.test.js  (2026-11-28 22:47, after the PR #135 confirmation review, uncommitted)
+✔ FG-U-01 where a card's file sits: its conversation folder, a project's working copy, uploads, the top — a card with no path is its name (0.769083ms)
+✔ FG-U-02 a turn's run: more than three documents are one card — three or fewer keep their cards; pictures keep theirs; another turn, conversation or a pause breaks it (1.780167ms)
+✔ FG-U-03 a run's tree: 「파일 21개 · 폴더 n개」, the top first, then the folders by path, names in number order, same names with their folder (6.297084ms)
+✔ FG-U-04 all in one work folder: the tree starts inside it and the head names its folder and version — a project's working copy the same (0.250625ms)
+✔ FG-U-05 a section shows a few rows, the rest behind 「n개 더 보기」 — all of them when only a few more (0.057625ms)
+✔ FG-U-06 same-named files: the shortest end of their folder that differs, the top as '', a name alone nothing (0.082042ms)
+✔ FG-U-07 a file's work folder and version: the folder before a version folder (inside a template's outputs too), else its first folder (0.096625ms)
+✔ FG-U-08 the list in sections: one work folder and version together at its newest file's place, older versions folded, same names with their folder; search finds a folder (0.788792ms)
+✔ WF-U-01 work folders from earlier file paths: versions, the latest, its files, files in no folder — not dot folders, not other rooms (1.733334ms)
+✔ WF-U-02 new work: <folder>/v1 — a name of the request's language, cleaned; one new file, no file, unsure, a field not ours: no folder (0.34575ms)
+✔ WF-U-03 redo: the next version, the earlier one named to be kept — a folder without versions holds the first; work made before folders gets a folder at v2 (0.179042ms)
+✔ WF-U-04 revise: the latest version edited in place — a folder without versions in place, files in no folder in place with no folder named (0.111875ms)
+✔ WF-U-05 new work whose name is taken: a versioned folder gets its next version, a plain folder or a file of that name a name of its own (0.084666ms)
+✔ WF-U-06 the line the agent gets: where (inside the output folder, or the working copy's path), the version, keep the earlier one, no copies (0.229584ms)
+✔ WF-U-07 a folder name: one path segment — no slashes, dots at the ends, control characters; spaces become hyphens; 40 characters (0.085333ms)
+✔ WF-U-08 the model is shown the request, what was understood and the folders with their versions (0.166708ms)
+✔ WF-U-09 a turn: earlier cards read, the model asked once, the line — a light plan asks nothing, no model or a refusal is no line (0.888125ms)
+✔ WF-U-10 a project with a shared folder: the work folder is inside its working copy (a template's workspace: inside its outputs folder) (0.463542ms)
+✔ WF-U-11 the front plan from the turn's view (PR #135 reviews): asked at once — only a plan already there gives what it understood, a light plan (there, or coming meanwhile) stops it (158.228042ms)
+✔ WF-U-12 a turn's reading started with its plan (startNote): asked with the thread's folders before the turn knows where it works, placed against that conversation's own; the note in time or dropped (144.908125ms)
+✔ WF-U-13 a name the app reads as something else never becomes a work folder (PR #135 review): process-* (any case), skill, skills, folders, uploads, dot names (0.901959ms)
+✔ WF-U-14 a working copy on disk (PR #135 review): walked by hand — no dot folders, no node_modules, nearest first, stopped at the cap (19.001875ms)
+✔ WF-U-15 (PR #135 confirmation review) a template project: the model sees the work folders inside its outputs folder — the same frame its redo and revise are placed in (0.3465ms)
+✔ WF-U-16 (PR #135 confirmation review) a name of its own is looked for a bounded number of times — then no work folder (0.338917ms)
+✔ WD-U-01 a work folder's subfolders are walked (four folders down); process · skill folders and a project's working copy two as before; no dot folders, no node_modules, only this turn's (9.54975ms)
+ℹ tests 25
 ℹ suites 0
-ℹ pass 23
+ℹ pass 25
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 1645.451083
+ℹ duration_ms 1140.746292
 
 # cd server && node --test --test-concurrency=1 test/workFolder.integration.test.js  (real database, fake model · fake deepagents)
-[work-folder] new '교육-과정/v1' (new several 0.92) folders=0 405 ms thread=a52a8cc6
-✔ WF-I-01 new work: the agent is told the work folder's first version, and its files come back as cards in that folder (951.613375ms)
-[work-folder] redo '교육-과정/v2' (redo several 0.88) folders=1 107 ms thread=a52a8cc6
-✔ WF-I-02 「처음부터 다시」: the model sees the folder and its version; the line names the next version and keeps the earlier one (282.451375ms)
-[work-folder] revise '교육-과정/v2' (revise one 0.9) folders=1 175 ms thread=a52a8cc6
-✔ WF-I-03 a revision of parts: the latest version, edited in place — no copies (194.926458ms)
+[work-folder] new '교육-과정/v1' (new several 0.92) folders=0 (plan not in yet) 276 ms thread=e2d26b83
+✔ WF-I-01 new work: the agent is told the work folder's first version, and its files come back as cards in that folder (734.628625ms)
+[work-folder] redo '교육-과정/v2' (redo several 0.88) folders=1 (plan not in yet) 86 ms thread=e2d26b83
+✔ WF-I-02 「처음부터 다시」: the model sees the folder and its version; the line names the next version and keeps the earlier one (190.662125ms)
+[work-folder] revise '교육-과정/v2' (revise one 0.9) folders=1 (plan not in yet) 44 ms thread=e2d26b83
+✔ WF-I-03 a revision of parts: the latest version, edited in place — no copies (72.197583ms)
 [work-folder] no decision (LLM 500: {"error":"down"}) — as before
-✔ WF-I-04 the model down, or a light one-off: no line — the turn goes as before (305.049917ms)
-[work-folder] late — dropped after 358 ms (the turn does not wait) thread=a52a8cc6
-✔ WF-I-05 the turn never waits for the reading: a model still answering after the plan block is dropped (397.741459ms)
-[work-folder] new 'work-process-improvement-plan/v1' (new several 0.93) folders=1 73 ms thread=a52a8cc6
-✔ WF-I-06 a work named like a process folder: work-process-improvement-plan/v1, and its files are cards (209.517209ms)
-ℹ tests 6
+✔ WF-I-04 the model down, or a light one-off: no line — the turn goes as before (205.742625ms)
+[work-folder] late — dropped after 1584 ms (the turn does not wait) thread=e2d26b83
+✔ WF-I-05 the turn never waits for the reading: a model still answering after the plan block is dropped (1608.155083ms)
+[work-folder] new 'work-process-improvement-plan/v1' (new several 0.93) folders=1 (plan not in yet) 49 ms thread=e2d26b83
+✔ WF-I-06 a work named like a process folder: work-process-improvement-plan/v1, and its files are cards (134.784542ms)
+[work-folder] new '분기-보고-자료/v1' (new several 0.93) folders=2 (plan not in yet) 1505 ms thread=e2d26b83
+[work-folder] new '분기-회의-자료/v1' (new several 0.93) folders=2 (plan not in yet) 2512 ms thread=e2d26b83
+✔ WF-I-07 the usual timing: a plan that takes ~1.5 s and a model that takes ~1 s (or 2.5 s) — the note reaches the agent (4048.306375ms)
+ℹ tests 7
 ℹ suites 0
-ℹ pass 6
+ℹ pass 7
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 5885.76
+ℹ duration_ms 10585.959166

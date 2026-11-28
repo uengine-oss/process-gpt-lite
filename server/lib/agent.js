@@ -307,7 +307,12 @@ export function runTurn(args) {
       pinned.delete(args.threadId)
       console.log(`[turn] stopped before a handler started thread=${String(args.threadId).slice(0, 8)}`)
       return await addMessage(args.user.id, args.threadId, 'agent', 'text', { text: `(${stoppedText()})`, stopped: true, ...TP.saved(turn, 'stopped') })
-    } finally { TP.end(turn, state) }
+    } finally {
+      TP.end(turn, state)
+      // (작업 폴더 · 버전 — lib/workFolder.js startNote: a turn that never reached the agent — a browser task, an action, the repeat card — stops
+      // its reading; a taken one is over already)
+      turnCtx.getStore()?.folderRead?.drop()
+    }
   }).finally(() => turn.finish())
 }
 // tests: a handler run inside a given turn (server/test/turnPlan.test.js)

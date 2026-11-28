@@ -412,8 +412,8 @@ test('F-WF-05 실제 턴: 에이전트는 작업 폴더 · 버전을 듣고, 6�
   await expect(g1.locator('[data-test="file-group-where"]')).toHaveText('신입-교육-과정 · v1')
   const m1 = String(agent.bodies.at(-1)?.message || '')
   expect(m1).toContain("(작업 폴더: 이번 결과물은 산출물 폴더 안의 '신입-교육-과정/v1/' 에 두세요(이 일의 버전 1)")
-  expect(llm.folder.at(-1)).toContain('Existing work folders in this conversation (JSON, one per line):\n(none)')
-  expect(llm.folder.at(-1)).toContain('What the assistant understood: 가나정밀 신입 교육 과정 자료를')
+  // (asked when the message came, beside the plan: the whole chat's work folders — none yet)
+  expect(llm.folder.at(-1)).toContain('Existing work folders in this chat or project — any of its conversations (JSON, one per line):\n(none)')
   await expect(p.locator('.row.k-file')).toHaveCount(0)
   await shot(p, 'f-wf-05-live-v1')
   // 2) 「처음부터 다시」 → the model sees v1, the agent is told v2 and to keep v1

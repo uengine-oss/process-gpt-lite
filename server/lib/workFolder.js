@@ -27,13 +27,17 @@ import { roomOf } from './provenance.js'
 import { L } from './lang.js'
 
 export const MIN_CONFIDENCE = 0.7
-// the model's own limit (the turn never waits for it — startNote: taken only when ready by the plan block, GRACE_MS after it)
+// the model's own limit
 const ASK_MS = Number(process.env.PRO_WORK_FOLDER_MS || 4000)
-// how long the turn waits for the reading after its plan block is ready; a reading that comes later is dropped (the turn goes as before)
-export const GRACE_MS = Number(process.env.PRO_WORK_FOLDER_GRACE_MS || 300)
-// how long the reading waits for a front plan still coming: the front call's own budget (lib/turnPlan.js FRONT_MS) and the 300 ms its
-// plan block gives it
+// how long the turn waits for the reading after its plan block is ready; a reading that comes later is dropped (the turn goes as before).
+// The reading starts when the message comes, beside the front plan — so it is usually ready by then (PR #135 confirmation review: a plan at
+// 1.5 s and a model at 0.4–1.5 s were always late with 300 ms when the reading waited for the plan first)
+export const GRACE_MS = Number(process.env.PRO_WORK_FOLDER_GRACE_MS || 1500)
+// how long the reading waits for a front plan still coming, to see whether it is light: the front call's own budget (lib/turnPlan.js
+// FRONT_MS) and the 300 ms its plan block gives it
 const PLAN_MS = (Number(process.env.PRO_FRONT_PLAN_MS) || 4000) + 300
+// tries for a name of its own (name-2 … name-50) before giving up on a work folder
+const FREE_TRIES = 50
 // PRO_WORK_FOLDERS=0 turns it off (no model call, no line)
 const enabled = () => process.env.PRO_WORK_FOLDERS !== '0'
 const VERSION = /^v(\d{1,4})$/i
@@ -97,12 +101,13 @@ export function cleanName(raw) {
 export const safeName = (n) => (n && reserved(n) ? cleanName(`work-${n}`) : n)
 
 // what the model is shown and asked
-export function askMessages({ request, understood = '', listing }) {
+// wide: the listing is every conversation's of this chat or project (startNote reads it before the turn knows its conversation)
+export function askMessages({ request, understood = '', listing, wide = false }) {
   const system = [
     'You decide where an assistant keeps the files of one piece of work, the way a careful engineer keeps work in folders with versions.',
     'Answer with JSON only: {"files": "none|one|several", "mode": "new|revise|redo", "folder": "<existing folder or empty>", "name": "<short name>", "confidence": <0..1>}',
     '- files: what this request will make or change. none = an answer in words only (a question, a lookup, a summary in the chat); one = a single file; several = more than one file, or a body of work (a course, a design, a set of documents, code).',
-    '- mode: new = work this conversation has not done yet. redo = the person wants existing work made again — from scratch, redesigned, done another way — so it becomes a new version and the earlier one is kept. revise = the person wants parts of existing work changed: those files are edited where they are.',
+    '- mode: new = work not done here yet. redo = the person wants existing work made again — from scratch, redesigned, done another way — so it becomes a new version and the earlier one is kept. revise = the person wants parts of existing work changed: those files are edited where they are.',
     '- folder: for redo or revise, exactly the "folder" value of the existing folder the work is in, or "" when it is the files in no folder. For new, "".',
     '- name: a short name for the work (2 to 4 words; letters, digits, spaces or hyphens; no slashes) in the language of the person\'s request.',
     '- confidence: how sure you are of mode and folder together.',
@@ -113,7 +118,7 @@ export function askMessages({ request, understood = '', listing }) {
   const user = [
     `The person's request:\n${String(request || '').slice(0, 1500)}`,
     understood ? `What the assistant understood: ${String(understood).slice(0, 300)}` : '',
-    `Existing work folders in this conversation (JSON, one per line):\n${lines.join('\n') || '(none)'}`,
+    `Existing work folders ${wide ? 'in this chat or project — any of its conversations' : 'in this conversation'} (JSON, one per line):\n${lines.join('\n') || '(none)'}`,
     listing?.loose?.length ? `Files in no folder: ${JSON.stringify(listing.loose)}` : '',
   ].filter(Boolean).join('\n\n')
   return { system, user }
@@ -137,7 +142,9 @@ export function placeOf(answer, listing, { min = MIN_CONFIDENCE } = {}) {
   const at = (f, v) => (v ? `${f}/v${v}` : f)
   // a name for new work that is not taken (a folder without versions, a file in no folder) nor one the app reads as something else: the
   // name, then name-2, name-3 …
-  const free = (n) => { let x = n; for (let i = 2; reserved(x) || folders.some((f) => norm(f.name) === norm(x)) || loose.some((l) => norm(l) === norm(x)); i++) x = `${n}-${i}`; return x }
+  // name, then name-2, name-3 … (FREE_TRIES at most — then no work folder)
+  const taken = (x) => reserved(x) || folders.some((f) => norm(f.name) === norm(x)) || loose.some((l) => norm(l) === norm(x))
+  const free = (n) => { for (let i = 1; i <= FREE_TRIES; i++) { const x = i === 1 ? n : `${n}-${i}`; if (!taken(x)) return x } return null }
   if (mode === 'revise') {
     // (a revision of files in no folder, or of a folder this conversation does not have: edited where they are — no folder named)
     if (!hit) return { folder: '', mode, version: null, dir: '', prev: null, confidence: conf }
@@ -146,14 +153,14 @@ export function placeOf(answer, listing, { min = MIN_CONFIDENCE } = {}) {
   if (mode === 'redo') {
     if (hit) { const v = nextVersion(hit); return { folder: hit.name, mode, version: v, dir: at(hit.name, v), prev: at(hit.name, hit.latest), confidence: conf } }
     // (work made before folders — files in no folder: its second version gets a folder of its own; the files stay where they are)
-    if (!named && loose.length && name) { const f = free(name); return { folder: f, mode, version: 2, dir: at(f, 2), prev: '', confidence: conf } }
+    if (!named && loose.length && name) { const f = free(name); return f ? { folder: f, mode, version: 2, dir: at(f, 2), prev: '', confidence: conf } : null }
   }
   // new work: its own folder, the first version — a single new file needs none
   if (files === 'one' || !name) return null
   const same = folders.find((f) => norm(f.name) === norm(name))
   if (same?.latest) { const v = nextVersion(same); return { folder: same.name, mode: 'new', version: v, dir: at(same.name, v), prev: null, confidence: conf } }
   const f = free(name)
-  return { folder: f, mode: 'new', version: 1, dir: at(f, 1), prev: null, confidence: conf }
+  return f ? { folder: f, mode: 'new', version: 1, dir: at(f, 1), prev: null, confidence: conf } : null
 }
 
 // The line the agent gets (after the plan block): base — the absolute folder the work folder is in (a project's working copy), or null
@@ -180,8 +187,8 @@ export function noteOf(place, { base = null } = {}) {
 }
 
 // the model's call (fast model, a few seconds) → its JSON answer
-export async function askModel({ request, understood, listing, call = chatJson, timeoutMs = ASK_MS, signal = null }) {
-  const { system, user } = askMessages({ request, understood, listing })
+export async function askModel({ request, understood, listing, wide = false, call = chatJson, timeoutMs = ASK_MS, signal = null }) {
+  const { system, user } = askMessages({ request, understood, listing, wide })
   return call(system, user, { model: config.llm.fastModel, temperature: 0, think: false, effort: 'low', maxTokens: 300, timeoutMs, ...(signal ? { signal } : {}) })
 }
 
@@ -216,13 +223,31 @@ export async function diskPaths(disk, base, max = 400) {
 const cardPaths = async (query, threadId, base) => (await query(
   `select content->>'path' as path from pro_messages where thread_id = $1 and kind = 'file' and starts_with(content->>'path', $2) order by created_at desc limit 400`,
   [threadId, `${base}/`])).map((r) => r.path)
-// every file card of the thread, each relative to the folder it was made in (its conversation's, a project's working copy in it) — read
-// before the turn knows its conversation (the router, a project's sub-topic, its checkout come later): the model sees the thread's work
-// folders; where the work goes is then placed against the conversation's own (placeOf)
+// every file card of the thread, each relative to the folder its work folders are in — its conversation's, a project's working copy in it,
+// a template project's outputs folder there (PR #135 confirmation review: the same frame as the conversation's own listing, roomListing) —
+// read before the turn knows its conversation (the router, a project's sub-topic, its checkout come later): the model sees the thread's
+// work folders; where the work goes is then placed against the conversation's own (placeOf)
 const WIDE = '/w'
 async function threadPaths(query, threadId) {
-  const rows = await query(`select content->>'path' as path from pro_messages where thread_id = $1 and kind = 'file' and starts_with(content->>'path', '/workspace/.bpmn/') order by created_at desc limit 400`, [threadId])
-  return rows.map((r) => /^\/workspace\/\.bpmn\/[^/]+\/(?:folders\/[^/]+\/)?(.+)$/.exec(r.path || '')?.[1]).filter(Boolean).map((rel) => `${WIDE}/${rel}`)
+  const [rows, out] = await Promise.all([
+    query(`select content->>'path' as path from pro_messages where thread_id = $1 and kind = 'file' and starts_with(content->>'path', '/workspace/.bpmn/') order by created_at desc limit 400`, [threadId]),
+    templateOutputs(query, threadId),
+  ])
+  const rel = (p) => {
+    const m = /^\/workspace\/\.bpmn\/[^/]+\/(?:(folders\/[^/]+)\/)?(.+)$/.exec(p || '')
+    if (!m) return null
+    if (!m[1] || !out) return m[2]
+    // (a template's workspace: only its outputs folder holds work folders — its forms and notes are the template's)
+    return m[2].startsWith(`${out}/`) ? m[2].slice(out.length + 1) : null
+  }
+  return rows.map((r) => rel(r.path)).filter(Boolean).map((x) => `${WIDE}/${x}`)
+}
+// a project working in a template's workspace: its outputs folder (folders/templates.js), else ''
+async function templateOutputs(query, threadId) {
+  const [row] = await query(`select v.source from pro_thread_folders l join pro_folder_variations v on v.id = l.variation_id where l.thread_id = $1 and l.mode = 'project'`, [threadId]).catch(() => [])
+  if (!row?.source?.template) return ''
+  const { outputsOf } = await import('./folders/templates.js')
+  return outputsOf(row.source.template.outputs)
 }
 
 // The front plan a turn's view has: the plan when it is already there, else the promise of it (lib/turnPlan.js begin — the view's `ready`)
@@ -240,8 +265,8 @@ async function roomListing(at, threadId, run) {
 }
 
 // One reading → the line ('' — no work folder). Never throws.
-//   plan    the front plan, or its promise (planOf) — waited for at most PLAN_MS: a light plan asks nothing, a front plan gives the model
-//           what it understood
+//   plan    the front plan, or its promise (planOf). Only a plan already there gives the model what it understood; one still coming is
+//           waited for (at most PLAN_MS) beside the model's answer — a light plan stops the reading, the turn needs no work folder
 //   where   {conv, projectWork}, or a promise of it: conv — the conversation the turn goes to (in the main chat the router may decide later:
 //           the one the thread is in); projectWork — a project's shared-folder work (folders/threadFolders.js prepareProjectWork)
 //   wide    ask before `where` is known, with the thread's work folders (threadPaths) — startNote; else with the conversation's own
@@ -249,22 +274,29 @@ async function roomListing(at, threadId, run) {
 async function read({ threadId, request, plan, where, wide = false, call, query, log, signal, planMs }) {
   if (!enabled() || !String(request || '').trim()) return ''
   const t0 = Date.now()
+  const now = plan && typeof plan.then !== 'function' ? (plan.source === 'front' ? plan : null) : undefined
+  // (the front plan's model read it as a light one: a short answer, one lookup — no work folder)
+  if (now?.tier === 'light') return ''
+  const ac = new AbortController()
+  const stop = signal ? AbortSignal.any([signal, ac.signal]) : ac.signal
+  const planned = now !== undefined ? Promise.resolve(now) : settle(plan, planMs)
+  planned.then((f) => { if (f?.tier === 'light') ac.abort() }, () => {})
   try {
-    // (the front plan's model read it as a light one: a short answer, one lookup — no work folder)
-    const front = await settle(plan, planMs)
-    if (front?.tier === 'light' || signal?.aborted) return ''
     const run = query || (await import('./supa.js')).q
     let room = null, listing
     if (wide) listing = workFolders(await threadPaths(run, threadId), WIDE)
     else { room = await roomListing(await where, threadId, run); listing = room.listing }
-    const answer = await askModel({ request, understood: front?.understood || '', listing, call, signal })
+    if (stop.aborted) return ''
+    const answer = await askModel({ request, understood: now?.understood || '', listing, wide, call, signal: stop })
+    const front = await planned
+    if (front?.tier === 'light' || stop.aborted) return ''
     if (!room) room = await roomListing(await where, threadId, run)
-    if (signal?.aborted) return ''
+    if (stop.aborted) return ''
     const place = placeOf(answer, room.listing)
-    log.log?.(`[work-folder] ${place ? `${place.mode} '${place.dir || '(in place)'}'` : 'none'} (${answer?.mode || '-'} ${answer?.files || '-'} ${Number(answer?.confidence) || 0}) folders=${room.listing.folders.length}${front ? '' : ' (no plan)'} ${Date.now() - t0} ms thread=${String(threadId).slice(0, 8)}`)
+    log.log?.(`[work-folder] ${place ? `${place.mode} '${place.dir || '(in place)'}'` : 'none'} (${answer?.mode || '-'} ${answer?.files || '-'} ${Number(answer?.confidence) || 0}) folders=${room.listing.folders.length}${now ? '' : ' (plan not in yet)'} ${Date.now() - t0} ms thread=${String(threadId).slice(0, 8)}`)
     return noteOf(place, { base: room.absolute ? room.base : null })
   } catch (e) {
-    if (!signal?.aborted) log.warn?.(`[work-folder] no decision (${String(e.message || e).slice(0, 120)}) — as before`)
+    if (!stop.aborted) log.warn?.(`[work-folder] no decision (${String(e.message || e).slice(0, 120)}) — as before`)
     return ''
   }
 }
@@ -275,10 +307,11 @@ export async function turnNote({ threadId, conv = null, projectWork = null, requ
 }
 
 // A turn's reading, started when the person's message is saved — beside the front plan, the router and the turn's preparation (lib/agent.js
-// runTurn, next to the plan's begin): it waits for the plan (at most PLAN_MS) and asks the model with the thread's work folders. The turn
-// says where it works with at({conv, projectWork}) once it knows (delegate: before its repeat check — a project's once its folder is checked
-// out); take() is the note when it is ready by GRACE_MS after the turn's plan block, else '' — the reading is stopped and the late note
-// dropped (logged), so the turn never waits for it. A turn that never reaches the agent leaves it (drop). signal: the turn's own.
+// handleTurn, next to the plan's begin): it lists the thread's work folders and asks the model at once, without waiting for the plan (a
+// light plan coming meanwhile stops it). The turn says where it works with at({conv, projectWork}) once it knows (delegate: before its
+// repeat check — a project's once its folder is checked out); take() is the note when it is ready by GRACE_MS after the turn's plan block,
+// else '' — the reading is stopped and the late note dropped (logged), so the turn waits at most GRACE_MS. A turn that never reaches the
+// agent drops it (runTurn's end). signal: the turn's own.
 export function startNote({ threadId, request, plan, signal = null, call = chatJson, query = null, log = console, grace = GRACE_MS, planMs = PLAN_MS }) {
   const ac = new AbortController()
   const stop = signal ? AbortSignal.any([signal, ac.signal]) : ac.signal

@@ -27,7 +27,7 @@ const put = async (rel, mtime = null) => {
   if (mtime) await fs.utimes(at, mtime, mtime)
 }
 
-test('WD-U-01 a work folder\'s subfolders are walked (four folders down); process · skill folders two as before; no dot folders, no node_modules, only this turn\'s', async () => {
+test('WD-U-01 a work folder\'s subfolders are walked (four folders down); process · skill folders and a project\'s working copy two as before; no dot folders, no node_modules, only this turn\'s', async () => {
   const since = Date.now() - 1000
   const old = new Date(Date.now() - 3600_000)
   await put('교육-과정/v1/README.md')
@@ -40,7 +40,12 @@ test('WD-U-01 a work folder\'s subfolders are walked (four folders down); proces
   await put('process-abc/forms/a.html')
   await put('process-abc/skills/x/assets/deep.md')
   await put('skills/my-skill/refs/deep.md')
+  // (PR #135 confirmation review) a project's shared-folder working copy: its checkout rewrites every file's time each run — deeper files of
+  // the team's folder are not this turn's (the agent's own come as file_artifact events); its top two levels as before
+  await put('folders/edu/docs/a/b/plan.docx')
+  await put('folders/edu/docs/notes.docx')
+  await put('folders/edu/top.docx')
   const docs = (await documentsOfRun({ text: '만들었어요.', dirs: [`/workspace/.bpmn/${ROOM}`], since })).map((p) => p.replace(`/workspace/.bpmn/${ROOM}/`, '')).sort()
   assert.equal(RUN_DEPTH, 4)
-  assert.deepEqual(docs, ['교육-과정/v1/README.md', '교육-과정/v1/syllabus/week-1.md', '교육-과정/v1/syllabus/week-1/notes.md', 'process-abc/forms/a.html'].sort())
+  assert.deepEqual(docs, ['교육-과정/v1/README.md', '교육-과정/v1/syllabus/week-1.md', '교육-과정/v1/syllabus/week-1/notes.md', 'process-abc/forms/a.html', 'folders/edu/top.docx'].sort())
 })

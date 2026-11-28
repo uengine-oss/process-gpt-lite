@@ -174,29 +174,41 @@ test('WF-U-10 a project with a shared folder: the work folder is inside its work
 const front = (o = {}) => ({ source: 'front', tier: 'standard', understood: '교육 과정 자료를 만들어 달라는 요청', ...o })
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
-test('WF-U-11 the front plan from the turn\'s view (PR #135 review): the plan when it is there, else its promise for at most FRONT_MS + 300 — understood reaches the model, a light plan asks nothing', async () => {
+test('WF-U-11 the front plan from the turn\'s view (PR #135 reviews): asked at once — only a plan already there gives what it understood, a light plan (there, or coming meanwhile) stops it', async () => {
   const asked = []
-  const call = async (s, user) => { asked.push(user); return ans({ name: '교육 과정' }) }
+  const signals = []
+  let slow = 0
+  const call = async (s, user, opts) => { asked.push(user); signals.push(opts.signal); if (slow) await wait(slow); return ans({ name: '교육 과정' }) }
   const query = async () => []
   const go = (view, extra = {}) => turnNote({ threadId: 't9', conv: 'c9', request: '교육 과정 자료 여러 개 만들어 줘', plan: planOf(view), call, query, log: quiet, ...extra })
   // the plan already there (the view's ready is set too, as lib/turnPlan.js begin leaves it): its understood goes to the model
   assert.match(await go({ plan: front(), ready: Promise.resolve(front()) }), /교육-과정\/v1\//)
   assert.match(asked.at(-1), /What the assistant understood: 교육 과정 자료를/)
   // a light plan already there: nothing asked
-  const n = asked.length
+  let n = asked.length
   assert.equal(await go({ plan: front({ tier: 'light' }), ready: Promise.resolve(front({ tier: 'light' })) }), '')
   assert.equal(asked.length, n)
-  // the plan still coming: waited for — its understood goes too; coming back light: nothing asked
-  assert.match(await go({ plan: null, ready: wait(30).then(() => front()) }), /교육-과정\/v1\//)
-  assert.match(asked.at(-1), /What the assistant understood/)
-  assert.equal(await go({ plan: null, ready: wait(20).then(() => front({ tier: 'light' })) }), '')
+  // the plan still coming: the model is asked at once (with the request alone) — the note once the plan is in
+  let come
+  const p1 = go({ plan: null, ready: new Promise((r) => { come = r }) })
+  await wait(15)
+  assert.equal(asked.length, n + 1, 'asked before the plan came')
+  assert.doesNotMatch(asked.at(-1), /understood/)
+  come(front())
+  assert.match(await p1, /교육-과정\/v1\//)
+  // the plan comes back light while the model is still answering: the reading is stopped (its signal aborted), no line
+  slow = 80
+  n = asked.length
+  const p2 = go({ plan: null, ready: wait(20).then(() => front({ tier: 'light' })) })
+  assert.equal(await p2, '')
   assert.equal(asked.length, n + 1)
-  // a plan that never comes: not waited for beyond the limit, the model reads the request alone
+  assert.equal(signals.at(-1).aborted, true)
+  slow = 0
+  // a plan that never comes: waited for no longer than the limit
   const t0 = Date.now()
   assert.match(await go({ plan: null, ready: new Promise(() => {}) }, { planMs: 60 }), /교육-과정\/v1\//)
   assert.ok(Date.now() - t0 < 1000)
-  assert.doesNotMatch(asked.at(-1), /understood/)
-  // the front call off (PRO_FRONT_PLAN=off: no plan, ready resolved with nothing): the request alone, at once
+  // the front call off (PRO_FRONT_PLAN=off: no plan, ready resolved with nothing)
   assert.match(await go({ plan: null, ready: Promise.resolve(null) }), /교육-과정\/v1\//)
   assert.equal(planOf(null), null)
 })
@@ -206,6 +218,7 @@ test('WF-U-12 a turn\'s reading started with its plan (startNote): asked with th
   // the thread: 커리큘럼 v1 in conversation A, nothing yet in B
   const query = async (sql, params) => {
     sqls.push(params.length)
+    if (sql.includes('pro_thread_folders')) return []
     if (params.length === 1) return [{ path: '/workspace/.bpmn/convA/커리큘럼/v1/README.md' }, { path: '/workspace/.bpmn/convA/folders/edu/syllabus/week-1.md' }]
     return params[1] === '/workspace/.bpmn/convA/' ? [{ path: '/workspace/.bpmn/convA/커리큘럼/v1/README.md' }] : []
   }
@@ -217,6 +230,8 @@ test('WF-U-12 a turn\'s reading started with its plan (startNote): asked with th
   await wait(20)
   assert.equal(asked.length, 1, 'the model is asked before the turn says where it works')
   assert.ok(asked[0].user.includes('{"folder":"커리큘럼","versions":["v1"]') && asked[0].user.includes('{"folder":"syllabus"'), asked[0].user)
+  // (PR #135 confirmation review: the listing is the whole chat's — the prompt says so)
+  assert.ok(asked[0].user.includes('Existing work folders in this chat or project — any of its conversations (JSON, one per line):'), asked[0].user)
   r.at({ conv: 'convA', projectWork: null })
   assert.match(await r.take(), /새 버전 산출물 폴더 안의 '커리큘럼\/v2\/'/)
   // the same answer for a turn in conversation B (no 커리큘럼 there): placed as new work in B — never a version of A's
@@ -294,4 +309,27 @@ test('WF-U-14 a working copy on disk (PR #135 review): walked by hand — no dot
     assert.deepEqual((await diskPaths(root, '/b', 2)).map((x) => x.slice(3)), ['README.md', 'z/y.md'])
     assert.deepEqual(await diskPaths(null, '/b'), [])
   } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
+
+test('WF-U-15 (PR #135 confirmation review) a template project: the model sees the work folders inside its outputs folder — the same frame its redo and revise are placed in', async () => {
+  const container = '/workspace/.bpmn/pt/folders/edu'
+  const query = async (sql, params) => {
+    if (sql.includes('pro_thread_folders')) return [{ source: { template: { outputs: 'outputs' } } }]
+    if (params.length === 1) return [{ path: `${container}/outputs/커리큘럼/v1/README.md` }, { path: `${container}/TEMPLATE.md` }, { path: `${container}/forms/견적서.md` }]
+    assert.equal(params[1], `${container}/outputs/`)
+    return [{ path: `${container}/outputs/커리큘럼/v1/README.md` }]
+  }
+  const asked = []
+  const call = async (s, user) => { asked.push(user); return ans({ mode: 'redo', folder: '커리큘럼', name: '커리큘럼' }) }
+  const r = startNote({ threadId: 't15', request: '커리큘럼 처음부터 다시', plan: front(), call, query, log: quiet })
+  r.at({ conv: 'pt', projectWork: { container, dir: null, v: { source: { template: { outputs: 'outputs' } } } } })
+  assert.match(await r.take(), /새 버전 '\/workspace\/\.bpmn\/pt\/folders\/edu\/outputs\/커리큘럼\/v2\/'/)
+  assert.ok(asked[0].includes('{"folder":"커리큘럼","versions":["v1"]'), asked[0])
+  assert.ok(!asked[0].includes('"folder":"outputs"') && !asked[0].includes('TEMPLATE.md') && !asked[0].includes('forms'), asked[0])
+})
+
+test('WF-U-16 (PR #135 confirmation review) a name of its own is looked for a bounded number of times — then no work folder', () => {
+  const l = { folders: [{ name: '자료', versions: [], latest: 0, files: [] }, ...Array.from({ length: 60 }, (_, i) => ({ name: `자료-${i + 2}`, versions: [], latest: 0, files: [] }))], loose: [] }
+  assert.equal(placeOf(ans({ name: '자료' }), l), null)
+  assert.equal(placeOf(ans({ name: '자료' }), { folders: l.folders.slice(0, 5), loose: [] }).dir, '자료-6/v1')
 })
