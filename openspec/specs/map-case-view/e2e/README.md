@@ -55,9 +55,9 @@ cd e2e && npx playwright test --project=feature tests/feature/bpmn-arrowheads.sp
 ### 채팅 요청의 프로세스 제안 · 거절한 까닭 (스펙 「채팅 요청에는 그 업무의 한 건일 때만 …」 · 「일을 이미 끝낸 답 아래에는 …」 · 「… 거절과 까닭은 카드에 남는다」, 2026-11-28)
 
 ```bash
-cd server && node --test test/ontology-declines.test.js                                   # 단위(모델 · DB 없음): OD-U-01~06
-cd server && node --test --test-concurrency=1 test/ontology-declines.integration.test.js  # 실제 DB · 실제 라우트, 모델은 가짜 fetch: OD-I-01~03
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-suggest-decline.spec.js   # 화면: F-OD-01~05
+cd server && node --test test/ontology-declines.test.js                                   # 단위(모델 · DB 없음): OD-U-01~07
+cd server && node --test --test-concurrency=1 test/ontology-declines.integration.test.js  # 실제 DB · 실제 라우트, 모델은 가짜 fetch: OD-I-01~05
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-suggest-decline.spec.js   # 화면: F-OD-01~07
 ```
 
 화면 시험은 스택을 따로 띄운다(`e2e/lib/localStack.js`: 테넌트 `onto-decline-ui` 의 BFF 와 Vite, 8921 · 5321 부터 빈 포트, 모델 · 지도 저장소 없음). 카드는 서버가 남기는 모양(요청 · 답 · `onto-entry` 카드)대로 DB 에 넣는다. 「다른 기기」는 이 기기 기록(localStorage)이 없는 새 브라우저 문맥이다. 사람 · 회사는 지어낸 것이다(정하윤 · 가나정밀).
@@ -65,20 +65,23 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-
 | 스펙 시나리오 | 시험 |
 |---|---|
 | 만들어 달라는 것만으로는 일반적인 업무를 권하지 않는다 | OD-U-04(채팅 요청의 물음 · 업무 설명 · 단계, 메일은 그대로) |
-| 「관계없어요」로 거절한 요청은 반례가 된다 | OD-U-02(고르기: 관계없어요만 · 그 프로세스만 · 30일 · 새것부터 · 같은 첫 줄 하나 · 4개) · OD-U-04(그 프로세스를 읽을 때만) · OD-I-03(이 회사의 거절한 채팅 카드만 — 다른 회사 · 메일 카드 · 묻는 카드 빼고) |
-| 여러 번 관계없다고 하면 한동안 권하지 않는다 | OD-U-03(3번 · 14일 · 7일, 모자람 · 흩어짐 · 지남 · 설정) · OD-U-04(쉬는 프로세스는 읽지 않음) · OD-I-03(실제 DB 다섯 번 → 쉼) |
+| 「관계없어요」로 거절한 요청은 반례가 된다 | OD-U-02(고르기: 관계없어요만 · 그 프로세스만 · 30일 · 새것부터 · 같은 첫 줄 하나 · 4개 · 칩의 거절은 칩의 말 · 따옴표 친 자료 — 따옴표 · 줄바꿈이 섞인 글도 한 줄) · OD-U-04(그 프로세스를 읽을 때만) · OD-U-07(routeEvent 가 그 사람의 거절을 읽어 그 사람의 물음에) · OD-I-03(그 사람의 대화방에서 「관계없어요」인 채팅 카드만 — 메일 카드 · 묻는 카드 · 맞지만 이번엔 · 다른 까닭 빼고) |
+| 다른 사람의 거절은 내 제안에 가지 않는다 | OD-I-04(김서연 다섯 번 → 정하윤의 물음에 그 글 없음 · 정하윤에게는 권함, 김서연에게는 쉼) |
+| 여러 번 관계없다고 하면 한동안 권하지 않는다 | OD-U-03(3번 · 14일 · 7일, 모자람 · 흩어짐 · 지남 · 설정) · OD-U-04(쉬는 프로세스는 읽지 않음) · OD-I-03(실제 DB 다섯 번 → 쉼) · OD-I-04 |
 | 직접 적은 까닭은 모델이 읽는다 | OD-U-05 · OD-I-02(가짜 모델 0.86 → 관계없어요, 0.55 → 다른 까닭) · F-OD-02(모델 없음 → 다른 까닭) |
-| 파일을 만든 턴 · 답에서 이미 해 낸 턴 · 되묻기만 한 턴 | OD-U-06 |
-| 거절하고 「이 일과 관계없어요」를 고른다 | F-OD-01 · OD-I-01 · OD-I-02 |
+| 파일을 만든 턴 · 답에서 이미 해 낸 턴 · 되묻기만 한 턴 | OD-U-06 · OD-U-07(onChat: 파일을 만든 턴은 프로세스도 읽지 않음 · 해 낸 턴은 견주지 않음 · 아니면 그 사람과 함께 견주고 카드) |
+| 거절하고 「이 일과 관계없어요」를 고른다 | F-OD-01(키보드 초점 테두리 · 초점이 남긴 줄로 · role=status · 업무 이름 따로) · OD-I-01(uuid 아님 400 · 없는 카드 404) · OD-I-02(칩과 함께 온 말은 버림) |
 | 다른 기기에서도 같다 | F-OD-01 · F-OD-02 · F-OD-04 · F-OD-05 |
-| 직접 적어 보낸다(휴대폰) | F-OD-02 |
+| 직접 적어 보낸다(휴대폰) | F-OD-02(초점이 칸으로 · 이름표 · 16px) |
 | 어두운 화면에서 「맞지만 이번엔 그냥」 | F-OD-03 |
-| 넘어가기 | F-OD-04 · OD-I-02 |
+| 넘어가기 | F-OD-04(초점이 거절 줄로) · OD-I-02 |
 | 메일 카드 | F-OD-05 |
+| 다른 기기에서 이미 시작한 카드 | F-OD-06(409 → 이 기기의 거절 지움 · 묻는 카드로 · 「다른 기기에서 이미 시작했어요.」) · OD-I-01 · OD-I-05(까닭을 읽는 사이 시작 → 409 · caseId 그대로 · 두 화면 동시 거절) |
+| 서버에 닿지 못할 때(휴대폰) | F-OD-07 |
 
 ## 결과
 
-- `results/onto-suggest-decline.txt` — 채팅 요청의 프로세스 제안 · 거절한 까닭(2026-11-28): 단위 6건 · DB 3건 · 화면 5건 통과. 그림 `results/f-od-*.png`: PC 묻는 줄(01-why) · 남긴 까닭(01-saved) · 다른 기기(01-other-device) · 휴대폰 묻는 줄(02-why) · 적는 중(02-typing) · 적은 말(02-saved) · 휴대폰 어두운 화면 묻는 줄(03-why) · 남긴 까닭(03-saved).
+- `results/onto-suggest-decline.txt` — 채팅 요청의 프로세스 제안 · 거절한 까닭(2026-11-28, PR #134 검토 반영: 사람마다 배우기 · 조건부 UPDATE · 오류 처리 · 접근성): 단위 7건 · DB 5건 · 화면 7건 통과. 그림 `results/f-od-*.png`: PC 묻는 줄(01-why) · 남긴 까닭(01-saved, 키보드 초점) · 다른 기기(01-other-device) · 휴대폰 묻는 줄(02-why) · 적는 중(02-typing) · 적은 말(02-saved) · 휴대폰 어두운 화면 묻는 줄(03-why) · 남긴 까닭(03-saved) · 다른 기기에서 이미 시작(06-refused) · 오프라인(07-offline).
 
 - `results/e2e.txt` — 화면 시험 8건 통과(2026-11-24, 기본 설정 서버). 지도 저장소 없이(`PRO_ONTOLOGY_BOLT_URL=`)와 step-ui 설정 서버에서도 8건(그때는 F-CV-08 전 7건) 통과 — `results/regression.md` B · C.
 - `results/unit.txt` — 단위 시험 8건 통과.

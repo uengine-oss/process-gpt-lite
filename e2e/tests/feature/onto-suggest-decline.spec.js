@@ -2,12 +2,16 @@
 // 서버 lib/ontology/declines.js · POST /api/ontology/entry/decline). 2026-11-28 녹화: 「Spec Kit 커리큘럼을 PMO 자료로 설계해 줘」 아래에
 // 「이 요청은 「요청 보고 · 구현」 업무로 진행할 수 있어요」가 붙었다 — 「전혀 관계도 없는 거 자꾸 추천하기도 하고 … 내가 이거 안 하려고 이렇게 하면
 // 아닌 이유를 좀 파악을 해야 될 것 같아」. 「아니요」는 이 기기에만 남던 것이 서버의 카드에 남고, 채팅 요청 카드는 한 줄로 왜 아닌지 묻는다.
-//   F-OD-01 PC 1280(밝은): 「아니요」 → 「왜 아닌가요?」 한 줄과 칩 한 줄(이 일과 관계없어요 · 맞지만 이번엔 그냥 · 직접 적기, 넘어가기) → 「이 일과 관계없어요」 → 「… 관계없다고 알아 둘게요」 ·
-//           카드 메시지에 reason unrelated · 다른 기기(새 브라우저 문맥, 이 기기 기록 없음)에서도 거절 · 까닭이 그대로
-//   F-OD-02 휴대폰 390(밝은): 「직접 적기」 → 적은 말 → 「보내기」(모델 없음: 「다른 까닭」으로 남고 반례가 아님) → 다른 기기에서도 적은 말이 보임 · 가로 넘침 없음
+//   F-OD-01 PC 1280(밝은): 「아니요」 → 「왜 아닌가요?」 한 줄과 칩 한 줄(이 일과 관계없어요 · 맞지만 이번엔 그냥 · 직접 적기, 넘어가기) · 키보드 초점 테두리 →
+//           「이 일과 관계없어요」 → 초점이 남긴 줄(role=status)로 · 「관계없는 업무로 알아 둘게요」와 그 업무 이름 · 카드 메시지에 reason unrelated ·
+//           다른 기기(새 브라우저 문맥, 이 기기 기록 없음)에서도 거절 · 까닭이 그대로
+//   F-OD-02 휴대폰 390(밝은): 「직접 적기」 → 초점이 칸으로(이름표 · 16px) → 적은 말 → 「보내기」(모델 없음: 「다른 까닭」으로 남고 반례가 아님) → 다른 기기에서도
+//           적은 말이 보임 · 가로 넘침 없음
 //   F-OD-03 휴대폰 390(어두운): 「왜 아닌가요?」 줄이 어두운 화면에서 읽힘 → 「맞지만 이번엔 그냥」 → 「알겠어요 …」 · 새로 고쳐도 그대로
 //   F-OD-04 PC: 「넘어가기」 → 묻는 줄이 사라지고 다시 열어도 묻지 않음(까닭 없이 거절만)
 //   F-OD-05 메일 카드의 「아니요」도 서버에 남는다(다른 기기에서도 거절) — 까닭은 채팅 요청 카드에서만 묻는다
+//   F-OD-06 서버가 거절을 받지 않음(409 — 다른 기기에서 이미 시작): 이 기기의 거절을 지우고 묻는 카드로 돌아가 「다른 기기에서 이미 시작했어요.」
+//   F-OD-07 서버에 닿지 못함(오프라인): 이 기기에만 거절 · 까닭이 남고 「이 기기에만 남겼어요 …」 — 「다음 제안에 반영해요」라고 하지 않는다
 // 자기 스택(lib/localStack.js: 회사 onto-decline-ui 의 BFF + Vite, 8921 · 5321 부터 빈 포트). 모델 · 지도 저장소는 부르지 않는다(닫힌 포트,
 // PRO_ONTOLOGY_BOLT_URL=). 카드는 서버가 남기는 모양대로 DB 에 넣는다(events.js dispatch). 사람 · 회사는 지어낸 것이다(정하윤 · 가나정밀).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-suggest-decline.spec.js
@@ -124,6 +128,11 @@ test('F-OD-01 PC 1280(밝은): 「아니요」 → 왜 아닌지 한 줄 → 「
   await expect(row).toContainText('왜 아닌가요?')
   for (const t of ['onto-entry-why-unrelated', 'onto-entry-why-notnow', 'onto-entry-why-text', 'onto-entry-why-skip']) await expect(row.getByTestId(t)).toBeVisible()
   expect(await chipRows(row), '칩은 한 줄').toBe(1)
+  // keyboard: a visible focus ring on the chips
+  await row.getByTestId('onto-entry-why-skip').focus()
+  await p.keyboard.press('Tab')
+  await expect(row.getByTestId('onto-entry-why-unrelated')).toBeFocused()
+  expect(await row.getByTestId('onto-entry-why-unrelated').evaluate((b) => [getComputedStyle(b).outlineStyle, parseFloat(getComputedStyle(b).outlineWidth)])).toEqual(['solid', 2])
   // the decline is on the server before any reason
   await expect.poll(async () => (await contentOf(id))?.state).toBe('declined')
   expect((await contentOf(id)).declined.procs).toEqual([{ proc: GEN.proc, name: GEN.procName }])
@@ -131,7 +140,10 @@ test('F-OD-01 PC 1280(밝은): 「아니요」 → 왜 아닌지 한 줄 → 「
   await row.getByTestId('onto-entry-why-unrelated').click()
   const saved = card.getByTestId('onto-entry-why-saved')
   await expect(saved).toHaveAttribute('data-reason', 'unrelated')
-  await expect(saved).toContainText('「요청 보고 · 구현」은 이런 요청과 관계없다고 알아 둘게요. 다음 제안에 반영해요.')
+  await expect(saved).toContainText('이런 요청과 관계없는 업무로 알아 둘게요. 다음 제안에 반영해요.')
+  await expect(card.getByTestId('onto-entry-why-procs')).toHaveText('「요청 보고 · 구현」')
+  await expect(saved).toHaveAttribute('role', 'status')
+  await expect(saved, '누른 칩이 사라진 자리: 초점은 남긴 줄로').toBeFocused()
   await expect(row).toHaveCount(0)
   const c = await contentOf(id)
   expect(c.declined.reason).toBe('unrelated')
@@ -163,6 +175,9 @@ test('F-OD-02 휴대폰 390(밝은): 「직접 적기」 → 적은 말 → 보�
   await card.getByTestId('onto-entry-why-text').click()
   const input = card.getByTestId('onto-entry-why-input')
   await expect(input).toBeVisible()
+  await expect(input, '「직접 적기」는 칸으로 초점을 옮긴다').toBeFocused()
+  await expect(input).toHaveAttribute('aria-label', '아닌 까닭')
+  expect(await input.evaluate((el) => getComputedStyle(el).fontSize), 'iOS 가 확대하지 않는 글자 크기').toBe('16px')
   await expect(card.getByTestId('onto-entry-why-send')).toBeDisabled()
   await input.fill('교육 과정 설계라서 요청 보고 업무가 아니에요')
   await shot(p, 'f-od-02-typing-phone')
@@ -171,6 +186,7 @@ test('F-OD-02 휴대폰 390(밝은): 「직접 적기」 → 적은 말 → 보�
   await expect(saved).toBeVisible({ timeout: 30000 })
   // no model here: the words are kept, read as no reason the matching uses
   await expect(saved).toHaveAttribute('data-reason', 'other')
+  await expect(saved).toBeFocused()
   await expect(card.getByTestId('onto-entry-why-note')).toHaveText('「교육 과정 설계라서 요청 보고 업무가 아니에요」')
   const c = await contentOf(id)
   expect(c.declined.reason).toBe('other')
@@ -220,6 +236,7 @@ test('F-OD-04 PC: 「넘어가기」 → 묻는 줄이 사라지고, 다시 열�
   await card.getByTestId('onto-entry-why-skip').click()
   await expect(card.getByTestId('onto-entry-why')).toHaveCount(0)
   await expect(card.getByTestId('onto-entry-why-saved')).toHaveCount(0)
+  await expect(card.getByTestId('onto-entry-declined'), '초점은 거절 줄로').toBeFocused()
   await expect.poll(async () => (await contentOf(id))?.declined?.skipped).toBe(true)
   expect((await contentOf(id)).declined.reason).toBeUndefined()
   const other = await open(browser, PC)
@@ -244,4 +261,47 @@ test('F-OD-05 메일 카드의 「아니요」도 서버에 남아 다른 기기
   await expect(card2).toHaveAttribute('data-state', 'declined')
   expect(p.errors).toEqual([])
   await p.context().close(); await other.context().close()
+})
+
+const REQ6 = '가나정밀 교육 만족도 설문 정리해 줘'
+test('F-OD-06 서버가 받지 않음(409 — 다른 기기에서 이미 시작): 이 기기의 거절을 지우고 묻는 카드로, 「다른 기기에서 이미 시작했어요.」', async ({ browser }) => {
+  const id = await seedTurn(REQ6)
+  const p = await open(browser, PC)
+  const card = await chat(p, REQ6)
+  await expect(card).toHaveAttribute('data-state', 'ask')
+  // another device pressed 「진행」 meanwhile (this screen has not heard of it)
+  await S.q(`update pro_messages set content = content || $2::jsonb where id=$1`, [id, { state: 'started', picked: true, caseId: 'case-od-06' }])
+  await card.getByTestId('onto-entry-decline').click()
+  const error = card.getByTestId('onto-entry-error')
+  await expect(error).toHaveText('다른 기기에서 이미 시작했어요.')
+  await expect(error).toHaveAttribute('role', 'alert')
+  await expect(card).not.toHaveAttribute('data-state', 'declined')
+  await expect(card.getByTestId('onto-entry-why')).toHaveCount(0)
+  expect(await p.evaluate((k) => JSON.parse(localStorage.getItem(k) || '{}').state || null, `onto:entry:${id}`), '이 기기의 거절은 지운다').toBe(null)
+  const c = await contentOf(id)
+  expect([c.state, c.caseId, c.declined]).toEqual(['started', 'case-od-06', undefined])
+  await shot(p, 'f-od-06-refused-pc', card)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+const REQ7 = '가나정밀 강사 섭외 목록 만들어 줘'
+test('F-OD-07 서버에 닿지 못함(오프라인, 휴대폰): 이 기기에만 남고 「이 기기에만 남겼어요 …」 — 「다음 제안에 반영해요」라고 하지 않는다', async ({ browser }) => {
+  const id = await seedTurn(REQ7)
+  const p = await open(browser, PHONE)
+  const card = await chat(p, REQ7)
+  await p.route('**/api/ontology/entry/decline', (r) => r.abort('internetdisconnected'))
+  await card.getByTestId('onto-entry-decline').click()
+  await expect(card).toHaveAttribute('data-state', 'declined')
+  await card.getByTestId('onto-entry-why-unrelated').click()
+  const saved = card.getByTestId('onto-entry-why-saved')
+  await expect(saved).toHaveAttribute('data-local', '1')
+  await expect(saved).toHaveText('이 기기에만 남겼어요 — 서버에 닿지 못해 다음 제안에는 쓰이지 않아요.')
+  await expect(saved).not.toContainText('다음 제안에 반영해요')
+  await expect(card.getByTestId('onto-entry-error')).toHaveCount(0)
+  expect((await contentOf(id)).state, '서버의 카드는 그대로').toBe('ask')
+  expect(await noOverflow(p)).toBe(true)
+  await shot(p, 'f-od-07-offline-phone')
+  expect(p.errors).toEqual([])
+  await p.context().close()
 })

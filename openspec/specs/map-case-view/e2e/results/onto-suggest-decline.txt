@@ -1,43 +1,66 @@
-# 채팅 요청의 프로세스 제안 · 거절한 까닭 (2026-11-28, fix/onto-suggest-relevance = origin/main 8655096 + 이 변경)
+# 채팅 요청의 프로세스 제안 · 거절한 까닭 (2026-11-28, fix/onto-suggest-relevance — PR #134 검토 반영: 사람마다 배우기 · 조건부 UPDATE · 오류 처리 · 접근성 · 이름 렌더링)
 
 ## 단위: cd server && node --test test/ontology-declines.test.js
-✔ OD-U-01 거절한 카드의 프로세스: 하나뿐이면 그것, 여럿이면 같은 카드에서 시작한 것을 뺀 나머지 (1.19075ms)
-✔ OD-U-02 반례: 「관계없어요」만, 그 프로세스의 것만, 최근 30일, 새것부터, 같은 첫 줄은 하나, 4개까지 (1.0675ms)
-✔ OD-U-03 쉬기: 마지막 「관계없어요」와 그 앞 14일 안에 3번이면 마지막 거절부터 7일 — 모자라거나 · 흩어졌거나 · 지났으면 아니다 (0.263209ms)
-✔ OD-U-04 읽기: 쉬는 프로세스는 읽지 않고, 반례는 그 프로세스를 읽을 때만, 채팅 요청은 「그 업무의 한 건인가」로 묻는다 (0.584625ms)
-✔ OD-U-05 직접 적은 까닭: 모델이 0.7 이상으로 읽은 까닭만, 아니면 · 못 읽으면 「다른 까닭」 (0.307417ms)
-✔ OD-U-06 이미 한 일: 파일을 만든 턴은 모델 없이 「했음」, 답은 모델이 0.7 이상일 때만, 못 읽으면 평소대로 권한다 (0.200042ms)
-ℹ tests 6
+[events] 요청 「Spec Kit 기반 교육 과정 커리큘럼 설계해 줘. PMO 자료를 참고」: 이 턴이 파일 21개를 만들었어요 — 권하지 않음
+[events] 요청 「Spec Kit 기반 교육 과정 커리큘럼 설계해 줘. PMO 자료를 참고」: 답이 이미 해 냄(92%) — 권하지 않음
+[events] 요청 「Spec Kit 기반 교육 과정 커리큘럼 설계해 줘」: 프로세스 2개 · 읽음 요청 보고 · 구현 10%(반례 1), 교육 과정 설계 · 운영 10% → 없음
+[events] 요청 「Spec Kit 기반 교육 과정 커리큘럼 설계해 줘」: 프로세스 1개 · 읽음 요청 보고 · 구현 10% → 없음
+[events] 메일 「견적 부탁드립니다」: 프로세스 1개 · 읽음 요청 보고 · 구현 10% → 없음
+✔ OD-U-01 거절한 카드의 프로세스: 하나뿐이면 그것, 여럿이면 같은 카드에서 시작한 것을 뺀 나머지 (1.1825ms)
+✔ OD-U-02 반례: 「관계없어요」만, 그 프로세스의 것만, 최근 30일, 새것부터, 같은 첫 줄은 하나, 4개까지 (1.075833ms)
+✔ OD-U-03 쉬기: 마지막 「관계없어요」와 그 앞 14일 안에 3번이면 마지막 거절부터 7일 — 모자라거나 · 흩어졌거나 · 지났으면 아니다 (0.306708ms)
+✔ OD-U-04 읽기: 쉬는 프로세스는 읽지 않고, 반례는 그 프로세스를 읽을 때만, 채팅 요청은 「그 업무의 한 건인가」로 묻는다 (0.59625ms)
+✔ OD-U-05 직접 적은 까닭: 모델이 0.7 이상으로 읽은 까닭만, 아니면 · 못 읽으면 「다른 까닭」 (0.30025ms)
+✔ OD-U-06 이미 한 일: 파일을 만든 턴은 모델 없이 「했음」, 답은 모델이 0.7 이상일 때만, 못 읽으면 평소대로 권한다 (0.164834ms)
+✔ OD-U-07 잇기: 파일을 만든 턴 · 이미 해 낸 턴은 견주지 않고, 견줄 때는 그 사람의 거절만 routeEvent 로 — 사람이 없거나 메일이면 거절을 읽지 않는다 (0.494708ms)
+ℹ tests 7
 ℹ suites 0
-ℹ pass 6
+ℹ pass 7
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 171.791875
+ℹ duration_ms 162.718625
 
 ## DB · 라우트: cd server && node --test --test-concurrency=1 test/ontology-declines.integration.test.js  (로컬 Supabase, 모델은 가짜 fetch)
 [ontology] declined 요청 보고 · 구현: no reason yet
-✔ OD-I-01 「아니요」는 카드에 남는다 — 누가 · 언제 · 어느 프로세스, 남의 카드 404 · 진행한 카드 409 · 카드 없음 400 (662.753333ms)
+✔ OD-I-01 「아니요」는 카드에 남는다 — 누가 · 언제 · 어느 프로세스, 남의 카드 404 · 진행한 카드 409 · 카드 없음 · uuid 아님 400 (614.499834ms)
 [ontology] declined 요청 보고 · 구현: no reason yet
 [ontology] declined 요청 보고 · 구현: unrelated
 [ontology] declined 요청 보고 · 구현: not-now
 [ontology] declined 요청 보고 · 구현: skipped
 [ontology] declined 요청 보고 · 구현: unrelated (read unrelated 0.86)
 [ontology] declined 요청 보고 · 구현: other (read unrelated 0.55)
-✔ OD-I-02 까닭: 칩 · 넘어가기 · 직접 적은 말(모델이 0.7 이상으로 읽은 것만) (65.0735ms)
+✔ OD-I-02 까닭: 칩(함께 온 말은 버림) · 넘어가기 · 직접 적은 말(모델이 0.7 이상으로 읽은 것만) (51.561792ms)
 [ontology] declined 요청 보고 · 구현: unrelated
 [ontology] declined 요청 보고 · 구현: unrelated
 [ontology] declined 요청 보고 · 구현: unrelated
-✔ OD-I-03 읽기: 이 회사의 거절한 채팅 카드만 → 반례 · 쉬는 프로세스 (67.503209ms)
-ℹ tests 3
+[ontology] declined 요청 보고 · 구현: unrelated
+[ontology] declined 요청 보고 · 구현: unrelated (read unrelated 0.9)
+[ontology] declined 요청 보고 · 구현: not-now
+[ontology] declined 요청 보고 · 구현: other (read unrelated 0.5)
+✔ OD-I-03 읽기: 그 사람의 거절한 채팅 카드의 「관계없어요」만 → 반례 · 쉬는 프로세스 (70.151208ms)
+[ontology] declined 요청 보고 · 구현: unrelated
+[ontology] declined 요청 보고 · 구현: unrelated
+[ontology] declined 요청 보고 · 구현: unrelated
+[ontology] declined 요청 보고 · 구현: unrelated
+[ontology] declined 요청 보고 · 구현: unrelated (read unrelated 0.9)
+[ontology] declined 요청 보고 · 구현: not-now
+[ontology] declined 요청 보고 · 구현: other (read unrelated 0.5)
+[events] 요청 「가나정밀 교육 과정 커리큘럼 설계해 줘」: 프로세스 1개 · 읽음 요청 보고 · 구현 90% → 요청 보고 · 구현(제안) 「요청방향 보고」
+[events] 요청 「가나정밀 교육 과정 커리큘럼 설계해 줘」: 프로세스 1개 · 쉼 요청 보고 · 구현(관계없음 5번) · 읽음 - → 없음
+✔ OD-I-04 두 사람: 김서연의 거절은 정하윤의 물음에도, 쉬기에도 가지 않는다 (71.266625ms)
+[ontology] declined 요청 보고 · 구현: no reason yet
+[ontology] declined 요청 보고 · 구현: unrelated
+✔ OD-I-05 경쟁: 까닭을 읽는 사이 다른 화면이 시작한 카드는 409, 카드는 시작한 그대로 (112.798291ms)
+ℹ tests 5
 ℹ suites 0
-ℹ pass 3
+ℹ pass 5
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 1111.173458
+ℹ duration_ms 1271.071042
 
 ## 회귀(같은 모듈): ontology-events · ontology-steprule · ontology-discovery · mailFlow.integration
 ℹ tests 8 ℹ pass 8 ℹ fail 0  <- test/ontology-events.test.js
@@ -46,11 +69,13 @@
 ℹ tests 12 ℹ pass 12 ℹ fail 0  <- test/mailFlow.integration.test.js
 
 ## 화면: cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-suggest-decline.spec.js  (스택: lib/localStack.js 테넌트 onto-decline-ui, 8921 · 5321)
-Running 5 tests using 1 worker
+Running 7 tests using 1 worker
 [onto-decline] stack on BFF 8921 · web 5321
-  ✓  1 [feature] › tests/feature/onto-suggest-decline.spec.js:112:1 › F-OD-01 PC 1280(밝은): 「아니요」 → 왜 아닌지 한 줄 → 「이 일과 관계없어요」 → 서버의 카드에 남고 다른 기기에서도 그대로 (3.8s)
-  ✓  2 [feature] › tests/feature/onto-suggest-decline.spec.js:153:1 › F-OD-02 휴대폰 390(밝은): 「직접 적기」 → 적은 말 → 보내기 — 모델이 없으면 「다른 까닭」으로 남고, 다른 기기에서도 적은 말이 보인다 (3.5s)
-  ✓  3 [feature] › tests/feature/onto-suggest-decline.spec.js:188:1 › F-OD-03 휴대폰 390(어두운): 왜 아닌지 묻는 줄이 어두운 화면에서 읽힘 → 「맞지만 이번엔 그냥」 → 새로 고쳐도 그대로 (2.9s)
-  ✓  4 [feature] › tests/feature/onto-suggest-decline.spec.js:214:1 › F-OD-04 PC: 「넘어가기」 → 묻는 줄이 사라지고, 다시 열어도 묻지 않는다(까닭 없이 거절만) (3.2s)
-  ✓  5 [feature] › tests/feature/onto-suggest-decline.spec.js:233:1 › F-OD-05 메일 카드의 「아니요」도 서버에 남아 다른 기기에서도 거절 — 까닭은 채팅 요청 카드에서만 묻는다 (3.3s)
-  5 passed (19.1s)
+  ✓  1 [feature] › tests/feature/onto-suggest-decline.spec.js:117:1 › F-OD-01 PC 1280(밝은): 「아니요」 → 왜 아닌지 한 줄 → 「이 일과 관계없어요」 → 서버의 카드에 남고 다른 기기에서도 그대로 (4.0s)
+  ✓  2 [feature] › tests/feature/onto-suggest-decline.spec.js:166:1 › F-OD-02 휴대폰 390(밝은): 「직접 적기」 → 적은 말 → 보내기 — 모델이 없으면 「다른 까닭」으로 남고, 다른 기기에서도 적은 말이 보인다 (4.0s)
+  ✓  3 [feature] › tests/feature/onto-suggest-decline.spec.js:205:1 › F-OD-03 휴대폰 390(어두운): 왜 아닌지 묻는 줄이 어두운 화면에서 읽힘 → 「맞지만 이번엔 그냥」 → 새로 고쳐도 그대로 (3.8s)
+  ✓  4 [feature] › tests/feature/onto-suggest-decline.spec.js:231:1 › F-OD-04 PC: 「넘어가기」 → 묻는 줄이 사라지고, 다시 열어도 묻지 않는다(까닭 없이 거절만) (3.2s)
+  ✓  5 [feature] › tests/feature/onto-suggest-decline.spec.js:251:1 › F-OD-05 메일 카드의 「아니요」도 서버에 남아 다른 기기에서도 거절 — 까닭은 채팅 요청 카드에서만 묻는다 (3.2s)
+  ✓  6 [feature] › tests/feature/onto-suggest-decline.spec.js:267:1 › F-OD-06 서버가 받지 않음(409 — 다른 기기에서 이미 시작): 이 기기의 거절을 지우고 묻는 카드로, 「다른 기기에서 이미 시작했어요.」 (2.2s)
+  ✓  7 [feature] › tests/feature/onto-suggest-decline.spec.js:289:1 › F-OD-07 서버에 닿지 못함(오프라인, 휴대폰): 이 기기에만 남고 「이 기기에만 남겼어요 …」 — 「다음 제안에 반영해요」라고 하지 않는다 (1.7s)
+  7 passed (24.6s)

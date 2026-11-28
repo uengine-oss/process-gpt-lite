@@ -2299,7 +2299,13 @@
   "이 일과 관계없어요": "Not related to this work",
   "맞지만 이번엔 그냥": "Fits, but not this time",
   "직접 적기": "Write my own",
-  "아닌 까닭을 적어 주세요(선택)": "Say why not (optional)",
+  "아닌 까닭을 적어 주세요": "Say why not",
+  "아닌 까닭": "Why not",
+  "이런 요청과 관계없는 업무로 알아 둘게요. 다음 제안에 반영해요.": "Noted as not related to requests like this. The next suggestions will take it in.",
+  "이 기기에만 남겼어요 — 서버에 닿지 못해 다음 제안에는 쓰이지 않아요.": "Kept on this device only — the server could not be reached, so the next suggestions won't use it.",
+  "다른 기기에서 이미 시작했어요.": "Already started on another device.",
+  "이 카드를 찾지 못했어요.": "Couldn't find this card.",
+  "서버가 받지 못했어요. 잠시 후 다시 눌러 주세요.": "The server didn't take it. Try again in a moment.",
   "알겠어요. 맞는 요청이면 다음에도 권할게요.": "Got it. It will still be suggested when a request fits.",
   "알려 주셔서 고마워요.": "Thanks for telling us.",
   "이 프로세스는 아직 「제안」 단계라 물어봐요. 관리자가 「자동으로 승격」하면 같은 요청이 오면 바로 시작해요.": "This process is still at “Suggest”, so you are asked. Once an admin promotes it to “Automatic”, the same request starts it right away.",
@@ -4010,14 +4016,6 @@
   [
    "{0} 업무로 진행할 수 있어요. 「{1}」부터 시작할까요?",
    "{0} can go ahead as this process. Start at “{1}”?"
-  ],
-  [
-   "「{0}」은 이런 요청과 관계없다고 알아 둘게요. 다음 제안에 반영해요.",
-   "Noted: “{0}” is not related to requests like this. The next suggestions will take it in."
-  ],
-  [
-   "「{0}」는 이런 요청과 관계없다고 알아 둘게요. 다음 제안에 반영해요.",
-   "Noted: “{0}” is not related to requests like this. The next suggestions will take it in."
   ],
   [
    "기준에 못 미쳐 지도에 안 보이는 습관 {0}개",

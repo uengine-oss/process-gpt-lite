@@ -31,6 +31,7 @@ const DEFAULTS = {
   // what people said when they declined a chat card (declines.js): negative examples and resting processes
   declines: DECLINE_DEFAULTS,
 }
+export const EVENT_DEFAULTS = DEFAULTS
 export const eventRules = async () => {
   const own = (await skillRules()).events || {}
   return { ...DEFAULTS, ...own, done: { ...DEFAULTS.done, ...(own.done || {}) }, declines: { ...DEFAULTS.declines, ...(own.declines || {}) } }
@@ -145,16 +146,19 @@ async function processes() {
   }
   return list
 }
-// procs: the processes when the caller already read them (onChat) · a chat request is read with this company's declines of each process
-export async function routeEvent(ev, { procs: given = null } = {}) {
-  const procs = given || await processes()
+// procs: the processes when the caller already read them (onChat) · user: whose chat request it is — it is read with that person's own
+// declines of each process (declines.js, per person: nobody else's requests or words go into it)
+// deps (tests): processes · rules · yes · read · entryOf · declinesOf(userId, R)
+export async function routeEvent(ev, { procs: given = null, user = null } = {}, deps = {}) {
+  const procs = given || await (deps.processes || processes)()
   if (!procs.length) return { none: true, matches: [], reads: [], prefilter: null, procs: 0 }
-  const R = await eventRules()
-  const SR = await import('./steprule.js')
-  const { chooseEntry } = await import('./run.js')
-  const SRR = (await skillRules()).stepRules || {}
-  const declines = ev.kind === 'chat' ? await (await import('./declines.js')).forMatching(R).catch((e) => { console.warn('[events] declines', e.message); return null }) : null
-  const r = await identify(ev, { procs, R, read: oddsOf, yes: (state, question) => SR.readYes(state, question, SRR), entryOf: chooseEntry, declines })
+  const R = await (deps.rules || eventRules)()
+  let SRR = null
+  const yes = deps.yes || (async (state, question) => (await import('./steprule.js')).readYes(state, question, SRR ??= (await skillRules()).stepRules || {}))
+  const entryOf = deps.entryOf || (async (x) => (await import('./run.js')).chooseEntry(x))
+  const declinesOf = deps.declinesOf || (async (uid, rules) => (await import('./declines.js')).forMatching(uid, rules))
+  const declines = ev.kind === 'chat' && user?.id ? await declinesOf(user.id, R).catch((e) => { console.warn('[events] declines', e.message); return null }) : null
+  const r = await identify(ev, { procs, R, read: deps.read || oddsOf, yes, entryOf, declines })
   console.log(`[events] ${what(ev)} 「${clean(ev.subject || ev.file?.name || ev.text).slice(0, 40)}」: 프로세스 ${procs.length}개${r.rested ? ` · 쉼 ${r.rested.map((x) => `${x.name}(관계없음 ${x.count}번)`).join(', ')}` : ''}${r.prefilter ? ` → 후보 ${r.prefilter.keep.length}개(고르기 ${r.prefilter.readings}번)` : ''} · 읽음 ${r.reads.map((x) => `${x.name} ${x.p == null ? '?' : Math.round(x.p * 100)}%${x.negatives ? `(반례 ${x.negatives})` : ''}`).join(', ') || '-'} → ${r.none ? '없음' : r.matches.map((m) => `${m.name}(${m.status === 'adopted' ? '자동' : '제안'}) 「${m.choice.task}」`).join(' · ')}`)
   return { ...r, procs: procs.length }
 }
@@ -215,18 +219,18 @@ export async function turnDidWork({ said = '', answer = '', made = 0 } = {}, R =
 }
 
 // a new request typed in chat (run.js chatSuggest: once per conversation, after the turn): offered only — and not when the turn already did it
-// (answer: the turn's saved answer · made: how many file cards the turn posted)
-export async function onChat({ user, threadId, said, conv, answer = '', made = 0 }) {
+// (answer: the turn's saved answer · made: how many file cards the turn posted). deps (tests): processes · rules · didWork · route · post
+export async function onChat({ user, threadId, said, conv, answer = '', made = 0 }, deps = {}) {
   const ev = { kind: 'chat', subject: String(said).split('\n')[0].slice(0, 80), text: String(said || '') }
   if (Number(made) > 0) { console.log(`[events] 요청 「${clean(ev.subject).slice(0, 40)}」: 이 턴이 파일 ${made}개를 만들었어요 — 권하지 않음`); return null }
-  const procs = await processes()
+  const procs = await (deps.processes || processes)()
   if (!procs.length) return null
-  const R = await eventRules()
-  const did = await turnDidWork({ said, answer, made }, R)
+  const R = await (deps.rules || eventRules)()
+  const did = await (deps.didWork || turnDidWork)({ said, answer, made }, R)
   if (did.done) { console.log(`[events] 요청 「${clean(ev.subject).slice(0, 40)}」: 답이 이미 해 냄(${Math.round((did.p || 0) * 100)}%) — 권하지 않음`); return null }
-  const r = await routeEvent(ev, { procs })
+  const r = await (deps.route || routeEvent)(ev, { procs, user })
   if (r.none) return null
-  return dispatch({ me: user, ev, r, threadId, extra: { conv: conv || '' } })
+  return (deps.post || dispatch)({ me: user, ev, r, threadId, extra: { conv: conv || '' } })
 }
 
 // a file attached in chat (lib/agent.js, as the message arrives; or POST /ontology/events/file with an upload): its name, type, the start

@@ -2237,9 +2237,9 @@ cd server && node --test test/driveSearch.test.js    # DS-01~15 — 결과 opens
 - 해당 턴에서 파일을 만들었거나, 답변이 요청한 일을 이미 해냈다는 모델의 판단 신뢰도가 0.7 이상이면 카드를 붙이지 않는다.
 
 ```bash
-cd server && node --test test/ontology-declines.test.js                                   # OD-U-01~06 (모델 · DB 없음)
-cd server && node --test --test-concurrency=1 test/ontology-declines.integration.test.js  # OD-I-01~03 (로컬 Supabase · 실제 라우트, 모델은 가짜 fetch)
-cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-suggest-decline.spec.js   # F-OD-01~05 (자기 스택 8921 · 5321, 공용 잠금 rec.lock)
+cd server && node --test test/ontology-declines.test.js                                   # OD-U-01~07 (모델 · DB 없음)
+cd server && node --test --test-concurrency=1 test/ontology-declines.integration.test.js  # OD-I-01~05 (로컬 Supabase · 실제 라우트, 모델은 가짜 fetch)
+cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-suggest-decline.spec.js   # F-OD-01~07 (자기 스택 8921 · 5321, 공용 잠금 rec.lock)
 ```
 
 | 기능 요건 | 근거 | 시험 | 단계 | |
@@ -2256,6 +2256,14 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-
 | 「넘어가기」를 선택하면 다시 묻지 않는다. 메일 카드의 「아니요」도 서버에 기록하지만 까닭은 묻지 않는다. | — | F-OD-04 · F-OD-05 | feature | ✅ |
 
 ---
+| 「관계없어요」 거절만 반례 — 그 사람의 대화방에서만 읽음, 그 프로세스를 읽을 때만, 따옴표 친 자료(지시 아님), 칩의 거절은 칩의 말(함께 온 말은 버림), 30일 · 새것부터 · 같은 첫 줄 하나 · 4개 | PR #134 검토 | OD-U-02 · OD-U-04 · OD-U-07 · OD-I-02 · OD-I-03 | unit · DB | ✅ |
+| 다른 사람의 거절은 내 물음 · 쉬기에 가지 않음(김서연 다섯 번 → 정하윤에게는 권함, 김서연에게는 쉼) | PR #134 검토 | OD-I-04 | DB | ✅ |
+| 파일을 만든 턴 · 해 낸 턴은 견주지 않음, 아니면 그 사람과 함께 routeEvent → 카드 | PR #134 검토 | OD-U-06 · OD-U-07 | unit | ✅ |
+| 거절은 조건부 UPDATE 하나 — 시작한 카드는 409 · caseId 그대로(까닭을 읽는 사이 시작해도), 두 화면 동시 거절도 하나로, uuid 아님 400 | PR #134 검토 | OD-I-01 · OD-I-05 | DB | ✅ |
+| 서버가 받지 않으면(409 등) 이 기기의 거절을 지우고 묻는 카드로 「다른 기기에서 이미 시작했어요.」 | PR #134 검토 | F-OD-06 | feature | ✅ |
+| 오프라인이면 이 기기에만 남기고 「이 기기에만 남겼어요 …」 — 「다음 제안에 반영해요」라고 하지 않음 | PR #134 검토 | F-OD-07 | feature | ✅ |
+| 키보드 초점 테두리 · 누른 칩이 사라지면 초점이 남긴 줄(role=status)로 · 「넘어가기」 뒤엔 거절 줄로 · 「직접 적기」는 칸으로(이름표 「아닌 까닭」 · 16px) | PR #134 검토 | F-OD-01 · F-OD-02 · F-OD-04 | feature | ✅ |
+| 남긴 까닭 줄은 업무 이름을 따로(여럿이면 「…」 · 「…」) — 영어 화면에 괄호가 새지 않음 | PR #134 검토 | F-OD-01 | feature | ✅ |
 
 ## 남은 공백(다음에 채울 것)
 
