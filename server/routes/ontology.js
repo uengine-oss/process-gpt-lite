@@ -29,7 +29,8 @@ export function ontologyRoutes(auth) {
       res.json(body)
     } catch (e) {
       if (!e.status) console.warn('[ontology]', req.method, req.path, e.message)
-      res.status(e.status || 500).json({ error: e.status ? e.message : '처리하지 못했어요.' })
+      // (a refusal may carry what the screen needs to show instead — 409 with the card as it is now: entryCard.js refused)
+      res.status(e.status || 500).json({ error: e.status ? e.message : '처리하지 못했어요.', ...(e.status && e.body && typeof e.body === 'object' ? e.body : {}) })
     }
   }
   // h for a route that waits on model calls for minutes (갈림길 조건 · 말로 고치기 계획 · 형식 규칙 찾기): the same answer and errors as h
@@ -114,13 +115,23 @@ export function ontologyRoutes(auth) {
   r.get('/ontology/snapshot', auth, h((req) => R.snapshot({ procKey: String(req.query.proc || ''), entry: String(req.query.entry || ''), theta: num(req.query.theta), validAt: req.query.at || undefined })))
   r.post('/ontology/entry', auth, h((req) => R.chooseEntry({ subject: req.body?.subject, text: req.body?.text, procKey: req.body?.proc })))
   r.post('/ontology/cases', auth, h(async (req) => {
-    const r2 = await R.startCase(req.user, { procKey: String(req.body?.proc || ''), entry: String(req.body?.entry || ''), subject: req.body?.subject || '',
-      body: req.body?.body || '', from: req.body?.from || '', customer: req.body?.customer || '', odds: req.body?.odds || null, kind: req.body?.kind || 'manual',
-      file: req.body?.file?.name ? { name: String(req.body.file.name).slice(0, 200) } : null,
-      // who does each role, as the person left it on the ask card before 진행 (bindings.js — a role nobody could be found for must be chosen)
-      picks: (Array.isArray(req.body?.picks) ? req.body.picks : []).filter((p) => p?.role && p?.userId).slice(0, 30).map((p) => ({ role: String(p.role).slice(0, 120), userId: String(p.userId) })) })
+    // 「진행」 from a card: the card is claimed first (one conditional UPDATE — entryCard.js): a card already started or declined, or being
+    // started on another screen, starts nothing → 409 with the card as it is now (a screen that missed the change shows it)
+    const EC = await import('../lib/ontology/entryCard.js')
+    const claimed = await EC.claimStart(req.user, req.body?.messageId)
+    let r2
+    try {
+      r2 = await R.startCase(req.user, { procKey: String(req.body?.proc || ''), entry: String(req.body?.entry || ''), subject: req.body?.subject || '',
+        body: req.body?.body || '', from: req.body?.from || '', customer: req.body?.customer || '', odds: req.body?.odds || null, kind: req.body?.kind || 'manual',
+        file: req.body?.file?.name ? { name: String(req.body.file.name).slice(0, 200) } : null,
+        // who does each role, as the person left it on the ask card before 진행 (bindings.js — a role nobody could be found for must be chosen)
+        picks: (Array.isArray(req.body?.picks) ? req.body.picks : []).filter((p) => p?.role && p?.userId).slice(0, 30).map((p) => ({ role: String(p.role).slice(0, 120), userId: String(p.userId) })) })
+    } catch (e) {
+      await EC.releaseStart(req.user, claimed).catch((x) => console.warn('[ontology] release card', x.message))
+      throw e
+    }
     await keepOnCard(req.user, req.body?.messageId, { state: 'started', picked: true, choice: req.body?.odds || null, caseId: r2.caseId, instId: r2.instId,
-      skipped: r2.snapshot.skipped, nodes: r2.snapshot.nodes, procDefId: r2.snapshot.procDefId, bindings: r2.bindings || null })
+      skipped: r2.snapshot.skipped, nodes: r2.snapshot.nodes, procDefId: r2.snapshot.procDefId, bindings: r2.bindings || null, starting: null })
     return r2
   }))
   // 「아니요, 이번엔 그냥 할게요」와 그 까닭(declines.js): 카드 메시지에 남겨 모든 화면이 같은 카드를 보고, 다음 채팅 요청을 견줄 때 읽는다 — 자기 카드만.

@@ -8,13 +8,13 @@
 // 다른 사람의 요청 글 · 까닭은 누구의 물음에도 가지 않고, 한 사람이 회사 전체의 프로세스를 쉬게 하지 않는다. 셈 · 기간은 스킬 규칙 events.declines.
 import { q } from '../supa.js'
 import { choose } from '../decide.js'
+import { isUuid } from './entryCard.js'
 
 const DAY = 86_400_000
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim()
 const err = (status, message, extra = {}) => Object.assign(new Error(message), { status, ...extra })
-// a uuid's form (a message id, a person's id) — read as a format, never as words
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-export const isUuid = (s) => UUID.test(String(s || ''))
+// (a uuid's form — a message id, a person's id: entryCard.js)
+export { isUuid }
 export const REASONS = ['unrelated', 'not-now', 'other']
 const CHIPS = ['unrelated', 'not-now']
 export const DECLINE_DEFAULTS = {
@@ -131,18 +131,20 @@ export async function readNote({ request = '', procs = [], note = '' }, R = {}, 
   return { reason: p >= D.reasonMin && REASONS.includes(best[0]) ? best[0] : 'other', p, choice: best[0], measured: r?.strategy !== 'json' }
 }
 
-// 「아니요」 and its reason on the person's own card: state 'declined' and declined {at, by, procs, reason?, from?, note?, readAs?, skipped?}.
+// 「아니요」 and its reason on the person's own card: state 'declined' and declined {at, by, procs, reason?, reasonAt?, from?, note?, readAs?, skipped?}.
 // The first call (no reason) declines; a later one adds a chip (any words sent with it are dropped), the person's own words (read by the
-// model), or that they skipped it. One conditional UPDATE: a card started meanwhile (another screen's 「진행」) is left as it is → 409.
+// model), or that they skipped it. One conditional UPDATE: a card started — or being started — meanwhile (another screen's 「진행」) is left as
+// it is → 409 with the card as it is now. A reason lands only over an older one: the typed words' slow reading never overwrites a chip pressed
+// after the words were sent (reasonAt is when the request came in).
 export async function declineCard(me, messageId, { reason = null, note = '', skip = false } = {}, { rules = null, read = choose } = {}) {
   const id = String(messageId || '')
   if (!isUuid(id)) throw err(400, '카드(messageId)가 올바르지 않아요.')
   if (!isUuid(me?.id)) throw err(403, '이 카드를 바꿀 수 없어요.')
-  const own = `m.thread_id in (select id from pro_threads where user_id = $2::uuid)`
-  const [m] = await q(`select m.id, m.content from pro_messages m where m.id = $1::uuid and m.kind = 'onto-entry' and ${own}`, [id, String(me.id)])
+  const EC = await import('./entryCard.js')
+  const m = await EC.ownCard(me, id)
   if (!m) throw err(404, '카드를 찾지 못했어요.')
-  const started = (c) => err(409, '이미 진행한 카드예요 — 다른 화면에서 시작했어요.', { state: c?.state || null, caseId: c?.caseId || null })
-  if (!['ask', 'declined'].includes(m.content?.state || 'ask')) throw started(m.content)
+  if (!['ask', 'declined'].includes(m.content?.state || 'ask')) throw await EC.refused(me, m)
+  const came = new Date().toISOString()
   const R = rules || await (await import('./events.js')).eventRules()
   const D = declineRules(R)
   const chip = CHIPS.includes(reason) ? reason : null
@@ -150,21 +152,24 @@ export async function declineCard(me, messageId, { reason = null, note = '', ski
   let readAs = null
   if (!chip && words) readAs = await readNote({ request: m.content?.mail?.subject || m.content?.mail?.text || '', procs: m.content?.declined?.procs || declinedProcs(m.content), note: words }, R, read)
   const kind = chip || readAs?.reason || null
-  const now = new Date().toISOString()
-  const patch = { by: String(me.id), ...(kind ? { reason: kind, reasonAt: now, from: chip ? 'chip' : 'note' } : {}), ...(words ? { note: words } : {}),
-    ...(readAs ? { readAs: { p: readAs.p, choice: readAs.choice || null, measured: readAs.measured } } : {}), ...(skip && !kind ? { skipped: true } : {}) }
+  const base = { by: String(me.id), ...(skip && !kind ? { skipped: true } : {}) }
+  const why = kind ? { reason: kind, reasonAt: came, from: chip ? 'chip' : 'note', ...(words ? { note: words } : {}),
+    ...(readAs ? { readAs: { p: readAs.p, choice: readAs.choice || null, measured: readAs.measured } } : {}) } : {}
   const [row] = await q(`update pro_messages m set content = m.content || jsonb_build_object('state', 'declined', 'declined',
         coalesce(m.content->'declined', '{}'::jsonb) || $3::jsonb
+          || case when $6::jsonb = '{}'::jsonb then '{}'::jsonb
+                  when coalesce(m.content->'declined'->>'reasonAt', '') < $4 then $6::jsonb else '{}'::jsonb end
           || jsonb_build_object('at', coalesce(m.content->'declined'->'at', to_jsonb($4::text)), 'procs', coalesce(m.content->'declined'->'procs', $5::jsonb)))
-      where m.id = $1::uuid and m.kind = 'onto-entry' and ${own} and coalesce(m.content->>'state', 'ask') in ('ask', 'declined')
-      returning m.*`, [id, String(me.id), JSON.stringify(patch), now, JSON.stringify(declinedProcs(m.content))])
+      where m.id = $1::uuid and m.kind = 'onto-entry' and ${EC.OWN} and coalesce(m.content->>'state', 'ask') in ('ask', 'declined') and not ${EC.STARTING_SQL}
+      returning m.*`, [id, String(me.id), JSON.stringify(base), came, JSON.stringify(declinedProcs(m.content)), JSON.stringify(why)])
   if (!row) {
-    const [cur] = await q(`select m.content from pro_messages m where m.id = $1::uuid and ${own}`, [id, String(me.id)])
-    throw cur ? started(cur.content) : err(404, '카드를 찾지 못했어요.')
+    const cur = await EC.ownCard(me, id)
+    throw cur ? await EC.refused(me, cur) : err(404, '카드를 찾지 못했어요.')
   }
   const { emit } = await import('../bus.js')
   emit(me.id, 'message', row)
   const declined = row.content?.declined || {}
-  console.log(`[ontology] declined ${(declined.procs || []).map((p) => p.name || p.proc).join(' · ') || '-'}: ${kind || (skip ? 'skipped' : 'no reason yet')}${readAs ? ` (read ${readAs.choice} ${readAs.p ?? '?'})` : ''}`)
+  const kept = kind && declined.reasonAt !== came
+  console.log(`[ontology] declined ${(declined.procs || []).map((p) => p.name || p.proc).join(' · ') || '-'}: ${kind || (skip ? 'skipped' : 'no reason yet')}${readAs ? ` (read ${readAs.choice} ${readAs.p ?? '?'})` : ''}${kept ? ` — a newer reason (${declined.reason}) stays` : ''}`)
   return { ok: true, state: 'declined', declined, content: row.content }
 }

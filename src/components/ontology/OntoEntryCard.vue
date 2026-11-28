@@ -9,9 +9,10 @@
 // declined — 「아니요, 이번엔 그냥 할게요」: 서버가 카드에 남긴다(server declines.js, 다른 기기에서도 같은 카드). 채팅 요청 카드는 이어서 한 줄로
 //   왜 아닌지 묻는다(「이 일과 관계없어요」 · 「맞지만 이번엔 그냥」 · 직접 적기 · 넘어가기) — 「관계없어요」는 다음 채팅 요청을 그
 //   프로세스에 견줄 때 반례가 되고, 여러 번이면 그 프로세스는 한동안 채팅 요청에 권하지 않는다(2026-11-28 녹화).
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../../api.js'
+import { useApp } from '../../stores/app.js'
 import { pct } from './fmt.js'
 import OntoSheet from './OntoSheet.vue'
 import OntoCasePanel from './OntoCasePanel.vue'
@@ -20,14 +21,19 @@ import OntoSnapshotPanel from './OntoSnapshotPanel.vue'
 import { local, RO, EUN, entryManyText } from './ontoText.js'
 
 const props = defineProps({ msg: Object })
+const app = useApp()
 const saved = ref(local.get(`entry:${props.msg.id}`))
+// the card as the server has it now, when it refused this screen (409 — another screen started or declined it and this one missed the
+// change) and the card is not in the chat's list to replace there; a newer copy of the message replaces it
+const current = ref(null)
+watch(() => props.msg.content, () => { current.value = null })
 // the decline as the server answered this screen (until the card's message comes back with it) — the latest of that, the card's own and
 // this device's copy (kept only when the server could not be reached) is shown
 const fresh = ref(null)
 const stamp = (d) => String(d?.reasonAt || d?.at || '')
 const declinedOf = computed(() => [props.msg.content?.declined, fresh.value, saved.value?.declined].filter((d) => d && typeof d === 'object')
   .sort((a, b) => (stamp(b) > stamp(a) ? 1 : stamp(b) < stamp(a) ? -1 : 0))[0] || null)
-const v = computed(() => ({ ...(props.msg.content || {}), ...(saved.value || {}), ...(declinedOf.value ? { declined: declinedOf.value } : {}) }))
+const v = computed(() => ({ ...(current.value || props.msg.content || {}), ...(saved.value || {}), ...(declinedOf.value ? { declined: declinedOf.value } : {}) }))
 const choice = computed(() => v.value.choice || {})
 const task = computed(() => choice.value.task || v.value.nodes?.[0] || '')
 const chat = computed(() => v.value.source === 'chat')
@@ -56,19 +62,42 @@ const router = useRouter()
 const openInst = (id) => router.push(`/routines/${encodeURIComponent(id)}`)
 // ask → 고르면 건을 시작한다(ch: 여러 프로세스 중 고른 프로세스의 choice — 하나뿐이면 그 choice)
 const kindOf = () => (chat.value ? 'chat' : timer.value ? 'timer' : fileEv.value ? 'file' : 'mail')
+// POST to the card's routes → its answer; a refusal throws with its status and, for a 409, the card as the server has it now (no answer
+// at all throws as api() does — no status)
+async function cardPost(path, body) {
+  const r = await api(path, { method: 'POST', body, raw: true })
+  const j = await r.json().catch(() => null)
+  if (r.ok) return j
+  throw Object.assign(new Error(String(j?.error || `${r.status}`)), { status: r.status, card: j?.card || null })
+}
+// the server's card replaces this screen's copy and this device's state (started elsewhere: its case shows, not 「진행」 again)
+function adopt(card) {
+  saved.value = null; local.set(`entry:${props.msg.id}`, null); fresh.value = null
+  if (!card?.content) return
+  if ((app.messages?.[card.thread_id] || []).some((x) => x.id === card.id)) app.onEvent('message', card)
+  else current.value = card.content
+}
+const refusal = (e) => {
+  const c = e.card?.content
+  if (e.status === 409) return c?.state === 'declined' ? '다른 기기에서 이미 프로세스 없이 하기로 했어요.' : (c?.state || 'ask') === 'ask' && c?.starting ? '다른 기기에서 시작하는 중이에요.' : '다른 기기에서 이미 시작했어요.'
+  return e.status === 404 ? '이 카드를 찾지 못했어요.' : '서버가 받지 못했어요. 잠시 후 다시 눌러 주세요.'
+}
 async function start(o, ch = choice.value) {
   busy.value = `${ch.proc}:${o.task}`; err.value = ''
   const m = v.value.mail || {}
   try {
-    const r = await api('/ontology/cases', { method: 'POST', body: {
+    const r = await cardPost('/ontology/cases', {
       proc: ch.proc, entry: o.task, subject: m.subject || '', body: m.text || '', from: m.from || '', customer: v.value.customer || '',
       odds: { ...ch, task: o.task, p: o.p, picked: true }, kind: kindOf(), ...(v.value.file ? { file: v.value.file } : {}), messageId: props.msg.id,
       picks: picks.value[ch.proc] || [],
-    } })
+    })
     if (many.value) { persist({ starts: { ...(v.value.starts || {}), [ch.proc]: { caseId: r.caseId, instId: r.instId || null, task: o.task, engine: r.engine || 'bpm' } } }); return }
     persist({ state: 'started', picked: !ch.suggest || o.task !== ch.task, choice: { ...ch, task: o.task, p: o.p }, caseId: r.caseId, instId: r.instId,
       skipped: r.snapshot?.skipped || [], nodes: r.snapshot?.nodes || [o.task], procDefId: r.snapshot?.procDefId, bindings: r.bindings || null })
-  } catch (e) { err.value = e.message } finally { busy.value = '' }
+  } catch (e) {
+    // already started (or declined) on another screen: that card shows here; nothing new starts
+    if (e.status === 409 || e.status === 404) { if (e.card) adopt(e.card); err.value = refusal(e) } else err.value = e.message
+  } finally { busy.value = '' }
 }
 // 맡는 사람(OntoBindings · server bindings.js): 진행하기 전에 역할마다 누가 맡는지 보고 바꾼다 — 여러 명이거나 아무도 없는 역할은 골라야 진행
 const picks = ref({}) // proc → [{role, userId}]
@@ -116,23 +145,26 @@ const declining = ref(null)
 const noteInput = ref(null)
 const savedLine = ref(null)
 const declinedLine = ref(null)
-const refusal = (e) => (e.status === 409 ? '다른 기기에서 이미 시작했어요.' : e.status === 404 ? '이 카드를 찾지 못했어요.' : '서버가 받지 못했어요. 잠시 후 다시 눌러 주세요.')
 const forget = (...keys) => { const s = { ...(saved.value || {}) }; for (const k of keys) delete s[k]; saved.value = s; local.set(`entry:${props.msg.id}`, s) }
-// → 'ok' · 'refused' (the server said no: shown) · 'offline' (no answer: this device keeps it)
+// → 'ok' · 'refused' (the server said no: this device's decline is dropped — the server's card shown when it sent one — and why is said) ·
+// 'offline' (no answer: this device keeps it)
 async function post(body = {}) {
   try {
-    const r = await api('/ontology/entry/decline', { method: 'POST', body: { messageId: props.msg.id, ...body } })
-    fresh.value = r.declined || null
+    const r = await cardPost('/ontology/entry/decline', { messageId: props.msg.id, ...body })
+    fresh.value = r?.declined || null
     return 'ok'
   } catch (e) {
-    if (e?.status) { err.value = refusal(e); return 'refused' }
-    return 'offline'
+    if (!e?.status) return 'offline'
+    if (e.card) adopt(e.card)
+    else { forget('state', 'declined'); fresh.value = null }
+    err.value = refusal(e)
+    return 'refused'
   }
 }
 function decline() {
   err.value = ''
   persist({ state: 'declined' })
-  declining.value = post().then((r) => { if (r === 'refused') { forget('state', 'declined'); fresh.value = null } return r })
+  declining.value = post()
 }
 async function why(reason, words = '') {
   whyBusy.value = reason || (words ? 'note' : 'skip'); err.value = ''
@@ -140,7 +172,7 @@ async function why(reason, words = '') {
   try {
     if ((await declining.value) === 'refused') return
     const r = await post(body)
-    if (r === 'refused') { forget('state', 'declined'); fresh.value = null; return }
+    if (r === 'refused') return
     if (r === 'offline') persist({ declined: { ...(declinedOf.value || {}), ...(reason ? { reason } : {}), ...(words ? { note: words, reason: 'other' } : {}), ...(body.skip ? { skipped: true } : {}), reasonAt: new Date().toISOString(), local: true } })
   } finally {
     whyBusy.value = ''; typing.value = false; note.value = ''

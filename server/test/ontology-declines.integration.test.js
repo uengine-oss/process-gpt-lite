@@ -4,7 +4,10 @@
 //   OD-I-02 까닭: 칩(관계없어요 · 맞지만 이번엔 — 함께 온 말은 버림) · 넘어가기 · 직접 적은 말은 모델이 읽어 0.7 이상일 때만 그 까닭, 아니면 「다른 까닭」
 //   OD-I-03 읽기: 그 사람의 거절한 채팅 카드의 「관계없어요」만(메일 카드 · 아직 묻는 카드 · 맞지만 이번엔 · 다른 까닭 빼고) → 반례 · 쉬는 프로세스
 //   OD-I-04 두 사람: 김서연의 거절은 정하윤의 물음에도 · 쉬기에도 가지 않는다(배우는 것은 사람마다 — PR #134 검토)
-//   OD-I-05 경쟁: 까닭을 읽는 사이 다른 화면이 「진행」해 시작한 카드는 409, 카드는 시작한 그대로(caseId) — 거절로 덮지 않는다
+//   OD-I-05 경쟁: 까닭을 읽는 사이 다른 화면이 「진행」해 시작한 카드는 409, 카드는 시작한 그대로(caseId) — 거절로 덮지 않는다 · 늦게 끝난 적은 말의
+//           읽기는 그 뒤에 누른 칩을 덮지 않는다 · 두 화면이 함께 거절해도 하나
+//   OD-I-06 「진행」도 서버가 지킨다: 시작한 · 거절한 · 다른 화면이 시작하는 중인 카드의 「진행」은 409(지금 카드와 함께) · 건을 만들지 않음 ·
+//           시작하지 못하면 잡은 것을 놓아 카드는 다시 묻는다 · 거절의 409 도 지금 카드를 돌려준다
 // 사람 · 회사는 지어낸 것이다(정하윤 · 김서연, 가나정밀).
 // Run: node --test --test-concurrency=1 test/ontology-declines.integration.test.js  (needs the local Supabase)
 import test, { after } from 'node:test'
@@ -117,7 +120,11 @@ test('OD-I-01 「아니요」는 카드에 남는다 — 누가 · 언제 · 어
   assert.equal(c.declined.reason, undefined, '까닭은 아직')
   assert.equal(c.choice.procName, GEN.procName, '카드의 나머지는 그대로')
   const started = await card(me, '가나정밀 견적 요청', { state: 'started', caseId: 'c-1' })
-  assert.equal((await call(me, '/ontology/entry/decline', { messageId: started })).status, 409)
+  const r409 = await call(me, '/ontology/entry/decline', { messageId: started })
+  assert.equal(r409.status, 409)
+  // the card as it is now comes with the refusal: a screen that missed the start shows it (not 「진행」 again)
+  assert.equal(r409.body.card?.id, started)
+  assert.deepEqual([r409.body.card.content.state, r409.body.card.content.caseId], ['started', 'c-1'])
   assert.equal((await contentOf(started)).state, 'started')
 })
 
@@ -237,6 +244,21 @@ test('OD-I-05 경쟁: 까닭을 읽는 사이 다른 화면이 시작한 카드�
   assert.equal(c.state, 'started')
   assert.equal(c.caseId, 'case-race-1')
   assert.equal(c.declined, undefined, '거절로 덮지 않는다')
+  // the typed words' reading ends after a chip pressed meanwhile: the newer chip stays (reason · from), the words do not land
+  const slow = await card(me, '가나정밀 강사 섭외 목록 만들어 줘')
+  const later = async () => {
+    await new Promise((ok) => setTimeout(ok, 5))
+    await D.declineCard({ id: me.id }, slow, { reason: 'not-now' }, { rules: {} })
+    return { probabilities: { unrelated: 0.9, 'not-now': 0.05, other: 0.05 }, strategy: 'logprob' }
+  }
+  const late = await D.declineCard({ id: me.id }, slow, { note: '교육 과정 설계예요' }, { rules: {}, read: later })
+  assert.equal(late.declined.reason, 'not-now', '늦게 끝난 읽기가 새 칩을 덮지 않는다')
+  const cs = await contentOf(slow)
+  assert.deepEqual([cs.state, cs.declined.reason, cs.declined.from, cs.declined.note, cs.declined.readAs], ['declined', 'not-now', 'chip', undefined, undefined])
+  // the other way: a chip after the words' reading landed is newer and replaces it
+  await D.declineCard({ id: me.id }, slow, { reason: 'unrelated' }, { rules: {} })
+  assert.equal((await contentOf(slow)).declined.reason, 'unrelated')
+
   // two screens declining at once: both land, one decline (the first time kept)
   const two = await card(me, '사내 교육 일정표 만들어 줘')
   const [x, y] = await Promise.all([call(me, '/ontology/entry/decline', { messageId: two }), call(me, '/ontology/entry/decline', { messageId: two, reason: 'unrelated' })])
@@ -244,4 +266,44 @@ test('OD-I-05 경쟁: 까닭을 읽는 사이 다른 화면이 시작한 카드�
   const ct = await contentOf(two)
   assert.equal(ct.state, 'declined')
   assert.equal(ct.declined.reason, 'unrelated')
+})
+
+test('OD-I-06 「진행」도 서버가 지킨다 — 시작한 · 거절한 · 시작하는 중인 카드는 409(지금 카드와 함께), 건을 만들지 않고, 못 시작하면 카드는 다시 묻는다', async () => {
+  const me = await person('정하윤')
+  const cases = async () => Number((await q('select count(*)::int as n from pro_po_cases where tenant_id=$1', [TENANT]))[0].n)
+  const before = await cases()
+  const start = (id) => call(me, '/ontology/cases', { proc: GEN.proc, entry: GEN.task, subject: '가나정밀 교육 과정 설계', odds: GEN, kind: 'chat', messageId: id })
+  // started on another screen (this one missed it): 409 with that card — its case stays, no second case
+  const s1 = await card(me, '가나정밀 교육 과정 커리큘럼 설계해 줘', { state: 'started', picked: true, caseId: 'case-started-1', instId: 'inst-1' })
+  const r1 = await start(s1)
+  assert.equal(r1.status, 409, JSON.stringify(r1.body))
+  assert.deepEqual([r1.body.card?.content?.state, r1.body.card?.content?.caseId], ['started', 'case-started-1'])
+  assert.equal((await contentOf(s1)).caseId, 'case-started-1')
+  // declined: 409 too
+  const d1 = await card(me, '사내 교육 일정표 만들어 줘')
+  await call(me, '/ontology/entry/decline', { messageId: d1, reason: 'unrelated' })
+  const r2 = await start(d1)
+  assert.equal(r2.status, 409)
+  assert.equal(r2.body.card?.content?.state, 'declined')
+  // being started on another screen (its claim is fresh): 409; neither 「진행」 nor 「아니요」 goes through
+  const b1 = await card(me, '세미나 자료 요약해 줘', { starting: { at: new Date().toISOString(), by: me.id } })
+  assert.equal((await start(b1)).status, 409)
+  assert.equal((await call(me, '/ontology/entry/decline', { messageId: b1 })).status, 409)
+  assert.equal((await contentOf(b1)).state, 'ask')
+  assert.equal(await cases(), before, '건은 하나도 생기지 않았다')
+  // a start that could not happen (no map here) lets the card go: it asks again, no claim left; a stale claim does not block
+  const a1 = await card(me, '워크숍 안내 메일 초안 써 줘', { starting: { at: new Date(Date.now() - 10 * 60_000).toISOString(), by: me.id } })
+  const r3 = await start(a1)
+  assert.notEqual(r3.status, 200)
+  assert.notEqual(r3.status, 409, '오래된 잡기는 막지 않는다')
+  const ca = await contentOf(a1)
+  assert.equal(ca.state, 'ask')
+  assert.equal(ca.starting, undefined, '잡은 것을 놓는다')
+  assert.equal(await cases(), before)
+  // someone else's card id, or not a uuid
+  const sy = await person('김서연')
+  assert.equal((await call(sy, '/ontology/cases', { proc: GEN.proc, entry: GEN.task, messageId: 'not-a-uuid' })).status, 400)
+  const r4 = await call(sy, '/ontology/cases', { proc: GEN.proc, entry: GEN.task, messageId: s1 })
+  assert.notEqual(r4.status, 409, '남의 카드는 잡지 않는다(카드 없이 시작하는 것과 같다)')
+  assert.equal((await contentOf(s1)).caseId, 'case-started-1')
 })

@@ -10,7 +10,8 @@
 //   F-OD-03 휴대폰 390(어두운): 「왜 아닌가요?」 줄이 어두운 화면에서 읽힘 → 「맞지만 이번엔 그냥」 → 「알겠어요 …」 · 새로 고쳐도 그대로
 //   F-OD-04 PC: 「넘어가기」 → 묻는 줄이 사라지고 다시 열어도 묻지 않음(까닭 없이 거절만)
 //   F-OD-05 메일 카드의 「아니요」도 서버에 남는다(다른 기기에서도 거절) — 까닭은 채팅 요청 카드에서만 묻는다
-//   F-OD-06 서버가 거절을 받지 않음(409 — 다른 기기에서 이미 시작): 이 기기의 거절을 지우고 묻는 카드로 돌아가 「다른 기기에서 이미 시작했어요.」
+//   F-OD-06 다른 기기에서 이미 시작한 카드(이 화면은 못 들음): 「아니요」도 「진행」도 409 — 서버가 돌려준 지금 카드(시작함 · 건 보기)를 보이고
+//           「다른 기기에서 이미 시작했어요.」, 건을 또 만들지 않는다
 //   F-OD-07 서버에 닿지 못함(오프라인): 이 기기에만 거절 · 까닭이 남고 「이 기기에만 남겼어요 …」 — 「다음 제안에 반영해요」라고 하지 않는다
 // 자기 스택(lib/localStack.js: 회사 onto-decline-ui 의 BFF + Vite, 8921 · 5321 부터 빈 포트). 모델 · 지도 저장소는 부르지 않는다(닫힌 포트,
 // PRO_ONTOLOGY_BOLT_URL=). 카드는 서버가 남기는 모양대로 DB 에 넣는다(events.js dispatch). 사람 · 회사는 지어낸 것이다(정하윤 · 가나정밀).
@@ -264,23 +265,45 @@ test('F-OD-05 메일 카드의 「아니요」도 서버에 남아 다른 기기
 })
 
 const REQ6 = '가나정밀 교육 만족도 설문 정리해 줘'
-test('F-OD-06 서버가 받지 않음(409 — 다른 기기에서 이미 시작): 이 기기의 거절을 지우고 묻는 카드로, 「다른 기기에서 이미 시작했어요.」', async ({ browser }) => {
+const REQ6B = '가나정밀 신입 교육 회고 정리해 줘'
+test('F-OD-06 다른 기기에서 이미 시작한 카드(이 화면은 못 들음): 「아니요」 · 「진행」 모두 409 — 시작한 카드를 보이고, 건을 또 만들지 않는다', async ({ browser }) => {
+  const cases = async () => Number((await S.q('select count(*)::int as n from pro_po_cases where tenant_id=$1', [TENANT]))[0].n)
+  const before = await cases()
   const id = await seedTurn(REQ6)
   const p = await open(browser, PC)
   const card = await chat(p, REQ6)
   await expect(card).toHaveAttribute('data-state', 'ask')
   // another device pressed 「진행」 meanwhile (this screen has not heard of it)
-  await S.q(`update pro_messages set content = content || $2::jsonb where id=$1`, [id, { state: 'started', picked: true, caseId: 'case-od-06' }])
+  await S.q(`update pro_messages set content = content || $2::jsonb where id=$1`, [id, { state: 'started', picked: true, caseId: 'case-od-06', instId: 'inst-od-06', nodes: ['요청방향 보고', '구현'] }])
   await card.getByTestId('onto-entry-decline').click()
   const error = card.getByTestId('onto-entry-error')
   await expect(error).toHaveText('다른 기기에서 이미 시작했어요.')
   await expect(error).toHaveAttribute('role', 'alert')
-  await expect(card).not.toHaveAttribute('data-state', 'declined')
+  // the card as the server has it: started (its case), not 「진행」 again
+  await expect(card).toHaveAttribute('data-state', 'started')
+  await expect(card.getByTestId('onto-entry-text')).toContainText('「요청방향 보고」부터 시작했어요.')
+  await expect(card.getByTestId('onto-entry-case')).toBeVisible()
+  await expect(card.getByTestId('onto-entry-go')).toHaveCount(0)
   await expect(card.getByTestId('onto-entry-why')).toHaveCount(0)
-  expect(await p.evaluate((k) => JSON.parse(localStorage.getItem(k) || '{}').state || null, `onto:entry:${id}`), '이 기기의 거절은 지운다').toBe(null)
+  expect(await p.evaluate((k) => JSON.parse(localStorage.getItem(k) || 'null')?.state || null, `onto:entry:${id}`), '이 기기의 거절은 지운다').toBe(null)
   const c = await contentOf(id)
   expect([c.state, c.caseId, c.declined]).toEqual(['started', 'case-od-06', undefined])
   await shot(p, 'f-od-06-refused-pc', card)
+
+  // 「진행」 on a card started elsewhere: refused by the server, the started card shows, no second case
+  await S.q('delete from pro_messages where thread_id=$1', [THREAD])
+  const id2 = await seedTurn(REQ6B)
+  await p.reload()
+  const card2 = await chat(p, REQ6B)
+  await expect(card2.getByTestId('onto-entry-go')).toBeVisible()
+  await S.q(`update pro_messages set content = content || $2::jsonb where id=$1`, [id2, { state: 'started', picked: true, caseId: 'case-od-06b', instId: 'inst-od-06b', nodes: ['요청방향 보고'] }])
+  await card2.getByTestId('onto-entry-go').click()
+  await expect(card2.getByTestId('onto-entry-error')).toHaveText('다른 기기에서 이미 시작했어요.')
+  await expect(card2).toHaveAttribute('data-state', 'started')
+  await expect(card2.getByTestId('onto-entry-go')).toHaveCount(0)
+  expect((await contentOf(id2)).caseId).toBe('case-od-06b')
+  expect(await cases(), '건은 생기지 않았다').toBe(before)
+  await shot(p, 'f-od-06-start-refused-pc', card2)
   expect(p.errors).toEqual([])
   await p.context().close()
 })

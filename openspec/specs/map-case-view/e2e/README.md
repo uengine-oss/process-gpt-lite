@@ -56,7 +56,7 @@ cd e2e && npx playwright test --project=feature tests/feature/bpmn-arrowheads.sp
 
 ```bash
 cd server && node --test test/ontology-declines.test.js                                   # 단위(모델 · DB 없음): OD-U-01~07
-cd server && node --test --test-concurrency=1 test/ontology-declines.integration.test.js  # 실제 DB · 실제 라우트, 모델은 가짜 fetch: OD-I-01~05
+cd server && node --test --test-concurrency=1 test/ontology-declines.integration.test.js  # 실제 DB · 실제 라우트, 모델은 가짜 fetch: OD-I-01~06
 cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-suggest-decline.spec.js   # 화면: F-OD-01~07
 ```
 
@@ -76,12 +76,14 @@ cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/onto-
 | 어두운 화면에서 「맞지만 이번엔 그냥」 | F-OD-03 |
 | 넘어가기 | F-OD-04(초점이 거절 줄로) · OD-I-02 |
 | 메일 카드 | F-OD-05 |
-| 다른 기기에서 이미 시작한 카드 | F-OD-06(409 → 이 기기의 거절 지움 · 묻는 카드로 · 「다른 기기에서 이미 시작했어요.」) · OD-I-01 · OD-I-05(까닭을 읽는 사이 시작 → 409 · caseId 그대로 · 두 화면 동시 거절) |
+| 다른 기기에서 이미 시작한 카드 | F-OD-06(409 → 서버가 돌려준 시작한 카드 · 「건 보기」, 「진행」 없음 · 이 기기의 거절 지움 · 「다른 기기에서 이미 시작했어요.」) · OD-I-01(409 와 지금 카드) · OD-I-05(까닭을 읽는 사이 시작 → 409 · caseId 그대로 · 두 화면 동시 거절) |
+| 다른 기기에서 이미 시작한 카드의 「진행」 | F-OD-06(누르면 409 → 시작한 카드, 건 수 그대로) · OD-I-06(시작한 · 거절한 · 시작하는 중인 카드는 409 · 건을 만들지 않음, 못 시작하면 다시 묻는다, 오래된 잡기는 막지 않음, 남의 카드는 잡지 않음) |
+| 늦게 끝난 읽기는 새 칩을 덮지 않는다 | OD-I-05(적은 말의 읽기 중 「맞지만 이번엔」 → 그대로, 적은 말 남지 않음 · 그 뒤 칩은 바꿈) |
 | 서버에 닿지 못할 때(휴대폰) | F-OD-07 |
 
 ## 결과
 
-- `results/onto-suggest-decline.txt` — 채팅 요청의 프로세스 제안 · 거절한 까닭(2026-11-28, PR #134 검토 반영: 사람마다 배우기 · 조건부 UPDATE · 오류 처리 · 접근성): 단위 7건 · DB 5건 · 화면 7건 통과. 그림 `results/f-od-*.png`: PC 묻는 줄(01-why) · 남긴 까닭(01-saved, 키보드 초점) · 다른 기기(01-other-device) · 휴대폰 묻는 줄(02-why) · 적는 중(02-typing) · 적은 말(02-saved) · 휴대폰 어두운 화면 묻는 줄(03-why) · 남긴 까닭(03-saved) · 다른 기기에서 이미 시작(06-refused) · 오프라인(07-offline).
+- `results/onto-suggest-decline.txt` — 채팅 요청의 프로세스 제안 · 거절한 까닭(2026-11-28, PR #134 검토 반영: 사람마다 배우기 · 조건부 UPDATE · 오류 처리 · 접근성): 단위 7건 · DB 6건 · 화면 7건 통과(PR #134 확인 검토: 409 에 지금 카드 · 「진행」도 서버가 지킴 · 늦은 읽기). 그림 `results/f-od-*.png`: PC 묻는 줄(01-why) · 남긴 까닭(01-saved, 키보드 초점) · 다른 기기(01-other-device) · 휴대폰 묻는 줄(02-why) · 적는 중(02-typing) · 적은 말(02-saved) · 휴대폰 어두운 화면 묻는 줄(03-why) · 남긴 까닭(03-saved) · 다른 기기에서 이미 시작 — 「아니요」(06-refused) · 「진행」(06-start-refused) · 오프라인(07-offline).
 
 - `results/e2e.txt` — 화면 시험 8건 통과(2026-11-24, 기본 설정 서버). 지도 저장소 없이(`PRO_ONTOLOGY_BOLT_URL=`)와 step-ui 설정 서버에서도 8건(그때는 F-CV-08 전 7건) 통과 — `results/regression.md` B · C.
 - `results/unit.txt` — 단위 시험 8건 통과.
