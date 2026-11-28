@@ -79,8 +79,11 @@ export function planParts(plan, notes = [], { guardAsked = false, at = null, now
   const missed = steps.findIndex((s) => s.state === 'missed')
   const changed = steps.findIndex((s) => s.state === 'changed')
   // (warn: a part that says something did not go as planned)
-  const checking = !!plan.checking && !(at && now - new Date(at).getTime() > CHECK_STALE_MS)
-  const parts = [{ text: steps.length ? (checking ? '계획 · 확인하는 중' : `계획 ${doneOf(steps)}/${steps.length}`) : '진행 기록' }]
+  const stale = !!plan.checking && !!at && now - new Date(at).getTime() > CHECK_STALE_MS
+  const checking = !!plan.checking && !stale
+  // (a finished turn whose end check never came back reads as before the guard: its plan's steps done — server settledPlan's fallback)
+  const done = stale && !plan.fromTodos && plan.state === 'done' ? steps.length : doneOf(steps)
+  const parts = [{ text: steps.length ? (checking ? '계획 · 확인하는 중' : `계획 ${done}/${steps.length}`) : '진행 기록' }]
   if (missed >= 0) parts.push({ text: `${missed + 1}단계 못 함`, warn: true })
   if (changed >= 0) parts.push({ text: `${changed + 1}단계 바꿈`, warn: true })
   if (plan.state === 'asked') parts.push({ text: '물어볼 게 있어요', warn: true })

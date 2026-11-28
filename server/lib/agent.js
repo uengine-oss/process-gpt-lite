@@ -1926,6 +1926,8 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
   // what this answer did on the way, shown under it (lib/workTrail.js: steps and the sites read, no commands)
   // (30 entries: the progress panel's 한 일 and the folded trail under the answer — design turnplan §3.5)
   const trail = createTrail(30)
+  // (the guard stops looking however the stream ends — an idle abort or a broken connection too: review #132 2nd pass)
+  try {
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -2025,8 +2027,10 @@ export async function delegate({ user, session, threadId, text, onDelta, silent,
       }
     }
   }
-  // (the stream ended: a guard reading still on its way goes to the end check — it never stops a finished turn: review #132-1)
-  guard?.close()
+  } finally {
+    // (the stream ended: a guard reading still on its way goes to the end check — it never stops a finished turn: review #132-1)
+    guard?.close()
+  }
   await setThreadStatus(user.id, threadId, idleStatus())
   let body = `${mode === 'skill' ? all : TP.finalAnswer(hitl || doneText, segs).text}${errors}`.trim()
   const ended = cancelled || turn.stopped

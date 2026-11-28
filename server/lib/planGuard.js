@@ -191,7 +191,9 @@ export function createGuard({ view, request, onStop, ask = chatJson, model = con
       const verdict = readVerdict(j, steps.length)
       const outcomes = readOutcomes(j, steps.length)
       console.log(`[plan-guard] final off=${verdict?.off} step=${verdict?.step} confidence=${verdict?.confidence?.toFixed(2)} outcomes=${outcomes ? outcomes.map((o) => o.state[0]).join('') : '-'}${late ? ' late=1' : ''}`)
-      return { outcomes, verdict: verdict && stops(verdict) ? verdict : late }
+      // (a late reading on the way is the verdict only when the end check itself said nothing — the end check saw the whole record and
+      // the answer: its "not off" stands — review #132 2nd pass)
+      return { outcomes, verdict: verdict && stops(verdict) ? verdict : verdict ? null : late }
     },
   }
 }
