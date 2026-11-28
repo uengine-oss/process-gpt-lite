@@ -405,7 +405,7 @@ async function fixture() {
     if (req.url.startsWith('/set-cookie')) return page('<p>쿠키를 저장했어요</p>', { 'Set-Cookie': `sid=${SECRET}; Path=/; Max-Age=3600` })
     if (req.url.startsWith('/show-cookie')) return page(`<p>cookie: ${String(req.headers.cookie || '(none)').replace(/[<>&]/g, '')}</p>`)
     const other = `http://localhost:${fx.srv.address().port}`
-    if (req.url.startsWith('/links')) return page(`<h1>링크</h1><a href="${other}/away">다른 곳으로</a>`)
+    if (req.url.startsWith('/links')) return page(`<h1>링크</h1><a href="${other}/away">다른 곳으로</a><form action="/stay" method="get"><button type="submit" formaction="${other}/away-form">양식 보내기</button></form>`)
     if (req.url.startsWith('/redirect-during')) return page(`<p>기다리는 화면</p><script>if(!sessionStorage.getItem('d')){sessionStorage.setItem('d','1');setTimeout(()=>{location.href='${other}/landing'},400)}</script>`)
     if (req.url.startsWith('/redirect-later')) return page(`<p>대기 화면</p><button onclick="fetch('/pressed')">누르기</button><script>if(!sessionStorage.getItem('l')){sessionStorage.setItem('l','1');setTimeout(()=>{location.href='${other}/landing'},700)}</script>`)
     if (req.url.startsWith('/landing')) return page('<p>도착</p><button onclick="fetch(\'/pressed\')">누르기</button>')
@@ -632,6 +632,17 @@ test('AB-I-14 다른 호스트로 가는 링크는 누르기 전에 호스트 �
   assert.ok(await taskEnded(OK), '작업이 끝났다')
   assert.match(g2.told[0], /^ok/, JSON.stringify(g2.told))
   assert.ok(await until(() => f.hits.includes('GET /away'), 5000), '승인한 뒤에는 열렸다')
+  // a submit button whose own formaction goes to another host: the card comes before the press too
+  const FA = '다른 곳으로 보내는 양식 단추 누르기'
+  const g3 = toldOf(FA)
+  g3.script([(b) => ['click', { i: el(b, '양식 보내기').i }], (b) => ['finish', { summary: /^not opened/.test(lastTool(b)) ? '누르지 않았어요.' : '눌렀어요.' }]])
+  const call3 = mcp(aSession.access_token, CONV, 'browser_task', { goal: FA, start_url: `${f.url}/links` })
+  const card3 = await pendingCard((q) => q.startsWith('localhost 을(를) 열까요?') && q.includes('/away-form'))
+  assert.ok(card3, '양식 단추의 formaction 호스트 카드')
+  await browser.answerCard(A.id, card3.id, '취소')
+  await call3
+  assert.ok(await taskEnded(FA), '작업이 끝났다')
+  assert.ok(!f.hits.some((x) => x.startsWith('GET /away-form')) && !f.hits.some((x) => x.startsWith('GET /stay')), '양식은 보내지지 않았다')
   await turn.done()
 })
 
