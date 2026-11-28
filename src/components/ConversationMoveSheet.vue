@@ -49,7 +49,8 @@ async function load() {
   const named = s.value?.project && data.value?.projects?.find((p) => p.id === s.value.project && p.writable)
   if (named && data.value.conversation?.movable !== false) pick(named)
 }
-onMounted(async () => { await load(); nextTick(() => sheet.value?.focus()) })
+// (the focus at once — Esc closes it while the projects still load; opened from the list's row, the focus was left on the row's button)
+onMounted(() => { nextTick(() => sheet.value?.focus()); load() })
 watch(() => s.value?.conv, (v, old) => { if (v && v !== old) { step.value = 'pick'; picked.value = null; load() } })
 
 function pick(p) {

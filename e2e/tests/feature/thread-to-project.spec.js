@@ -12,6 +12,9 @@
 //   F-TM-06 휴대폰 390(밝은): 실시간 이벤트를 받지 못한 옛 화면에서 옮긴 대화에 말을 보내면 → 보내기 실패가 아니라 프로젝트의 그 주제로 가고 말은 입력창에
 //           (PR #125 검토 10) — 줄 서 있던 말까지 함께
 //   F-TM-07 1280: 그 사이 다른 화면으로 가 있었으면 끌고 가지 않고 알림만, 나중에 그 대화를 열면 말이 입력창에 (PR #125 마지막 확인 2)
+//   F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트 목록처럼 읽힘(큰 이름 · 진한 한 줄 · 시각과 수는 배지, 비교용 프로젝트 목록 사진) ·
+//           행을 길게 누르면 「프로젝트로 옮기기」(목록은 그 밑에 남음), 누르면 그 대화
+//   F-TM-09 1280(어두운): 행에 포인터를 올리면 「프로젝트로 옮기기」 단추 · 오른쪽 클릭도 같은 창 · 「전체 대화」에는 없음
 // 자기 스택(lib/localStack.js: 회사 thread-move-ui 의 BFF + Vite, 8994 · 5394)을 띄우고 지운다. 가짜 모델 · 가짜 deepagents 는 이 파일이 빈 포트에
 // 띄운다 — 실제 모델 · 에이전트 · 판정 서버는 부르지 않는다. 사람 · 회사는 지어낸 것이다(정하윤 · 김서연 · 박도윤, 가나정밀).
 //   cd e2e && RT_WORKERS=1 npx playwright test --project=feature tests/feature/thread-to-project.spec.js
@@ -506,6 +509,130 @@ test('F-TM-07 1280: 그 사이 다른 화면으로 갔으면 끌고 가지 않�
   await expect(composer(p)).toHaveValue(words)
   await expect(p.getByTestId('chat-notice')).toHaveText('이 대화는 프로젝트 「견적 모음」으로 옮겼어요 · 보낸 말은 입력창에 다시 넣었어요')
   await shot(p, 'f-tm-07-refilled')
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+// ---- the chat's conversation list (ThreadList.vue) over a busy picture: as readable as the project list, and 「프로젝트로 옮기기」 from its rows
+// (2026-11-28 사용자, a phone over a photo: 「채팅 쓰레드 너무 글씨가 흐려... 그냥 프로젝트 쪽과 같이」 · 「쓰레드 내용을 곧바로 프로젝트로 만드는 기능
+// 어떻게 되고 있니?」 — the move was only in the conversation bar's 「다른 대화 ▾」)
+// a busy picture under the page, harsher than a photo (dark leaves and light sky in stripes), with the photo's own scrim (sky/PhotoBackdrop.vue)
+async function busyBackdrop(p) {
+  await p.evaluate(() => {
+    if (document.getElementById('rt-busy')) return
+    const d = document.createElement('div')
+    d.id = 'rt-busy'
+    const dark = document.documentElement.dataset.theme === 'dark'
+    const scrim = dark
+      ? 'linear-gradient(180deg, rgba(6 8 18 / .58) 0%, rgba(6 8 18 / .34) 28%, rgba(6 8 18 / .36) 62%, rgba(6 8 18 / .64) 100%)'
+      : 'linear-gradient(180deg, rgba(248 249 252 / .5) 0%, rgba(248 249 252 / .2) 30%, rgba(248 249 252 / .24) 64%, rgba(248 249 252 / .55) 100%)'
+    d.style.cssText = `position:fixed;inset:0;z-index:0;pointer-events:none;background:${scrim},repeating-linear-gradient(35deg,#2e5a2e 0 14px,#e8eef5 14px 22px,#6b8f4e 22px 34px,#c9d8e6 34px 44px)`
+    const page = document.querySelector('.stage > .page')
+    page.parentNode.insertBefore(d, page)
+  })
+}
+const alphaOf = (loc) => loc.evaluate((el) => { const m = getComputedStyle(el).color.match(/rgba?\(([^)]+)\)/); const v = m ? m[1].split(/[ ,/]+/).filter(Boolean) : []; return v.length > 3 ? Number(v[3]) : 1 })
+async function longPress(p, el, ms = 700) {
+  let b = await el.boundingBox()
+  for (let i = 0; i < 20; i++) {
+    await p.waitForTimeout(120)
+    const n = await el.boundingBox()
+    if (n && b && Math.abs(n.y - b.y) < 1 && Math.abs(n.x - b.x) < 1) break
+    b = n
+  }
+  const x = b.x + Math.min(b.width / 2, 80), y = b.y + b.height / 2
+  await expect.poll(() => el.evaluate((node, [px, py]) => node.contains(document.elementFromPoint(px, py)), [x, y]), { timeout: 5000 }).toBe(true)
+  const cdp = await p.context().newCDPSession(p)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+  await p.waitForTimeout(ms)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await cdp.detach().catch(() => {})
+}
+const tlist = (p) => p.getByTestId('thread-list')
+async function openThreadList(p) {
+  await bar(p).getByTestId('cbar-pill').click({ timeout: 30000 })
+  await bar(p).getByTestId('cbar-open-list').click()
+  await expect(tlist(p)).toBeVisible()
+}
+
+test('F-TM-08 휴대폰 390(밝은) · 사진 위: 대화 목록은 프로젝트 목록처럼 읽힘(큰 이름 · 진한 한 줄 · 시각과 수는 배지) · 길게 누르면 「프로젝트로 옮기기」', async ({ browser }) => {
+  const p = await open(browser, HY, PHONE)
+  await p.goto('/chat')
+  await p.locator('.seg button').filter({ hasText: /^(채팅|Chat)$/ }).click()
+  await openThreadList(p)
+  await busyBackdrop(p)
+  const row = tlist(p).locator('.rowwrap.movable').first()
+  await expect(row).toBeVisible()
+  // the project list's size and ink: a big name, the line under it no fainter than the secondary ink, the time and count on a solid badge
+  const name = row.locator('.name')
+  expect(await name.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(22)
+  expect(await alphaOf(row.locator('.line'))).toBeGreaterThanOrEqual(0.5)
+  expect(await alphaOf(tlist(p).locator('.cap'))).toBeGreaterThanOrEqual(0.5)
+  const meta = row.locator('.meta')
+  await expect(meta.locator('.when')).not.toHaveText('')
+  expect(await meta.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+  expect(await alphaOf(meta)).toBe(1)
+  // (the 「프로젝트로 옮기기」 button takes no room and no touch on a phone — the row is held instead)
+  expect(await row.getByTestId('thread-move').evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none')
+  await noSideScroll(p)
+  await shot(p, 'f-tm-08-list-phone-light')
+  // the project list over the same picture, for comparison
+  await p.locator('.seg button').filter({ hasText: /^(프로젝트|Projects)$/ }).click()
+  await expect(p.locator('aside.plist')).toBeVisible({ timeout: 15000 })
+  await busyBackdrop(p)
+  await shot(p, 'f-tm-08-projects-phone-light')
+  // back to the list: a long press on a row opens 「프로젝트로 옮기기」 for that conversation (the list stays under it); a tap still picks it
+  await p.locator('.seg button').filter({ hasText: /^(채팅|Chat)$/ }).click()
+  if (!(await tlist(p).isVisible())) await openThreadList(p)
+  const title = (await row.locator('.name').innerText()).trim()
+  await longPress(p, row.getByTestId('thread-row'))
+  await expect(sheet(p)).toHaveAttribute('data-step', 'pick', { timeout: 15000 })
+  await expect(sheet(p)).toContainText(title)
+  await expect(sheet(p).locator('[data-test="move-project"]').first()).toBeVisible({ timeout: 15000 })
+  await shot(p, 'f-tm-08-list-hold-move')
+  await sheet(p).locator('[data-test="move-close"]').click()
+  await expect(sheet(p)).toHaveCount(0)
+  await expect(tlist(p)).toBeVisible()
+  expect(new URL(p.url()).pathname).toBe('/chat')
+  await row.getByTestId('thread-row').tap()
+  await expect.poll(() => new URL(p.url()).pathname).toMatch(/^\/chat\/c\//)
+  expect(p.errors).toEqual([])
+  await p.context().close()
+})
+
+test('F-TM-09 1280(어두운): 대화 목록의 행에 포인터를 올리면 「프로젝트로 옮기기」 단추, 오른쪽 클릭도 같은 창 — 누르면 그 대화가 걸러짐', async ({ browser }) => {
+  const p = await open(browser, HY, DESK, { theme: 'dark' })
+  await p.goto('/chat')
+  await openThreadList(p)
+  await busyBackdrop(p)
+  const row = tlist(p).locator('.rowwrap.movable').first()
+  const mv = row.getByTestId('thread-move')
+  expect(await alphaOf(row.locator('.line'))).toBeGreaterThanOrEqual(0.5)
+  expect(Number(await mv.evaluate((el) => getComputedStyle(el).opacity))).toBe(0)
+  await row.hover()
+  await expect.poll(() => mv.evaluate((el) => Number(getComputedStyle(el).opacity))).toBe(1)
+  await shot(p, 'f-tm-09-list-hover-dark')
+  const title = (await row.locator('.name').innerText()).trim()
+  await mv.click()
+  await expect(sheet(p)).toHaveAttribute('data-step', 'pick', { timeout: 15000 })
+  await expect(sheet(p)).toContainText(title)
+  // (Esc at once — before its projects have come: the sheet has the focus from the start)
+  await p.keyboard.press('Escape')
+  await expect(sheet(p)).toHaveCount(0)
+  // a right-click on the row: the same sheet, not the browser's menu
+  await row.getByTestId('thread-row').click({ button: 'right' })
+  await expect(sheet(p)).toHaveAttribute('data-step', 'pick', { timeout: 15000 })
+  await expect(sheet(p)).toContainText(title)
+  await p.keyboard.press('Escape')
+  await expect(sheet(p)).toHaveCount(0)
+  // 「전체 대화」 is not a conversation to move: no button beside it, and its right-click is the browser's own
+  await expect(tlist(p).locator('.items > [data-testid="thread-move"]')).toHaveCount(0)
+  await tlist(p).getByTestId('thread-all').click({ button: 'right' })
+  await p.waitForTimeout(400)
+  await expect(sheet(p)).toHaveCount(0)
+  // a click still picks it
+  await row.getByTestId('thread-row').click()
+  await expect.poll(() => new URL(p.url()).pathname).toMatch(/^\/chat\/c\//)
   expect(p.errors).toEqual([])
   await p.context().close()
 })
