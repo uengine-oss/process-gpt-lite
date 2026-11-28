@@ -75,7 +75,7 @@ function closeOver() {
   else peek.value = false
 }
 function peekKey(e) { if (e.key === 'Escape' && leftOver.value) closeOver() }
-function peekOutside(e) { if (leftOver.value && !e.target?.closest?.('.content > .over, .lbtn, .top .home')) closeOver() }
+function peekOutside(e) { if (leftOver.value && !e.target?.closest?.('.content > .over, .lbtn, .top .home, [data-test="move-veil"]')) closeOver() }
 let probeObs
 onMounted(() => {
   const measure = () => { docW.value = Math.round(probe.value?.getBoundingClientRect().width || 0) }

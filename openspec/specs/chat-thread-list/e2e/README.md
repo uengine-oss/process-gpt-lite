@@ -39,6 +39,8 @@ cd e2e && PGPT_URL=http://localhost:5285 API_URL=http://127.0.0.1:8885 RT_WORKER
 | 밤 테마의 고른 행(넓은 화면 · 기억된 휴대폰 시트) | F-CT-08 |
 | 다른 기기에서 시작한 대화 | F-CT-09 |
 | 대화가 없는 사용자 | F-CT-10 |
+| 사진 배경 위에서도 프로젝트 목록처럼 읽힘(이름 22px · 한 줄 요약 50% 이상 · 시각과 수는 칠한 배지 · 같은 배경의 프로젝트 목록과 비교 사진) | F-TM-08(`thread-to-project.spec.js` — `results/f-tm-08-list-phone-light.png` · `f-tm-08-projects-phone-light.png`) · F-CT-08 |
+| 목록의 행에서 「프로젝트로 옮기기」(휴대폰 길게 누르기 · PC 폴더 단추 · 오른쪽 단추) | F-TM-08 · F-TM-09(`thread-to-project.spec.js`) |
 
 ## 예약 작업과 브리프는 자기 대화에 · 후속 메시지는 방금 일하던 대화로 (2026-11-25)
 

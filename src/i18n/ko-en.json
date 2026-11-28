@@ -2740,6 +2740,8 @@
   "대화 목록": "Conversation list",
   "대화 목록 닫기": "Close the conversation list",
   "판단 모델이 주제별로 나눈 대화예요. 고르면 채팅이 그 대화만 보여 줘요.": "Conversations the routing model split by topic. Pick one and the chat shows only that conversation.",
+  "길게 누르면 프로젝트로 옮길 수 있어요.": "Press and hold one to move it to a project.",
+  "오른쪽 단추로 누르면 프로젝트로 옮길 수 있어요.": "Right-click one to move it to a project.",
   "대화 찾기": "Find a conversation",
   "모든 메시지를 한 흐름으로": "Every message in one stream",
   "제목 없는 대화": "Untitled conversation",
@@ -3679,6 +3681,10 @@
   "프로젝트 카드를 만들지 못했어요. 다시 눌러 주세요.": "I couldn't prepare the project card. Please press it again."
  },
  "patterns": [
+  [
+   "「{0}」 프로젝트로 옮기기",
+   "Move \"{0}\" to a project"
+  ],
   [
    "이 폴더에는 실행되는 설정이 있어요: {0} — 이 폴더에서 일하는 사람의 컴퓨터에서 훅 · MCP 서버 · 허용 목록이 돌아요",
    "This folder has settings that run: {0} — hooks, MCP servers and allow lists run on the computer of whoever works in this folder"

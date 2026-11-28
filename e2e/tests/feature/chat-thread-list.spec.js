@@ -375,7 +375,8 @@ test('F-CT-08 밤 테마: 목록 · 고른 행 · 찾기 칸이 읽힘(넓은 �
   await rows(page).filter({ hasText: '부산 출장 숙소' }).click()
   await expect(rows(page).filter({ hasText: '부산 출장 숙소' })).toHaveClass(/\bon\b/)
   // the chosen row's title in the dark theme's text colour, the others dimmer
-  expect(await page.locator('.tlist .item.on .name').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(245, 245, 247)')
+  // (after its colour has eased in — .item's 0.3 s transition)
+  await expect.poll(() => page.locator('.tlist .item.on .name').evaluate((el) => getComputedStyle(el).color)).toBe('rgb(245, 245, 247)')
   expect(await rows(page).nth(1).locator('.name').evaluate((el) => getComputedStyle(el).color)).toMatch(/^rgba\(245, 245, 247, 0\.5\)$/)
   await page.getByTestId('thread-search').fill('숙소')
   await shot(page, 'f-ct-08a-dark.png')

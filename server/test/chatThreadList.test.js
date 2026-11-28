@@ -181,3 +181,18 @@ test('CT-U-10 세 번 누르기 · 키보드(detail 0) 두 번 · 첫 클릭을 
   r.at(3000)
   assert.equal(r.taps.dblclick({}, r.handlers), 'double')
 })
+
+// 「프로젝트로 옮기기」 from a row (spec thread-to-project 「대화 목록의 행에서도 …」): a scheduled task's and the briefs' conversations — their runs
+// keep arriving in the chat (server lib/conversationMove.js STANDING) — and an empty one are not offered; a mail's and a plain one are
+test('목록의 행에서 옮길 수 있는 대화: 예약 작업 · 브리프 · 빈 대화는 빼고, 메일 · 보통 대화는 됨 — 서버의 STANDING 과 같음', async () => {
+  const { movable, STANDING } = await import('../../src/threadList.js')
+  const { STANDING: SERVER } = await import('../lib/conversationMove.js')
+  assert.deepEqual([...STANDING].sort(), [...SERVER].sort())
+  assert.equal(movable({ id: 'a', count: 3 }), true)
+  assert.equal(movable({ id: 'm', kind: 'mail', count: 1 }), true)
+  assert.equal(movable({ id: 's', kind: 'schedule', count: 5 }), false)
+  assert.equal(movable({ id: 'b', kind: 'brief', count: 5 }), false)
+  assert.equal(movable({ id: 'e', count: 0 }), false)
+  assert.equal(movable({ id: 'n' }), false)
+  assert.equal(movable(null), false)
+})
